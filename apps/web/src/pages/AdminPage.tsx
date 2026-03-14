@@ -188,9 +188,7 @@ function AdminPanel() {
                     <td className="px-5 py-4 font-medium text-gray-900">{retiro.empleado.nombre}</td>
                     <td className="px-5 py-4 text-gray-600">{retiro.restaurant.nombre}</td>
                     <td className="px-5 py-4 text-right text-gray-500">{retiro.items.length}</td>
-                    <td className="px-5 py-4 text-indigo-400 text-right">
-                      {selectedId === retiro.id ? '▲' : '▼'}
-                    </td>
+                    <td className="px-5 py-4 text-gray-300 text-right">›</td>
                   </tr>
                 ))}
               </tbody>
@@ -198,25 +196,52 @@ function AdminPanel() {
           )}
         </div>
 
-        {/* Detalle expandido */}
-        {selectedId && detalle && (
-          <div className="bg-white rounded-2xl border border-indigo-100 shadow-sm p-6">
-            <h3 className="font-bold text-gray-900 mb-4">
-              Retiro #{detalle.id} — {detalle.empleado.nombre}
-            </h3>
-            <ul className="divide-y divide-gray-100">
-              {detalle.items.map((item, i) => (
-                <li key={i} className="flex justify-between py-3">
-                  <div>
-                    <p className="font-medium text-gray-900">{item.nombre}</p>
-                    <p className="text-xs text-gray-400">{item.barcode}</p>
+        {/* Modal de detalle */}
+        {selectedId && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={() => setSelectedId(null)}>
+            <div className="bg-white w-full sm:max-w-md sm:rounded-3xl rounded-t-3xl shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+              {/* Handle bar mobile */}
+              <div className="flex justify-center pt-3 pb-1 sm:hidden">
+                <div className="w-10 h-1 rounded-full bg-gray-200" />
+              </div>
+
+              {!detalle ? (
+                <div className="p-8 text-center text-gray-400">Cargando…</div>
+              ) : (
+                <>
+                  <div className="px-6 pt-5 pb-4 border-b border-gray-100">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-xs text-gray-400 mb-1">
+                          {new Date(detalle.createdAt).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                        <h3 className="text-lg font-bold text-gray-900">{detalle.empleado.nombre}</h3>
+                        <p className="text-sm text-gray-500">{detalle.restaurant.nombre}</p>
+                      </div>
+                      <button onClick={() => setSelectedId(null)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none mt-1">×</button>
+                    </div>
                   </div>
-                  <span className="font-semibold text-indigo-700">
-                    {item.cantidad} {item.unidad}
-                  </span>
-                </li>
-              ))}
-            </ul>
+
+                  <ul className="divide-y divide-gray-100 overflow-y-auto max-h-96 px-6">
+                    {detalle.items.map((item, i) => (
+                      <li key={i} className="flex justify-between items-center py-4">
+                        <div>
+                          <p className="font-medium text-gray-900">{item.nombre}</p>
+                          <p className="text-xs text-gray-400">{item.barcode}</p>
+                        </div>
+                        <span className="font-bold text-indigo-600 whitespace-nowrap ml-4">
+                          {item.cantidad} {item.unidad}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+
+                  <div className="px-6 py-4 bg-gray-50 text-sm text-gray-400">
+                    {detalle.items.length} producto{detalle.items.length !== 1 ? 's' : ''}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         )}
 
