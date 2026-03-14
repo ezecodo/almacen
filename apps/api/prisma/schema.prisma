@@ -1,0 +1,46 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Restaurant {
+  id        Int        @id @default(autoincrement())
+  nombre    String
+  empleados Empleado[]
+  retiros   Retiro[]
+  createdAt DateTime   @default(now())
+}
+
+model Empleado {
+  id           Int        @id @default(autoincrement())
+  nombre       String
+  restaurantId Int
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  retiros      Retiro[]
+  activo       Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+}
+
+model Retiro {
+  id           Int          @id @default(autoincrement())
+  createdAt    DateTime     @default(now())
+  empleadoId   Int
+  restaurantId Int
+  empleado     Empleado     @relation(fields: [empleadoId], references: [id])
+  restaurant   Restaurant   @relation(fields: [restaurantId], references: [id])
+  items        RetiroItem[]
+}
+
+model RetiroItem {
+  id       Int    @id @default(autoincrement())
+  retiroId Int
+  retiro   Retiro @relation(fields: [retiroId], references: [id])
+  barcode  String
+  nombre   String
+  cantidad Float
+  unidad   String
+}

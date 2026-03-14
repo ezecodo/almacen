@@ -1,0 +1,248 @@
+import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
+import { api, RetiroFiltros } from '../api'
+
+const ADMIN_PIN = import.meta.env.VITE_ADMIN_PIN as string
+
+function PinGate({ onSuccess }: { onSuccess: () => void }) {
+  const [pin, setPin] = useState('')
+  const [error, setError] = useState(false)
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (pin === ADMIN_PIN) {
+      onSuccess()
+    } else {
+      setError(true)
+      setPin('')
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
+      <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-10 w-full max-w-sm text-center">
+        <div className="text-5xl mb-4">🔒</div>
+        <h1 className="text-2xl font-bold text-gray-900 mb-1">Panel Admin</h1>
+        <p className="text-gray-400 text-sm mb-8">Introduce el PIN para continuar</p>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <input
+            type="password"
+            inputMode="numeric"
+            value={pin}
+            onChange={(e) => { setPin(e.target.value); setError(false) }}
+            placeholder="····"
+            autoFocus
+            className={`w-full text-center text-3xl tracking-widest border-2 rounded-xl px-4 py-4 focus:outline-none transition-colors ${
+              error ? 'border-red-400 bg-red-50' : 'border-gray-200 focus:border-indigo-500'
+            }`}
+          />
+          {error && <p className="text-red-500 text-sm">PIN incorrecto</p>}
+          <button
+            type="submit"
+            className="w-full bg-indigo-600 text-white text-lg font-semibold py-4 rounded-xl hover:bg-indigo-700 transition-colors"
+          >
+            Entrar
+          </button>
+        </form>
+        <Link to="/" className="block mt-6 text-sm text-gray-400 hover:text-gray-600">
+          ← Volver a la app
+        </Link>
+      </div>
+    </div>
+  )
+}
+
+export default function AdminPage() {
+  const [autenticado, setAutenticado] = useState(false)
+
+  if (!autenticado) return <PinGate onSuccess={() => setAutenticado(true)} />
+
+  return <AdminPanel />
+}
+
+function AdminPanel() {
+  const [filtros, setFiltros] = useState<RetiroFiltros>({ page: 1, limit: 20 })
+  const [selectedId, setSelectedId] = useState<number | null>(null)
+
+  const { data, isPending } = useQuery({
+    queryKey: ['retiros', filtros],
+    queryFn: () => api.retiros.list(filtros),
+  })
+
+  const { data: restaurantes } = useQuery({
+    queryKey: ['restaurantes'],
+    queryFn: api.restaurantes.list,
+  })
+
+  const { data: detalle } = useQuery({
+    queryKey: ['retiro', selectedId],
+    queryFn: () => api.retiros.get(selectedId!),
+    enabled: selectedId !== null,
+  })
+
+  const totalPages = data?.pages ?? 1
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Link to="/" className="text-indigo-600 text-sm hover:underline">← Volver</Link>
+          <h1 className="text-xl font-bold text-gray-900">Panel Admin</h1>
+        </div>
+        <span className="text-sm text-gray-400">{data?.total ?? 0} retiro{data?.total !== 1 ? 's' : ''}</span>
+      </header>
+
+      <div className="max-w-5xl mx-auto px-6 py-8 space-y-6">
+        {/* Filtros */}
+        <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Restaurante</label>
+              <select
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                value={filtros.restaurantId ?? ''}
+                onChange={(e) =>
+                  setFiltros((f) => ({
+                    ...f,
+                    restaurantId: e.target.value ? Number(e.target.value) : undefined,
+                    page: 1,
+                  }))
+                }
+              >
+                <option value="">Todos</option>
+                {restaurantes?.map((r) => (
+                  <option key={r.id} value={r.id}>{r.nombre}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Desde</label>
+              <input
+                type="date"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                value={filtros.desde ?? ''}
+                onChange={(e) =>
+                  setFiltros((f) => ({ ...f, desde: e.target.value || undefined, page: 1 }))
+                }
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Hasta</label>
+              <input
+                type="date"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                value={filtros.hasta ?? ''}
+                onChange={(e) =>
+                  setFiltros((f) => ({ ...f, hasta: e.target.value || undefined, page: 1 }))
+                }
+              />
+            </div>
+
+            <div className="flex items-end">
+              <button
+                onClick={() => setFiltros({ page: 1, limit: 20 })}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
+              >
+                Limpiar filtros
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Lista de retiros */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          {isPending || !data ? (
+            <div className="p-8 text-center text-gray-400">Cargando…</div>
+          ) : data.retiros.length === 0 ? (
+            <div className="p-8 text-center text-gray-400">No hay retiros con estos filtros</div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-100">
+                <tr>
+                  <th className="text-left px-5 py-3 text-gray-500 font-medium">Fecha</th>
+                  <th className="text-left px-5 py-3 text-gray-500 font-medium">Empleado</th>
+                  <th className="text-left px-5 py-3 text-gray-500 font-medium">Restaurante</th>
+                  <th className="text-right px-5 py-3 text-gray-500 font-medium">Items</th>
+                  <th className="px-5 py-3" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {data.retiros.map((retiro) => (
+                  <tr
+                    key={retiro.id}
+                    className={`hover:bg-gray-50 cursor-pointer transition-colors ${selectedId === retiro.id ? 'bg-indigo-50' : ''}`}
+                    onClick={() => setSelectedId(selectedId === retiro.id ? null : retiro.id)}
+                  >
+                    <td className="px-5 py-4 text-gray-700">
+                      {new Date(retiro.createdAt).toLocaleString('es-ES', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </td>
+                    <td className="px-5 py-4 font-medium text-gray-900">{retiro.empleado.nombre}</td>
+                    <td className="px-5 py-4 text-gray-600">{retiro.restaurant.nombre}</td>
+                    <td className="px-5 py-4 text-right text-gray-500">{retiro.items.length}</td>
+                    <td className="px-5 py-4 text-indigo-400 text-right">
+                      {selectedId === retiro.id ? '▲' : '▼'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* Detalle expandido */}
+        {selectedId && detalle && (
+          <div className="bg-white rounded-2xl border border-indigo-100 shadow-sm p-6">
+            <h3 className="font-bold text-gray-900 mb-4">
+              Retiro #{detalle.id} — {detalle.empleado.nombre}
+            </h3>
+            <ul className="divide-y divide-gray-100">
+              {detalle.items.map((item, i) => (
+                <li key={i} className="flex justify-between py-3">
+                  <div>
+                    <p className="font-medium text-gray-900">{item.nombre}</p>
+                    <p className="text-xs text-gray-400">{item.barcode}</p>
+                  </div>
+                  <span className="font-semibold text-indigo-700">
+                    {item.cantidad} {item.unidad}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Paginación */}
+        {totalPages > 1 && (
+          <div className="flex justify-center gap-2">
+            <button
+              disabled={(filtros.page ?? 1) <= 1}
+              onClick={() => setFiltros((f) => ({ ...f, page: (f.page ?? 1) - 1 }))}
+              className="px-4 py-2 border border-gray-200 rounded-lg text-sm disabled:opacity-40 hover:bg-gray-50"
+            >
+              Anterior
+            </button>
+            <span className="px-4 py-2 text-sm text-gray-500">
+              {filtros.page} / {totalPages}
+            </span>
+            <button
+              disabled={(filtros.page ?? 1) >= totalPages}
+              onClick={() => setFiltros((f) => ({ ...f, page: (f.page ?? 1) + 1 }))}
+              className="px-4 py-2 border border-gray-200 rounded-lg text-sm disabled:opacity-40 hover:bg-gray-50"
+            >
+              Siguiente
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}

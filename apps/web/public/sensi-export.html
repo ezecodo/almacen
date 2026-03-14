@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body { margin: 0; background: #111; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; gap: 24px; font-family: sans-serif; color: white; }
+    canvas { border: 1px solid #333; }
+    button { background: #4f46e5; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <canvas id="c" width="400" height="200"></canvas>
+  <button onclick="download()">Descargar sensi.png</button>
+  <script>
+    const canvas = document.getElementById('c')
+    const ctx = canvas.getContext('2d')
+
+    // Fondo transparente
+    ctx.clearRect(0, 0, 400, 200)
+
+    // Texto SENSI en blanco
+    ctx.fillStyle = 'white'
+    ctx.font = '900 140px "Arial Black", Arial, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+
+    // Comprimir horizontalmente como en el original
+    ctx.save()
+    ctx.scale(0.85, 1)
+    ctx.fillText('SENSI', 400 / 2 / 0.85, 105)
+    ctx.restore()
+
+    function download() {
+      const link = document.createElement('a')
+      link.download = 'sensi.png'
+      link.href = canvas.toDataURL('image/png')
+      link.click()
+    }
+  </script>
+</body>
+</html>
