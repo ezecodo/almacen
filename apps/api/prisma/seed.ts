@@ -1,33 +1,36 @@
-import { PrismaClient } from '@prisma/client'
+import { PrismaClient } from "@prisma/client";
 
-const prisma = new PrismaClient()
+const prisma = new PrismaClient();
 
 async function main() {
-  console.log('Seeding...')
+  console.log("Seeding...");
 
   const restaurantes = [
-    { nombre: 'Sensi Tapas', empleados: ['María García', 'Carlos López', 'Ana Martínez'] },
-    { nombre: 'Restaurante 2', empleados: ['Pedro Sánchez', 'Laura Fernández'] },
-    { nombre: 'Restaurante 3', empleados: ['Miguel Torres', 'Sofia Ruiz'] },
-    { nombre: 'Restaurante 4', empleados: ['David Moreno', 'Elena Jiménez'] },
-    { nombre: 'Restaurante 5', empleados: ['Roberto Díaz', 'Carmen Vega'] }
-  ]
+    {
+      nombre: "Sensi Tapas",
+      empleados: ["María García", "Carlos López", "Ana Martínez"],
+    },
+    { nombre: "Petit", empleados: ["Pedro Sánchez", "Laura Fernández"] },
+    { nombre: "Colección", empleados: ["Miguel Torres", "Sofia Ruiz"] },
+    { nombre: "Bistro", empleados: ["David Moreno", "Elena Jiménez"] },
+    { nombre: "Gourmet", empleados: ["Roberto Díaz", "Carmen Vega"] },
+  ];
 
   for (const rest of restaurantes) {
     const restaurant = await prisma.restaurant.create({
-      data: { nombre: rest.nombre }
-    })
+      data: { nombre: rest.nombre },
+    });
     for (const nombre of rest.empleados) {
       await prisma.empleado.create({
-        data: { nombre, restaurantId: restaurant.id }
-      })
+        data: { nombre, restaurantId: restaurant.id },
+      });
     }
-    console.log(`✓ ${rest.nombre}`)
+    console.log(`✓ ${rest.nombre}`);
   }
 
-  console.log('Listo!')
+  console.log("Listo!");
 }
 
 main()
   .catch(console.error)
-  .finally(() => prisma.$disconnect())
+  .finally(() => prisma.$disconnect());
