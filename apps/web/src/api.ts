@@ -24,7 +24,8 @@ export interface Restaurante {
 export interface Empleado {
   id: number
   nombre: string
-  restaurantId: number
+  pin: string
+  activo: boolean
 }
 
 export interface ProductoLookup {
@@ -73,17 +74,49 @@ export interface RetirosResponse {
   pages: number
 }
 
+export interface Producto {
+  id: number
+  barcode: string
+  nombre: string
+  unidad: 'kg' | 'ud' | 'l' | 'g'
+  createdAt: string
+}
+
+async function del(path: string): Promise<void> {
+  const res = await fetch(`${BASE}${path}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(`DELETE ${path} failed: ${res.status}`)
+}
+
+async function put<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`PUT ${path} failed: ${res.status}`)
+  return res.json() as Promise<T>
+}
+
 export const api = {
   restaurantes: {
     list: () => get<Restaurante[]>('/restaurantes'),
   },
   empleados: {
-    list: (restaurantId: number) =>
-      get<Empleado[]>(`/empleados?restaurantId=${restaurantId}`),
+    list:   () => get<Empleado[]>('/empleados'),
+    auth:   (pin: string) => post<Empleado>('/empleados/auth', { pin }),
+    create: (body: { nombre: string; pin: string }) => post<Empleado>('/empleados', body),
+    update: (id: number, body: { nombre?: string; pin?: string; activo?: boolean }) =>
+      put<Empleado>(`/empleados/${id}`, body),
+    delete: (id: number) => del(`/empleados/${id}`),
   },
   productos: {
-    lookup: (barcode: string) =>
-      get<ProductoLookup>(`/producto/${barcode}`),
+    lookup: (barcode: string) => get<ProductoLookup>(`/producto/${barcode}`),
+    list:   () => get<Producto[]>('/productos'),
+    create: (body: { barcode: string; nombre: string; unidad: Producto['unidad'] }) =>
+      post<Producto>('/productos', body),
+    update: (barcode: string, body: { nombre?: string; unidad?: Producto['unidad'] }) =>
+      put<Producto>(`/productos/${barcode}`, body),
+    delete: (barcode: string) => del(`/productos/${barcode}`),
   },
   retiros: {
     create: (body: {

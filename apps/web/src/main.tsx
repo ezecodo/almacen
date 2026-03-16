@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import RetiroPage from './pages/RetiroPage'
 import AdminPage from './pages/AdminPage'
+import ProductosPage from './pages/ProductosPage'
+import EmpleadosPage from './pages/EmpleadosPage'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -19,6 +21,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <Routes>
           <Route path="/" element={<RetiroPage />} />
           <Route path="/admin" element={<AdminPage />} />
+          <Route path="/admin/productos" element={<ProductosPage />} />
+          <Route path="/admin/empleados" element={<EmpleadosPage />} />
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>

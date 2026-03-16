@@ -4,7 +4,7 @@ interface UseScannerOptions {
   onScan: (barcode: string) => void
   enabled?: boolean
   minLength?: number
-  /** Max ms between chars to be considered scanner input (default 50) */
+  /** Max ms between chars to be considered scanner input (default 100) */
   scanSpeed?: number
 }
 
@@ -12,7 +12,7 @@ export function useScanner({
   onScan,
   enabled = true,
   minLength = 4,
-  scanSpeed = 50,
+  scanSpeed = 100,
 }: UseScannerOptions) {
   const bufferRef = useRef('')
   const lastKeyTimeRef = useRef(0)

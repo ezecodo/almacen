@@ -26,7 +26,7 @@ function getLogoSrc(nombre: string): string | null {
   return null
 }
 
-export default function SelectRestaurante({ value, onChange }: Props) {
+export default function SelectRestaurante({ onChange }: Props) {
   const { data, isLoading, error } = useQuery({
     queryKey: ['restaurantes'],
     queryFn: api.restaurantes.list,
@@ -38,13 +38,11 @@ export default function SelectRestaurante({ value, onChange }: Props) {
   return (
     <div className="grid grid-cols-2 gap-4 w-full max-w-lg">
       {data?.map((r) => {
-        const selected = value?.id === r.id
         const src = getLogoSrc(r.nombre)
         return (
           <RestauranteCard
             key={r.id}
             restaurante={r}
-            selected={selected}
             logoSrc={src}
             onClick={() => onChange(r)}
           />
@@ -56,35 +54,55 @@ export default function SelectRestaurante({ value, onChange }: Props) {
 
 interface CardProps {
   restaurante: Restaurante
-  selected: boolean
   logoSrc: string | null
   onClick: () => void
 }
 
-function RestauranteCard({ restaurante, selected, logoSrc, onClick }: CardProps) {
+function RestauranteCard({ restaurante, logoSrc, onClick }: CardProps) {
   const [imgError, setImgError] = useState(false)
+  const [flipping, setFlipping] = useState(false)
+
+  const handleClick = () => {
+    if (flipping) return
+    setFlipping(true)
+    setTimeout(() => {
+      onClick()
+      setFlipping(false)
+    }, 700)
+  }
 
   return (
     <button
-      onClick={onClick}
-      className={`flex flex-col items-center justify-center p-4 rounded-3xl border-4 transition-all aspect-square ${
-        selected
-          ? 'bg-indigo-600 border-indigo-600'
-          : 'bg-gray-900 border-gray-800 hover:border-indigo-400 active:scale-95'
+      onClick={handleClick}
+      className={`relative aspect-square rounded-3xl border-4 transition-all duration-300 p-4 overflow-hidden ${
+        flipping
+          ? 'bg-black border-cyan-400 scale-95'
+          : 'bg-gray-900 border-gray-800 hover:border-cyan-400'
       }`}
     >
-      {logoSrc && !imgError ? (
-        <img
-          src={logoSrc}
-          alt={restaurante.nombre}
-          className="w-full h-full object-contain"
-          onError={() => setImgError(true)}
-        />
-      ) : (
-        <span className="text-white text-5xl font-bold">
-          {restaurante.nombre.charAt(0).toUpperCase()}
-        </span>
-      )}
+      {/* Logo del restaurante */}
+      <div className={`w-full h-full transition-all duration-300 ${flipping ? 'opacity-0 scale-50' : 'opacity-100 scale-100'}`}>
+        {logoSrc && !imgError ? (
+          <img
+            src={logoSrc}
+            alt={restaurante.nombre}
+            className="w-full h-full object-contain"
+            onError={() => setImgError(true)}
+          />
+        ) : (
+          <span className="text-white text-5xl font-bold flex items-center justify-center h-full">
+            {restaurante.nombre.charAt(0).toUpperCase()}
+          </span>
+        )}
+      </div>
+
+      {/* Loader cyan */}
+      <div className={`absolute inset-0 flex items-center justify-center transition-all duration-300 ${flipping ? 'opacity-100' : 'opacity-0'}`}>
+        <svg className="animate-spin w-12 h-12 text-cyan-400" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+          <path className="opacity-100" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+        </svg>
+      </div>
     </button>
   )
 }

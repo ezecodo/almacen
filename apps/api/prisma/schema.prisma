@@ -8,21 +8,19 @@ datasource db {
 }
 
 model Restaurant {
-  id        Int        @id @default(autoincrement())
+  id        Int      @id @default(autoincrement())
   nombre    String
-  empleados Empleado[]
   retiros   Retiro[]
-  createdAt DateTime   @default(now())
+  createdAt DateTime @default(now())
 }
 
 model Empleado {
-  id           Int        @id @default(autoincrement())
-  nombre       String
-  restaurantId Int
-  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
-  retiros      Retiro[]
-  activo       Boolean    @default(true)
-  createdAt    DateTime   @default(now())
+  id        Int      @id @default(autoincrement())
+  nombre    String
+  pin       String   @unique
+  retiros   Retiro[]
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now())
 }
 
 model Retiro {
@@ -43,4 +41,13 @@ model RetiroItem {
   nombre   String
   cantidad Float
   unidad   String
+}
+
+model Producto {
+  id        Int      @id @default(autoincrement())
+  barcode   String   @unique
+  nombre    String
+  unidad    String   @default("ud")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

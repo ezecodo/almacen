@@ -1,7 +1,25 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
+import * as XLSX from 'xlsx'
 import { api, RetiroFiltros } from '../api'
+
+const LOGO_MAP: Record<string, string> = {
+  'sensi tapas': 'tapas.png',
+  'bistro':      'bistro.png',
+  'gourmet':     'gourmet.png',
+  'colección':   'coleccion.png',
+  'coleccion':   'coleccion.png',
+  'petit':       'petit.png',
+}
+
+function getLogoSrc(nombre: string): string | null {
+  const key = nombre.toLowerCase()
+  for (const [pattern, file] of Object.entries(LOGO_MAP)) {
+    if (key.includes(pattern)) return `/${file}`
+  }
+  return null
+}
 
 const ADMIN_PIN = import.meta.env.VITE_ADMIN_PIN as string
 
@@ -83,6 +101,35 @@ function AdminPanel() {
 
   const totalPages = data?.pages ?? 1
 
+  const [exporting, setExporting] = useState(false)
+
+  const handleExport = async () => {
+    setExporting(true)
+    try {
+      const result = await api.retiros.list({ ...filtros, page: 1, limit: 5000 })
+      const rows = result.retiros.flatMap((retiro) =>
+        retiro.items.map((item) => ({
+          'Fecha': new Date(retiro.createdAt).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+          'Restaurante': retiro.restaurant.nombre,
+          'Empleado': retiro.empleado.nombre,
+          'Producto': item.nombre,
+          'Código de barras': item.barcode,
+          'Cantidad': item.cantidad,
+          'Unidad': item.unidad,
+        }))
+      )
+      const ws = XLSX.utils.json_to_sheet(rows)
+      ws['!cols'] = [{ wch: 18 }, { wch: 16 }, { wch: 18 }, { wch: 30 }, { wch: 16 }, { wch: 10 }, { wch: 8 }]
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Retiros')
+      const desde = filtros.desde ?? 'inicio'
+      const hasta = filtros.hasta ?? 'hoy'
+      XLSX.writeFile(wb, `retiros_${desde}_${hasta}.xlsx`)
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
@@ -90,10 +137,75 @@ function AdminPanel() {
           <Link to="/" className="text-indigo-600 text-sm hover:underline">← Volver</Link>
           <h1 className="text-xl font-bold text-gray-900">Panel Admin</h1>
         </div>
-        <span className="text-sm text-gray-400">{data?.total ?? 0} retiro{data?.total !== 1 ? 's' : ''}</span>
+        <div className="flex gap-2">
+          <Link to="/admin/empleados" className="text-sm bg-indigo-50 text-indigo-600 font-medium px-4 py-2 rounded-xl hover:bg-indigo-100 transition-colors">
+            👥 Empleados
+          </Link>
+          <Link to="/admin/productos" className="text-sm bg-indigo-50 text-indigo-600 font-medium px-4 py-2 rounded-xl hover:bg-indigo-100 transition-colors">
+            📦 Catálogo
+          </Link>
+        </div>
+        <div className="flex items-center gap-4">
+          <span className="text-sm text-gray-400">{data?.total ?? 0} retiro{data?.total !== 1 ? 's' : ''}</span>
+          <button
+            onClick={handleExport}
+            disabled={exporting || !data?.total}
+            className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-4 py-2 rounded-xl transition-colors disabled:opacity-40"
+          >
+            {exporting ? (
+              <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
+              </svg>
+            ) : (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+            )}
+            Exportar XLSX
+          </button>
+        </div>
       </header>
 
       <div className="max-w-5xl mx-auto px-6 py-8 space-y-6">
+        {/* Acceso rápido por restaurante */}
+        {restaurantes && (
+          <div className="flex gap-3 flex-wrap">
+            <button
+              onClick={() => setFiltros((f) => ({ ...f, restaurantId: undefined, page: 1 }))}
+              className={`px-4 py-2 rounded-xl text-sm font-medium border-2 transition-all ${
+                !filtros.restaurantId
+                  ? 'bg-gray-900 border-gray-900 text-white'
+                  : 'bg-white border-gray-200 text-gray-500 hover:border-gray-400'
+              }`}
+            >
+              Todos
+            </button>
+            {restaurantes.map((r) => {
+              const src = getLogoSrc(r.nombre)
+              const active = filtros.restaurantId === r.id
+              return (
+                <button
+                  key={r.id}
+                  onClick={() => setFiltros((f) => ({ ...f, restaurantId: r.id, page: 1 }))}
+                  title={r.nombre}
+                  className={`w-24 h-24 rounded-2xl border-2 flex items-center justify-center p-3 transition-all ${
+                    active
+                      ? 'bg-gray-900 border-gray-900 scale-110'
+                      : 'bg-gray-900 border-gray-200 hover:border-gray-500 opacity-50 hover:opacity-100'
+                  }`}
+                >
+                  {src ? (
+                    <img src={src} alt={r.nombre} className="w-full h-full object-contain" />
+                  ) : (
+                    <span className="text-white text-sm font-bold">{r.nombre.charAt(0)}</span>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        )}
+
         {/* Filtros */}
         <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
