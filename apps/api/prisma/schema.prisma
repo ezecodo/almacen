@@ -8,10 +8,21 @@ datasource db {
 }
 
 model Restaurant {
-  id        Int      @id @default(autoincrement())
+  id        Int             @id @default(autoincrement())
   nombre    String
+  placeId   String?
   retiros   Retiro[]
-  createdAt DateTime @default(now())
+  reviews   ReviewSnapshot[]
+  createdAt DateTime        @default(now())
+}
+
+model ReviewSnapshot {
+  id           Int        @id @default(autoincrement())
+  restaurantId Int
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  total        Int
+  rating       Float
+  fecha        DateTime   @default(now())
 }
 
 model Empleado {

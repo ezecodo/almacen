@@ -145,28 +145,29 @@ export default function RetiroPage() {
   // --- PASO: EXITO ---
   if (step === 'exito') {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-gray-900 to-gray-800 flex flex-col items-center justify-center p-8 text-center">
-        {/* Logo */}
-        <img src="/sensi.png" alt="Sensi" className="h-12 object-contain mb-12 opacity-90" />
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-8 text-center">
+        {/* Header igual que el resto */}
+        <div className="absolute top-0 left-0 right-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-center">
+          <img src="/sensi.png" alt="Sensi" className="h-8 object-contain" />
+        </div>
 
-        {/* Check animado */}
-        <div className="w-24 h-24 rounded-full border-4 border-cyan-400 flex items-center justify-center mb-8">
-          <svg className="w-12 h-12 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        {/* Check */}
+        <div className="w-20 h-20 rounded-full bg-cyan-50 border-2 border-cyan-400 flex items-center justify-center mb-6">
+          <svg className="w-10 h-10 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
           </svg>
         </div>
 
-        <h1 className="text-4xl font-bold text-white mb-4 tracking-tight">Retiro guardado</h1>
+        <h1 className="text-3xl font-bold text-gray-900 mb-2 tracking-tight">Retiro guardado</h1>
+        <p className="text-lg text-gray-700 mb-0.5">{empleado?.nombre}</p>
+        <p className="text-gray-400 mb-6">{restaurante?.nombre}</p>
 
-        <p className="text-xl text-gray-300 mb-1">{empleado?.nombre}</p>
-        <p className="text-gray-500 mb-6">{restaurante?.nombre}</p>
-
-        <div className="flex items-center gap-3 mb-12">
-          <span className="bg-gray-700 text-cyan-400 text-sm font-medium px-4 py-1.5 rounded-full">
+        <div className="flex items-center gap-2 mb-10">
+          <span className="bg-cyan-50 text-cyan-600 text-sm font-medium px-4 py-1.5 rounded-full border border-cyan-100">
             {items.length} producto{items.length !== 1 ? 's' : ''}
           </span>
           {retiroId && (
-            <span className="bg-gray-700 text-gray-300 text-sm px-4 py-1.5 rounded-full">
+            <span className="bg-gray-100 text-gray-500 text-sm px-4 py-1.5 rounded-full">
               #{retiroId}
             </span>
           )}
@@ -175,7 +176,7 @@ export default function RetiroPage() {
         <div className="flex flex-col gap-3 w-full max-w-xs">
           <button
             onClick={handlePrint}
-            className="border border-gray-700 text-gray-300 text-lg font-medium py-4 rounded-2xl hover:border-cyan-400 hover:text-cyan-400 transition-colors flex items-center justify-center gap-2"
+            className="border-2 border-gray-200 text-gray-600 text-lg font-medium py-4 rounded-2xl hover:border-cyan-400 hover:text-cyan-600 transition-colors flex items-center justify-center gap-2"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
@@ -184,7 +185,7 @@ export default function RetiroPage() {
           </button>
           <button
             onClick={handleReset}
-            className="bg-cyan-400 text-gray-950 text-lg font-bold py-4 rounded-2xl hover:bg-cyan-300 transition-colors"
+            className="bg-cyan-500 text-white text-lg font-bold py-4 rounded-2xl hover:bg-cyan-400 transition-colors"
           >
             Nuevo retiro
           </button>

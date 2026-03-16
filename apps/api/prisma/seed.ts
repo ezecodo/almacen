@@ -53,18 +53,18 @@ async function main() {
   console.log("Seeding restaurantes...");
 
   const restaurantesData = [
-    "Sensi Tapas",
-    "Petit",
-    "Colección",
-    "Bistro",
-    "Gourmet",
+    { nombre: "Sensi Tapas",          placeId: "ChIJ-Tjd-VUipBIR9AOzqm5NzEY" },
+    { nombre: "Petit Tapas",          placeId: "ChIJNZTfv0ejpBIRkWHbSz0WEjU" },
+    { nombre: "Colección by Sensi",   placeId: "ChIJQTcU1FejpBIRcAsuIHtvZHY" },
+    { nombre: "Le Bistro Sensi",      placeId: "ChIJp4MZsfiipBIRM7YJu0xCScQ" },
+    { nombre: "Gourmet Tapas by Sensi", placeId: "ChIJHzYhAFaipBIRx-tuRQR-P7Y" },
   ];
 
   const restaurantes = [];
-  for (const nombre of restaurantesData) {
-    const r = await prisma.restaurant.create({ data: { nombre } });
+  for (const data of restaurantesData) {
+    const r = await prisma.restaurant.create({ data });
     restaurantes.push(r);
-    console.log(`✓ ${nombre}`);
+    console.log(`✓ ${data.nombre}`);
   }
 
   console.log("Seeding empleados...");

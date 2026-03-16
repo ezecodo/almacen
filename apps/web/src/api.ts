@@ -137,6 +137,10 @@ export const api = {
     },
     get: (id: number) => get<RetiroResumen>(`/retiros/${id}`),
   },
+  reviews: {
+    list: () => get<{ restaurantId: number; nombre: string; total: number | null; rating: number | null; diff: number | null; fecha: string | null }[]>('/reviews'),
+    sync: () => post<{ synced: number }>('/reviews/sync', {}),
+  },
   stats: {
     retirosPorDia: (dias = 30) => get<{ fecha: string; total: number }[]>(`/stats/retiros-por-dia?dias=${dias}`),
     retirosPorRestaurante: (mes?: string) => get<{ restaurantId: number; nombre: string; total: number }[]>(`/stats/retiros-por-restaurante${mes ? `?mes=${mes}` : ''}`),
