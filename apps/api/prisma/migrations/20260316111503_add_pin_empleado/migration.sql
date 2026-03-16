@@ -11,7 +11,13 @@ ALTER TABLE "Empleado" DROP CONSTRAINT "Empleado_restaurantId_fkey";
 
 -- AlterTable
 ALTER TABLE "Empleado" DROP COLUMN "restaurantId",
-ADD COLUMN     "pin" TEXT NOT NULL;
+ADD COLUMN     "pin" TEXT NOT NULL DEFAULT '0000';
+
+-- Assign unique temporary PINs to existing rows
+UPDATE "Empleado" SET "pin" = LPAD(id::text, 4, '0');
+
+-- Remove default
+ALTER TABLE "Empleado" ALTER COLUMN "pin" DROP DEFAULT;
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Empleado_pin_key" ON "Empleado"("pin");
