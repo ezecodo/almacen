@@ -79,7 +79,7 @@ export default function ProductosPage() {
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Link to="/admin" className="text-indigo-600 text-sm hover:underline">← Admin</Link>
+          <Link to="/admin" className="text-cyan-600 text-sm hover:underline">← Admin</Link>
           <h1 className="text-xl font-bold text-gray-900">Catálogo de productos</h1>
         </div>
         <span className="text-sm text-gray-400">{productos?.length ?? 0} productos</span>
@@ -98,7 +98,7 @@ export default function ProductosPage() {
                 value={barcode}
                 onChange={(e) => setBarcode(e.target.value)}
                 placeholder="Escanea o escribe el código"
-                className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-400"
+                className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-cyan-400"
               />
             </div>
             <div>
@@ -109,7 +109,7 @@ export default function ProductosPage() {
                 value={nombre}
                 onChange={(e) => setNombre(e.target.value)}
                 placeholder="Ej: Aceite de oliva virgen extra"
-                className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-400"
+                className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-cyan-400"
               />
             </div>
             <div>
@@ -120,7 +120,7 @@ export default function ProductosPage() {
                     key={u}
                     onClick={() => setUnidad(u)}
                     className={`px-5 py-2 rounded-xl border-2 text-sm font-semibold transition-all ${
-                      unidad === u ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-200 text-gray-600 hover:border-indigo-300'
+                      unidad === u ? 'bg-cyan-500 border-cyan-500 text-white' : 'border-gray-200 text-gray-600 hover:border-cyan-400'
                     }`}
                   >
                     {u}
@@ -131,7 +131,7 @@ export default function ProductosPage() {
             <button
               onClick={() => guardar.mutate()}
               disabled={!barcode.trim() || !nombre.trim() || guardar.isPending}
-              className="w-full bg-indigo-600 text-white font-semibold py-3 rounded-xl hover:bg-indigo-700 transition-colors disabled:opacity-40"
+              className="w-full bg-cyan-500 text-white font-semibold py-3 rounded-xl hover:bg-cyan-400 transition-colors disabled:opacity-40"
             >
               {guardar.isPending ? 'Guardando…' : 'Guardar producto'}
             </button>
@@ -146,7 +146,7 @@ export default function ProductosPage() {
               value={busqueda}
               onChange={(e) => setBusqueda(e.target.value)}
               placeholder="Buscar por nombre o código…"
-              className="w-full border border-gray-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-indigo-400"
+              className="w-full border border-gray-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-cyan-400"
             />
           </div>
 
@@ -164,7 +164,7 @@ export default function ProductosPage() {
                         type="text"
                         value={editando.nombre}
                         onChange={(e) => setEditando({ ...editando, nombre: e.target.value })}
-                        className="w-full border border-indigo-300 rounded-lg px-3 py-2 text-sm focus:outline-none"
+                        className="w-full border border-cyan-300 rounded-lg px-3 py-2 text-sm focus:outline-none"
                         autoFocus
                       />
                       <div className="flex gap-2 items-center">
@@ -173,7 +173,7 @@ export default function ProductosPage() {
                             key={u}
                             onClick={() => setEditando({ ...editando, unidad: u })}
                             className={`px-3 py-1 rounded-lg border text-xs font-semibold transition-all ${
-                              editando.unidad === u ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-200 text-gray-600'
+                              editando.unidad === u ? 'bg-cyan-500 border-cyan-500 text-white' : 'border-gray-200 text-gray-600'
                             }`}
                           >
                             {u}
@@ -183,7 +183,7 @@ export default function ProductosPage() {
                           <button onClick={() => setEditando(null)} className="text-sm text-gray-400 hover:text-gray-600">Cancelar</button>
                           <button
                             onClick={() => actualizar.mutate()}
-                            className="text-sm text-indigo-600 font-semibold hover:text-indigo-800"
+                            className="text-sm text-cyan-600 font-semibold hover:text-cyan-800"
                           >
                             Guardar
                           </button>
@@ -199,7 +199,7 @@ export default function ProductosPage() {
                       <div className="flex gap-3 shrink-0">
                         <button
                           onClick={() => setEditando(p)}
-                          className="text-sm text-indigo-500 hover:text-indigo-700"
+                          className="text-sm text-cyan-500 hover:text-cyan-700"
                         >
                           Editar
                         </button>
@@ -221,7 +221,7 @@ export default function ProductosPage() {
 
       {/* Toast feedback */}
       {feedback && (
-        <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 px-6 py-3 rounded-xl shadow-lg text-white text-sm font-medium ${feedback.ok ? 'bg-green-600' : 'bg-red-600'}`}>
+        <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 px-6 py-3 rounded-xl shadow-lg text-white text-sm font-medium ${feedback.ok ? 'bg-cyan-600' : 'bg-red-600'}`}>
           {feedback.msg}
         </div>
       )}

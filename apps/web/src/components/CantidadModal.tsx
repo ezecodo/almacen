@@ -33,7 +33,7 @@ export default function CantidadModal({ barcode, nombreSugerido, onConfirm, onCa
               type="text"
               value={nombre}
               onChange={(e) => setNombre(e.target.value)}
-              className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-lg focus:border-indigo-500 focus:outline-none"
+              className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-lg focus:border-cyan-500 focus:outline-none"
               placeholder="Nombre del producto"
               autoFocus={!nombreSugerido}
             />
@@ -45,9 +45,9 @@ export default function CantidadModal({ barcode, nombreSugerido, onConfirm, onCa
               type="number"
               value={cantidad}
               onChange={(e) => setCantidad(e.target.value)}
-              min="0.01"
-              step="0.1"
-              className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-2xl font-bold text-center focus:border-indigo-500 focus:outline-none"
+              min="1"
+              step="1"
+              className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-2xl font-bold text-center focus:border-cyan-500 focus:outline-none"
               autoFocus={!!nombreSugerido}
             />
           </div>
@@ -61,8 +61,8 @@ export default function CantidadModal({ barcode, nombreSugerido, onConfirm, onCa
                   onClick={() => setUnidad(u)}
                   className={`py-3 rounded-xl text-lg font-semibold border-2 transition-all ${
                     unidad === u
-                      ? 'bg-indigo-600 border-indigo-600 text-white'
-                      : 'bg-white border-gray-200 text-gray-700 hover:border-indigo-400'
+                      ? 'bg-cyan-500 border-cyan-500 text-white'
+                      : 'bg-white border-gray-200 text-gray-700 hover:border-cyan-400'
                   }`}
                 >
                   {u}
@@ -82,7 +82,7 @@ export default function CantidadModal({ barcode, nombreSugerido, onConfirm, onCa
           <button
             onClick={handleConfirm}
             disabled={!nombre.trim() || !cantidad || parseFloat(cantidad) <= 0}
-            className="flex-1 py-4 rounded-xl bg-indigo-600 text-white text-lg font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-40"
+            className="flex-1 py-4 rounded-xl bg-cyan-500 text-white text-lg font-semibold hover:bg-cyan-400 transition-colors disabled:opacity-40"
           >
             Agregar
           </button>

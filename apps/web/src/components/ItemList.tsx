@@ -31,7 +31,7 @@ export default function ItemList({ items, onRemove }: Props) {
             <p className="text-sm text-gray-400">{item.barcode}</p>
           </div>
           <div className="flex items-center gap-4">
-            <span className="text-lg font-bold text-indigo-700 whitespace-nowrap">
+            <span className="text-lg font-bold text-cyan-600 whitespace-nowrap">
               {item.cantidad} {UNIDAD_LABELS[item.unidad]}
             </span>
             <button

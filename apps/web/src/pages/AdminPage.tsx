@@ -52,13 +52,13 @@ function PinGate({ onSuccess }: { onSuccess: () => void }) {
             placeholder="····"
             autoFocus
             className={`w-full text-center text-3xl tracking-widest border-2 rounded-xl px-4 py-4 focus:outline-none transition-colors ${
-              error ? 'border-red-400 bg-red-50' : 'border-gray-200 focus:border-indigo-500'
+              error ? 'border-red-400 bg-red-50' : 'border-gray-200 focus:border-cyan-500'
             }`}
           />
           {error && <p className="text-red-500 text-sm">PIN incorrecto</p>}
           <button
             type="submit"
-            className="w-full bg-indigo-600 text-white text-lg font-semibold py-4 rounded-xl hover:bg-indigo-700 transition-colors"
+            className="w-full bg-cyan-500 text-white text-lg font-semibold py-4 rounded-xl hover:bg-cyan-400 transition-colors"
           >
             Entrar
           </button>
@@ -134,15 +134,18 @@ function AdminPanel() {
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Link to="/" className="text-indigo-600 text-sm hover:underline">← Volver</Link>
+          <Link to="/" className="text-cyan-600 text-sm hover:underline">← Volver</Link>
           <h1 className="text-xl font-bold text-gray-900">Panel Admin</h1>
         </div>
         <div className="flex gap-2">
-          <Link to="/admin/empleados" className="text-sm bg-indigo-50 text-indigo-600 font-medium px-4 py-2 rounded-xl hover:bg-indigo-100 transition-colors">
+          <Link to="/admin/empleados" className="text-sm bg-cyan-50 text-cyan-700 font-medium px-4 py-2 rounded-xl hover:bg-cyan-100 transition-colors">
             👥 Empleados
           </Link>
-          <Link to="/admin/productos" className="text-sm bg-indigo-50 text-indigo-600 font-medium px-4 py-2 rounded-xl hover:bg-indigo-100 transition-colors">
+          <Link to="/admin/productos" className="text-sm bg-cyan-50 text-cyan-700 font-medium px-4 py-2 rounded-xl hover:bg-cyan-100 transition-colors">
             📦 Catálogo
+          </Link>
+          <Link to="/admin/stats" className="text-sm bg-cyan-50 text-cyan-700 font-medium px-4 py-2 rounded-xl hover:bg-cyan-100 transition-colors">
+            📊 Estadísticas
           </Link>
         </div>
         <div className="flex items-center gap-4">
@@ -191,8 +194,8 @@ function AdminPanel() {
                   title={r.nombre}
                   className={`w-24 h-24 rounded-2xl border-2 flex items-center justify-center p-3 transition-all ${
                     active
-                      ? 'bg-gray-900 border-gray-900 scale-110'
-                      : 'bg-gray-900 border-gray-200 hover:border-gray-500 opacity-50 hover:opacity-100'
+                      ? 'bg-gray-900 border-cyan-400 scale-110'
+                      : 'bg-gray-900 border-gray-700 hover:border-cyan-400 opacity-50 hover:opacity-100'
                   }`}
                 >
                   {src ? (
@@ -285,7 +288,7 @@ function AdminPanel() {
                 {data.retiros.map((retiro) => (
                   <tr
                     key={retiro.id}
-                    className={`hover:bg-gray-50 cursor-pointer transition-colors ${selectedId === retiro.id ? 'bg-indigo-50' : ''}`}
+                    className={`hover:bg-gray-50 cursor-pointer transition-colors ${selectedId === retiro.id ? 'bg-cyan-50' : ''}`}
                     onClick={() => setSelectedId(selectedId === retiro.id ? null : retiro.id)}
                   >
                     <td className="px-5 py-4 text-gray-700">
@@ -310,46 +313,58 @@ function AdminPanel() {
 
         {/* Modal de detalle */}
         {selectedId && (
-          <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={() => setSelectedId(null)}>
-            <div className="bg-white w-full sm:max-w-md sm:rounded-3xl rounded-t-3xl shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fadeIn"
+            onClick={() => setSelectedId(null)}
+          >
+            <div
+              className="bg-white w-full sm:max-w-md sm:rounded-3xl rounded-t-3xl shadow-2xl overflow-hidden animate-slideUp"
+              onClick={(e) => e.stopPropagation()}
+            >
               {/* Handle bar mobile */}
               <div className="flex justify-center pt-3 pb-1 sm:hidden">
                 <div className="w-10 h-1 rounded-full bg-gray-200" />
               </div>
 
               {!detalle ? (
-                <div className="p-8 text-center text-gray-400">Cargando…</div>
+                <div className="px-6 py-8 space-y-3">
+                  {[1,2,3,4].map(i => <div key={i} className="h-8 bg-gray-100 rounded-xl animate-pulse" />)}
+                </div>
               ) : (
                 <>
-                  <div className="px-6 pt-5 pb-4 border-b border-gray-100">
+                  {/* Header oscuro */}
+                  <div className="bg-gray-950 px-6 py-5">
                     <div className="flex items-start justify-between gap-4">
                       <div>
-                        <p className="text-xs text-gray-400 mb-1">
+                        <p className="text-xs text-gray-500 mb-1">
                           {new Date(detalle.createdAt).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                         </p>
-                        <h3 className="text-lg font-bold text-gray-900">{detalle.empleado.nombre}</h3>
-                        <p className="text-sm text-gray-500">{detalle.restaurant.nombre}</p>
+                        <h3 className="text-lg font-bold text-white">{detalle.empleado.nombre}</h3>
+                        <p className="text-sm text-gray-400">{detalle.restaurant.nombre}</p>
                       </div>
-                      <button onClick={() => setSelectedId(null)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none mt-1">×</button>
+                      <button onClick={() => setSelectedId(null)} className="text-gray-500 hover:text-white text-2xl leading-none mt-1 transition-colors">×</button>
                     </div>
                   </div>
 
-                  <ul className="divide-y divide-gray-100 overflow-y-auto max-h-96 px-6">
+                  {/* Items */}
+                  <ul className="divide-y divide-gray-100 overflow-y-auto max-h-80 px-6">
                     {detalle.items.map((item, i) => (
-                      <li key={i} className="flex justify-between items-center py-4">
+                      <li key={i} className="flex justify-between items-center py-3.5">
                         <div>
                           <p className="font-medium text-gray-900">{item.nombre}</p>
-                          <p className="text-xs text-gray-400">{item.barcode}</p>
+                          <p className="text-xs text-gray-400 font-mono">{item.barcode}</p>
                         </div>
-                        <span className="font-bold text-indigo-600 whitespace-nowrap ml-4">
+                        <span className="font-bold text-cyan-600 whitespace-nowrap ml-4 bg-cyan-50 px-3 py-1 rounded-full text-sm">
                           {item.cantidad} {item.unidad}
                         </span>
                       </li>
                     ))}
                   </ul>
 
-                  <div className="px-6 py-4 bg-gray-50 text-sm text-gray-400">
-                    {detalle.items.length} producto{detalle.items.length !== 1 ? 's' : ''}
+                  {/* Footer */}
+                  <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex justify-between items-center">
+                    <span className="text-sm text-gray-400">{detalle.items.length} producto{detalle.items.length !== 1 ? 's' : ''}</span>
+                    <span className="text-xs text-gray-400">#{selectedId}</span>
                   </div>
                 </>
               )}

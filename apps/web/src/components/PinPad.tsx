@@ -28,7 +28,7 @@ export default function PinPad({ onSubmit, isLoading, error, onBack }: Props) {
 
   return (
     <div className="flex flex-col items-center gap-8 w-full max-w-xs">
-      <button onClick={onBack} className="self-start text-indigo-600 text-sm hover:underline">
+      <button onClick={onBack} className="self-start text-cyan-600 text-sm hover:underline">
         ← Cambiar restaurante
       </button>
 
@@ -41,7 +41,7 @@ export default function PinPad({ onSubmit, isLoading, error, onBack }: Props) {
             key={i}
             className={`w-5 h-5 rounded-full border-2 transition-all duration-150 ${
               i < pin.length
-                ? error ? 'bg-red-500 border-red-500' : 'bg-indigo-600 border-indigo-600'
+                ? error ? 'bg-red-500 border-red-500' : 'bg-cyan-500 border-cyan-500'
                 : 'border-gray-300'
             }`}
           />
@@ -65,7 +65,7 @@ export default function PinPad({ onSubmit, isLoading, error, onBack }: Props) {
               className={`aspect-square rounded-2xl text-2xl font-semibold transition-all active:scale-95 disabled:opacity-40 ${
                 key === '⌫'
                   ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  : 'bg-white border-2 border-gray-200 text-gray-900 hover:border-indigo-400 hover:bg-indigo-50 shadow-sm'
+                  : 'bg-white border-2 border-gray-200 text-gray-900 hover:border-cyan-400 hover:bg-cyan-50 shadow-sm'
               }`}
             >
               {isLoading && key !== '⌫' ? '' : key}

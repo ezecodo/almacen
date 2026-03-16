@@ -198,7 +198,7 @@ export default function RetiroPage() {
       {/* Header */}
       <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-center relative">
         <img src="/sensi.png" alt="Sensi" className="h-8 object-contain" />
-        <Link to="/admin" className="absolute right-6 text-sm font-medium bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 transition-colors">
+        <Link to="/admin" className="absolute right-6 text-sm font-medium bg-gray-900 text-cyan-400 border border-gray-700 px-3 py-1.5 rounded-lg hover:border-cyan-400 transition-colors">
           Panel Admin
         </Link>
       </header>
@@ -235,14 +235,17 @@ export default function RetiroPage() {
         {/* PASO 3: Escaneo de productos */}
         {step === 'escaneo' && restaurante && empleado && (
           <section className="flex flex-col w-full max-w-2xl gap-6">
+            <p className="text-2xl font-semibold text-gray-800 text-center">
+              Hola, {empleado.nombre.split(' ')[0]} 👋
+            </p>
             <div className="flex items-center justify-between">
               <button
                 onClick={() => setStep('empleado')}
-                className="text-indigo-600 text-sm hover:underline"
+                className="text-cyan-600 text-sm hover:underline"
               >
                 ← Volver
               </button>
-              <div className="flex items-center gap-2 bg-indigo-50 text-indigo-700 px-4 py-2 rounded-full text-sm font-medium">
+              <div className="flex items-center gap-2 bg-cyan-50 text-cyan-700 px-4 py-2 rounded-full text-sm font-medium">
                 <span className="animate-pulse">●</span>
                 Scanner activo
               </div>
@@ -259,7 +262,7 @@ export default function RetiroPage() {
             {items.length > 0 && (
               <button
                 onClick={() => setShowConfirm(true)}
-                className="w-full bg-green-600 text-white text-xl font-bold py-5 rounded-2xl hover:bg-green-700 transition-colors shadow-lg"
+                className="w-full bg-cyan-500 text-white text-xl font-bold py-5 rounded-2xl hover:bg-cyan-400 transition-colors shadow-lg"
               >
                 Confirmar retiro ({items.length} item{items.length !== 1 ? 's' : ''})
               </button>
