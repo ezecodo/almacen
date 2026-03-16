@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, Navigate, Outlet } from 'react-router-dom'
+import { Link, Outlet } from 'react-router-dom'
 
 const ADMIN_PIN = import.meta.env.VITE_ADMIN_PIN as string
 const STORAGE_KEY = 'admin_auth'
