@@ -54,23 +54,40 @@ export default function StatsPage() {
 
         {/* Google Reviews */}
         <div className="lg:col-span-2">
-          <Card title="Google Reviews">
+          <Card title="Google Reviews — reseñas de ayer">
             {!reviews ? <Skeleton /> : (
               <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                 {reviews.map((r) => (
-                  <div key={r.restaurantId} className="flex flex-col items-center bg-gray-50 rounded-2xl p-4 gap-1">
-                    <p className="text-xs text-gray-400 text-center truncate w-full text-center">{r.nombre}</p>
-                    <p className="text-3xl font-bold text-gray-900">{r.total?.toLocaleString() ?? '—'}</p>
-                    <p className="text-xs text-gray-400">reseñas</p>
-                    <div className="flex items-center gap-1 mt-1">
-                      <svg className="w-3.5 h-3.5 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
-                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                      </svg>
-                      <span className="text-xs font-semibold text-gray-700">{r.rating}</span>
+                  <div key={r.restaurantId} className="flex flex-col items-center bg-gray-50 rounded-2xl p-5 gap-1 border border-gray-100">
+                    <p className="text-xs text-gray-400 text-center truncate w-full">{r.nombre}</p>
+
+                    {/* Nuevas reseñas ayer */}
+                    <div className="flex flex-col items-center my-1">
+                      {r.diff !== null ? (
+                        <>
+                          <p className={`text-4xl font-bold ${r.diff > 0 ? 'text-cyan-500' : 'text-gray-400'}`}>
+                            {r.diff > 0 ? `+${r.diff}` : r.diff}
+                          </p>
+                          <p className="text-xs text-gray-400">ayer</p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-2xl font-bold text-gray-300">—</p>
+                          <p className="text-xs text-gray-300">sin datos aún</p>
+                        </>
+                      )}
                     </div>
-                    {r.diff !== null && r.diff > 0 && (
-                      <span className="text-xs text-cyan-600 font-medium">+{r.diff} nuevas</span>
-                    )}
+
+                    {/* Total y rating */}
+                    <div className="w-full border-t border-gray-200 pt-2 mt-1 flex justify-between items-center">
+                      <span className="text-xs text-gray-400">{r.total?.toLocaleString()} total</span>
+                      <div className="flex items-center gap-0.5">
+                        <svg className="w-3 h-3 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
+                          <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                        </svg>
+                        <span className="text-xs font-semibold text-gray-600">{r.rating}</span>
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>
