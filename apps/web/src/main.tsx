@@ -7,6 +7,8 @@ import AdminPage from './pages/AdminPage'
 import ProductosPage from './pages/ProductosPage'
 import EmpleadosPage from './pages/EmpleadosPage'
 import StatsPage from './pages/StatsPage'
+import AdminGuard from './components/AdminGuard'
+import AdminLayout from './components/AdminLayout'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -21,10 +23,14 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<RetiroPage />} />
-          <Route path="/admin" element={<AdminPage />} />
-          <Route path="/admin/productos" element={<ProductosPage />} />
-          <Route path="/admin/empleados" element={<EmpleadosPage />} />
-          <Route path="/admin/stats" element={<StatsPage />} />
+          <Route element={<AdminGuard />}>
+            <Route element={<AdminLayout />}>
+              <Route path="/admin" element={<AdminPage />} />
+              <Route path="/admin/productos" element={<ProductosPage />} />
+              <Route path="/admin/empleados" element={<EmpleadosPage />} />
+              <Route path="/admin/stats" element={<StatsPage />} />
+            </Route>
+          </Route>
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>

@@ -1,6 +1,5 @@
 import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
 import { api, Producto } from '../api'
 import { useScanner } from '../hooks/useScanner'
 
@@ -76,16 +75,8 @@ export default function ProductosPage() {
   ) ?? []
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Link to="/admin" className="text-cyan-600 text-sm hover:underline">← Admin</Link>
-          <h1 className="text-xl font-bold text-gray-900">Catálogo de productos</h1>
-        </div>
-        <span className="text-sm text-gray-400">{productos?.length ?? 0} productos</span>
-      </header>
-
-      <div className="max-w-3xl mx-auto px-6 py-8 space-y-6">
+    <>
+    <div className="max-w-3xl mx-auto px-6 py-8 space-y-6">
 
         {/* Formulario nuevo producto */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
@@ -225,6 +216,6 @@ export default function ProductosPage() {
           {feedback.msg}
         </div>
       )}
-    </div>
+    </>
   )
 }

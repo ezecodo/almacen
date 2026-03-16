@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
 import { api, Empleado } from '../api'
 
 export default function EmpleadosPage() {
@@ -52,16 +51,8 @@ export default function EmpleadosPage() {
   const inactivos = empleados?.filter((e) => !e.activo)  ?? []
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Link to="/admin" className="text-cyan-600 text-sm hover:underline">← Admin</Link>
-          <h1 className="text-xl font-bold text-gray-900">Empleados</h1>
-        </div>
-        <span className="text-sm text-gray-400">{activos.length} activos</span>
-      </header>
-
-      <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
+    <>
+    <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
 
         {/* Formulario nuevo empleado */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
@@ -194,6 +185,6 @@ export default function EmpleadosPage() {
           {feedback.msg}
         </div>
       )}
-    </div>
+    </>
   )
 }

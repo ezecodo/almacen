@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
 import * as XLSX from 'xlsx'
 import { api, RetiroFiltros } from '../api'
 
@@ -21,68 +20,13 @@ function getLogoSrc(nombre: string): string | null {
   return null
 }
 
-const ADMIN_PIN = import.meta.env.VITE_ADMIN_PIN as string
-
-function PinGate({ onSuccess }: { onSuccess: () => void }) {
-  const [pin, setPin] = useState('')
-  const [error, setError] = useState(false)
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (pin === ADMIN_PIN) {
-      onSuccess()
-    } else {
-      setError(true)
-      setPin('')
-    }
-  }
-
-  return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
-      <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-10 w-full max-w-sm text-center">
-        <div className="text-5xl mb-4">🔒</div>
-        <h1 className="text-2xl font-bold text-gray-900 mb-1">Panel Admin</h1>
-        <p className="text-gray-400 text-sm mb-8">Introduce el PIN para continuar</p>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <input
-            type="password"
-            inputMode="numeric"
-            value={pin}
-            onChange={(e) => { setPin(e.target.value); setError(false) }}
-            placeholder="····"
-            autoFocus
-            className={`w-full text-center text-3xl tracking-widest border-2 rounded-xl px-4 py-4 focus:outline-none transition-colors ${
-              error ? 'border-red-400 bg-red-50' : 'border-gray-200 focus:border-cyan-500'
-            }`}
-          />
-          {error && <p className="text-red-500 text-sm">PIN incorrecto</p>}
-          <button
-            type="submit"
-            className="w-full bg-cyan-500 text-white text-lg font-semibold py-4 rounded-xl hover:bg-cyan-400 transition-colors"
-          >
-            Entrar
-          </button>
-        </form>
-        <Link to="/" className="block mt-6 text-sm text-gray-400 hover:text-gray-600">
-          ← Volver a la app
-        </Link>
-      </div>
-    </div>
-  )
-}
-
 export default function AdminPage() {
-  const [autenticado, setAutenticado] = useState(false)
-
-  if (!autenticado) return <PinGate onSuccess={() => setAutenticado(true)} />
-
   return <AdminPanel />
 }
 
 function AdminPanel() {
   const [filtros, setFiltros] = useState<RetiroFiltros>({ page: 1, limit: 20 })
   const [selectedId, setSelectedId] = useState<number | null>(null)
-
   const { data, isPending } = useQuery({
     queryKey: ['retiros', filtros],
     queryFn: () => api.retiros.list(filtros),
@@ -131,45 +75,7 @@ function AdminPanel() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Link to="/" className="text-cyan-600 text-sm hover:underline">← Volver</Link>
-          <h1 className="text-xl font-bold text-gray-900">Panel Admin</h1>
-        </div>
-        <div className="flex gap-2">
-          <Link to="/admin/empleados" className="text-sm bg-cyan-50 text-cyan-700 font-medium px-4 py-2 rounded-xl hover:bg-cyan-100 transition-colors">
-            👥 Empleados
-          </Link>
-          <Link to="/admin/productos" className="text-sm bg-cyan-50 text-cyan-700 font-medium px-4 py-2 rounded-xl hover:bg-cyan-100 transition-colors">
-            📦 Catálogo
-          </Link>
-          <Link to="/admin/stats" className="text-sm bg-cyan-50 text-cyan-700 font-medium px-4 py-2 rounded-xl hover:bg-cyan-100 transition-colors">
-            📊 Estadísticas
-          </Link>
-        </div>
-        <div className="flex items-center gap-4">
-          <span className="text-sm text-gray-400">{data?.total ?? 0} retiro{data?.total !== 1 ? 's' : ''}</span>
-          <button
-            onClick={handleExport}
-            disabled={exporting || !data?.total}
-            className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-4 py-2 rounded-xl transition-colors disabled:opacity-40"
-          >
-            {exporting ? (
-              <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
-              </svg>
-            ) : (
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-            )}
-            Exportar XLSX
-          </button>
-        </div>
-      </header>
-
+    <div>
       <div className="max-w-5xl mx-auto px-6 py-8 space-y-6">
         {/* Acceso rápido por restaurante */}
         {restaurantes && (
@@ -268,6 +174,28 @@ function AdminPanel() {
         </div>
 
         {/* Lista de retiros */}
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
+            Retiros {data?.total ? `· ${data.total}` : ''}
+          </h2>
+          <button
+            onClick={handleExport}
+            disabled={exporting || !data?.total}
+            className="flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:border-cyan-400 hover:text-cyan-600 transition-colors disabled:opacity-40"
+          >
+            {exporting ? (
+              <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
+              </svg>
+            ) : (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+            )}
+            Exportar XLSX
+          </button>
+        </div>
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           {isPending || !data ? (
             <div className="p-8 text-center text-gray-400">Cargando…</div>
