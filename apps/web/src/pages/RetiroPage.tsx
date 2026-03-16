@@ -198,8 +198,8 @@ export default function RetiroPage() {
       {/* Header */}
       <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-center relative">
         <img src="/sensi.png" alt="Sensi" className="h-8 object-contain" />
-        <Link to="/admin" className="absolute right-6 text-sm text-indigo-600 hover:underline">
-          Admin
+        <Link to="/admin" className="absolute right-6 text-sm font-medium bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 transition-colors">
+          Panel Admin
         </Link>
       </header>
 
