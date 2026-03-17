@@ -59,7 +59,7 @@ export default function StatsPage() {
               <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                 {reviews.map((r) => (
                   <div key={r.restaurantId} className="flex flex-col items-center bg-gray-50 rounded-2xl p-5 gap-1 border border-gray-100">
-                    <p className="text-xs text-gray-400 text-center truncate w-full">{r.nombre}</p>
+                    <p className="text-xs text-gray-400 text-center w-full leading-tight">{r.nombre}</p>
 
                     {/* Nuevas reseñas ayer */}
                     <div className="flex flex-col items-center my-1">
