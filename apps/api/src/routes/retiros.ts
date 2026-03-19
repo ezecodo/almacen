@@ -87,4 +87,21 @@ export async function retiroRoutes(app: FastifyInstance) {
     if (!retiro) return reply.status(404).send({ error: 'Retiro no encontrado' })
     return retiro
   })
+
+  app.patch('/retiros/:id/confirmar', async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const { confirmadoPor } = req.body as { confirmadoPor?: string }
+
+    const retiro = await prisma.retiro.findUnique({ where: { id: Number(id) } })
+    if (!retiro) return reply.status(404).send({ error: 'Retiro no encontrado' })
+    if (retiro.confirmadoAt) return reply.status(400).send({ error: 'Este retiro ya fue confirmado' })
+
+    const updated = await prisma.retiro.update({
+      where: { id: Number(id) },
+      data: { confirmadoAt: new Date(), confirmadoPor: confirmadoPor ?? null },
+      include: { empleado: true, restaurant: true, items: true }
+    })
+
+    return updated
+  })
 }

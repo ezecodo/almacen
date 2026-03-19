@@ -64,6 +64,8 @@ export interface RetiroResumen {
   empleado: { id: number; nombre: string }
   restaurant: { id: number; nombre: string }
   items: RetiroItem[]
+  confirmadoAt?: string | null
+  confirmadoPor?: string | null
 }
 
 export interface RetirosResponse {
@@ -80,6 +82,16 @@ export interface Producto {
   nombre: string
   unidad: 'kg' | 'ud' | 'l' | 'g'
   createdAt: string
+}
+
+async function patch<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`PATCH ${path} failed: ${res.status}`)
+  return res.json() as Promise<T>
 }
 
 async function del(path: string): Promise<void> {
@@ -136,6 +148,8 @@ export const api = {
       return get<RetirosResponse>(`/retiros${qs ? `?${qs}` : ''}`)
     },
     get: (id: number) => get<RetiroResumen>(`/retiros/${id}`),
+    confirmar: (id: number, confirmadoPor: string) =>
+      patch<RetiroResumen>(`/retiros/${id}/confirmar`, { confirmadoPor }),
   },
   reviews: {
     list: () => get<{ restaurantId: number; nombre: string; total: number | null; rating: number | null; diff: number | null; fecha: string | null }[]>('/reviews'),

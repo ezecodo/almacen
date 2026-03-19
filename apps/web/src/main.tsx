@@ -9,6 +9,8 @@ import EmpleadosPage from './pages/EmpleadosPage'
 import StatsPage from './pages/StatsPage'
 import AdminGuard from './components/AdminGuard'
 import AdminLayout from './components/AdminLayout'
+import VerificarPage from './pages/VerificarPage'
+import ValidarPage from './pages/ValidarPage'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -23,12 +25,14 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<RetiroPage />} />
+          <Route path="/verificar/:id" element={<VerificarPage />} />
           <Route element={<AdminGuard />}>
             <Route element={<AdminLayout />}>
               <Route path="/admin" element={<AdminPage />} />
               <Route path="/admin/productos" element={<ProductosPage />} />
               <Route path="/admin/empleados" element={<EmpleadosPage />} />
               <Route path="/admin/stats" element={<StatsPage />} />
+              <Route path="/admin/validar" element={<ValidarPage />} />
             </Route>
           </Route>
         </Routes>

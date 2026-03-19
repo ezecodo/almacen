@@ -209,6 +209,7 @@ function AdminPanel() {
                   <th className="text-left px-5 py-3 text-gray-500 font-medium">Empleado</th>
                   <th className="text-left px-5 py-3 text-gray-500 font-medium">Restaurante</th>
                   <th className="text-right px-5 py-3 text-gray-500 font-medium">Items</th>
+                  <th className="text-center px-5 py-3 text-gray-500 font-medium">Estado</th>
                   <th className="px-5 py-3" />
                 </tr>
               </thead>
@@ -231,6 +232,20 @@ function AdminPanel() {
                     <td className="px-5 py-4 font-medium text-gray-900">{retiro.empleado.nombre}</td>
                     <td className="px-5 py-4 text-gray-600">{retiro.restaurant.nombre}</td>
                     <td className="px-5 py-4 text-right text-gray-500">{retiro.items.length}</td>
+                    <td className="px-5 py-4 text-center">
+                      {retiro.confirmadoAt ? (
+                        <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-600 text-xs font-semibold px-2.5 py-1 rounded-full border border-emerald-100">
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                          Recibido
+                        </span>
+                      ) : (
+                        <span className="bg-amber-50 text-amber-500 text-xs font-semibold px-2.5 py-1 rounded-full border border-amber-100">
+                          Pendiente
+                        </span>
+                      )}
+                    </td>
                     <td className="px-5 py-4 text-gray-300 text-right">›</td>
                   </tr>
                 ))}
@@ -290,9 +305,28 @@ function AdminPanel() {
                   </ul>
 
                   {/* Footer */}
-                  <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex justify-between items-center">
-                    <span className="text-sm text-gray-400">{detalle.items.length} producto{detalle.items.length !== 1 ? 's' : ''}</span>
-                    <span className="text-xs text-gray-400">#{selectedId}</span>
+                  <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-400">{detalle.items.length} producto{detalle.items.length !== 1 ? 's' : ''}</span>
+                      <span className="text-xs text-gray-400">#{selectedId}</span>
+                    </div>
+                    {detalle.confirmadoAt ? (
+                      <div className="flex items-center gap-2 text-xs text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2">
+                        <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span>
+                          Recibido por <strong>{detalle.confirmadoPor}</strong> · {new Date(detalle.confirmadoAt).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 text-xs text-amber-500 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+                        <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span>Pendiente de confirmación en cocina</span>
+                      </div>
+                    )}
                   </div>
                 </>
               )}

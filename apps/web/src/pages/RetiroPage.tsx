@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react'
+import QRCode from 'qrcode'
 import { useMutation } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { api, Restaurante, Empleado, RetiroItem } from '../api'
@@ -79,7 +80,7 @@ export default function RetiroPage() {
     setShowConfirm(false)
   }
 
-  const handlePrint = () => {
+  const handlePrint = async () => {
     const fecha = new Date().toLocaleString('es-ES', {
       day: '2-digit', month: '2-digit', year: 'numeric',
       hour: '2-digit', minute: '2-digit',
@@ -90,6 +91,18 @@ export default function RetiroPage() {
         <td style="padding:3px 0;font-size:13px;text-align:right;font-weight:bold;white-space:nowrap;">${item.cantidad} ${item.unidad}</td>
       </tr>`
     ).join('')
+
+    let qrSection = ''
+    if (retiroId) {
+      const verifyUrl = `${window.location.origin}/verificar/${retiroId}`
+      const qrDataUrl = await QRCode.toDataURL(verifyUrl, { width: 130, margin: 1 })
+      qrSection = `
+  <div class="divider"></div>
+  <div style="text-align:center;margin-top:6px;">
+    <img src="${qrDataUrl}" style="width:33mm;height:33mm;" />
+    <p style="font-size:10px;color:#888;margin-top:3px;">Escanea para confirmar recepción</p>
+  </div>`
+    }
 
     const html = `<!DOCTYPE html>
 <html>
@@ -120,7 +133,8 @@ export default function RetiroPage() {
   <table>${lineas}</table>
   <div class="divider"></div>
   <p class="total">${items.length} producto${items.length !== 1 ? 's' : ''}</p>
-  <p class="footer">Almacén · ${new Date().toLocaleDateString('es-ES')}</p>
+  ${qrSection}
+  <p class="footer" style="margin-top:8px;">Almacén · ${new Date().toLocaleDateString('es-ES')}</p>
 </body>
 </html>`
 

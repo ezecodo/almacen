@@ -35,13 +35,15 @@ model Empleado {
 }
 
 model Retiro {
-  id           Int          @id @default(autoincrement())
-  createdAt    DateTime     @default(now())
-  empleadoId   Int
-  restaurantId Int
-  empleado     Empleado     @relation(fields: [empleadoId], references: [id])
-  restaurant   Restaurant   @relation(fields: [restaurantId], references: [id])
-  items        RetiroItem[]
+  id             Int          @id @default(autoincrement())
+  createdAt      DateTime     @default(now())
+  empleadoId     Int
+  restaurantId   Int
+  empleado       Empleado     @relation(fields: [empleadoId], references: [id])
+  restaurant     Restaurant   @relation(fields: [restaurantId], references: [id])
+  items          RetiroItem[]
+  confirmadoAt   DateTime?
+  confirmadoPor  String?
 }
 
 model RetiroItem {

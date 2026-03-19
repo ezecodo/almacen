@@ -22,6 +22,7 @@ export default function AdminLayout() {
         <nav className="flex gap-1">
           {[
             { to: '/admin', label: 'Retiros', end: true },
+            { to: '/admin/validar', label: 'Validar' },
             { to: '/admin/stats', label: 'Estadísticas' },
             { to: '/admin/empleados', label: 'Empleados' },
             { to: '/admin/productos', label: 'Catálogo' },
