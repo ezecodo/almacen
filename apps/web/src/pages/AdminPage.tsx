@@ -76,7 +76,7 @@ function AdminPanel() {
 
   return (
     <div>
-      <div className="max-w-5xl mx-auto px-6 py-8 space-y-6">
+      <div className="max-w-5xl mx-auto px-4 md:px-6 py-6 md:py-8 space-y-4 md:space-y-6">
         {/* Acceso rápido por restaurante */}
         {restaurantes && (
           <div className="flex gap-3 flex-wrap">
@@ -117,7 +117,7 @@ function AdminPanel() {
 
         {/* Filtros */}
         <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Restaurante</label>
               <select
@@ -202,55 +202,95 @@ function AdminPanel() {
           ) : data.retiros.length === 0 ? (
             <div className="p-8 text-center text-gray-400">No hay retiros con estos filtros</div>
           ) : (
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b border-gray-100">
-                <tr>
-                  <th className="text-left px-5 py-3 text-gray-500 font-medium">Fecha</th>
-                  <th className="text-left px-5 py-3 text-gray-500 font-medium">Empleado</th>
-                  <th className="text-left px-5 py-3 text-gray-500 font-medium">Restaurante</th>
-                  <th className="text-right px-5 py-3 text-gray-500 font-medium">Items</th>
-                  <th className="text-center px-5 py-3 text-gray-500 font-medium">Estado</th>
-                  <th className="px-5 py-3" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
+            <>
+              {/* Tabla — desktop */}
+              <table className="hidden md:table w-full text-sm">
+                <thead className="bg-gray-50 border-b border-gray-100">
+                  <tr>
+                    <th className="text-left px-5 py-3 text-gray-500 font-medium">Fecha</th>
+                    <th className="text-left px-5 py-3 text-gray-500 font-medium">Empleado</th>
+                    <th className="text-left px-5 py-3 text-gray-500 font-medium">Restaurante</th>
+                    <th className="text-right px-5 py-3 text-gray-500 font-medium">Items</th>
+                    <th className="text-center px-5 py-3 text-gray-500 font-medium">Estado</th>
+                    <th className="px-5 py-3" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {data.retiros.map((retiro) => (
+                    <tr
+                      key={retiro.id}
+                      className={`hover:bg-gray-50 cursor-pointer transition-colors ${selectedId === retiro.id ? 'bg-cyan-50' : ''}`}
+                      onClick={() => setSelectedId(selectedId === retiro.id ? null : retiro.id)}
+                    >
+                      <td className="px-5 py-4 text-gray-700">
+                        {new Date(retiro.createdAt).toLocaleString('es-ES', {
+                          day: '2-digit', month: '2-digit', year: 'numeric',
+                          hour: '2-digit', minute: '2-digit',
+                        })}
+                      </td>
+                      <td className="px-5 py-4 font-medium text-gray-900">{retiro.empleado.nombre}</td>
+                      <td className="px-5 py-4 text-gray-600">{retiro.restaurant.nombre}</td>
+                      <td className="px-5 py-4 text-right text-gray-500">{retiro.items.length}</td>
+                      <td className="px-5 py-4 text-center">
+                        {retiro.confirmadoAt ? (
+                          <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-600 text-xs font-semibold px-2.5 py-1 rounded-full border border-emerald-100">
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                            </svg>
+                            Recibido
+                          </span>
+                        ) : (
+                          <span className="bg-amber-50 text-amber-500 text-xs font-semibold px-2.5 py-1 rounded-full border border-amber-100">
+                            Pendiente
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-5 py-4 text-gray-300 text-right">›</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {/* Cards — móvil */}
+              <ul className="md:hidden divide-y divide-gray-50">
                 {data.retiros.map((retiro) => (
-                  <tr
+                  <li
                     key={retiro.id}
-                    className={`hover:bg-gray-50 cursor-pointer transition-colors ${selectedId === retiro.id ? 'bg-cyan-50' : ''}`}
+                    className={`px-4 py-4 cursor-pointer transition-colors active:bg-gray-50 ${selectedId === retiro.id ? 'bg-cyan-50' : ''}`}
                     onClick={() => setSelectedId(selectedId === retiro.id ? null : retiro.id)}
                   >
-                    <td className="px-5 py-4 text-gray-700">
-                      {new Date(retiro.createdAt).toLocaleString('es-ES', {
-                        day: '2-digit',
-                        month: '2-digit',
-                        year: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </td>
-                    <td className="px-5 py-4 font-medium text-gray-900">{retiro.empleado.nombre}</td>
-                    <td className="px-5 py-4 text-gray-600">{retiro.restaurant.nombre}</td>
-                    <td className="px-5 py-4 text-right text-gray-500">{retiro.items.length}</td>
-                    <td className="px-5 py-4 text-center">
-                      {retiro.confirmadoAt ? (
-                        <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-600 text-xs font-semibold px-2.5 py-1 rounded-full border border-emerald-100">
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                          </svg>
-                          Recibido
-                        </span>
-                      ) : (
-                        <span className="bg-amber-50 text-amber-500 text-xs font-semibold px-2.5 py-1 rounded-full border border-amber-100">
-                          Pendiente
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-5 py-4 text-gray-300 text-right">›</td>
-                  </tr>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-gray-900 truncate">{retiro.empleado.nombre}</p>
+                        <p className="text-sm text-gray-500 truncate">{retiro.restaurant.nombre}</p>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          {new Date(retiro.createdAt).toLocaleString('es-ES', {
+                            day: '2-digit', month: '2-digit', year: 'numeric',
+                            hour: '2-digit', minute: '2-digit',
+                          })}
+                          {' · '}{retiro.items.length} item{retiro.items.length !== 1 ? 's' : ''}
+                        </p>
+                      </div>
+                      <div className="flex flex-col items-end gap-1 shrink-0">
+                        {retiro.confirmadoAt ? (
+                          <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-600 text-xs font-semibold px-2.5 py-1 rounded-full border border-emerald-100">
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                            </svg>
+                            Recibido
+                          </span>
+                        ) : (
+                          <span className="bg-amber-50 text-amber-500 text-xs font-semibold px-2.5 py-1 rounded-full border border-amber-100">
+                            Pendiente
+                          </span>
+                        )}
+                        <span className="text-gray-300 text-sm">›</span>
+                      </div>
+                    </div>
+                  </li>
                 ))}
-              </tbody>
-            </table>
+              </ul>
+            </>
           )}
         </div>
 

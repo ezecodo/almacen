@@ -86,7 +86,7 @@ export default function ValidarPage() {
   const yaConfirmado = !!retiro?.confirmadoAt
 
   return (
-    <div className="max-w-2xl mx-auto px-6 py-10">
+    <div className="max-w-2xl mx-auto px-4 md:px-6 py-6 md:py-10">
       <div className="mb-8">
         <h2 className="text-2xl font-bold text-gray-900">Validar retiro</h2>
         <p className="text-gray-400 text-sm mt-1">
@@ -94,7 +94,7 @@ export default function ValidarPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {/* Columna cámara */}
         <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
