@@ -57,7 +57,7 @@ export default function VerificarPage() {
     <div className="min-h-screen bg-gray-50 flex flex-col items-center py-10 px-6">
       {/* Header */}
       <div className="w-full max-w-md mb-8 flex justify-center">
-        <img src="/sensi.png" alt="Sensi" className="h-8 object-contain" />
+        <img src="/oidoops.svg" alt="OidoOps" className="h-8 object-contain" />
       </div>
 
       {/* Card principal */}

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 70" fill="none">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#4B9EDF"/>
+      <stop offset="100%" stop-color="#4CC8A0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Speech bubble with tail at bottom-center -->
+  <path d="M14 2 L54 2 Q66 2 66 14 L66 52 Q66 62 54 62 L40 62 L34 70 L28 62 L14 62 Q2 62 2 52 L2 14 Q2 2 14 2 Z"
+        fill="url(#g)"/>
+
+  <!-- White checkmark -->
+  <path d="M15 34 L29 48 L55 18"
+        stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- "OidoOps" as one word, two colors -->
+  <text x="80" y="51" font-family="'Helvetica Neue', Arial, sans-serif" font-weight="800" font-size="44">
+    <tspan fill="#1e293b">Oido</tspan><tspan fill="#4CC8A0">Ops</tspan>
+  </text>
+</svg>

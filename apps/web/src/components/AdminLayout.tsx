@@ -3,9 +3,11 @@ import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
 const NAV_ITEMS = [
   { to: '/admin', label: 'Retiros', end: true },
   { to: '/admin/validar', label: 'Validar' },
+  { to: '/admin/propinas', label: 'Propinas' },
   { to: '/admin/stats', label: 'Estadísticas' },
   { to: '/admin/empleados', label: 'Empleados' },
   { to: '/admin/productos', label: 'Catálogo' },
+  { to: '/admin/menu', label: 'Menú' },
 ]
 
 export default function AdminLayout() {
@@ -27,7 +29,7 @@ export default function AdminLayout() {
         {/* Fila superior: logo + acciones */}
         <div className="px-4 py-3 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
-            <img src="/sensi.png" alt="Sensi" className="h-7 object-contain shrink-0" />
+            <img src="/oidoops.svg" alt="OidoOps" className="h-7 object-contain shrink-0" />
             <span className="text-gray-300 hidden sm:block">|</span>
             <h1 className="text-base font-bold text-gray-900 whitespace-nowrap hidden sm:block">Panel Admin</h1>
           </div>

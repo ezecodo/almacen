@@ -18,7 +18,7 @@ interface PendingScan {
 }
 
 export default function RetiroPage() {
-  const [step, setStep] = useState<Step>('restaurante')
+  const [step, setStep] = useState<Step>('empleado')
   const [restaurante, setRestaurante] = useState<Restaurante | null>(null)
   const [empleado, setEmpleado] = useState<Empleado | null>(null)
   const [items, setItems] = useState<RetiroItem[]>([])
@@ -32,7 +32,7 @@ export default function RetiroPage() {
     onSuccess: (emp) => {
       setEmpleado(emp)
       setPinError(false)
-      setStep('escaneo')
+      setStep('restaurante')
     },
     onError: () => {
       setPinError(true)
@@ -123,7 +123,7 @@ export default function RetiroPage() {
   </style>
 </head>
 <body>
-  <div class="logo"><img src="${window.location.origin}/sensi.png" /></div>
+  <div class="logo"><img src="${window.location.origin}/oidoops.svg" /></div>
   <div class="divider"></div>
   <p class="info">Fecha: <span>${fecha}</span></p>
   <p class="info">Empleado: <span>${empleado?.nombre}</span></p>
@@ -134,7 +134,7 @@ export default function RetiroPage() {
   <div class="divider"></div>
   <p class="total">${items.length} producto${items.length !== 1 ? 's' : ''}</p>
   ${qrSection}
-  <p class="footer" style="margin-top:8px;">Almacén · ${new Date().toLocaleDateString('es-ES')}</p>
+  <p class="footer" style="margin-top:8px;">OidoOps · ${new Date().toLocaleDateString('es-ES')}</p>
 </body>
 </html>`
 
@@ -146,7 +146,7 @@ export default function RetiroPage() {
   }
 
   const handleReset = () => {
-    setStep('restaurante')
+    setStep('empleado')
     setRestaurante(null)
     setEmpleado(null)
     setItems([])
@@ -162,7 +162,7 @@ export default function RetiroPage() {
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-8 text-center">
         {/* Header igual que el resto */}
         <div className="absolute top-0 left-0 right-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-center">
-          <img src="/sensi.png" alt="Sensi" className="h-8 object-contain" />
+          <img src="/oidoops.svg" alt="OidoOps" className="h-8 object-contain" />
         </div>
 
         {/* Check */}
@@ -212,7 +212,7 @@ export default function RetiroPage() {
     <div className="min-h-screen bg-gray-50 relative">
       {/* Header */}
       <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-center relative">
-        <img src="/sensi.png" alt="Sensi" className="h-8 object-contain" />
+        <img src="/oidoops.svg" alt="OidoOps" className="h-8 object-contain" />
       </header>
 
       <main className="flex flex-col items-center px-6 py-10 gap-8">
@@ -225,21 +225,19 @@ export default function RetiroPage() {
               value={restaurante}
               onChange={(r) => {
                 setRestaurante(r)
-                setEmpleado(null)
-                setStep('empleado')
+                setStep('escaneo')
               }}
             />
           </section>
         )}
 
         {/* PASO 2: PIN */}
-        {step === 'empleado' && restaurante && (
+        {step === 'empleado' && (
           <section className="flex flex-col items-center gap-6 w-full max-w-xs">
             <PinPad
               onSubmit={(pin) => authEmpleado.mutate(pin)}
               isLoading={authEmpleado.isPending}
               error={pinError}
-              onBack={() => setStep('restaurante')}
             />
           </section>
         )}

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import * as XLSX from 'xlsx'
 import { api, RetiroFiltros } from '../api'
 
@@ -46,6 +46,15 @@ function AdminPanel() {
   const totalPages = data?.pages ?? 1
 
   const [exporting, setExporting] = useState(false)
+  const queryClient = useQueryClient()
+
+  const eliminarRetiro = useMutation({
+    mutationFn: (id: number) => api.retiros.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['retiros'] })
+      setSelectedId(null)
+    },
+  })
 
   const handleExport = async () => {
     setExporting(true)
@@ -346,6 +355,14 @@ function AdminPanel() {
 
                   {/* Footer */}
                   <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 space-y-2">
+                  <div className="flex justify-end">
+                      <button
+                        onClick={() => { if (confirm('¿Eliminar este retiro permanentemente?')) eliminarRetiro.mutate(selectedId!) }}
+                        className="text-sm text-red-400 hover:text-red-600 transition-colors"
+                      >
+                        Eliminar retiro
+                      </button>
+                    </div>
                     <div className="flex justify-between items-center">
                       <span className="text-sm text-gray-400">{detalle.items.length} producto{detalle.items.length !== 1 ? 's' : ''}</span>
                       <span className="text-xs text-gray-400">#{selectedId}</span>

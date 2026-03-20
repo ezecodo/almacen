@@ -4,7 +4,7 @@ interface Props {
   onSubmit: (pin: string) => void
   isLoading: boolean
   error: boolean
-  onBack: () => void
+  onBack?: () => void
 }
 
 const KEYS = ['1','2','3','4','5','6','7','8','9','','0','⌫']
@@ -28,9 +28,11 @@ export default function PinPad({ onSubmit, isLoading, error, onBack }: Props) {
 
   return (
     <div className="flex flex-col items-center gap-8 w-full max-w-xs">
-      <button onClick={onBack} className="self-start text-cyan-600 text-sm hover:underline">
-        ← Cambiar restaurante
-      </button>
+      {onBack && (
+        <button onClick={onBack} className="self-start text-cyan-600 text-sm hover:underline">
+          ← Volver
+        </button>
+      )}
 
       <h2 className="text-3xl font-bold text-gray-900">Introduce tu PIN</h2>
 

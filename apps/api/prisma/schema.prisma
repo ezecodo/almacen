@@ -13,6 +13,8 @@ model Restaurant {
   placeId   String?
   retiros   Retiro[]
   reviews   ReviewSnapshot[]
+  propinas  PropinaDia[]
+  menu      MenuItem[]
   createdAt DateTime        @default(now())
 }
 
@@ -26,12 +28,37 @@ model ReviewSnapshot {
 }
 
 model Empleado {
-  id        Int      @id @default(autoincrement())
+  id        Int            @id @default(autoincrement())
   nombre    String
-  pin       String   @unique
+  tipo      String         @default("cocina")
+  pin       String?        @unique
+  telefono  String?
   retiros   Retiro[]
-  activo    Boolean  @default(true)
-  createdAt DateTime @default(now())
+  turnos    PropinaTurno[]
+  activo    Boolean        @default(true)
+  createdAt DateTime       @default(now())
+}
+
+model PropinaDia {
+  id           Int            @id @default(autoincrement())
+  restaurantId Int
+  restaurant   Restaurant     @relation(fields: [restaurantId], references: [id])
+  fecha        DateTime
+  efectivo     Float          @default(0)
+  tarjeta      Float          @default(0)
+  total        Float
+  turnos       PropinaTurno[]
+  createdAt    DateTime       @default(now())
+}
+
+model PropinaTurno {
+  id           Int        @id @default(autoincrement())
+  propinaDiaId Int
+  propinaDia   PropinaDia @relation(fields: [propinaDiaId], references: [id])
+  empleadoId   Int
+  empleado     Empleado   @relation(fields: [empleadoId], references: [id])
+  horas        Float      @default(8)
+  propina      Float
 }
 
 model Retiro {
@@ -54,6 +81,19 @@ model RetiroItem {
   nombre   String
   cantidad Float
   unidad   String
+}
+
+model MenuItem {
+  id           Int        @id @default(autoincrement())
+  restaurantId Int
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  categoria    String
+  nombre       String
+  descripcion  String     @default("")
+  precio       Float
+  activo       Boolean    @default(true)
+  orden        Int        @default(0)
+  createdAt    DateTime   @default(now())
 }
 
 model Producto {

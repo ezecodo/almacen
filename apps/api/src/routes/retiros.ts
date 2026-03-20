@@ -88,6 +88,15 @@ export async function retiroRoutes(app: FastifyInstance) {
     return retiro
   })
 
+  app.delete('/retiros/:id', async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const retiro = await prisma.retiro.findUnique({ where: { id: Number(id) } })
+    if (!retiro) return reply.status(404).send({ error: 'Retiro no encontrado' })
+    await prisma.retiroItem.deleteMany({ where: { retiroId: Number(id) } })
+    await prisma.retiro.delete({ where: { id: Number(id) } })
+    return reply.status(204).send()
+  })
+
   app.patch('/retiros/:id/confirmar', async (req, reply) => {
     const { id } = req.params as { id: string }
     const { confirmadoPor } = req.body as { confirmadoPor?: string }

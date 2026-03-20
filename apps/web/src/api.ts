@@ -24,8 +24,57 @@ export interface Restaurante {
 export interface Empleado {
   id: number
   nombre: string
-  pin: string
+  tipo: 'cocina' | 'sala'
+  pin?: string | null
+  telefono?: string | null
   activo: boolean
+}
+
+export interface PropinaTurno {
+  empleadoId: number
+  horas: number
+  propina: number
+  empleado: { id: number; nombre: string; tipo: string }
+}
+
+export interface PropinaDia {
+  id: number
+  restaurantId: number
+  restaurant: { id: number; nombre: string }
+  fecha: string
+  efectivo: number
+  tarjeta: number
+  total: number
+  turnos: PropinaTurno[]
+  createdAt: string
+}
+
+export interface PropinasResponse {
+  propinas: PropinaDia[]
+  total: number
+  page: number
+  limit: number
+  pages: number
+}
+
+export interface MiTurno {
+  id: number
+  fecha: string
+  restaurante: string
+  horas: number
+  propina: number
+  efectivo: number
+  tarjeta: number
+  totalDia: number
+}
+
+export interface ResumenEmpleado {
+  empleadoId: number
+  nombre: string
+  tipo: string
+  totalPropina: number
+  totalHoras: number
+  turnos: number
 }
 
 export interface ProductoLookup {
@@ -109,17 +158,62 @@ async function put<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>
 }
 
+export interface MenuItem {
+  id: number
+  restaurantId: number
+  categoria: string
+  nombre: string
+  descripcion: string
+  precio: number
+  activo: boolean
+  orden: number
+}
+
 export const api = {
   restaurantes: {
     list: () => get<Restaurante[]>('/restaurantes'),
   },
   empleados: {
-    list:   () => get<Empleado[]>('/empleados'),
+    list:   (tipo?: 'cocina' | 'sala') => get<Empleado[]>(`/empleados${tipo ? `?tipo=${tipo}` : ''}`),
     auth:   (pin: string) => post<Empleado>('/empleados/auth', { pin }),
-    create: (body: { nombre: string; pin: string }) => post<Empleado>('/empleados', body),
-    update: (id: number, body: { nombre?: string; pin?: string; activo?: boolean }) =>
+    create: (body: { nombre: string; tipo: 'cocina' | 'sala'; pin?: string }) => post<Empleado>('/empleados', body),
+    update: (id: number, body: { nombre?: string; tipo?: string; pin?: string; telefono?: string | null; activo?: boolean }) =>
       put<Empleado>(`/empleados/${id}`, body),
+    desactivar: (id: number) => patch<Empleado>(`/empleados/${id}/desactivar`, {}),
     delete: (id: number) => del(`/empleados/${id}`),
+  },
+  propinas: {
+    list: (filtros?: { restaurantId?: number; desde?: string; hasta?: string; page?: number }) => {
+      const params = new URLSearchParams()
+      if (filtros?.restaurantId) params.set('restaurantId', String(filtros.restaurantId))
+      if (filtros?.desde) params.set('desde', filtros.desde)
+      if (filtros?.hasta) params.set('hasta', filtros.hasta)
+      if (filtros?.page) params.set('page', String(filtros.page))
+      const qs = params.toString()
+      return get<PropinasResponse>(`/propinas${qs ? `?${qs}` : ''}`)
+    },
+    get: (id: number) => get<PropinaDia>(`/propinas/${id}`),
+    create: (body: {
+      restaurantId: number
+      fecha: string
+      efectivo: number
+      tarjeta: number
+      turnos: { empleadoId: number; horas: number }[]
+    }) => post<PropinaDia>('/propinas', body),
+    delete: (id: number) => del(`/propinas/${id}`),
+    misTurnos: (empleadoId: number, desde?: string, hasta?: string) => {
+      const params = new URLSearchParams({ empleadoId: String(empleadoId) })
+      if (desde) params.set('desde', desde)
+      if (hasta) params.set('hasta', hasta)
+      return get<MiTurno[]>(`/propinas/mis-turnos?${params.toString()}`)
+    },
+    resumenEmpleados: (mes?: string, restaurantId?: number) => {
+      const params = new URLSearchParams()
+      if (mes) params.set('mes', mes)
+      if (restaurantId) params.set('restaurantId', String(restaurantId))
+      const qs = params.toString()
+      return get<ResumenEmpleado[]>(`/propinas/resumen/empleados${qs ? `?${qs}` : ''}`)
+    },
   },
   productos: {
     lookup: (barcode: string) => get<ProductoLookup>(`/producto/${barcode}`),
@@ -150,6 +244,14 @@ export const api = {
     get: (id: number) => get<RetiroResumen>(`/retiros/${id}`),
     confirmar: (id: number, confirmadoPor: string) =>
       patch<RetiroResumen>(`/retiros/${id}/confirmar`, { confirmadoPor }),
+    delete: (id: number) => del(`/retiros/${id}`),
+  },
+  menu: {
+    list:   (restaurantId: number) => get<MenuItem[]>(`/menu?restaurantId=${restaurantId}`),
+    create: (body: Omit<MenuItem, 'id' | 'activo'>) => post<MenuItem>('/menu', body),
+    update: (id: number, body: Partial<Omit<MenuItem, 'id' | 'restaurantId' | 'activo'>>) => put<MenuItem>(`/menu/${id}`, body),
+    toggle: (id: number) => patch<MenuItem>(`/menu/${id}/toggle`, {}),
+    delete: (id: number) => del(`/menu/${id}`),
   },
   reviews: {
     list: () => get<{ restaurantId: number; nombre: string; total: number | null; rating: number | null; diff: number | null; fecha: string | null }[]>('/reviews'),

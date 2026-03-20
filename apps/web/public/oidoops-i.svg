@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 82" fill="none">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#4B9EDF"/>
+      <stop offset="100%" stop-color="#4CC8A0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Speech bubble — acts as the dot/accent of the í -->
+  <path d="M10 2 L42 2 Q50 2 50 10 L50 30 Q50 38 42 38 L30 38 L26 46 L22 38 L10 38 Q2 38 2 30 L2 10 Q2 2 10 2 Z"
+        fill="url(#g)"/>
+
+  <!-- White checkmark inside bubble -->
+  <path d="M11 21 L22 32 L43 10"
+        stroke="white" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Dotless ı (U+0131) — the i body without dot -->
+  <text x="18" y="80" font-family="'Helvetica Neue', Arial, sans-serif" font-weight="800" font-size="48" fill="#1e293b">&#x0131;</text>
+</svg>
