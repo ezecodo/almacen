@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 
@@ -14,10 +14,11 @@ export default function SalaLoginPage() {
   const [loading, setLoading] = useState(false)
   const [shake, setShake] = useState(false)
 
-  if (!restaurant) {
-    navigate('/sala/setup', { replace: true })
-    return null
-  }
+  useEffect(() => {
+    if (!restaurant) navigate('/sala/setup', { replace: true })
+  }, [])
+
+  if (!restaurant) return null
 
   const triggerError = (msg: string) => {
     setError(msg)
