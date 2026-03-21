@@ -156,6 +156,13 @@ function MisPropinas({ empleado, onLogout }: { empleado: Empleado; onLogout: () 
         </div>
       </div>
 
+      {/* Aviso */}
+      <div className="px-5 mb-5">
+        <p className="text-yellow-500/70 text-xs text-center">
+          ⚠ El importe total está sujeto a posibles variaciones
+        </p>
+      </div>
+
       {/* Lista de turnos */}
       <div className="px-5 pb-10">
         <h3 className="text-gray-400 text-xs font-semibold uppercase tracking-wide mb-3">Detalle por día</h3>

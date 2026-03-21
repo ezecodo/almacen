@@ -8,6 +8,8 @@ const NAV_ITEMS = [
   { to: '/admin/empleados', label: 'Empleados' },
   { to: '/admin/productos', label: 'Catálogo' },
   { to: '/admin/menu', label: 'Menú' },
+  { to: '/admin/salon', label: 'Salón' },
+  { to: '/admin/comandas', label: 'Comandas' },
 ]
 
 export default function AdminLayout() {

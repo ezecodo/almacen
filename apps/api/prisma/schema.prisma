@@ -8,14 +8,16 @@ datasource db {
 }
 
 model Restaurant {
-  id        Int             @id @default(autoincrement())
-  nombre    String
-  placeId   String?
-  retiros   Retiro[]
-  reviews   ReviewSnapshot[]
-  propinas  PropinaDia[]
-  menu      MenuItem[]
-  createdAt DateTime        @default(now())
+  id         Int              @id @default(autoincrement())
+  nombre     String
+  placeId    String?
+  retiros    Retiro[]
+  reviews    ReviewSnapshot[]
+  propinas   PropinaDia[]
+  menu       MenuItem[]
+  floorPlans FloorPlan[]
+  comandas   Comanda[]
+  createdAt  DateTime         @default(now())
 }
 
 model ReviewSnapshot {
@@ -94,6 +96,53 @@ model MenuItem {
   activo       Boolean    @default(true)
   orden        Int        @default(0)
   createdAt    DateTime   @default(now())
+}
+
+model FloorPlan {
+  id           Int        @id @default(autoincrement())
+  restaurantId Int
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  nombre       String
+  mesas        Mesa[]
+  createdAt    DateTime   @default(now())
+}
+
+model Mesa {
+  id          Int       @id @default(autoincrement())
+  floorPlanId Int
+  floorPlan   FloorPlan @relation(fields: [floorPlanId], references: [id], onDelete: Cascade)
+  numero      Int
+  tipo        String    // 'round' | 'square' | 'rectangular'
+  x           Float
+  y           Float
+  capacidad   Int
+  comandas    Comanda[]
+  createdAt   DateTime  @default(now())
+}
+
+model Comanda {
+  id           Int           @id @default(autoincrement())
+  restaurantId Int
+  restaurant   Restaurant    @relation(fields: [restaurantId], references: [id])
+  mesaId       Int
+  mesa         Mesa          @relation(fields: [mesaId], references: [id])
+  pax          Int
+  estado       String        @default("abierta") // 'abierta' | 'enviada' | 'cerrada'
+  metodoPago   String?       // 'cash' | 'tarjeta' | null
+  items        ComandaItem[]
+  createdAt    DateTime      @default(now())
+  closedAt     DateTime?
+}
+
+model ComandaItem {
+  id         Int     @id @default(autoincrement())
+  comandaId  Int
+  comanda    Comanda @relation(fields: [comandaId], references: [id], onDelete: Cascade)
+  nombre     String
+  precio     Float
+  cantidad   Int     @default(1)
+  nota       String  @default("")
+  nivel      Int?
 }
 
 model Producto {

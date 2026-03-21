@@ -169,6 +169,46 @@ export interface MenuItem {
   orden: number
 }
 
+export interface Mesa {
+  id:         number
+  floorPlanId: number
+  numero:     number
+  tipo:       'round' | 'square' | 'rectangular'
+  x:          number
+  y:          number
+  capacidad:  number
+}
+
+export interface FloorPlan {
+  id:           number
+  restaurantId: number
+  nombre:       string
+  mesas:        Mesa[]
+}
+
+export interface ComandaItem {
+  id:        number
+  comandaId: number
+  nombre:    string
+  precio:    number
+  cantidad:  number
+  nota:      string
+  nivel:     number | null
+}
+
+export interface Comanda {
+  id:           number
+  restaurantId: number
+  mesaId:       number
+  mesa:         Mesa
+  pax:          number
+  estado:       'abierta' | 'enviada' | 'cerrada'
+  metodoPago:   'cash' | 'tarjeta' | null
+  items:        ComandaItem[]
+  createdAt:    string
+  closedAt:     string | null
+}
+
 export const api = {
   restaurantes: {
     list: () => get<Restaurante[]>('/restaurantes'),
@@ -256,6 +296,34 @@ export const api = {
   reviews: {
     list: () => get<{ restaurantId: number; nombre: string; total: number | null; rating: number | null; diff: number | null; fecha: string | null }[]>('/reviews'),
     sync: () => post<{ synced: number }>('/reviews/sync', {}),
+  },
+  comandas: {
+    list:      (restaurantId: number) => get<Comanda[]>(`/comandas?restaurantId=${restaurantId}`),
+    abrir:     (restaurantId: number, mesaId: number, pax: number) =>
+      post<Comanda>('/comandas', { restaurantId, mesaId, pax }),
+    get:       (id: number) => get<Comanda>(`/comandas/${id}`),
+    addItem:   (id: number, item: { nombre: string; precio: number; cantidad: number; nota?: string }) =>
+      post<ComandaItem>(`/comandas/${id}/items`, item),
+    updateItem:(id: number, itemId: number, data: { cantidad?: number; nota?: string }) =>
+      patch<ComandaItem>(`/comandas/${id}/items/${itemId}`, data),
+    deleteItem:(id: number, itemId: number) => del(`/comandas/${id}/items/${itemId}`),
+    enviar:    (id: number, niveles: { itemId: number; nivel: number; nota?: string }[]) =>
+      patch<Comanda>(`/comandas/${id}/enviar`, { niveles }),
+    cerrar:    (id: number, metodoPago: 'cash' | 'tarjeta') =>
+      patch<Comanda>(`/comandas/${id}/cerrar`, { metodoPago }),
+  },
+  salon: {
+    list:   (restaurantId: number) => get<FloorPlan[]>(`/salon?restaurantId=${restaurantId}`),
+    create: (restaurantId: number, nombre: string) => post<FloorPlan>('/salon', { restaurantId, nombre }),
+    rename: (id: number, nombre: string) => put<FloorPlan>(`/salon/${id}`, { nombre }),
+    delete: (id: number) => del(`/salon/${id}`),
+    addMesa: (planId: number, mesa: Omit<Mesa, 'id' | 'floorPlanId'>) =>
+      post<Mesa>(`/salon/${planId}/mesas`, mesa),
+    updateMesa: (planId: number, mesaId: number, data: Partial<Omit<Mesa, 'id' | 'floorPlanId'>>) =>
+      put<Mesa>(`/salon/${planId}/mesas/${mesaId}`, data),
+    deleteMesa: (planId: number, mesaId: number) => del(`/salon/${planId}/mesas/${mesaId}`),
+    savePositions: (planId: number, positions: { id: number; x: number; y: number }[]) =>
+      patch<{ ok: boolean }>(`/salon/${planId}/mesas`, positions),
   },
   stats: {
     retirosPorDia: (dias = 30) => get<{ fecha: string; total: number }[]>(`/stats/retiros-por-dia?dias=${dias}`),

@@ -15,6 +15,11 @@ import ValidarPage from './pages/ValidarPage'
 import PropinasPage from './pages/PropinasPage'
 import MenuPage from './pages/MenuPage'
 import MisPropinasPage from './pages/MisPropinasPage'
+import SalonPage from './pages/SalonPage'
+import ComandasPage from './pages/ComandasPage'
+import SetupPage from './pages/SetupPage'
+import SalaLoginPage from './pages/SalaLoginPage'
+import SalaMesasPage from './pages/SalaMesasPage'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -29,6 +34,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<LandingPage />} />
+          <Route path="/sala/setup" element={<SetupPage />} />
+          <Route path="/sala" element={<SalaLoginPage />} />
+          <Route path="/sala/mesas" element={<SalaMesasPage />} />
           <Route path="/retiro" element={<RetiroPage />} />
           <Route path="/verificar/:id" element={<VerificarPage />} />
           <Route path="/mis-propinas" element={<MisPropinasPage />} />
@@ -41,6 +49,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               <Route path="/admin/validar" element={<ValidarPage />} />
               <Route path="/admin/propinas" element={<PropinasPage />} />
               <Route path="/admin/menu" element={<MenuPage />} />
+              <Route path="/admin/salon" element={<SalonPage />} />
+              <Route path="/admin/comandas" element={<ComandasPage />} />
             </Route>
           </Route>
         </Routes>

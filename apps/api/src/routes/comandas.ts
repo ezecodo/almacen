@@ -1,0 +1,133 @@
+import { FastifyInstance } from 'fastify'
+import { z } from 'zod'
+import { prisma } from '../server'
+
+const itemSchema = z.object({
+  nombre:   z.string().min(1),
+  precio:   z.number().min(0),
+  cantidad: z.number().int().positive().default(1),
+  nota:     z.string().default(''),
+})
+
+export async function comandaRoutes(app: FastifyInstance) {
+
+  // Comandas abiertas de un restaurante (para ver estado del salón)
+  app.get('/comandas', async (req, reply) => {
+    const { restaurantId, estado } = req.query as { restaurantId?: string; estado?: string }
+    if (!restaurantId) return reply.status(400).send({ error: 'restaurantId requerido' })
+
+    // Por defecto devuelve abierta + enviada (mesa ocupada)
+    const estadoFilter = estado
+      ? { estado }
+      : { estado: { in: ['abierta', 'enviada'] } }
+
+    return prisma.comanda.findMany({
+      where: {
+        restaurantId: Number(restaurantId),
+        ...estadoFilter,
+      },
+      include: {
+        items: true,
+        mesa: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+  })
+
+  // Abrir comanda (nueva mesa)
+  app.post('/comandas', async (req, reply) => {
+    const { restaurantId, mesaId, pax } = req.body as { restaurantId: number; mesaId: number; pax: number }
+    if (!restaurantId || !mesaId || !pax) return reply.status(400).send({ error: 'restaurantId, mesaId y pax requeridos' })
+
+    // Verificar que la mesa no tenga ya una comanda abierta
+    const abierta = await prisma.comanda.findFirst({ where: { mesaId, estado: 'abierta' } })
+    if (abierta) return reply.status(409).send({ error: 'La mesa ya tiene una comanda abierta' })
+
+    const comanda = await prisma.comanda.create({
+      data: { restaurantId, mesaId, pax, estado: 'abierta' },
+      include: { items: true, mesa: true },
+    })
+    return reply.status(201).send(comanda)
+  })
+
+  // Detalle de una comanda
+  app.get('/comandas/:id', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    const comanda = await prisma.comanda.findUnique({
+      where: { id },
+      include: { items: true, mesa: true },
+    })
+    if (!comanda) return reply.status(404).send({ error: 'No encontrada' })
+    return comanda
+  })
+
+  // Añadir item a comanda (si estaba enviada, vuelve a abierta para re-enviar)
+  app.post('/comandas/:id/items', async (req, reply) => {
+    const comandaId = Number((req.params as { id: string }).id)
+    const result = itemSchema.safeParse(req.body)
+    if (!result.success) return reply.status(400).send({ error: result.error.flatten() })
+
+    const [item] = await prisma.$transaction([
+      prisma.comandaItem.create({ data: { ...result.data, comandaId } }),
+      prisma.comanda.update({
+        where: { id: comandaId },
+        data: { estado: 'abierta' },
+      }),
+    ])
+    return reply.status(201).send(item)
+  })
+
+  // Actualizar cantidad/nota de un item
+  app.patch('/comandas/:id/items/:itemId', async (req, reply) => {
+    const itemId = Number((req.params as { id: string; itemId: string }).itemId)
+    const { cantidad, nota } = req.body as { cantidad?: number; nota?: string }
+
+    const item = await prisma.comandaItem.update({
+      where: { id: itemId },
+      data: { ...(cantidad !== undefined && { cantidad }), ...(nota !== undefined && { nota }) },
+    })
+    return item
+  })
+
+  // Eliminar item de comanda
+  app.delete('/comandas/:id/items/:itemId', async (req, reply) => {
+    const itemId = Number((req.params as { id: string; itemId: string }).itemId)
+    await prisma.comandaItem.delete({ where: { id: itemId } })
+    return reply.status(204).send()
+  })
+
+  // Enviar comanda a cocina (con niveles de salida)
+  app.patch('/comandas/:id/enviar', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    const { niveles } = req.body as { niveles: { itemId: number; nivel: number; nota?: string }[] }
+
+    await Promise.all(
+      (niveles ?? []).map(({ itemId, nivel, nota }) =>
+        prisma.comandaItem.update({
+          where: { id: itemId },
+          data: { nivel, ...(nota !== undefined && { nota }) },
+        })
+      )
+    )
+
+    const comanda = await prisma.comanda.update({
+      where: { id },
+      data: { estado: 'enviada' },
+      include: { items: true, mesa: true },
+    })
+    return comanda
+  })
+
+  // Cerrar comanda (cobrada — requiere método de pago)
+  app.patch('/comandas/:id/cerrar', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    const { metodoPago } = req.body as { metodoPago?: 'cash' | 'tarjeta' }
+
+    const comanda = await prisma.comanda.update({
+      where: { id },
+      data: { estado: 'cerrada', closedAt: new Date(), metodoPago: metodoPago ?? null },
+      include: { items: true, mesa: true },
+    })
+    return comanda
+  })
+}
