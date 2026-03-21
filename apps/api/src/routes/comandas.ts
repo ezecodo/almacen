@@ -19,7 +19,7 @@ export async function comandaRoutes(app: FastifyInstance) {
     // Por defecto devuelve abierta + enviada (mesa ocupada)
     const estadoFilter = estado
       ? { estado }
-      : { estado: { in: ['abierta', 'enviada'] } }
+      : { estado: { in: ['abierta', 'enviada', 'facturada'] } }
 
     return prisma.comanda.findMany({
       where: {
@@ -113,6 +113,17 @@ export async function comandaRoutes(app: FastifyInstance) {
     const comanda = await prisma.comanda.update({
       where: { id },
       data: { estado: 'enviada' },
+      include: { items: true, mesa: true },
+    })
+    return comanda
+  })
+
+  // Facturar comanda (camarero imprimió la cuenta)
+  app.patch('/comandas/:id/facturar', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    const comanda = await prisma.comanda.update({
+      where: { id },
+      data: { estado: 'facturada' },
       include: { items: true, mesa: true },
     })
     return comanda

@@ -8,6 +8,7 @@ const mesaSchema = z.object({
   x:         z.number(),
   y:         z.number(),
   capacidad: z.number().int().positive(),
+  rotacion:  z.number().int().optional().default(0),
 })
 
 const updateMesaSchema = z.object({
@@ -16,6 +17,7 @@ const updateMesaSchema = z.object({
   x:         z.number().optional(),
   y:         z.number().optional(),
   capacidad: z.number().int().positive().optional(),
+  rotacion:  z.number().int().optional(),
 })
 
 const batchSchema = z.array(z.object({
@@ -90,6 +92,10 @@ export async function salonRoutes(app: FastifyInstance) {
   // Eliminar mesa
   app.delete('/salon/:id/mesas/:mesaId', async (req, reply) => {
     const mesaId = Number((req.params as { id: string; mesaId: string }).mesaId)
+    const comandas = await prisma.comanda.count({ where: { mesaId } })
+    if (comandas > 0) {
+      return reply.status(409).send({ error: 'La mesa tiene comandas asociadas y no se puede eliminar' })
+    }
     await prisma.mesa.delete({ where: { id: mesaId } })
     return reply.status(204).send()
   })

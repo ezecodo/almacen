@@ -38,13 +38,14 @@ function suggestNivel(nombre: string, menu: MenuItem[]): number {
 function MesaBtn({ mesa, comanda, onClick }: { mesa: Mesa; comanda?: Comanda; onClick: () => void }) {
   const w = mesaWidth(mesa.tipo)
   const h = mesaHeight(mesa.tipo)
-  const libre   = !comanda
-  const enviada = comanda?.estado === 'enviada'
-  const isRound = mesa.tipo === 'round'
+  const libre      = !comanda
+  const enviada    = comanda?.estado === 'enviada'
+  const facturada  = comanda?.estado === 'facturada'
+  const isRound    = mesa.tipo === 'round'
 
-  const bg     = libre ? '#1e2d45' : enviada ? '#2d1a3a' : '#1a3a2e'
-  const border = libre ? '#334155' : enviada ? '#a855f7' : '#4CC8A0'
-  const glow   = libre ? 'none'    : enviada ? '0 0 16px #a855f744' : '0 0 16px #4CC8A044'
+  const bg     = libre ? '#1e2d45' : facturada ? '#2d2500' : enviada ? '#2d1a3a' : '#1a3a2e'
+  const border = libre ? '#334155' : facturada ? '#f59e0b' : enviada ? '#a855f7' : '#4CC8A0'
+  const glow   = libre ? 'none'    : facturada ? '0 0 16px #f59e0b44' : enviada ? '0 0 16px #a855f744' : '0 0 16px #4CC8A044'
 
   return (
     <div onClick={onClick} style={{
@@ -55,14 +56,14 @@ function MesaBtn({ mesa, comanda, onClick }: { mesa: Mesa; comanda?: Comanda; on
       alignItems: 'center', justifyContent: 'center', userSelect: 'none',
       transition: 'all 0.2s',
     }}>
-      <span style={{ color: libre ? '#94a3b8' : enviada ? '#c084fc' : '#4CC8A0', fontWeight: 800, fontSize: 18 }}>
+      <span style={{ color: libre ? '#94a3b8' : facturada ? '#f59e0b' : enviada ? '#c084fc' : '#4CC8A0', fontWeight: 800, fontSize: 18 }}>
         {mesa.numero}
       </span>
       {!libre ? (
         <>
-          <span style={{ color: enviada ? '#d8b4fe' : '#6ee7b7', fontSize: 10, marginTop: 2 }}>{comanda!.pax} pax</span>
-          <span style={{ color: enviada ? '#a855f7' : '#34d399', fontSize: 9, marginTop: 1 }}>
-            {enviada ? '🚀 enviada' : timeAgo(comanda!.createdAt)}
+          <span style={{ color: facturada ? '#fcd34d' : enviada ? '#d8b4fe' : '#6ee7b7', fontSize: 10, marginTop: 2 }}>{comanda!.pax} pax</span>
+          <span style={{ color: facturada ? '#f59e0b' : enviada ? '#a855f7' : '#34d399', fontSize: 9, marginTop: 1 }}>
+            {facturada ? '🧾 cuenta' : enviada ? '🚀 enviada' : timeAgo(comanda!.createdAt)}
           </span>
         </>
       ) : (
@@ -95,8 +96,12 @@ function AbrirMesaModal({ mesa, onConfirm, onClose }: { mesa: Mesa; onConfirm: (
 }
 
 // ── Modal ver cuenta (para el camarero, sin cobrar) ───────────────────────────
-function VerCuentaModal({ comanda, onClose }: { comanda: Comanda; onClose: () => void }) {
+function VerCuentaModal({ comanda, onClose, onFacturar }: { comanda: Comanda; onClose: () => void; onFacturar: () => void }) {
   const total = comanda.items.reduce((s, i) => s + i.precio * i.cantidad, 0)
+  const handleImprimir = () => {
+    onFacturar()
+    window.print()
+  }
   return (
     <div className="fixed inset-0 bg-black/80 flex items-end sm:items-center justify-center z-50" onClick={onClose}>
       <div className="bg-[#0f172a] w-full sm:max-w-sm rounded-t-3xl sm:rounded-2xl overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
@@ -120,8 +125,8 @@ function VerCuentaModal({ comanda, onClose }: { comanda: Comanda; onClose: () =>
           <span className="text-white text-3xl font-black">{total.toFixed(2)} €</span>
         </div>
         <div className="px-5 pb-5">
-          <button onClick={() => window.print()} className="w-full py-4 rounded-2xl bg-[#1e2d45] border border-gray-600 text-white font-bold text-lg">
-            🖨 Imprimir cuenta
+          <button onClick={handleImprimir} className="w-full py-4 rounded-2xl bg-[#f59e0b] text-white font-bold text-lg">
+            🧾 Imprimir cuenta
           </button>
         </div>
       </div>
@@ -294,7 +299,16 @@ function ComandaPanel({ comanda, menu, onClose, onEnviar }: {
   const [ordenando, setOrdenando] = useState(false)
   const [verCuenta, setVerCuenta] = useState(false)
 
-  const yaEnviada = comanda.estado === 'enviada'
+  const yaEnviada   = comanda.estado === 'enviada'
+  const yaFacturada = comanda.estado === 'facturada'
+
+  const facturarComanda = useMutation({
+    mutationFn: () => api.comandas.facturar(comanda.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['comanda-sala', comanda.id] })
+      queryClient.invalidateQueries({ queryKey: ['comandas-sala'] })
+    },
+  })
   const total = comanda.items.reduce((s, i) => s + i.precio * i.cantidad, 0)
 
   const addItem = useMutation({
@@ -471,14 +485,24 @@ function ComandaPanel({ comanda, menu, onClose, onEnviar }: {
             <span className="text-gray-400 text-sm">Total</span>
             <span className="text-white text-2xl font-bold">{total.toFixed(2)} €</span>
           </div>
-          {yaEnviada ? (
+          {yaFacturada ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-center gap-2 py-2 bg-amber-500/10 rounded-xl">
+                <span className="text-amber-400 text-sm font-bold">🧾 Cuenta impresa — pendiente de cobro</span>
+              </div>
+              <button onClick={e => { e.stopPropagation(); setVerCuenta(true) }}
+                className="w-full py-3 rounded-2xl bg-[#1e2d45] border border-gray-600 text-gray-400 font-medium text-sm">
+                Ver cuenta de nuevo
+              </button>
+            </div>
+          ) : yaEnviada ? (
             <div className="space-y-2">
               <div className="flex items-center justify-center gap-2 py-1">
                 <span className="text-[#4CC8A0] text-sm font-semibold">🚀 Enviada a cocina</span>
                 <button onClick={() => setOrdenando(true)} className="text-gray-500 text-xs underline">re-enviar</button>
               </div>
               <button onClick={e => { e.stopPropagation(); setVerCuenta(true) }}
-                className="w-full py-4 rounded-2xl bg-[#1e2d45] border border-gray-600 text-white font-bold text-lg hover:bg-[#263a55] active:scale-95 transition-all">
+                className="w-full py-4 rounded-2xl bg-[#f59e0b] text-white font-bold text-lg active:scale-95 transition-all">
                 Ver cuenta 🧾
               </button>
             </div>
@@ -497,7 +521,7 @@ function ComandaPanel({ comanda, menu, onClose, onEnviar }: {
           onClose={() => setOrdenando(false)}
           onEnviar={niveles => { onEnviar(niveles); setOrdenando(false) }} />
       )}
-      {verCuenta && <VerCuentaModal comanda={comanda} onClose={() => setVerCuenta(false)} />}
+      {verCuenta && <VerCuentaModal comanda={comanda} onClose={() => setVerCuenta(false)} onFacturar={() => facturarComanda.mutate()} />}
     </div>
   )
 }
@@ -524,6 +548,7 @@ export default function SalaMesasPage() {
   const [planId, setPlanId]               = useState<number | null>(null)
   const [abrirMesa, setAbrirMesa]         = useState<Mesa | null>(null)
   const [comandaAbierta, setComandaAbierta] = useState<number | null>(null)
+  const [view, setView] = useState<'mapa' | 'mesas' | 'nueva'>('mapa')
 
   const { data: planes } = useQuery({
     queryKey: ['salon-planes', restaurant?.id],
@@ -581,13 +606,22 @@ export default function SalaMesasPage() {
     else setAbrirMesa(mesa)
   }
 
+  const todasLasMesas = planes?.flatMap(p => p.mesas.map(m => ({ ...m, planNombre: p.nombre }))) ?? []
+  const mesasLibres   = todasLasMesas.filter(m => !comandaByMesa(m.id))
+
+  const estadoBadge = (c: Comanda) => {
+    if (c.estado === 'facturada') return { label: '🧾 Cuenta', color: 'text-amber-400 bg-amber-500/10' }
+    if (c.estado === 'enviada')   return { label: '🚀 Enviada', color: 'text-purple-400 bg-purple-500/10' }
+    return { label: '● Abierta', color: 'text-[#4CC8A0] bg-[#4CC8A0]/10' }
+  }
+
   if (!restaurant || !camarero) return null
 
   return (
     <div className="flex flex-col h-screen bg-[#111827]">
       {/* Header */}
       <div className="bg-[#0f172a] border-b border-gray-700 px-4 py-3">
-        <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center justify-between mb-3">
           <div>
             <p className="text-[#4CC8A0] text-xs font-semibold">{restaurant.nombre}</p>
             <p className="text-gray-400 text-xs">Hola, {camarero.nombre}</p>
@@ -597,45 +631,110 @@ export default function SalaMesasPage() {
             Salir
           </button>
         </div>
-        {/* Tabs planos */}
-        {planes && planes.length > 1 && (
-          <div className="flex gap-2 overflow-x-auto">
-            {planes.map(p => (
-              <button key={p.id} onClick={() => setPlanId(p.id)}
-                className={`px-3 py-1 rounded-lg text-xs font-medium whitespace-nowrap ${activePlan?.id === p.id ? 'bg-gray-600 text-white' : 'bg-gray-800 text-gray-500'}`}>
-                {p.nombre}
-              </button>
-            ))}
-          </div>
-        )}
+        {/* Vista tabs */}
+        <div className="flex items-center gap-2">
+          {(['mapa', 'mesas', 'nueva'] as const).map(v => (
+            <button key={v} onClick={() => setView(v)}
+              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                view === v ? 'bg-gray-600 text-white' : 'bg-gray-800 text-gray-500 hover:bg-gray-700'
+              }`}>
+              {v === 'mapa' ? '🗺 Mapa' : v === 'mesas' ? `📋 Mesas (${comandas?.length ?? 0})` : '➕ Nueva'}
+            </button>
+          ))}
+          {view === 'mapa' && planes && planes.length > 1 && (
+            <div className="flex gap-1 ml-1 overflow-x-auto">
+              {planes.map(p => (
+                <button key={p.id} onClick={() => setPlanId(p.id)}
+                  className={`px-3 py-1 rounded-lg text-xs font-medium whitespace-nowrap ${activePlan?.id === p.id ? 'bg-gray-600 text-white' : 'bg-gray-800 text-gray-500'}`}>
+                  {p.nombre}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Leyenda */}
-      <div className="bg-[#0f172a] px-4 pb-2 flex items-center gap-4 text-xs text-gray-500 border-b border-gray-800">
-        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[#1e2d45] border border-[#334155] inline-block" />Libre</span>
-        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[#1a3a2e] border border-[#4CC8A0] inline-block" />Ocupada</span>
-        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[#2d1a3a] border border-[#a855f7] inline-block" />🚀 Enviada</span>
-      </div>
-
-      {/* Canvas */}
-      {activePlan ? (
-        <div className="flex-1 overflow-auto relative">
-          <div style={{
+      {/* Vista: Mapa (portrait, escalado para caber en ancho) */}
+      {view === 'mapa' && (activePlan ? (
+        <div className="flex-1 overflow-y-auto overflow-x-hidden relative" ref={el => {
+          if (!el || !activePlan.mesas.length) return
+          const maxX = Math.max(...activePlan.mesas.map(m => m.x + mesaWidth(m.tipo))) + 20
+          const scale = Math.min(1, el.clientWidth / maxX)
+          const canvas = el.querySelector('.plan-canvas') as HTMLElement
+          if (canvas) {
+            canvas.style.transform = `scale(${scale})`
+            canvas.style.transformOrigin = 'top left'
+            canvas.style.height = `${(Math.max(...activePlan.mesas.map(m => m.y + mesaHeight(m.tipo))) + 40) * scale}px`
+          }
+        }}>
+          <div className="plan-canvas" style={{
             position: 'relative',
-            minHeight: '100%',
             backgroundImage: `linear-gradient(to right, #ffffff06 1px, transparent 1px), linear-gradient(to bottom, #ffffff06 1px, transparent 1px)`,
             backgroundSize: '40px 40px',
+            width: Math.max(...(activePlan.mesas.map(m => m.x + mesaWidth(m.tipo))), 400) + 20,
+            height: Math.max(...(activePlan.mesas.map(m => m.y + mesaHeight(m.tipo))), 400) + 40,
           }}>
             {activePlan.mesas.map((mesa: Mesa) => (
               <MesaBtn key={mesa.id} mesa={mesa} comanda={comandaByMesa(mesa.id)} onClick={() => handleMesaClick(mesa)} />
             ))}
-            {/* Espacio mínimo para scroll vertical */}
-            <div style={{ height: Math.max(...(activePlan.mesas.map(m => m.y + 120)), 600) }} />
           </div>
         </div>
       ) : (
         <div className="flex-1 flex items-center justify-center">
           <p className="text-gray-600 text-sm">No hay planos configurados.</p>
+        </div>
+      ))}
+
+      {/* Vista: Mesas abiertas */}
+      {view === 'mesas' && (
+        <div className="flex-1 overflow-y-auto p-4">
+          {!comandas?.length ? (
+            <div className="text-center py-16 text-gray-600">
+              <p className="text-4xl mb-3">🍽</p>
+              <p className="text-sm">No hay mesas abiertas</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {comandas.map(c => {
+                const badge = estadoBadge(c)
+                return (
+                  <button key={c.id} onClick={() => setComandaAbierta(c.id)}
+                    className="w-full bg-[#1e2d45] hover:bg-[#263a55] rounded-2xl p-4 text-left transition-colors active:scale-95">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-white text-2xl font-black">Mesa {c.mesa.numero}</span>
+                      <span className={`text-xs font-semibold px-2 py-1 rounded-lg ${badge.color}`}>{badge.label}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-gray-400">{c.pax} pax · {c.items.length} items</span>
+                      <span className="text-gray-500 text-xs">{timeAgo(c.createdAt)}</span>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Vista: Nueva mesa */}
+      {view === 'nueva' && (
+        <div className="flex-1 overflow-y-auto p-4">
+          {!mesasLibres.length ? (
+            <div className="text-center py-16 text-gray-600">
+              <p className="text-4xl mb-3">🎉</p>
+              <p className="text-sm">Todas las mesas están ocupadas</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-3">
+              {mesasLibres.map(m => (
+                <button key={m.id} onClick={() => { setAbrirMesa(m); setView('mapa') }}
+                  className="bg-[#1e2d45] hover:bg-[#263a55] border border-gray-700 rounded-2xl p-5 flex flex-col items-center gap-1 transition-colors active:scale-95">
+                  <span className="text-white text-3xl font-black">{m.numero}</span>
+                  <span className="text-gray-500 text-xs">{m.planNombre}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

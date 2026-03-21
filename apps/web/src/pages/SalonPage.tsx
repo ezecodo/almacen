@@ -155,14 +155,18 @@ function MesaShape({
         userSelect: 'none',
         transition: 'border-color 0.15s, box-shadow 0.15s, background 0.15s',
         zIndex: selected ? 10 : 1,
+        transform: mesa.rotacion ? `rotate(${mesa.rotacion}deg)` : undefined,
+        transformOrigin: 'center center',
       }}
     >
-      <span style={{ color: colors.text, fontWeight: 800, fontSize: 18, lineHeight: 1 }}>
-        {mesa.numero}
-      </span>
-      <span style={{ color: colors.border, fontSize: 10, marginTop: 2, opacity: 0.8 }}>
-        {mesa.capacidad} pax
-      </span>
+      <div style={{ transform: mesa.rotacion ? `rotate(${-mesa.rotacion}deg)` : undefined, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        <span style={{ color: colors.text, fontWeight: 800, fontSize: 18, lineHeight: 1 }}>
+          {mesa.numero}
+        </span>
+        <span style={{ color: colors.border, fontSize: 10, marginTop: 2, opacity: 0.8 }}>
+          {mesa.capacidad} pax
+        </span>
+      </div>
     </div>
   )
 }
@@ -173,6 +177,7 @@ function MesaMenu({
   onEdit,
   onDelete,
   onSplit,
+  onRotate,
   onClose,
 }: {
   mesa?: Mesa
@@ -181,6 +186,7 @@ function MesaMenu({
   onEdit: () => void
   onDelete: () => void
   onSplit?: () => void
+  onRotate: () => void
   onClose: () => void
 }) {
   useEffect(() => {
@@ -196,6 +202,7 @@ function MesaMenu({
       className="bg-[#1e2d45] border border-gray-600 rounded-xl shadow-2xl py-1 min-w-[140px]"
     >
       <button onClick={onEdit}   className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 flex items-center gap-2">✏️ Editar</button>
+      <button onClick={onRotate} className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 flex items-center gap-2">🔄 Rotar 90°</button>
       {onSplit && (
         <button onClick={onSplit} className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 flex items-center gap-2">✂️ Partir</button>
       )}
@@ -213,6 +220,7 @@ function SalonCanvas({ plan }: { plan: FloorPlan }) {
   const [modal, setModal] = useState<{ tipo?: Mesa['tipo']; mesa?: Mesa } | null>(null)
   const [contextMenu, setContextMenu] = useState<{ mesa: Mesa; x: number; y: number } | null>(null)
   const [dirty, setDirty] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const dragging = useRef<{
     mesaId: number
@@ -248,6 +256,10 @@ function SalonCanvas({ plan }: { plan: FloorPlan }) {
       setMesas(prev => prev.filter(m => m.id !== mesaId))
       setSelectedId(null)
       queryClient.invalidateQueries({ queryKey: ['salon', plan.id] })
+    },
+    onError: (err: Error) => {
+      setDeleteError(err.message.includes('409') ? 'Esta mesa tiene comandas y no se puede eliminar' : 'Error al eliminar la mesa')
+      setTimeout(() => setDeleteError(null), 3000)
     },
   })
 
@@ -312,6 +324,7 @@ function SalonCanvas({ plan }: { plan: FloorPlan }) {
         x:         Math.min(a.x, b.x),
         y:         Math.min(a.y, b.y),
         capacidad: a.capacidad + b.capacidad,
+        rotacion:  0,
       }
       // Borrar ambas y crear rectangular
       Promise.all([
@@ -332,8 +345,8 @@ function SalonCanvas({ plan }: { plan: FloorPlan }) {
     setContextMenu(null)
     const half = Math.ceil(mesa.capacidad / 2)
     Promise.all([
-      api.salon.addMesa(plan.id, { numero: mesa.numero,     tipo: 'square', x: mesa.x,               y: mesa.y, capacidad: half }),
-      api.salon.addMesa(plan.id, { numero: mesa.numero + 1, tipo: 'square', x: mesa.x + SQUARE_SIZE + 10, y: mesa.y, capacidad: Math.floor(mesa.capacidad / 2) }),
+      api.salon.addMesa(plan.id, { numero: mesa.numero,     tipo: 'square', x: mesa.x,               y: mesa.y, capacidad: half,                          rotacion: 0 }),
+      api.salon.addMesa(plan.id, { numero: mesa.numero + 1, tipo: 'square', x: mesa.x + SQUARE_SIZE + 10, y: mesa.y, capacidad: Math.floor(mesa.capacidad / 2), rotacion: 0 }),
     ]).then(([a, b]) => {
       setMesas(prev => [...prev.filter(m => m.id !== mesa.id), a, b])
       api.salon.deleteMesa(plan.id, mesa.id)
@@ -343,6 +356,11 @@ function SalonCanvas({ plan }: { plan: FloorPlan }) {
 
   return (
     <div className="flex flex-col h-full">
+      {deleteError && (
+        <div className="bg-red-900/80 border border-red-500 text-red-200 text-sm px-4 py-2 text-center">
+          {deleteError}
+        </div>
+      )}
       {/* Toolbar */}
       <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-700 flex-wrap">
         <span className="text-gray-400 text-xs mr-1">Añadir:</span>
@@ -446,7 +464,7 @@ function SalonCanvas({ plan }: { plan: FloorPlan }) {
             } else {
               const centerX = snapTo(300)
               const centerY = snapTo(200)
-              addMesa.mutate({ numero, capacidad, tipo, x: centerX, y: centerY })
+              addMesa.mutate({ numero, capacidad, tipo, x: centerX, y: centerY, rotacion: 0 })
             }
             setModal(null)
           }}
@@ -461,6 +479,10 @@ function SalonCanvas({ plan }: { plan: FloorPlan }) {
           onEdit={() => { setModal({ mesa: contextMenu.mesa }); setContextMenu(null) }}
           onDelete={() => { deleteMesa.mutate(contextMenu.mesa.id); setContextMenu(null) }}
           onSplit={contextMenu.mesa.tipo === 'rectangular' ? () => handleSplit(contextMenu.mesa) : undefined}
+          onRotate={() => {
+            updateMesa.mutate({ mesaId: contextMenu.mesa.id, data: { rotacion: ((contextMenu.mesa.rotacion ?? 0) + 90) % 360 } })
+            setContextMenu(null)
+          }}
           onClose={() => setContextMenu(null)}
         />
       )}

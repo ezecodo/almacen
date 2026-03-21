@@ -116,6 +116,7 @@ model Mesa {
   x           Float
   y           Float
   capacidad   Int
+  rotacion    Int       @default(0) // 0 | 90 | 180 | 270
   comandas    Comanda[]
   createdAt   DateTime  @default(now())
 }
@@ -127,7 +128,7 @@ model Comanda {
   mesaId       Int
   mesa         Mesa          @relation(fields: [mesaId], references: [id])
   pax          Int
-  estado       String        @default("abierta") // 'abierta' | 'enviada' | 'cerrada'
+  estado       String        @default("abierta") // 'abierta' | 'enviada' | 'facturada' | 'cerrada'
   metodoPago   String?       // 'cash' | 'tarjeta' | null
   items        ComandaItem[]
   createdAt    DateTime      @default(now())

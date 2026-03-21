@@ -347,7 +347,8 @@ function ComandaPanel({
   const [ordenando, setOrdenando] = useState(false)
   const [cobrando, setCobrando] = useState(false)
 
-  const yaEnviada = comanda.estado === 'enviada'
+  const yaEnviada   = comanda.estado === 'enviada'
+  const yaFacturada = comanda.estado === 'facturada'
 
   const total = comanda.items.reduce((s, i) => s + i.precio * i.cantidad, 0)
 
@@ -605,18 +606,27 @@ function ComandaPanel({
             <span className="text-white text-2xl font-bold">{formatEur(total)}</span>
           </div>
 
-          {yaEnviada ? (
+          {yaFacturada ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-center gap-2 py-2 bg-amber-500/10 rounded-xl">
+                <span className="text-amber-400 text-sm font-bold">🧾 Cuenta impresa</span>
+              </div>
+              <button
+                onClick={e => { e.stopPropagation(); setCobrando(true) }}
+                className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#f59e0b] to-[#ef4444] text-white font-black text-lg tracking-wide hover:opacity-90 transition-opacity active:scale-95"
+              >
+                Cobrar mesa 💳
+              </button>
+            </div>
+          ) : yaEnviada ? (
             <div className="space-y-2">
               <div className="flex items-center justify-center gap-2 py-1">
                 <span className="text-[#4CC8A0] text-sm font-semibold">🚀 Enviada a cocina</span>
                 <button onClick={() => setOrdenando(true)} className="text-gray-500 text-xs underline hover:text-gray-300">re-enviar</button>
               </div>
-              <button
-                onClick={e => { e.stopPropagation(); setCobrando(true) }}
-                className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#4B9EDF] to-[#4CC8A0] text-white font-black text-lg tracking-wide hover:opacity-90 transition-opacity active:scale-95"
-              >
-                Cobrar mesa 💳
-              </button>
+              <div className="w-full py-3 rounded-2xl bg-gray-800 text-gray-500 text-sm text-center">
+                Esperando que el camarero imprima la cuenta
+              </div>
             </div>
           ) : (
             <div className="space-y-2">
@@ -666,13 +676,14 @@ function MesaOperacion({
 }) {
   const w = mesaWidth(mesa.tipo)
   const h = mesaHeight(mesa.tipo)
-  const libre    = !comanda
-  const enviada  = comanda?.estado === 'enviada'
-  const isRound  = mesa.tipo === 'round'
+  const libre      = !comanda
+  const enviada    = comanda?.estado === 'enviada'
+  const facturada  = comanda?.estado === 'facturada'
+  const isRound    = mesa.tipo === 'round'
 
-  const bg     = libre ? '#1e2d45' : enviada ? '#2d1a3a' : '#1a3a2e'
-  const border = libre ? '#334155' : enviada ? '#a855f7' : '#4CC8A0'
-  const glow   = libre ? 'none'    : enviada ? '0 0 16px #a855f744' : '0 0 16px #4CC8A044'
+  const bg     = libre ? '#1e2d45' : facturada ? '#2d2500' : enviada ? '#2d1a3a' : '#1a3a2e'
+  const border = libre ? '#334155' : facturada ? '#f59e0b' : enviada ? '#a855f7' : '#4CC8A0'
+  const glow   = libre ? 'none'    : facturada ? '0 0 16px #f59e0b44' : enviada ? '0 0 16px #a855f744' : '0 0 16px #4CC8A044'
 
   return (
     <div
@@ -696,14 +707,14 @@ function MesaOperacion({
         transition: 'all 0.2s',
       }}
     >
-      <span style={{ color: libre ? '#94a3b8' : enviada ? '#c084fc' : '#4CC8A0', fontWeight: 800, fontSize: 18, lineHeight: 1 }}>
+      <span style={{ color: libre ? '#94a3b8' : facturada ? '#f59e0b' : enviada ? '#c084fc' : '#4CC8A0', fontWeight: 800, fontSize: 18, lineHeight: 1 }}>
         {mesa.numero}
       </span>
       {!libre ? (
         <>
-          <span style={{ color: enviada ? '#d8b4fe' : '#6ee7b7', fontSize: 10, marginTop: 2 }}>{comanda!.pax} pax</span>
-          <span style={{ color: enviada ? '#a855f7' : '#34d399', fontSize: 9, marginTop: 1 }}>
-            {enviada ? '🚀 enviada' : timeAgo(comanda!.createdAt)}
+          <span style={{ color: facturada ? '#fcd34d' : enviada ? '#d8b4fe' : '#6ee7b7', fontSize: 10, marginTop: 2 }}>{comanda!.pax} pax</span>
+          <span style={{ color: facturada ? '#f59e0b' : enviada ? '#a855f7' : '#34d399', fontSize: 9, marginTop: 1 }}>
+            {facturada ? '🧾 cuenta' : enviada ? '🚀 enviada' : timeAgo(comanda!.createdAt)}
           </span>
         </>
       ) : (
@@ -720,6 +731,7 @@ export default function ComandasPage() {
   const [planId, setPlanId] = useState<number | null>(null)
   const [abrirMesa, setAbrirMesa] = useState<Mesa | null>(null)
   const [comandaAbierta, setComandaAbierta] = useState<number | null>(null)
+  const [view, setView] = useState<'mapa' | 'mesas' | 'nueva'>('mapa')
 
   const { data: restaurantes } = useQuery({
     queryKey: ['restaurantes'],
@@ -801,6 +813,15 @@ export default function ComandasPage() {
     }
   }
 
+  const todasLasMesas = planes?.flatMap(p => p.mesas.map(m => ({ ...m, planNombre: p.nombre }))) ?? []
+  const mesasLibres   = todasLasMesas.filter(m => !comandaByMesa(m.id))
+
+  const estadoBadge = (c: Comanda) => {
+    if (c.estado === 'facturada') return { label: '🧾 Cuenta', color: 'text-amber-400 bg-amber-500/10' }
+    if (c.estado === 'enviada')   return { label: '🚀 Enviada', color: 'text-purple-400 bg-purple-500/10' }
+    return { label: '● Abierta', color: 'text-[#4CC8A0] bg-[#4CC8A0]/10' }
+  }
+
   return (
     <div className="flex flex-col h-screen bg-[#111827]">
       {/* Header */}
@@ -817,55 +838,45 @@ export default function ComandasPage() {
           ))}
         </div>
 
-        {/* Tabs planos + leyenda */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {planes?.map(p => (
-            <button key={p.id} onClick={() => setPlanId(p.id)}
-              className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
-                activePlan?.id === p.id ? 'bg-gray-600 text-white' : 'bg-gray-800 text-gray-500 hover:bg-gray-700'
+        {/* Vista tabs */}
+        <div className="flex items-center gap-2">
+          {(['mapa', 'mesas', 'nueva'] as const).map(v => (
+            <button key={v} onClick={() => setView(v)}
+              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                view === v ? 'bg-gray-600 text-white' : 'bg-gray-800 text-gray-500 hover:bg-gray-700'
               }`}>
-              {p.nombre}
+              {v === 'mapa' ? '🗺 Mapa' : v === 'mesas' ? `📋 Mesas (${comandas?.length ?? 0})` : '➕ Nueva'}
             </button>
           ))}
 
-          <div className="ml-auto flex items-center gap-3 text-xs text-gray-500">
-            <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#1e2d45] border border-[#334155] inline-block" />Libre
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#1a3a2e] border border-[#4CC8A0] inline-block" />Ocupada
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#2d1a3a] border border-[#a855f7] inline-block" />🚀 Enviada
-            </span>
-          </div>
+          {/* Tabs planos (solo en mapa) */}
+          {view === 'mapa' && planes && planes.length > 1 && (
+            <div className="flex gap-1 ml-2">
+              {planes.map(p => (
+                <button key={p.id} onClick={() => setPlanId(p.id)}
+                  className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+                    activePlan?.id === p.id ? 'bg-gray-600 text-white' : 'bg-gray-800 text-gray-500 hover:bg-gray-700'
+                  }`}>
+                  {p.nombre}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Canvas operación */}
-      {activePlan ? (
+      {/* Vista: Mapa */}
+      {view === 'mapa' && (activePlan ? (
         <div className="flex-1 overflow-auto relative">
           <div style={{
-            position: 'absolute',
-            inset: 0,
-            minWidth: 1200,
-            minHeight: 800,
-            backgroundImage: `
-              linear-gradient(to right, #ffffff06 1px, transparent 1px),
-              linear-gradient(to bottom, #ffffff06 1px, transparent 1px)
-            `,
+            position: 'absolute', inset: 0, minWidth: 1200, minHeight: 800,
+            backgroundImage: `linear-gradient(to right, #ffffff06 1px, transparent 1px), linear-gradient(to bottom, #ffffff06 1px, transparent 1px)`,
             backgroundSize: '40px 40px',
           }}>
             {activePlan.mesas.map((mesa: Mesa) => (
-              <MesaOperacion
-                key={mesa.id}
-                mesa={mesa}
-                comanda={comandaByMesa(mesa.id)}
-                onClick={() => handleMesaClick(mesa)}
-              />
+              <MesaOperacion key={mesa.id} mesa={mesa} comanda={comandaByMesa(mesa.id)} onClick={() => handleMesaClick(mesa)} />
             ))}
           </div>
-
           {activePlan.mesas.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <p className="text-gray-600 text-sm">Este plano no tiene mesas. Añádelas en "Salón".</p>
@@ -875,6 +886,61 @@ export default function ComandasPage() {
       ) : (
         <div className="flex-1 flex items-center justify-center">
           <p className="text-gray-600 text-sm">No hay planos. Créalos en la sección "Salón".</p>
+        </div>
+      ))}
+
+      {/* Vista: Mesas abiertas */}
+      {view === 'mesas' && (
+        <div className="flex-1 overflow-y-auto p-4">
+          {!comandas?.length ? (
+            <div className="text-center py-16 text-gray-600">
+              <p className="text-4xl mb-3">🍽</p>
+              <p className="text-sm">No hay mesas abiertas</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {comandas.map(c => {
+                const badge = estadoBadge(c)
+                const total = c.items.reduce((s, i) => s + i.precio * i.cantidad, 0)
+                return (
+                  <button key={c.id} onClick={() => setComandaAbierta(c.id)}
+                    className="bg-[#1e2d45] hover:bg-[#263a55] rounded-2xl p-4 text-left transition-colors">
+                    <div className="flex items-start justify-between mb-3">
+                      <span className="text-white text-2xl font-black">Mesa {c.mesa.numero}</span>
+                      <span className={`text-xs font-semibold px-2 py-1 rounded-lg ${badge.color}`}>{badge.label}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-gray-400">{c.pax} pax · {c.items.length} items</span>
+                      <span className="text-white font-bold">{total.toFixed(2)} €</span>
+                    </div>
+                    <p className="text-gray-600 text-xs mt-1">{timeAgo(c.createdAt)}</p>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Vista: Nueva mesa */}
+      {view === 'nueva' && (
+        <div className="flex-1 overflow-y-auto p-4">
+          {!mesasLibres.length ? (
+            <div className="text-center py-16 text-gray-600">
+              <p className="text-4xl mb-3">🎉</p>
+              <p className="text-sm">Todas las mesas están ocupadas</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+              {mesasLibres.map(m => (
+                <button key={m.id} onClick={() => setAbrirMesa(m)}
+                  className="bg-[#1e2d45] hover:bg-[#263a55] border border-gray-700 rounded-2xl p-4 flex flex-col items-center gap-1 transition-colors active:scale-95">
+                  <span className="text-white text-2xl font-black">{m.numero}</span>
+                  <span className="text-gray-500 text-xs">{m.planNombre}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

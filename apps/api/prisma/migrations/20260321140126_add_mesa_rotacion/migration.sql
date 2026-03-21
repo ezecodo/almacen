@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "Mesa" ADD COLUMN     "rotacion" INTEGER NOT NULL DEFAULT 0;

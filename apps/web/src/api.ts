@@ -177,6 +177,7 @@ export interface Mesa {
   x:          number
   y:          number
   capacidad:  number
+  rotacion:   number
 }
 
 export interface FloorPlan {
@@ -202,7 +203,7 @@ export interface Comanda {
   mesaId:       number
   mesa:         Mesa
   pax:          number
-  estado:       'abierta' | 'enviada' | 'cerrada'
+  estado:       'abierta' | 'enviada' | 'facturada' | 'cerrada'
   metodoPago:   'cash' | 'tarjeta' | null
   items:        ComandaItem[]
   createdAt:    string
@@ -309,6 +310,7 @@ export const api = {
     deleteItem:(id: number, itemId: number) => del(`/comandas/${id}/items/${itemId}`),
     enviar:    (id: number, niveles: { itemId: number; nivel: number; nota?: string }[]) =>
       patch<Comanda>(`/comandas/${id}/enviar`, { niveles }),
+    facturar:  (id: number) => patch<Comanda>(`/comandas/${id}/facturar`, {}),
     cerrar:    (id: number, metodoPago: 'cash' | 'tarjeta') =>
       patch<Comanda>(`/comandas/${id}/cerrar`, { metodoPago }),
   },
