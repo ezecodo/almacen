@@ -158,6 +158,16 @@ async function put<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>
 }
 
+export interface MenuCategoria {
+  id: number
+  restaurantId: number
+  grupo: string
+  nombre: string
+  icono: string
+  orden: number
+  itemCount: number
+}
+
 export interface MenuItem {
   id: number
   restaurantId: number
@@ -190,6 +200,7 @@ export interface FloorPlan {
 export interface ComandaItem {
   id:        number
   comandaId: number
+  tipo:      'cocina' | 'barra'
   nombre:    string
   precio:    number
   cantidad:  number
@@ -209,6 +220,30 @@ export interface Comanda {
   items:          ComandaItem[]
   createdAt:      string
   closedAt:       string | null
+}
+
+export type MermaMotivo = 'no_servido' | 'queja_cliente' | 'otro'
+
+export interface Merma {
+  id:             number
+  restaurantId:   number
+  mesaNumero:     number | null
+  planNombre:     string | null
+  comandaId:      number | null
+  itemNombre:     string
+  cantidad:       number
+  camareroNombre: string | null
+  motivo:         MermaMotivo
+  descripcion:    string | null
+  createdAt:      string
+}
+
+export interface MermasResponse {
+  mermas: Merma[]
+  total:  number
+  page:   number
+  limit:  number
+  pages:  number
 }
 
 export const api = {
@@ -288,8 +323,17 @@ export const api = {
       patch<RetiroResumen>(`/retiros/${id}/confirmar`, { confirmadoPor }),
     delete: (id: number) => del(`/retiros/${id}`),
   },
+  menuCategorias: {
+    list:   (restaurantId: number) => get<MenuCategoria[]>(`/menu/categorias?restaurantId=${restaurantId}`),
+    create: (body: { restaurantId: number; grupo?: string; nombre: string; icono?: string; orden?: number }) =>
+      post<MenuCategoria>('/menu/categorias', body),
+    update: (id: number, body: Partial<{ grupo: string; nombre: string; icono: string; orden: number }>) =>
+      put<MenuCategoria>(`/menu/categorias/${id}`, body),
+    delete: (id: number) => del(`/menu/categorias/${id}`),
+  },
   menu: {
-    list:   (restaurantId: number) => get<MenuItem[]>(`/menu?restaurantId=${restaurantId}`),
+    list:   (restaurantId: number, categoria?: string) =>
+      get<MenuItem[]>(`/menu?restaurantId=${restaurantId}${categoria ? `&categoria=${encodeURIComponent(categoria)}` : ''}`),
     create: (body: Omit<MenuItem, 'id' | 'activo'>) => post<MenuItem>('/menu', body),
     update: (id: number, body: Partial<Omit<MenuItem, 'id' | 'restaurantId' | 'activo'>>) => put<MenuItem>(`/menu/${id}`, body),
     toggle: (id: number) => patch<MenuItem>(`/menu/${id}/toggle`, {}),
@@ -305,7 +349,7 @@ export const api = {
     abrir:     (restaurantId: number, mesaId: number, pax: number, camareroNombre?: string) =>
       post<Comanda>('/comandas', { restaurantId, mesaId, pax, camareroNombre }),
     get:       (id: number) => get<Comanda>(`/comandas/${id}`),
-    addItem:   (id: number, item: { nombre: string; precio: number; cantidad: number; nota?: string }) =>
+    addItem:   (id: number, item: { nombre: string; precio: number; cantidad: number; nota?: string; tipo?: 'cocina' | 'barra' }) =>
       post<ComandaItem>(`/comandas/${id}/items`, item),
     updateItem:(id: number, itemId: number, data: { cantidad?: number; nota?: string }) =>
       patch<ComandaItem>(`/comandas/${id}/items/${itemId}`, data),
@@ -328,6 +372,25 @@ export const api = {
     deleteMesa: (planId: number, mesaId: number) => del(`/salon/${planId}/mesas/${mesaId}`),
     savePositions: (planId: number, positions: { id: number; x: number; y: number }[]) =>
       patch<{ ok: boolean }>(`/salon/${planId}/mesas`, positions),
+  },
+  mermas: {
+    create: (body: {
+      restaurantId: number
+      mesaNumero?: number
+      planNombre?: string
+      comandaId?: number
+      itemNombre: string
+      cantidad: number
+      camareroNombre?: string
+      motivo: MermaMotivo
+      descripcion?: string
+    }) => post<Merma>('/mermas', body),
+    list: (restaurantId: number, desde?: string, hasta?: string, page = 1) => {
+      const params = new URLSearchParams({ restaurantId: String(restaurantId), page: String(page) })
+      if (desde) params.set('desde', desde)
+      if (hasta) params.set('hasta', hasta)
+      return get<MermasResponse>(`/mermas?${params}`)
+    },
   },
   stats: {
     retirosPorDia: (dias = 30) => get<{ fecha: string; total: number }[]>(`/stats/retiros-por-dia?dias=${dias}`),

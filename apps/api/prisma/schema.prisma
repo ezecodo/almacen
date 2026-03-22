@@ -15,9 +15,26 @@ model Restaurant {
   reviews    ReviewSnapshot[]
   propinas   PropinaDia[]
   menu       MenuItem[]
+  menuCats   MenuCategoria[]
   floorPlans FloorPlan[]
   comandas   Comanda[]
+  mermas     Merma[]
   createdAt  DateTime         @default(now())
+}
+
+model Merma {
+  id             Int        @id @default(autoincrement())
+  restaurantId   Int
+  restaurant     Restaurant @relation(fields: [restaurantId], references: [id])
+  mesaNumero     Int?
+  planNombre     String?
+  comandaId      Int?
+  itemNombre     String
+  cantidad       Int        @default(1)
+  camareroNombre String?
+  motivo         String     // 'no_servido' | 'queja_cliente' | 'otro'
+  descripcion    String?
+  createdAt      DateTime   @default(now())
 }
 
 model ReviewSnapshot {
@@ -85,6 +102,17 @@ model RetiroItem {
   unidad   String
 }
 
+model MenuCategoria {
+  id           Int        @id @default(autoincrement())
+  restaurantId Int
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  grupo        String     @default("")
+  nombre       String
+  icono        String     @default("")
+  orden        Int        @default(0)
+  createdAt    DateTime   @default(now())
+}
+
 model MenuItem {
   id           Int        @id @default(autoincrement())
   restaurantId Int
@@ -145,6 +173,7 @@ model ComandaItem {
   cantidad   Int     @default(1)
   nota       String  @default("")
   nivel      Int?
+  tipo       String  @default("cocina") // 'cocina' | 'barra'
 }
 
 model Producto {

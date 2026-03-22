@@ -11,6 +11,7 @@ import { propinaRoutes } from './routes/propinas'
 import { menuRoutes } from './routes/menu'
 import { salonRoutes } from './routes/salon'
 import { comandaRoutes } from './routes/comandas'
+import { mermaRoutes } from './routes/mermas'
 
 const app = Fastify({ logger: true })
 export const prisma = new PrismaClient()
@@ -30,6 +31,7 @@ async function start() {
   await app.register(menuRoutes, { prefix: '/api' })
   await app.register(salonRoutes, { prefix: '/api' })
   await app.register(comandaRoutes, { prefix: '/api' })
+  await app.register(mermaRoutes, { prefix: '/api' })
 
   app.get('/health', async () => ({ status: 'ok', timestamp: new Date() }))
 

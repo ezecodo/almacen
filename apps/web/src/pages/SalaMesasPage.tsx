@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, Comanda, ComandaItem, Mesa, MenuItem, MiTurno } from '../api'
+import { api, Comanda, ComandaItem, Mesa, MenuCategoria, MenuItem, MermaMotivo, MiTurno } from '../api'
 
 const SQUARE_SIZE = 80
 const RECT_W = 160
@@ -98,10 +98,6 @@ function AbrirMesaModal({ mesa, onConfirm, onClose }: { mesa: Mesa; onConfirm: (
 // ── Modal ver cuenta (para el camarero, sin cobrar) ───────────────────────────
 function VerCuentaModal({ comanda, onClose, onFacturar }: { comanda: Comanda; onClose: () => void; onFacturar: () => void }) {
   const total = comanda.items.reduce((s, i) => s + i.precio * i.cantidad, 0)
-  const handleImprimir = () => {
-    onFacturar()
-    window.print()
-  }
   return (
     <div className="fixed inset-0 bg-black/80 flex items-end sm:items-center justify-center z-50" onClick={onClose}>
       <div className="bg-[#0f172a] w-full sm:max-w-sm rounded-t-3xl sm:rounded-2xl overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
@@ -125,8 +121,8 @@ function VerCuentaModal({ comanda, onClose, onFacturar }: { comanda: Comanda; on
           <span className="text-white text-3xl font-black">{total.toFixed(2)} €</span>
         </div>
         <div className="px-5 pb-5">
-          <button onClick={handleImprimir} className="w-full py-4 rounded-2xl bg-[#f59e0b] text-white font-bold text-lg">
-            🧾 Imprimir cuenta
+          <button onClick={onFacturar} className="w-full py-4 rounded-2xl bg-[#f59e0b] text-white font-bold text-lg">
+            🧾 Entregar cuenta
           </button>
         </div>
       </div>
@@ -135,12 +131,17 @@ function VerCuentaModal({ comanda, onClose, onFacturar }: { comanda: Comanda; on
 }
 
 // ── Modal ordenar ─────────────────────────────────────────────────────────────
-function OrdenarModal({ comanda, menu, onEnviar, onClose }: {
-  comanda: Comanda; menu: MenuItem[]
+function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa = false }: {
+  comanda: Comanda; menu: MenuItem[]; categorias: MenuCategoria[]
   onEnviar: (niveles: { itemId: number; nivel: number; nota?: string }[]) => void
   onClose: () => void
+  marchaPasa?: boolean
 }) {
   const queryClient = useQueryClient()
+  const GRUPOS_BARRA = ['Bebidas', 'Vinos']
+  const catMeta: Record<string, string> = {}
+  for (const c of categorias) catMeta[c.nombre] = c.grupo || ''
+
   const [notas, setNotas] = useState<Record<number, string>>(() => {
     const r: Record<number, string> = {}
     comanda.items.forEach(i => { r[i.id] = i.nota ?? '' })
@@ -152,6 +153,20 @@ function OrdenarModal({ comanda, menu, onEnviar, onClose }: {
     return r
   })
   const [notaModal, setNotaModal] = useState<{ itemId: number; value: string } | null>(null)
+  const [oidoAnim, setOidoAnim] = useState(false)
+  const [barraOpen, setBarraOpen] = useState(false)
+  const [search, setSearch] = useState('')
+
+  const addItem = useMutation({
+    mutationFn: (item: MenuItem) => {
+      const tipo: 'cocina' | 'barra' = GRUPOS_BARRA.includes(catMeta[item.categoria] ?? '') ? 'barra' : 'cocina'
+      return api.comandas.addItem(comanda.id, { nombre: item.nombre, precio: item.precio, cantidad: 1, tipo })
+    },
+    onSuccess: () => {
+      setSearch('')
+      queryClient.invalidateQueries({ queryKey: ['comanda-sala', comanda.id] })
+    },
+  })
 
   const updateItem = useMutation({
     mutationFn: ({ itemId, cantidad }: { itemId: number; cantidad: number }) =>
@@ -190,20 +205,55 @@ function OrdenarModal({ comanda, menu, onEnviar, onClose }: {
     })
   }
 
-  const sorted = [...comanda.items].sort((a, b) =>
+  // En marcha pasa solo mostramos los items nuevos (sin nivel asignado aún)
+  const todosPendientes = marchaPasa ? comanda.items.filter(i => i.nivel == null) : comanda.items
+  // Solo los items de cocina necesitan asignación de nivel
+  const itemsActivos = todosPendientes.filter(i => i.tipo !== 'barra')
+  const itemsBarra   = todosPendientes.filter(i => i.tipo === 'barra')
+
+  const sorted = [...itemsActivos].sort((a, b) =>
     (niveles[a.id] ?? suggestNivel(a.nombre, menu)) - (niveles[b.id] ?? suggestNivel(b.nombre, menu))
   )
-  const maxNivel = Math.max(...Object.values(niveles), 1)
+  const nivelesActivos = Object.fromEntries(itemsActivos.map(i => [i.id, niveles[i.id] ?? suggestNivel(i.nombre, menu)]))
+  const maxNivel = Math.max(...Object.values(nivelesActivos), 1)
 
   return (
     <div className="fixed inset-0 bg-black/80 flex items-stretch sm:items-center justify-center z-50" onClick={onClose}>
       <div className="bg-[#0f172a] w-full sm:max-w-md sm:rounded-2xl overflow-hidden shadow-2xl flex flex-col sm:max-h-[90vh]" onClick={e => e.stopPropagation()}>
-        <div className="px-5 pt-5 pb-4 border-b border-gray-700 flex items-center justify-between">
-          <div>
-            <h3 className="text-white font-bold text-lg">Orden de salida</h3>
-            <p className="text-gray-400 text-xs mt-0.5">Mesa {comanda.mesa.numero} · {comanda.pax} pax</p>
+        <div className="px-5 pt-5 pb-3 border-b border-gray-700">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h3 className="text-white font-bold text-lg">
+                {marchaPasa ? '🔁 Marcha Pasa' : 'Orden de salida'}
+              </h3>
+              <p className="text-gray-400 text-xs mt-0.5">Mesa {comanda.mesa.numero} · {itemsActivos.length} cocina · {itemsBarra.length} barra</p>
+            </div>
+            <button onClick={onClose} className="text-gray-500 text-xl">✕</button>
           </div>
-          <button onClick={onClose} className="text-gray-500 text-xl">✕</button>
+          {/* Search rápido para añadir items */}
+          <div className="relative">
+            <input value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Añadir algo más… buscar plato o bebida"
+              className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl outline-none placeholder:text-gray-600 pr-8" />
+            {search && (
+              <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 text-sm">✕</button>
+            )}
+          </div>
+          {/* Resultados del search */}
+          {search.trim().length > 0 && (
+            <div className="mt-1.5 bg-gray-800 rounded-xl overflow-hidden max-h-48 overflow-y-auto">
+              {menu.filter(m => m.activo && m.nombre.toLowerCase().includes(search.toLowerCase())).slice(0, 8).map(item => (
+                <button key={item.id} onClick={() => addItem.mutate(item)}
+                  className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-gray-700 active:bg-gray-600 border-b border-gray-700/50 last:border-0">
+                  <span className="text-white text-sm text-left">{item.nombre}</span>
+                  <span className="text-gray-400 text-xs shrink-0 ml-2">{item.precio.toFixed(2)} €</span>
+                </button>
+              ))}
+              {menu.filter(m => m.activo && m.nombre.toLowerCase().includes(search.toLowerCase())).length === 0 && (
+                <p className="text-gray-600 text-sm px-4 py-3">Sin resultados</p>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
@@ -272,10 +322,59 @@ function OrdenarModal({ comanda, menu, onEnviar, onClose }: {
           })}
         </div>
 
+        {/* Barra — colapsable, comprimida por defecto */}
+        {itemsBarra.length > 0 && (
+          <div className="border-t border-gray-800">
+            <button onClick={() => setBarraOpen(o => !o)}
+              className="w-full flex items-center gap-2 px-4 py-2.5 hover:bg-gray-800/40 transition-colors">
+              <span className="text-amber-400 text-xs font-semibold uppercase tracking-wide">🍺 Barra ({itemsBarra.length})</span>
+              <div className="flex-1 h-px bg-gray-800" />
+              <span className="text-gray-500 text-xs">{barraOpen ? '▲' : '▼'}</span>
+            </button>
+            {barraOpen && (
+              <div className="px-4 pb-3 space-y-1.5">
+                {itemsBarra.map(item => (
+                  <div key={item.id} className="flex items-center gap-3 bg-gray-800/60 rounded-xl px-3 py-2">
+                    <span className="text-gray-300 text-sm flex-1 truncate">{item.nombre}</span>
+                    <button onClick={e => { e.stopPropagation(); if (item.cantidad > 1) updateItem.mutate({ itemId: item.id, cantidad: item.cantidad - 1 }); else deleteItem.mutate(item.id) }}
+                      className="w-8 h-8 rounded-lg bg-gray-700 text-gray-300 text-lg font-bold hover:bg-gray-600 flex items-center justify-center active:scale-90">−</button>
+                    <span className="text-white font-black w-5 text-center">{item.cantidad}</span>
+                    <button onClick={e => { e.stopPropagation(); updateItem.mutate({ itemId: item.id, cantidad: item.cantidad + 1 }) }}
+                      className="w-8 h-8 rounded-lg bg-gray-700 text-gray-300 text-lg font-bold hover:bg-gray-600 flex items-center justify-center active:scale-90">+</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="p-4 border-t border-gray-700">
-          <button onClick={e => { e.stopPropagation(); onEnviar(Object.entries(niveles).map(([id, nivel]) => ({ itemId: Number(id), nivel, nota: notas[Number(id)] ?? '' }))) }}
-            className="w-full py-5 rounded-2xl bg-gradient-to-r from-[#f59e0b] to-[#ef4444] text-white font-black text-2xl tracking-wide hover:opacity-90 active:scale-95">
-            GO!! 🚀
+          <button onClick={e => {
+            e.stopPropagation()
+            if (oidoAnim) return
+            setOidoAnim(true)
+            setTimeout(() => {
+              setOidoAnim(false)
+              const nivelesArray = Object.entries(nivelesActivos).map(([id, nivel]) => ({ itemId: Number(id), nivel, nota: notas[Number(id)] ?? '' }))
+              const barraArray = itemsBarra.map(i => ({ itemId: i.id, nivel: 1, nota: notas[i.id] ?? '' }))
+              onEnviar([...nivelesArray, ...barraArray])
+            }, 500)
+          }} className="w-full rounded-2xl flex items-center justify-center gap-3 py-4 active:scale-95 transition-all">
+            <span style={{ fontFamily: "'Helvetica Neue', Arial, sans-serif", fontWeight: 800, fontSize: '2rem', color: '#4CC8A0', opacity: oidoAnim ? 0 : 1, transition: 'opacity 0.15s' }}>
+              Oído
+            </span>
+            <svg viewBox="0 0 68 72" className="w-14 h-14" style={{ filter: 'drop-shadow(0 0 10px rgba(76,200,160,0.55))' }}>
+              <defs>
+                <linearGradient id="oido-modal-grad" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stopColor="#4B9EDF" />
+                  <stop offset="100%" stopColor="#4CC8A0" />
+                </linearGradient>
+              </defs>
+              <path d="M14 2 L54 2 Q66 2 66 14 L66 52 Q66 62 54 62 L40 62 L34 70 L28 62 L14 62 Q2 62 2 52 L2 14 Q2 2 14 2 Z" fill="url(#oido-modal-grad)" />
+              <path d="M15 34 L29 48 L55 18" stroke="white" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" fill="none"
+                strokeDasharray={60} strokeDashoffset={oidoAnim ? 0 : 60}
+                style={{ transition: oidoAnim ? 'stroke-dashoffset 0.4s ease-out' : 'none' }} />
+            </svg>
           </button>
         </div>
       </div>
@@ -283,14 +382,78 @@ function OrdenarModal({ comanda, menu, onEnviar, onClose }: {
   )
 }
 
+// ── Modal merma ───────────────────────────────────────────────────────────────
+const MOTIVOS: { value: MermaMotivo; label: string; desc: string }[] = [
+  { value: 'no_servido',    label: 'No se sirvió',      desc: 'Se preparó pero no llegó al cliente' },
+  { value: 'queja_cliente', label: 'Queja de cliente',  desc: 'El cliente lo rechazó o se quejó' },
+  { value: 'otro',          label: 'Otro',              desc: 'Especifica el motivo abajo' },
+]
+
+function MermaModal({ item, onConfirm, onClose }: {
+  item: ComandaItem
+  onConfirm: (motivo: MermaMotivo, descripcion?: string) => void
+  onClose: () => void
+}) {
+  const [motivo, setMotivo] = useState<MermaMotivo | null>(null)
+  const [descripcion, setDescripcion] = useState('')
+
+  return (
+    <div className="fixed inset-0 bg-black/80 flex items-end z-[70]" onClick={onClose}>
+      <div className="bg-[#0f172a] w-full rounded-t-3xl shadow-2xl p-5" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-white font-bold text-base">Registrar merma</h3>
+            <p className="text-gray-400 text-xs mt-0.5">{item.cantidad}× {item.nombre}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-500 text-xl">✕</button>
+        </div>
+
+        <div className="space-y-2 mb-4">
+          {MOTIVOS.map(m => (
+            <button key={m.value} onClick={() => setMotivo(m.value)}
+              className={`w-full text-left px-4 py-3 rounded-2xl border transition-all ${
+                motivo === m.value
+                  ? 'bg-red-900/40 border-red-500'
+                  : 'bg-[#1e2d45] border-transparent hover:border-gray-600'
+              }`}>
+              <p className={`font-semibold text-sm ${motivo === m.value ? 'text-red-300' : 'text-white'}`}>{m.label}</p>
+              <p className="text-gray-500 text-xs mt-0.5">{m.desc}</p>
+            </button>
+          ))}
+        </div>
+
+        {motivo === 'otro' && (
+          <input
+            autoFocus
+            value={descripcion}
+            onChange={e => setDescripcion(e.target.value)}
+            placeholder="Describe el motivo…"
+            className="w-full bg-gray-800 text-white text-sm px-4 py-3 rounded-xl outline-none mb-4"
+          />
+        )}
+
+        <button
+          onClick={() => motivo && onConfirm(motivo, descripcion || undefined)}
+          disabled={!motivo || (motivo === 'otro' && !descripcion.trim())}
+          className="w-full py-4 rounded-2xl bg-red-600 text-white font-bold text-base disabled:opacity-30 active:scale-95 transition-all"
+        >
+          Confirmar merma
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── Fila de item reutilizable ─────────────────────────────────────────────────
-function ItemRow({ item, nota, setNota, onUpdate, onDelete, onSaveNota }: {
+function ItemRow({ item, nota, setNota, onUpdate, onDelete, onSaveNota, onMerma, onRepeat }: {
   item: ComandaItem
   nota: { itemId: number; value: string } | null
   setNota: (v: { itemId: number; value: string } | null) => void
   onUpdate: (cantidad: number) => void
   onDelete: () => void
   onSaveNota: (v: string) => void
+  onMerma?: () => void
+  onRepeat?: () => void
 }) {
   return (
     <div className="bg-[#1e2d45] rounded-xl p-3">
@@ -308,6 +471,19 @@ function ItemRow({ item, nota, setNota, onUpdate, onDelete, onSaveNota }: {
         </div>
         <button onClick={() => setNota(nota?.itemId === item.id ? null : { itemId: item.id, value: item.nota ?? '' })}
           className="text-gray-600 text-xs hover:text-gray-400 shrink-0">nota</button>
+        {onRepeat && (
+          <button onClick={onRepeat}
+            className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 hover:bg-amber-500/40 text-lg font-bold flex items-center justify-center shrink-0 transition-colors"
+            title="Repetir">
+            +
+          </button>
+        )}
+        {onMerma && (
+          <button onClick={onMerma}
+            className="text-red-800 hover:text-red-500 text-xs shrink-0 transition-colors" title="Registrar merma">
+            ▼
+          </button>
+        )}
       </div>
       {nota?.itemId === item.id && (
         <div className="flex gap-2 mt-2">
@@ -323,39 +499,94 @@ function ItemRow({ item, nota, setNota, onUpdate, onDelete, onSaveNota }: {
 }
 
 // ── Panel comanda (modo camarero) ─────────────────────────────────────────────
-function ComandaPanel({ comanda, menu, onClose, onEnviar }: {
-  comanda: Comanda; menu: MenuItem[]
+function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar }: {
+  comanda: Comanda; menu: MenuItem[]; categorias: MenuCategoria[]
   onClose: () => void
-  onEnviar: (niveles: { itemId: number; nivel: number; nota?: string }[]) => void
+  onEnviar: (niveles: { itemId: number; nivel: number; nota?: string }[], silent?: boolean) => void
 }) {
   const queryClient = useQueryClient()
-  const [tab, setTab] = useState<'pedido' | 'menu'>('pedido')
+  const [tab, setTab] = useState<'pedido' | 'menu'>(comanda.items.length === 0 ? 'menu' : 'pedido')
   const [searchMenu, setSearchMenu] = useState('')
+  const [grupoTab, setGrupoTab] = useState<string | null>(null)
   const [nota, setNota] = useState<{ itemId: number; value: string } | null>(null)
   const [addedId, setAddedId] = useState<number | null>(null)
   const [qtyPending, setQtyPending] = useState<{ id: number; qty: number } | null>(null)
   const timerRef = { current: null as ReturnType<typeof setTimeout> | null }
   const [ordenando, setOrdenando] = useState(false)
   const [verCuenta, setVerCuenta] = useState(false)
+  const [animFacturada, setAnimFacturada] = useState(false)
+  const [mermaItem, setMermaItem] = useState<ComandaItem | null>(null)
+  const [oidoAnim, setOidoAnim] = useState(false)
+  const [dotsAnim, setDotsAnim] = useState(false)
 
-  const yaEnviada   = comanda.estado === 'enviada'
-  const yaFacturada = comanda.estado === 'facturada'
+  const yaEnviada    = comanda.estado === 'enviada'
+  const yaFacturada  = comanda.estado === 'facturada'
+  const itemsNuevos       = comanda.items.filter(i => i.nivel == null)
+  const itemsNuevosCocina = itemsNuevos.filter(i => i.tipo !== 'barra')
+  const itemsNuevosBarra  = itemsNuevos.filter(i => i.tipo === 'barra')
+  const esMarchaPasa  = !yaEnviada && !yaFacturada && itemsNuevosCocina.length > 0 && comanda.items.some(i => i.nivel != null)
+  const hayPendientes = itemsNuevos.length > 0
+
+  const handleOido = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (oidoAnim) return
+    setOidoAnim(true)
+    setTimeout(() => {
+      setOidoAnim(false)
+      if (itemsNuevosCocina.length > 0) setOrdenando(true)
+      else onEnviar(itemsNuevosBarra.map(i => ({ itemId: i.id, nivel: 1 })), true)
+    }, 500)
+  }
+
+  const camareroSesion = (() => {
+    try { return JSON.parse(sessionStorage.getItem('oidoops_camarero') ?? '') }
+    catch { return null }
+  })()
+
+  const registrarMerma = useMutation({
+    mutationFn: ({ motivo, descripcion }: { motivo: MermaMotivo; descripcion?: string }) =>
+      api.mermas.create({
+        restaurantId:   comanda.restaurantId,
+        mesaNumero:     comanda.mesa.numero,
+        planNombre:     undefined,
+        comandaId:      comanda.id,
+        itemNombre:     mermaItem!.nombre,
+        cantidad:       mermaItem!.cantidad,
+        camareroNombre: camareroSesion?.nombre ?? undefined,
+        motivo,
+        descripcion,
+      }),
+    onSuccess: async () => {
+      await api.comandas.deleteItem(comanda.id, mermaItem!.id)
+      setMermaItem(null)
+      queryClient.invalidateQueries({ queryKey: ['comanda-sala', comanda.id] })
+    },
+  })
 
   const facturarComanda = useMutation({
     mutationFn: () => api.comandas.facturar(comanda.id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['comanda-sala', comanda.id] })
       queryClient.invalidateQueries({ queryKey: ['comandas-sala'] })
+      setVerCuenta(false)
+      setAnimFacturada(true)
+      setTimeout(() => { setAnimFacturada(false); onClose() }, 1800)
     },
   })
   const total = comanda.items.reduce((s, i) => s + i.precio * i.cantidad, 0)
 
+  const GRUPOS_BARRA = ['Bebidas', 'Vinos']
+  const getTipo = (item: MenuItem): 'cocina' | 'barra' =>
+    GRUPOS_BARRA.includes(catMeta[item.categoria]?.grupo ?? '') ? 'barra' : 'cocina'
+
   const addItem = useMutation({
     mutationFn: ({ item, cantidad }: { item: MenuItem; cantidad: number }) =>
-      api.comandas.addItem(comanda.id, { nombre: item.nombre, precio: item.precio, cantidad }),
+      api.comandas.addItem(comanda.id, { nombre: item.nombre, precio: item.precio, cantidad, tipo: getTipo(item) }),
     onSuccess: (_, { item }) => {
       setAddedId(item.id)
       setTimeout(() => setAddedId(null), 1000)
+      setDotsAnim(true)
+      setTimeout(() => setDotsAnim(false), 1600)
       queryClient.invalidateQueries({ queryKey: ['comanda-sala', comanda.id] })
     },
   })
@@ -394,25 +625,38 @@ function ComandaPanel({ comanda, menu, onClose, onEnviar }: {
     mutationFn: (itemId: number) => api.comandas.deleteItem(comanda.id, itemId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['comanda-sala', comanda.id] }),
   })
+  const repeatItem = useMutation({
+    mutationFn: (item: ComandaItem) =>
+      api.comandas.addItem(comanda.id, { nombre: item.nombre, precio: item.precio, cantidad: 1, tipo: item.tipo }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['comanda-sala', comanda.id] }),
+  })
   const saveNota = useMutation({
     mutationFn: ({ itemId, value }: { itemId: number; value: string }) =>
       api.comandas.updateItem(comanda.id, itemId, { nota: value }),
     onSuccess: () => { setNota(null); queryClient.invalidateQueries({ queryKey: ['comanda-sala', comanda.id] }) },
   })
 
-  const CATEGORIA_ORDER = ['Classic Tapas','Vegetarian Tapas','Fish Tapas','Meat Tapas','Rice','Pasta']
-  const filteredMenu = menu.filter(m => m.activo && m.nombre.toLowerCase().includes(searchMenu.toLowerCase()))
+  // Mapa categoria → grupo y orden
+  const catMeta: Record<string, { grupo: string; orden: number }> = {}
+  for (const c of categorias) catMeta[c.nombre] = { grupo: c.grupo || 'Otros', orden: c.orden }
+
+  // Grupos únicos ordenados
+  const grupos = [...new Set(categorias.map(c => c.grupo || 'Otros'))]
+  const grupoActivo = grupoTab ?? grupos[0] ?? null
+
+  const filteredMenu = menu.filter(m =>
+    m.activo &&
+    m.nombre.toLowerCase().includes(searchMenu.toLowerCase()) &&
+    (!grupoActivo || (catMeta[m.categoria]?.grupo ?? 'Otros') === grupoActivo)
+  )
   const menuByCategoria = filteredMenu.reduce<Record<string, MenuItem[]>>((acc, m) => {
     if (!acc[m.categoria]) acc[m.categoria] = []
     acc[m.categoria].push(m)
     return acc
   }, {})
-  const categoriasSorted = Object.keys(menuByCategoria).sort((a, b) => {
-    const ia = CATEGORIA_ORDER.indexOf(a), ib = CATEGORIA_ORDER.indexOf(b)
-    if (ia === -1 && ib === -1) return a.localeCompare(b)
-    if (ia === -1) return 1; if (ib === -1) return -1
-    return ia - ib
-  })
+  const categoriasSorted = Object.keys(menuByCategoria).sort((a, b) =>
+    (catMeta[a]?.orden ?? 99) - (catMeta[b]?.orden ?? 99)
+  )
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end" onClick={onClose}>
@@ -447,45 +691,76 @@ function ComandaPanel({ comanda, menu, onClose, onEnviar }: {
                 </div>
               )}
               {(() => {
-                const tienenNivel = comanda.items.some(i => i.nivel != null)
-                if (!tienenNivel) {
-                  // comanda nueva sin enviar: lista plana
-                  return (
-                    <div className="space-y-2">
-                      {comanda.items.map((item: ComandaItem) => (
-                        <ItemRow key={item.id} item={item} nota={nota} setNota={setNota}
-                          onUpdate={cantidad => updateItem.mutate({ itemId: item.id, cantidad })}
-                          onDelete={() => deleteItem.mutate(item.id)}
-                          onSaveNota={v => saveNota.mutate({ itemId: item.id, value: v })} />
-                      ))}
-                    </div>
-                  )
-                }
-                // comanda enviada: agrupar por nivel
-                const maxNivel = Math.max(...comanda.items.map(i => i.nivel ?? 1))
+                const itemsCocina = comanda.items.filter(i => i.tipo !== 'barra')
+                const itemsBarra  = comanda.items.filter(i => i.tipo === 'barra')
+                const tienenNivel = itemsCocina.some(i => i.nivel != null)
+
                 return (
                   <div className="space-y-4">
-                    {Array.from({ length: maxNivel }, (_, i) => i + 1).map(nv => {
-                      const items = comanda.items.filter(i => (i.nivel ?? 1) === nv)
-                      if (!items.length) return null
-                      return (
-                        <div key={nv}>
-                          <div className="flex items-center gap-2 mb-2">
-                            <div className="w-7 h-7 rounded-full bg-cyan-600 flex items-center justify-center text-white text-xs font-black shrink-0">{nv}</div>
-                            <span className="text-gray-400 text-xs font-semibold uppercase tracking-wide">Salida {nv}</span>
-                            <div className="flex-1 h-px bg-gray-700" />
+                    {/* ── Cocina ── */}
+                    {!tienenNivel ? (
+                      // Comanda nueva: lista plana
+                      <div className="space-y-2">
+                        {itemsCocina.map((item: ComandaItem) => (
+                          <ItemRow key={item.id} item={item} nota={nota} setNota={setNota}
+                            onUpdate={cantidad => updateItem.mutate({ itemId: item.id, cantidad })}
+                            onDelete={() => deleteItem.mutate(item.id)}
+                            onSaveNota={v => saveNota.mutate({ itemId: item.id, value: v })}
+                            onMerma={() => setMermaItem(item)} />
+                        ))}
+                      </div>
+                    ) : (
+                      // Comanda enviada: agrupar por nivel
+                      (() => {
+                        const maxNivel = Math.max(...itemsCocina.map(i => i.nivel ?? 1))
+                        return (
+                          <div className="space-y-4">
+                            {Array.from({ length: maxNivel }, (_, i) => i + 1).map(nv => {
+                              const items = itemsCocina.filter(i => (i.nivel ?? 1) === nv)
+                              if (!items.length) return null
+                              return (
+                                <div key={nv}>
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <div className="w-7 h-7 rounded-full bg-cyan-600 flex items-center justify-center text-white text-xs font-black shrink-0">{nv}</div>
+                                    <span className="text-gray-400 text-xs font-semibold uppercase tracking-wide">Salida {nv}</span>
+                                    <div className="flex-1 h-px bg-gray-700" />
+                                  </div>
+                                  <div className="space-y-2">
+                                    {items.map((item: ComandaItem) => (
+                                      <ItemRow key={item.id} item={item} nota={nota} setNota={setNota}
+                                        onUpdate={cantidad => updateItem.mutate({ itemId: item.id, cantidad })}
+                                        onDelete={() => deleteItem.mutate(item.id)}
+                                        onSaveNota={v => saveNota.mutate({ itemId: item.id, value: v })}
+                                        onMerma={() => setMermaItem(item)}
+                                        onRepeat={() => repeatItem.mutate(item)} />
+                                    ))}
+                                  </div>
+                                </div>
+                              )
+                            })}
                           </div>
-                          <div className="space-y-2">
-                            {items.map((item: ComandaItem) => (
-                              <ItemRow key={item.id} item={item} nota={nota} setNota={setNota}
-                                onUpdate={cantidad => updateItem.mutate({ itemId: item.id, cantidad })}
-                                onDelete={() => deleteItem.mutate(item.id)}
-                                onSaveNota={v => saveNota.mutate({ itemId: item.id, value: v })} />
-                            ))}
-                          </div>
+                        )
+                      })()
+                    )}
+
+                    {/* ── Barra ── */}
+                    {itemsBarra.length > 0 && (
+                      <div>
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-amber-400 text-xs font-semibold uppercase tracking-wide">🍺 Barra</span>
+                          <div className="flex-1 h-px bg-gray-700" />
                         </div>
-                      )
-                    })}
+                        <div className="space-y-2">
+                          {itemsBarra.map((item: ComandaItem) => (
+                            <ItemRow key={item.id} item={item} nota={nota} setNota={setNota}
+                              onUpdate={cantidad => updateItem.mutate({ itemId: item.id, cantidad })}
+                              onDelete={() => deleteItem.mutate(item.id)}
+                              onSaveNota={v => saveNota.mutate({ itemId: item.id, value: v })}
+                              onMerma={() => setMermaItem(item)} />
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )
               })()}
@@ -494,6 +769,21 @@ function ComandaPanel({ comanda, menu, onClose, onEnviar }: {
 
           {tab === 'menu' && (
             <div className="p-4">
+              {/* Tabs de sección (Comida / Bebidas / Vinos) */}
+              {grupos.length > 1 && (
+                <div className="flex gap-1.5 mb-3 overflow-x-auto pb-1">
+                  {grupos.map(g => (
+                    <button key={g} onClick={() => setGrupoTab(g)}
+                      className={`px-4 py-1.5 rounded-xl text-sm font-semibold whitespace-nowrap transition-colors ${
+                        grupoActivo === g
+                          ? 'bg-cyan-600 text-white'
+                          : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                      }`}>
+                      {g}
+                    </button>
+                  ))}
+                </div>
+              )}
               <input value={searchMenu} onChange={e => setSearchMenu(e.target.value)}
                 placeholder="Buscar plato…"
                 className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl outline-none mb-4" />
@@ -549,33 +839,87 @@ function ComandaPanel({ comanda, menu, onClose, onEnviar }: {
                 Ver cuenta de nuevo
               </button>
             </div>
-          ) : yaEnviada ? (
+          ) : !hayPendientes && (yaEnviada || comanda.items.some(i => i.nivel != null)) ? (
             <div className="space-y-2">
-              <div className="flex items-center justify-center gap-2 py-1">
-                <span className="text-[#4CC8A0] text-sm font-semibold">🚀 Enviada a cocina</span>
-                <button onClick={() => setOrdenando(true)} className="text-gray-500 text-xs underline">re-enviar</button>
-              </div>
               <button onClick={e => { e.stopPropagation(); setVerCuenta(true) }}
                 className="w-full py-4 rounded-2xl bg-[#f59e0b] text-white font-bold text-lg active:scale-95 transition-all">
                 Ver cuenta 🧾
               </button>
+              {yaEnviada && (
+                <button onClick={() => setOrdenando(true)} className="w-full py-2 text-gray-500 text-xs underline">
+                  re-enviar comanda
+                </button>
+              )}
             </div>
           ) : (
-            <button onClick={e => { e.stopPropagation(); setOrdenando(true) }}
+            <button onClick={hayPendientes ? handleOido : undefined}
               disabled={comanda.items.length === 0}
-              className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#f59e0b] to-[#ef4444] text-white font-black text-xl tracking-wide hover:opacity-90 active:scale-95 disabled:opacity-30">
-              Ordenar y enviar →
+              className={`w-full rounded-2xl flex items-center justify-center gap-3 py-4 transition-all active:scale-95 ${hayPendientes ? '' : 'opacity-25 cursor-default'}`}>
+              {/* Texto "Oído" — misma fuente que el logo */}
+              <span style={{
+                fontFamily: "'Helvetica Neue', Arial, sans-serif",
+                fontWeight: 800,
+                fontSize: '2rem',
+                color: hayPendientes ? '#4CC8A0' : '#6b7280',
+                opacity: oidoAnim ? 0 : 1,
+                transition: 'opacity 0.15s',
+              }}>
+                Oído
+              </span>
+              {/* Viñeta — misma forma y gradiente que el logo de OidoOps */}
+              <svg viewBox="0 0 68 72" className="w-14 h-14" style={{ filter: hayPendientes ? 'drop-shadow(0 0 10px rgba(76,200,160,0.55))' : 'none' }}>
+                <defs>
+                  <linearGradient id="oido-grad" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stopColor={hayPendientes ? '#4B9EDF' : '#374151'} />
+                    <stop offset="100%" stopColor={hayPendientes ? '#4CC8A0' : '#374151'} />
+                  </linearGradient>
+                </defs>
+                {/* Exacta misma viñeta que /oidoops.svg */}
+                <path d="M14 2 L54 2 Q66 2 66 14 L66 52 Q66 62 54 62 L40 62 L34 70 L28 62 L14 62 Q2 62 2 52 L2 14 Q2 2 14 2 Z" fill="url(#oido-grad)" />
+                {/* Tres puntos — feedback visual al agregar item */}
+                {dotsAnim && !oidoAnim && (<>
+                  <circle cx="22" cy="32" r="4.5" fill="white" style={{ animation: 'dot-pulse 0.9s ease-in-out infinite', animationDelay: '0s' }} />
+                  <circle cx="34" cy="32" r="4.5" fill="white" style={{ animation: 'dot-pulse 0.9s ease-in-out infinite', animationDelay: '0.18s' }} />
+                  <circle cx="46" cy="32" r="4.5" fill="white" style={{ animation: 'dot-pulse 0.9s ease-in-out infinite', animationDelay: '0.36s' }} />
+                </>)}
+                {/* Check — animado al tocar, mismas coordenadas que el logo */}
+                <path d="M15 34 L29 48 L55 18" stroke="white" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" fill="none"
+                  strokeDasharray={60} strokeDashoffset={oidoAnim ? 0 : 60}
+                  style={{ transition: oidoAnim ? 'stroke-dashoffset 0.4s ease-out' : 'none' }} />
+              </svg>
             </button>
           )}
         </div>
       </div>
 
       {ordenando && (
-        <OrdenarModal comanda={comanda} menu={menu}
+        <OrdenarModal comanda={comanda} menu={menu} categorias={categorias}
+          marchaPasa={esMarchaPasa}
           onClose={() => setOrdenando(false)}
           onEnviar={niveles => { onEnviar(niveles); setOrdenando(false) }} />
       )}
+      {mermaItem && (
+        <MermaModal
+          item={mermaItem}
+          onClose={() => setMermaItem(null)}
+          onConfirm={(motivo, descripcion) => registrarMerma.mutate({ motivo, descripcion })}
+        />
+      )}
+
       {verCuenta && <VerCuentaModal comanda={comanda} onClose={() => setVerCuenta(false)} onFacturar={() => facturarComanda.mutate()} />}
+
+      {animFacturada && (
+        <div className="fixed inset-0 z-[60] bg-[#0f172a] flex flex-col items-center justify-center"
+          style={{ animation: 'fadeInOut 1.8s ease forwards' }}>
+          <img src="/oidoops.svg" alt="OidoOps" className="h-20 mb-6 opacity-90" />
+          <div className="w-16 h-16 rounded-full bg-[#4CC8A0]/20 flex items-center justify-center mb-4">
+            <svg viewBox="0 0 52 52" className="w-10 h-10">
+              <path d="M10 26 L22 38 L42 14" stroke="#4CC8A0" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            </svg>
+          </div>
+          <p className="text-[#4CC8A0] font-bold text-lg">Cuenta entregada</p>
+        </div>
+      )}
     </div>
   )
 }
@@ -693,6 +1037,11 @@ export default function SalaMesasPage() {
     queryFn: () => api.menu.list(restaurant!.id),
     enabled: !!restaurant,
   })
+  const { data: menuCategorias = [] } = useQuery({
+    queryKey: ['menu-cats', restaurant?.id],
+    queryFn: () => api.menuCategorias.list(restaurant!.id),
+    enabled: !!restaurant,
+  })
 
   const activePlan = planes?.find(p => p.id === planId) ?? planes?.[0] ?? null
 
@@ -711,13 +1060,15 @@ export default function SalaMesasPage() {
   })
 
   const enviarComanda = useMutation({
-    mutationFn: ({ id, niveles }: { id: number; niveles: { itemId: number; nivel: number; nota?: string }[] }) =>
+    mutationFn: ({ id, niveles }: { id: number; niveles: { itemId: number; nivel: number; nota?: string }[]; silent?: boolean }) =>
       api.comandas.enviar(id, niveles),
-    onSuccess: () => {
+    onSuccess: (_, { silent }) => {
       queryClient.invalidateQueries({ queryKey: ['comanda-sala', comandaAbierta] })
       queryClient.invalidateQueries({ queryKey: ['comandas-sala', restaurant?.id] })
-      setComandaAbierta(null)
-      setView('mapa')
+      if (!silent) {
+        setComandaAbierta(null)
+        setView('mapa')
+      }
     },
   })
 
@@ -875,9 +1226,9 @@ export default function SalaMesasPage() {
       )}
 
       {comandaAbierta && comandaDetalle && (
-        <ComandaPanel comanda={comandaDetalle} menu={menu ?? []}
+        <ComandaPanel comanda={comandaDetalle} menu={menu ?? []} categorias={menuCategorias}
           onClose={() => setComandaAbierta(null)}
-          onEnviar={niveles => enviarComanda.mutate({ id: comandaAbierta, niveles })} />
+          onEnviar={(niveles, silent) => enviarComanda.mutate({ id: comandaAbierta, niveles, silent })} />
       )}
 
       {showPerfil && camarero && (

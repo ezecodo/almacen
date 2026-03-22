@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, Comanda, ComandaItem, FloorPlan, Mesa, Restaurante } from '../api'
 
 function timeAgo(iso: string) {
@@ -43,15 +43,18 @@ const ESTADO_CONFIG = {
 }
 
 // ── Modal detalle de comanda ───────────────────────────────────────────────────
-function ComandaDetalleModal({ comanda, planNombre, onClose }: {
+function ComandaDetalleModal({ comanda, planNombre, onClose, onCobrar }: {
   comanda: Comanda
   planNombre: string
   onClose: () => void
+  onCobrar?: (metodoPago: 'cash' | 'tarjeta') => void
 }) {
+  const [metodoPago, setMetodoPago] = useState<'cash' | 'tarjeta' | null>(null)
   const cfg = ESTADO_CONFIG[comanda.estado as keyof typeof ESTADO_CONFIG] ?? ESTADO_CONFIG.abierta
   const total = comanda.items.reduce((s, i) => s + i.precio * i.cantidad, 0)
-  const tienenNivel = comanda.items.some(i => i.nivel != null)
-  const maxNivel = tienenNivel ? Math.max(...comanda.items.map(i => i.nivel ?? 1)) : 1
+  const cocina = comanda.items.filter(i => i.tipo !== 'barra')
+  const tienenNivel = cocina.some(i => i.nivel != null)
+  const maxNivel = tienenNivel ? Math.max(...cocina.map(i => i.nivel ?? 1)) : 1
 
   const duracion = (() => {
     const end = comanda.closedAt ? new Date(comanda.closedAt) : new Date()
@@ -120,42 +123,102 @@ function ComandaDetalleModal({ comanda, planNombre, onClose }: {
             <p className="text-gray-600 text-sm text-center py-6">Sin items</p>
           )}
 
-          {tienenNivel ? (
-            // Agrupado por nivel
-            <div className="space-y-4">
-              {Array.from({ length: maxNivel }, (_, i) => i + 1).map(nv => {
-                const items = comanda.items.filter(i => (i.nivel ?? 1) === nv)
-                if (!items.length) return null
-                return (
-                  <div key={nv}>
+          {(() => {
+            const itemsCocina = comanda.items.filter(i => i.tipo !== 'barra')
+            const itemsBarra  = comanda.items.filter(i => i.tipo === 'barra')
+
+            return (
+              <div className="space-y-4">
+                {/* Cocina */}
+                {tienenNivel ? (
+                  <div className="space-y-4">
+                    {Array.from({ length: maxNivel }, (_, i) => i + 1).map(nv => {
+                      const items = itemsCocina.filter(i => (i.nivel ?? 1) === nv)
+                      if (!items.length) return null
+                      return (
+                        <div key={nv}>
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className="w-6 h-6 rounded-full bg-cyan-700 flex items-center justify-center text-white text-xs font-black shrink-0">{nv}</div>
+                            <span className="text-gray-500 text-xs font-semibold uppercase tracking-wide">Salida {nv}</span>
+                            <div className="flex-1 h-px bg-gray-800" />
+                          </div>
+                          <div className="space-y-1.5">
+                            {items.map((item: ComandaItem) => (
+                              <ItemLine key={item.id} item={item} />
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {itemsCocina.map((item: ComandaItem) => (
+                      <ItemLine key={item.id} item={item} />
+                    ))}
+                  </div>
+                )}
+
+                {/* Barra */}
+                {itemsBarra.length > 0 && (
+                  <div>
                     <div className="flex items-center gap-2 mb-2">
-                      <div className="w-6 h-6 rounded-full bg-cyan-700 flex items-center justify-center text-white text-xs font-black shrink-0">{nv}</div>
-                      <span className="text-gray-500 text-xs font-semibold uppercase tracking-wide">Salida {nv}</span>
+                      <span className="text-amber-400 text-xs font-semibold uppercase tracking-wide">🍺 Barra</span>
                       <div className="flex-1 h-px bg-gray-800" />
                     </div>
                     <div className="space-y-1.5">
-                      {items.map((item: ComandaItem) => (
+                      {itemsBarra.map((item: ComandaItem) => (
                         <ItemLine key={item.id} item={item} />
                       ))}
                     </div>
                   </div>
-                )
-              })}
-            </div>
-          ) : (
-            // Lista plana
-            <div className="space-y-1.5">
-              {comanda.items.map((item: ComandaItem) => (
-                <ItemLine key={item.id} item={item} />
-              ))}
-            </div>
-          )}
+                )}
+              </div>
+            )
+          })()}
         </div>
 
-        {/* Footer total */}
-        <div className="px-5 py-4 border-t border-gray-700 flex items-center justify-between">
-          <span className="text-gray-400 font-medium">Total</span>
-          <span className="text-white text-2xl font-black">{fmt(total)} €</span>
+        {/* Footer total + cobrar */}
+        <div className="px-5 py-4 border-t border-gray-700">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-gray-400 font-medium">Total</span>
+            <span className="text-white text-2xl font-black">{fmt(total)} €</span>
+          </div>
+
+          {comanda.estado === 'facturada' && onCobrar && (
+            <div>
+              <p className="text-gray-500 text-xs mb-2 text-center">Método de pago</p>
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <button
+                  onClick={() => setMetodoPago('cash')}
+                  className={`py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                    metodoPago === 'cash'
+                      ? 'bg-green-600 text-white'
+                      : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                  }`}
+                >
+                  💵 Efectivo
+                </button>
+                <button
+                  onClick={() => setMetodoPago('tarjeta')}
+                  className={`py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                    metodoPago === 'tarjeta'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                  }`}
+                >
+                  💳 Tarjeta
+                </button>
+              </div>
+              <button
+                onClick={() => metodoPago && onCobrar(metodoPago)}
+                disabled={!metodoPago}
+                className="w-full py-3 rounded-xl bg-amber-500 text-black font-black text-base disabled:opacity-30 hover:bg-amber-400 active:scale-[0.98] transition-all"
+              >
+                Cobrar mesa
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -333,7 +396,7 @@ function BuscadorMesa({ mesas, onSelect }: {
         </div>
 
         <button
-          onClick={handleSelect}
+          onClick={() => handleSelect()}
           disabled={!match || match.estado.tipo === 'libre'}
           className="w-full h-14 rounded-2xl bg-cyan-600 text-white font-bold text-lg disabled:opacity-30 hover:bg-cyan-500 active:scale-95 transition-all"
         >
@@ -346,8 +409,19 @@ function BuscadorMesa({ mesas, onSelect }: {
 
 // ── Página principal ──────────────────────────────────────────────────────────
 export default function MesasFeedPage() {
+  const queryClient = useQueryClient()
   const [restaurantId, setRestaurantId] = useState<number | null>(null)
   const [detalle, setDetalle] = useState<{ comanda: Comanda; planNombre: string } | null>(null)
+
+  const cobrarComanda = useMutation({
+    mutationFn: ({ id, metodoPago }: { id: number; metodoPago: 'cash' | 'tarjeta' }) =>
+      api.comandas.cerrar(id, metodoPago),
+    onSuccess: () => {
+      setDetalle(null)
+      queryClient.invalidateQueries({ queryKey: ['comandas-feed-activas', restaurantId] })
+      queryClient.invalidateQueries({ queryKey: ['comandas-feed-cerradas', restaurantId] })
+    },
+  })
 
   const { data: restaurantes } = useQuery({
     queryKey: ['restaurantes'],
@@ -464,6 +538,7 @@ export default function MesasFeedPage() {
           comanda={detalle.comanda}
           planNombre={detalle.planNombre}
           onClose={() => setDetalle(null)}
+          onCobrar={metodoPago => cobrarComanda.mutate({ id: detalle.comanda.id, metodoPago })}
         />
       )}
 

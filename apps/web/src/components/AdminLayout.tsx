@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { to: '/admin/menu', label: 'Menú' },
   { to: '/admin/salon', label: 'Salón' },
   { to: '/admin/mesas', label: 'Mesas' },
+  { to: '/admin/mermas', label: 'Mermas' },
   { to: '/admin/comandas', label: 'Comandas' },
 ]
 

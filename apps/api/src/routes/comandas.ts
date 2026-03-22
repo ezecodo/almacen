@@ -7,6 +7,7 @@ const itemSchema = z.object({
   precio:   z.number().min(0),
   cantidad: z.number().int().positive().default(1),
   nota:     z.string().default(''),
+  tipo:     z.enum(['cocina', 'barra']).default('cocina'),
 })
 
 export async function comandaRoutes(app: FastifyInstance) {
@@ -79,13 +80,30 @@ export async function comandaRoutes(app: FastifyInstance) {
 
   // Actualizar cantidad/nota de un item
   app.patch('/comandas/:id/items/:itemId', async (req, reply) => {
-    const itemId = Number((req.params as { id: string; itemId: string }).itemId)
+    const comandaId = Number((req.params as { id: string; itemId: string }).id)
+    const itemId    = Number((req.params as { id: string; itemId: string }).itemId)
     const { cantidad, nota } = req.body as { cantidad?: number; nota?: string }
 
-    const item = await prisma.comandaItem.update({
-      where: { id: itemId },
-      data: { ...(cantidad !== undefined && { cantidad }), ...(nota !== undefined && { nota }) },
-    })
+    // Si es un item de barra ya enviado (nivel != null) y se incrementa la cantidad,
+    // resetear nivel a null y la comanda a 'abierta' para activar "Enviar a barra"
+    const existing = await prisma.comandaItem.findUnique({ where: { id: itemId } })
+    const resetBarra = existing?.tipo === 'barra' && existing?.nivel != null
+      && cantidad !== undefined && cantidad > (existing?.cantidad ?? 0)
+
+    const item = resetBarra
+      ? await prisma.$transaction(async tx => {
+          const updated = await tx.comandaItem.update({
+            where: { id: itemId },
+            data: { cantidad, nivel: null },
+          })
+          await tx.comanda.update({ where: { id: comandaId }, data: { estado: 'abierta' } })
+          return updated
+        })
+      : await prisma.comandaItem.update({
+          where: { id: itemId },
+          data: { ...(cantidad !== undefined && { cantidad }), ...(nota !== undefined && { nota }) },
+        })
+
     return item
   })
 
