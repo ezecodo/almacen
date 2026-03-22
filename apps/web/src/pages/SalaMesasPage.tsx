@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, Comanda, ComandaItem, Mesa, MenuItem } from '../api'
+import { api, Comanda, ComandaItem, Mesa, MenuItem, MiTurno } from '../api'
 
 const SQUARE_SIZE = 80
 const RECT_W = 160
@@ -283,6 +283,45 @@ function OrdenarModal({ comanda, menu, onEnviar, onClose }: {
   )
 }
 
+// ── Fila de item reutilizable ─────────────────────────────────────────────────
+function ItemRow({ item, nota, setNota, onUpdate, onDelete, onSaveNota }: {
+  item: ComandaItem
+  nota: { itemId: number; value: string } | null
+  setNota: (v: { itemId: number; value: string } | null) => void
+  onUpdate: (cantidad: number) => void
+  onDelete: () => void
+  onSaveNota: (v: string) => void
+}) {
+  return (
+    <div className="bg-[#1e2d45] rounded-xl p-3">
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1">
+          <button onClick={() => item.cantidad > 1 ? onUpdate(item.cantidad - 1) : onDelete()}
+            className="w-8 h-8 rounded-lg bg-gray-700 text-gray-300 text-sm hover:bg-gray-600 flex items-center justify-center">−</button>
+          <span className="text-white font-bold w-5 text-center">{item.cantidad}</span>
+          <button onClick={() => onUpdate(item.cantidad + 1)}
+            className="w-8 h-8 rounded-lg bg-gray-700 text-gray-300 text-sm hover:bg-gray-600 flex items-center justify-center">+</button>
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-white text-sm font-medium truncate">{item.nombre}</p>
+          {item.nota && <p className="text-gray-500 text-xs truncate">{item.nota}</p>}
+        </div>
+        <button onClick={() => setNota(nota?.itemId === item.id ? null : { itemId: item.id, value: item.nota ?? '' })}
+          className="text-gray-600 text-xs hover:text-gray-400 shrink-0">nota</button>
+      </div>
+      {nota?.itemId === item.id && (
+        <div className="flex gap-2 mt-2">
+          <input autoFocus value={nota.value} onChange={e => setNota({ itemId: item.id, value: e.target.value })}
+            placeholder="Sin gluten, sin cebolla…"
+            className="flex-1 bg-gray-800 text-white text-xs px-3 py-1.5 rounded-lg outline-none" />
+          <button onClick={() => onSaveNota(nota.value)} className="text-xs px-3 py-1.5 bg-cyan-600 text-white rounded-lg">OK</button>
+          <button onClick={() => setNota(null)} className="text-xs text-gray-500">✕</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Panel comanda (modo camarero) ─────────────────────────────────────────────
 function ComandaPanel({ comanda, menu, onClose, onEnviar }: {
   comanda: Comanda; menu: MenuItem[]
@@ -400,41 +439,56 @@ function ComandaPanel({ comanda, menu, onClose, onEnviar }: {
         {/* Contenido */}
         <div className="flex-1 overflow-y-auto">
           {tab === 'pedido' && (
-            <div className="p-4 space-y-2">
+            <div className="p-4">
               {comanda.items.length === 0 && (
                 <div className="text-center py-12 text-gray-600">
                   <p className="text-3xl mb-2">🍽</p>
                   <p className="text-sm">Sin items. Ve a "Añadir".</p>
                 </div>
               )}
-              {comanda.items.map((item: ComandaItem) => (
-                <div key={item.id} className="bg-[#1e2d45] rounded-xl p-3">
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-1">
-                      <button onClick={() => item.cantidad > 1 ? updateItem.mutate({ itemId: item.id, cantidad: item.cantidad - 1 }) : deleteItem.mutate(item.id)}
-                        className="w-8 h-8 rounded-lg bg-gray-700 text-gray-300 text-sm hover:bg-gray-600 flex items-center justify-center">−</button>
-                      <span className="text-white font-bold w-5 text-center">{item.cantidad}</span>
-                      <button onClick={() => updateItem.mutate({ itemId: item.id, cantidad: item.cantidad + 1 })}
-                        className="w-8 h-8 rounded-lg bg-gray-700 text-gray-300 text-sm hover:bg-gray-600 flex items-center justify-center">+</button>
+              {(() => {
+                const tienenNivel = comanda.items.some(i => i.nivel != null)
+                if (!tienenNivel) {
+                  // comanda nueva sin enviar: lista plana
+                  return (
+                    <div className="space-y-2">
+                      {comanda.items.map((item: ComandaItem) => (
+                        <ItemRow key={item.id} item={item} nota={nota} setNota={setNota}
+                          onUpdate={cantidad => updateItem.mutate({ itemId: item.id, cantidad })}
+                          onDelete={() => deleteItem.mutate(item.id)}
+                          onSaveNota={v => saveNota.mutate({ itemId: item.id, value: v })} />
+                      ))}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-white text-sm font-medium truncate">{item.nombre}</p>
-                      {item.nota && <p className="text-gray-500 text-xs truncate">{item.nota}</p>}
-                    </div>
-                    <button onClick={() => setNota({ itemId: item.id, value: item.nota })}
-                      className="text-gray-600 text-xs hover:text-gray-400 shrink-0">nota</button>
+                  )
+                }
+                // comanda enviada: agrupar por nivel
+                const maxNivel = Math.max(...comanda.items.map(i => i.nivel ?? 1))
+                return (
+                  <div className="space-y-4">
+                    {Array.from({ length: maxNivel }, (_, i) => i + 1).map(nv => {
+                      const items = comanda.items.filter(i => (i.nivel ?? 1) === nv)
+                      if (!items.length) return null
+                      return (
+                        <div key={nv}>
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className="w-7 h-7 rounded-full bg-cyan-600 flex items-center justify-center text-white text-xs font-black shrink-0">{nv}</div>
+                            <span className="text-gray-400 text-xs font-semibold uppercase tracking-wide">Salida {nv}</span>
+                            <div className="flex-1 h-px bg-gray-700" />
+                          </div>
+                          <div className="space-y-2">
+                            {items.map((item: ComandaItem) => (
+                              <ItemRow key={item.id} item={item} nota={nota} setNota={setNota}
+                                onUpdate={cantidad => updateItem.mutate({ itemId: item.id, cantidad })}
+                                onDelete={() => deleteItem.mutate(item.id)}
+                                onSaveNota={v => saveNota.mutate({ itemId: item.id, value: v })} />
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
-                  {nota?.itemId === item.id && (
-                    <div className="flex gap-2 mt-2">
-                      <input autoFocus value={nota.value} onChange={e => setNota({ itemId: item.id, value: e.target.value })}
-                        placeholder="Sin gluten, sin cebolla…"
-                        className="flex-1 bg-gray-800 text-white text-xs px-3 py-1.5 rounded-lg outline-none" />
-                      <button onClick={() => saveNota.mutate({ itemId: item.id, value: nota.value })} className="text-xs px-3 py-1.5 bg-cyan-600 text-white rounded-lg">OK</button>
-                      <button onClick={() => setNota(null)} className="text-xs text-gray-500">✕</button>
-                    </div>
-                  )}
-                </div>
-              ))}
+                )
+              })()}
             </div>
           )}
 
@@ -526,6 +580,72 @@ function ComandaPanel({ comanda, menu, onClose, onEnviar }: {
   )
 }
 
+// ── Panel perfil + propinas del camarero ──────────────────────────────────────
+function PerfilPanel({ camarero, onClose }: { camarero: { id: number; nombre: string }; onClose: () => void }) {
+  const ahora  = new Date()
+  const desde  = `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, '0')}-01`
+
+  const { data: turnos, isLoading } = useQuery({
+    queryKey: ['mis-turnos', camarero.id],
+    queryFn: () => api.propinas.misTurnos(camarero.id, desde),
+  })
+
+  const totalMes    = turnos?.reduce((s, t) => s + t.propina, 0) ?? 0
+  const totalHoras  = turnos?.reduce((s, t) => s + t.horas,  0) ?? 0
+
+  const fmt = (n: number) => n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const fmtFecha = (iso: string) => new Date(iso).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-end z-50" onClick={onClose}>
+      <div className="w-full bg-[#0f172a] rounded-t-3xl shadow-2xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        {/* Handle */}
+        <div className="flex justify-center pt-3 pb-1">
+          <div className="w-10 h-1 rounded-full bg-gray-600" />
+        </div>
+
+        {/* Header */}
+        <div className="px-5 pt-2 pb-4 border-b border-gray-700 flex items-center justify-between">
+          <div>
+            <h2 className="text-white font-bold text-lg">{camarero.nombre}</h2>
+            <p className="text-gray-500 text-xs mt-0.5">Propinas este mes</p>
+          </div>
+          <button onClick={onClose} className="text-gray-500 text-xl">✕</button>
+        </div>
+
+        {/* Resumen */}
+        <div className="grid grid-cols-2 gap-3 px-5 py-4">
+          <div className="bg-[#1e2d45] rounded-2xl p-4">
+            <p className="text-gray-400 text-xs mb-1">Total propinas</p>
+            <p className="text-[#4CC8A0] text-2xl font-black">{fmt(totalMes)} €</p>
+          </div>
+          <div className="bg-[#1e2d45] rounded-2xl p-4">
+            <p className="text-gray-400 text-xs mb-1">Horas trabajadas</p>
+            <p className="text-white text-2xl font-black">{totalHoras}h</p>
+          </div>
+        </div>
+
+        {/* Lista de turnos */}
+        <div className="flex-1 overflow-y-auto px-5 pb-6">
+          {isLoading && <p className="text-gray-600 text-sm text-center py-6">Cargando…</p>}
+          {!isLoading && !turnos?.length && (
+            <p className="text-gray-600 text-sm text-center py-6">Sin propinas registradas este mes</p>
+          )}
+          {turnos?.map((t: MiTurno) => (
+            <div key={t.id} className="flex items-center justify-between py-3 border-b border-gray-800">
+              <div>
+                <p className="text-white text-sm font-medium">{fmtFecha(t.fecha)}</p>
+                <p className="text-gray-500 text-xs">{t.horas}h · {t.restaurante}</p>
+              </div>
+              <span className="text-[#4CC8A0] font-bold text-sm">{fmt(t.propina)} €</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Página principal camarero ─────────────────────────────────────────────────
 export default function SalaMesasPage() {
   const navigate   = useNavigate()
@@ -549,6 +669,7 @@ export default function SalaMesasPage() {
   const [abrirMesa, setAbrirMesa]         = useState<Mesa | null>(null)
   const [comandaAbierta, setComandaAbierta] = useState<number | null>(null)
   const [view, setView] = useState<'mapa' | 'mesas' | 'nueva'>('mapa')
+  const [showPerfil, setShowPerfil]       = useState(false)
 
   const { data: planes } = useQuery({
     queryKey: ['salon-planes', restaurant?.id],
@@ -581,7 +702,7 @@ export default function SalaMesasPage() {
 
   const abrirComanda = useMutation({
     mutationFn: ({ mesaId, pax }: { mesaId: number; pax: number }) =>
-      api.comandas.abrir(restaurant!.id, mesaId, pax),
+      api.comandas.abrir(restaurant!.id, mesaId, pax, camarero?.nombre),
     onSuccess: comanda => {
       setAbrirMesa(null)
       setComandaAbierta(comanda.id)
@@ -595,6 +716,8 @@ export default function SalaMesasPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['comanda-sala', comandaAbierta] })
       queryClient.invalidateQueries({ queryKey: ['comandas-sala', restaurant?.id] })
+      setComandaAbierta(null)
+      setView('mapa')
     },
   })
 
@@ -622,10 +745,12 @@ export default function SalaMesasPage() {
       {/* Header */}
       <div className="bg-[#0f172a] border-b border-gray-700 px-4 py-3">
         <div className="flex items-center justify-between mb-3">
-          <div>
+          <button onClick={() => setShowPerfil(true)} className="text-left group">
             <p className="text-[#4CC8A0] text-xs font-semibold">{restaurant.nombre}</p>
-            <p className="text-gray-400 text-xs">Hola, {camarero.nombre}</p>
-          </div>
+            <p className="text-gray-400 text-xs group-hover:text-gray-200 transition-colors">
+              👤 {camarero.nombre}
+            </p>
+          </button>
           <button onClick={() => { sessionStorage.removeItem('oidoops_camarero'); navigate('/sala', { replace: true }) }}
             className="text-gray-600 text-xs hover:text-gray-400">
             Salir
@@ -753,6 +878,10 @@ export default function SalaMesasPage() {
         <ComandaPanel comanda={comandaDetalle} menu={menu ?? []}
           onClose={() => setComandaAbierta(null)}
           onEnviar={niveles => enviarComanda.mutate({ id: comandaAbierta, niveles })} />
+      )}
+
+      {showPerfil && camarero && (
+        <PerfilPanel camarero={camarero} onClose={() => setShowPerfil(false)} />
       )}
     </div>
   )

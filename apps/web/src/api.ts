@@ -198,16 +198,17 @@ export interface ComandaItem {
 }
 
 export interface Comanda {
-  id:           number
-  restaurantId: number
-  mesaId:       number
-  mesa:         Mesa
-  pax:          number
-  estado:       'abierta' | 'enviada' | 'facturada' | 'cerrada'
-  metodoPago:   'cash' | 'tarjeta' | null
-  items:        ComandaItem[]
-  createdAt:    string
-  closedAt:     string | null
+  id:             number
+  restaurantId:   number
+  mesaId:         number
+  mesa:           Mesa
+  pax:            number
+  estado:         'abierta' | 'enviada' | 'facturada' | 'cerrada'
+  metodoPago:     'cash' | 'tarjeta' | null
+  camareroNombre: string | null
+  items:          ComandaItem[]
+  createdAt:      string
+  closedAt:       string | null
 }
 
 export const api = {
@@ -299,9 +300,10 @@ export const api = {
     sync: () => post<{ synced: number }>('/reviews/sync', {}),
   },
   comandas: {
-    list:      (restaurantId: number) => get<Comanda[]>(`/comandas?restaurantId=${restaurantId}`),
-    abrir:     (restaurantId: number, mesaId: number, pax: number) =>
-      post<Comanda>('/comandas', { restaurantId, mesaId, pax }),
+    list:      (restaurantId: number, estado?: string) =>
+      get<Comanda[]>(`/comandas?restaurantId=${restaurantId}${estado ? `&estado=${estado}` : ''}`),
+    abrir:     (restaurantId: number, mesaId: number, pax: number, camareroNombre?: string) =>
+      post<Comanda>('/comandas', { restaurantId, mesaId, pax, camareroNombre }),
     get:       (id: number) => get<Comanda>(`/comandas/${id}`),
     addItem:   (id: number, item: { nombre: string; precio: number; cantidad: number; nota?: string }) =>
       post<ComandaItem>(`/comandas/${id}/items`, item),

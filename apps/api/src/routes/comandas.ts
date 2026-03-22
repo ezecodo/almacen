@@ -36,7 +36,7 @@ export async function comandaRoutes(app: FastifyInstance) {
 
   // Abrir comanda (nueva mesa)
   app.post('/comandas', async (req, reply) => {
-    const { restaurantId, mesaId, pax } = req.body as { restaurantId: number; mesaId: number; pax: number }
+    const { restaurantId, mesaId, pax, camareroNombre } = req.body as { restaurantId: number; mesaId: number; pax: number; camareroNombre?: string }
     if (!restaurantId || !mesaId || !pax) return reply.status(400).send({ error: 'restaurantId, mesaId y pax requeridos' })
 
     // Verificar que la mesa no tenga ya una comanda abierta
@@ -44,7 +44,7 @@ export async function comandaRoutes(app: FastifyInstance) {
     if (abierta) return reply.status(409).send({ error: 'La mesa ya tiene una comanda abierta' })
 
     const comanda = await prisma.comanda.create({
-      data: { restaurantId, mesaId, pax, estado: 'abierta' },
+      data: { restaurantId, mesaId, pax, estado: 'abierta', camareroNombre: camareroNombre ?? null },
       include: { items: true, mesa: true },
     })
     return reply.status(201).send(comanda)

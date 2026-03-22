@@ -17,6 +17,7 @@ import MenuPage from './pages/MenuPage'
 import MisPropinasPage from './pages/MisPropinasPage'
 import SalonPage from './pages/SalonPage'
 import ComandasPage from './pages/ComandasPage'
+import MesasFeedPage from './pages/MesasFeedPage'
 import SetupPage from './pages/SetupPage'
 import SalaLoginPage from './pages/SalaLoginPage'
 import SalaMesasPage from './pages/SalaMesasPage'
@@ -51,6 +52,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               <Route path="/admin/menu" element={<MenuPage />} />
               <Route path="/admin/salon" element={<SalonPage />} />
               <Route path="/admin/comandas" element={<ComandasPage />} />
+              <Route path="/admin/mesas" element={<MesasFeedPage />} />
             </Route>
           </Route>
         </Routes>

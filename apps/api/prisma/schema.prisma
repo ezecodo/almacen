@@ -127,9 +127,10 @@ model Comanda {
   restaurant   Restaurant    @relation(fields: [restaurantId], references: [id])
   mesaId       Int
   mesa         Mesa          @relation(fields: [mesaId], references: [id])
-  pax          Int
-  estado       String        @default("abierta") // 'abierta' | 'enviada' | 'facturada' | 'cerrada'
-  metodoPago   String?       // 'cash' | 'tarjeta' | null
+  pax            Int
+  estado         String        @default("abierta") // 'abierta' | 'enviada' | 'facturada' | 'cerrada'
+  metodoPago     String?       // 'cash' | 'tarjeta' | null
+  camareroNombre String?
   items        ComandaItem[]
   createdAt    DateTime      @default(now())
   closedAt     DateTime?
