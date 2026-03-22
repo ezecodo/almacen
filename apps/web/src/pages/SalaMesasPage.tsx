@@ -654,24 +654,30 @@ export default function SalaMesasPage() {
         </div>
       </div>
 
-      {/* Vista: Mapa (portrait, escalado para caber en ancho) */}
+      {/* Vista: Mapa — escala bounding box para llenar ancho y alto */}
       {view === 'mapa' && (activePlan ? (
-        <div className="flex-1 overflow-y-auto overflow-x-hidden relative" ref={el => {
+        <div className="flex-1 overflow-hidden relative" ref={el => {
           if (!el || !activePlan.mesas.length) return
-          const maxX = Math.max(...activePlan.mesas.map(m => m.x + mesaWidth(m.tipo))) + 20
-          const scale = Math.min(1, el.clientWidth / maxX)
+          const PAD = 24
+          const ms = activePlan.mesas
+          const minX = Math.min(...ms.map(m => m.x)) - PAD
+          const minY = Math.min(...ms.map(m => m.y)) - PAD
+          const maxX = Math.max(...ms.map(m => m.x + mesaWidth(m.tipo))) + PAD
+          const maxY = Math.max(...ms.map(m => m.y + mesaHeight(m.tipo))) + PAD
+          const scaleX = el.clientWidth  / (maxX - minX)
+          const scaleY = el.clientHeight / (maxY - minY)
+          const scale  = Math.min(scaleX, scaleY)
           const canvas = el.querySelector('.plan-canvas') as HTMLElement
           if (canvas) {
-            canvas.style.transform = `scale(${scale})`
-            canvas.style.transformOrigin = 'top left'
-            canvas.style.height = `${(Math.max(...activePlan.mesas.map(m => m.y + mesaHeight(m.tipo))) + 40) * scale}px`
+            canvas.style.transformOrigin = '0 0'
+            canvas.style.transform = `scale(${scale}) translate(${-minX}px, ${-minY}px)`
           }
         }}>
           <div className="plan-canvas" style={{
-            position: 'relative',
+            position: 'absolute', top: 0, left: 0,
             backgroundImage: `linear-gradient(to right, #ffffff06 1px, transparent 1px), linear-gradient(to bottom, #ffffff06 1px, transparent 1px)`,
             backgroundSize: '40px 40px',
-            width: Math.max(...(activePlan.mesas.map(m => m.x + mesaWidth(m.tipo))), 400) + 20,
+            width: Math.max(...(activePlan.mesas.map(m => m.x + mesaWidth(m.tipo))), 400) + 40,
             height: Math.max(...(activePlan.mesas.map(m => m.y + mesaHeight(m.tipo))), 400) + 40,
           }}>
             {activePlan.mesas.map((mesa: Mesa) => (
