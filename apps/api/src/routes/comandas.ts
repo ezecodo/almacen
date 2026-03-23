@@ -101,24 +101,42 @@ export async function comandaRoutes(app: FastifyInstance) {
     // Si es un item de barra ya enviado (nivel != null) y se incrementa la cantidad,
     // resetear nivel a null y la comanda a 'abierta' para activar "Enviar a barra"
     const existing = await prisma.comandaItem.findUnique({ where: { id: itemId } })
-    // Resetear nivel para CUALQUIER tipo cuando se incrementa cantidad de un item ya enviado
-    const resetNivel = existing?.nivel != null
-      && cantidad !== undefined && cantidad > (existing?.cantidad ?? 0)
 
-    const item = resetNivel
-      ? await prisma.$transaction(async tx => {
-          const updated = await tx.comandaItem.update({
-            where: { id: itemId },
-            data: { cantidad, nivel: null },
-          })
-          await tx.comanda.update({ where: { id: comandaId }, data: { estado: 'abierta' } })
-          return updated
-        })
-      : await prisma.comandaItem.update({
-          where: { id: itemId },
-          data: { ...(cantidad !== undefined && { cantidad }), ...(nota !== undefined && { nota }) },
-        })
+    // Si se incrementa la cantidad de un item ya confirmado (nivel != null):
+    // en vez de modificar el item confirmado, crear/incrementar un item DELTA pendiente.
+    // Así el OrdenarModal muestra solo el delta (p.ej. 1 extra) y el item original queda intacto.
+    const isIncrementConfirmed = existing?.nivel != null
+      && cantidad !== undefined && cantidad > (existing.cantidad ?? 0)
 
+    if (isIncrementConfirmed) {
+      const delta = cantidad! - existing!.cantidad
+      const pending = await prisma.comandaItem.findFirst({
+        where: { comandaId, nombre: existing!.nombre, tipo: existing!.tipo, nivel: null },
+      })
+      if (pending) {
+        const [item] = await prisma.$transaction([
+          prisma.comandaItem.update({
+            where: { id: pending.id },
+            data: { cantidad: pending.cantidad + delta },
+          }),
+          prisma.comanda.update({ where: { id: comandaId }, data: { estado: 'abierta' } }),
+        ])
+        return item
+      } else {
+        const [item] = await prisma.$transaction([
+          prisma.comandaItem.create({
+            data: { comandaId, nombre: existing!.nombre, precio: existing!.precio, tipo: existing!.tipo, cantidad: delta, nota: '' },
+          }),
+          prisma.comanda.update({ where: { id: comandaId }, data: { estado: 'abierta' } }),
+        ])
+        return item
+      }
+    }
+
+    const item = await prisma.comandaItem.update({
+      where: { id: itemId },
+      data: { ...(cantidad !== undefined && { cantidad }), ...(nota !== undefined && { nota }) },
+    })
     return item
   })
 

@@ -55,7 +55,7 @@ function ComandaDetalleModal({ comanda, planNombre, onClose, onCobrar }: {
   const total = comanda.items.reduce((s, i) => s + i.precio * i.cantidad, 0)
   const cocina = comanda.items.filter(i => i.tipo !== 'barra')
   const tienenNivel = cocina.some(i => i.nivel != null)
-  const maxNivel = tienenNivel ? Math.max(...cocina.map(i => i.nivel ?? 1)) : 1
+  const maxNivel = tienenNivel ? Math.max(...cocina.filter(i => i.nivel != null).map(i => i.nivel!)) : 1
 
   const duracion = (() => {
     const end = comanda.closedAt ? new Date(comanda.closedAt) : new Date()
@@ -127,14 +127,32 @@ function ComandaDetalleModal({ comanda, planNombre, onClose, onCobrar }: {
           {(() => {
             const itemsCocina = comanda.items.filter(i => i.tipo !== 'barra')
             const itemsBarra  = comanda.items.filter(i => i.tipo === 'barra')
+            const cocinaEnviada  = itemsCocina.filter(i => i.nivel != null)
+            const cocinaPendiente = itemsCocina.filter(i => i.nivel == null)
 
             return (
               <div className="space-y-4">
                 {/* Cocina */}
                 {tienenNivel ? (
                   <div className="space-y-4">
+                    {/* Items pendientes de confirmar (marcha pasa en curso) */}
+                    {cocinaPendiente.length > 0 && (
+                      <div>
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="w-6 h-6 rounded-full bg-amber-600 flex items-center justify-center text-white text-xs font-black shrink-0">+</div>
+                          <span className="text-amber-400 text-xs font-semibold uppercase tracking-wide">Marcha pasa — pendiente</span>
+                          <div className="flex-1 h-px bg-gray-800" />
+                        </div>
+                        <div className="space-y-1.5">
+                          {cocinaPendiente.map((item: ComandaItem) => (
+                            <ItemLine key={item.id} item={item} />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {/* Items confirmados agrupados por nivel */}
                     {Array.from({ length: maxNivel }, (_, i) => i + 1).map(nv => {
-                      const items = itemsCocina.filter(i => (i.nivel ?? 1) === nv)
+                      const items = cocinaEnviada.filter(i => i.nivel === nv)
                       if (!items.length) return null
                       return (
                         <div key={nv}>
