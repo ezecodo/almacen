@@ -127,9 +127,12 @@ function ComandaDetalleModal({ comanda, planNombre, onClose, onCobrar }: {
           {(() => {
             const itemsCocina = comanda.items.filter(i => i.tipo !== 'barra')
             const itemsBarra  = comanda.items.filter(i => i.tipo === 'barra')
-            const cocinaOriginal   = itemsCocina.filter(i => i.ronda === 1)
-            const cocinaMarchaPasa = itemsCocina.filter(i => i.ronda > 1)
-            const cocinaPendiente  = itemsCocina.filter(i => i.ronda === 0 && i.nivel == null)
+            // Items legacy (ronda=0 + nivel!=null) se tratan como ronda=1 (comanda original)
+            const normalize = (i: ComandaItem) => i.ronda === 0 && i.nivel != null ? { ...i, ronda: 1 } : i
+            const cocina = itemsCocina.map(normalize)
+            const cocinaOriginal   = cocina.filter(i => i.ronda === 1)
+            const cocinaMarchaPasa = cocina.filter(i => i.ronda > 1)
+            const cocinaPendiente  = cocina.filter(i => i.ronda === 0)
 
             const maxNivelOrig = cocinaOriginal.length > 0
               ? Math.max(...cocinaOriginal.map(i => i.nivel!))
