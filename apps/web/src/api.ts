@@ -208,16 +208,26 @@ export interface ComandaItem {
   nivel:     number | null
 }
 
+export interface ComandaMerma {
+  id:            number
+  itemNombre:    string
+  cantidad:      number
+  motivo:        MermaMotivo
+  descripcion:   string | null
+  camareroNombre: string | null
+}
+
 export interface Comanda {
   id:             number
   restaurantId:   number
   mesaId:         number
   mesa:           Mesa
   pax:            number
-  estado:         'abierta' | 'enviada' | 'facturada' | 'cerrada'
+  estado:         'abierta' | 'enviada' | 'facturada' | 'liberada' | 'cerrada'
   metodoPago:     'cash' | 'tarjeta' | null
   camareroNombre: string | null
   items:          ComandaItem[]
+  mermas:         ComandaMerma[]
   createdAt:      string
   closedAt:       string | null
 }
@@ -357,6 +367,7 @@ export const api = {
     enviar:    (id: number, niveles: { itemId: number; nivel: number; nota?: string }[]) =>
       patch<Comanda>(`/comandas/${id}/enviar`, { niveles }),
     facturar:  (id: number) => patch<Comanda>(`/comandas/${id}/facturar`, {}),
+    liberar:   (id: number) => patch<Comanda>(`/comandas/${id}/liberar`, {}),
     cerrar:    (id: number, metodoPago: 'cash' | 'tarjeta') =>
       patch<Comanda>(`/comandas/${id}/cerrar`, { metodoPago }),
   },

@@ -30,6 +30,7 @@ export async function comandaRoutes(app: FastifyInstance) {
       include: {
         items: true,
         mesa: true,
+        mermas: true,
       },
       orderBy: { createdAt: 'desc' },
     })
@@ -68,12 +69,25 @@ export async function comandaRoutes(app: FastifyInstance) {
     const result = itemSchema.safeParse(req.body)
     if (!result.success) return reply.status(400).send({ error: result.error.flatten() })
 
+    // Si ya existe un item igual sin enviar (nivel null), incrementar cantidad en vez de crear uno nuevo
+    const existing = await prisma.comandaItem.findFirst({
+      where: { comandaId, nombre: result.data.nombre, tipo: result.data.tipo, nivel: null },
+    })
+
+    if (existing) {
+      const [item] = await prisma.$transaction([
+        prisma.comandaItem.update({
+          where: { id: existing.id },
+          data: { cantidad: existing.cantidad + result.data.cantidad },
+        }),
+        prisma.comanda.update({ where: { id: comandaId }, data: { estado: 'abierta' } }),
+      ])
+      return reply.status(200).send(item)
+    }
+
     const [item] = await prisma.$transaction([
       prisma.comandaItem.create({ data: { ...result.data, comandaId } }),
-      prisma.comanda.update({
-        where: { id: comandaId },
-        data: { estado: 'abierta' },
-      }),
+      prisma.comanda.update({ where: { id: comandaId }, data: { estado: 'abierta' } }),
     ])
     return reply.status(201).send(item)
   })
@@ -142,6 +156,17 @@ export async function comandaRoutes(app: FastifyInstance) {
     const comanda = await prisma.comanda.update({
       where: { id },
       data: { estado: 'facturada' },
+      include: { items: true, mesa: true },
+    })
+    return comanda
+  })
+
+  // Liberar mesa (camarero confirma que entregó cuenta — mesa queda libre pero pendiente de cobro)
+  app.patch('/comandas/:id/liberar', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    const comanda = await prisma.comanda.update({
+      where: { id },
+      data: { estado: 'liberada' },
       include: { items: true, mesa: true },
     })
     return comanda

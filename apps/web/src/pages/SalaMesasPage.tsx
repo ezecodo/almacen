@@ -209,11 +209,12 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
   const todosPendientes = marchaPasa ? comanda.items.filter(i => i.nivel == null) : comanda.items
   // Solo los items de cocina necesitan asignación de nivel
   const itemsActivos = todosPendientes.filter(i => i.tipo !== 'barra')
-  const itemsBarra   = todosPendientes.filter(i => i.tipo === 'barra')
+  const itemsBarra   = todosPendientes.filter(i => i.tipo === 'barra').sort((a, b) => a.id - b.id)
 
-  const sorted = [...itemsActivos].sort((a, b) =>
-    (niveles[a.id] ?? suggestNivel(a.nombre, menu)) - (niveles[b.id] ?? suggestNivel(b.nombre, menu))
-  )
+  const sorted = [...itemsActivos].sort((a, b) => {
+    const diff = (niveles[a.id] ?? suggestNivel(a.nombre, menu)) - (niveles[b.id] ?? suggestNivel(b.nombre, menu))
+    return diff !== 0 ? diff : a.id - b.id  // mismo nivel → mantener orden de inserción
+  })
   const nivelesActivos = Object.fromEntries(itemsActivos.map(i => [i.id, niveles[i.id] ?? suggestNivel(i.nombre, menu)]))
   const maxNivel = Math.max(...Object.values(nivelesActivos), 1)
 
@@ -513,7 +514,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar }: {
   const [nota, setNota] = useState<{ itemId: number; value: string } | null>(null)
   const [addedId, setAddedId] = useState<number | null>(null)
   const [qtyPending, setQtyPending] = useState<{ id: number; qty: number } | null>(null)
-  const timerRef = { current: null as ReturnType<typeof setTimeout> | null }
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [ordenando, setOrdenando] = useState(false)
   const [verCuenta, setVerCuenta] = useState(false)
   const [animFacturada, setAnimFacturada] = useState(false)
@@ -573,6 +574,14 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar }: {
       setVerCuenta(false)
       setAnimFacturada(true)
       setTimeout(() => { setAnimFacturada(false); onClose() }, 1800)
+    },
+  })
+
+  const liberarMesa = useMutation({
+    mutationFn: () => api.comandas.liberar(comanda.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['comandas-sala'] })
+      onClose()
     },
   })
   const total = comanda.items.reduce((s, i) => s + i.precio * i.cantidad, 0)
@@ -693,8 +702,8 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar }: {
                 </div>
               )}
               {(() => {
-                const itemsCocina = comanda.items.filter(i => i.tipo !== 'barra')
-                const itemsBarra  = comanda.items.filter(i => i.tipo === 'barra')
+                const itemsCocina = comanda.items.filter(i => i.tipo !== 'barra').sort((a, b) => a.id - b.id)
+                const itemsBarra  = comanda.items.filter(i => i.tipo === 'barra').sort((a, b) => a.id - b.id)
                 const tienenNivel = itemsCocina.some(i => i.nivel != null)
 
                 return (
@@ -880,8 +889,13 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar }: {
               <div className="flex items-center justify-center gap-2 py-2 bg-amber-500/10 rounded-xl">
                 <span className="text-amber-400 text-sm font-bold">🧾 Cuenta impresa — pendiente de cobro</span>
               </div>
+              <button onClick={e => { e.stopPropagation(); liberarMesa.mutate() }}
+                disabled={liberarMesa.isPending}
+                className="w-full py-4 rounded-2xl bg-[#4CC8A0] text-white font-bold text-lg active:scale-95 transition-all disabled:opacity-60">
+                Mesa libre 🔓
+              </button>
               <button onClick={e => { e.stopPropagation(); setVerCuenta(true) }}
-                className="w-full py-3 rounded-2xl bg-[#1e2d45] border border-gray-600 text-gray-400 font-medium text-sm">
+                className="w-full py-2 rounded-2xl bg-[#1e2d45] border border-gray-600 text-gray-400 font-medium text-sm">
                 Ver cuenta de nuevo
               </button>
             </div>

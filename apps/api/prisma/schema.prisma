@@ -29,6 +29,7 @@ model Merma {
   mesaNumero     Int?
   planNombre     String?
   comandaId      Int?
+  comanda        Comanda?   @relation(fields: [comandaId], references: [id])
   itemNombre     String
   cantidad       Int        @default(1)
   camareroNombre String?
@@ -156,10 +157,11 @@ model Comanda {
   mesaId       Int
   mesa         Mesa          @relation(fields: [mesaId], references: [id])
   pax            Int
-  estado         String        @default("abierta") // 'abierta' | 'enviada' | 'facturada' | 'cerrada'
+  estado         String        @default("abierta") // 'abierta' | 'enviada' | 'facturada' | 'liberada' | 'cerrada'
   metodoPago     String?       // 'cash' | 'tarjeta' | null
   camareroNombre String?
   items        ComandaItem[]
+  mermas       Merma[]
   createdAt    DateTime      @default(now())
   closedAt     DateTime?
 }

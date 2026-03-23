@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api, Comanda, ComandaItem, FloorPlan, Mesa, Restaurante } from '../api'
+import { api, Comanda, ComandaItem, ComandaMerma, FloorPlan, Mesa, Restaurante } from '../api'
 
 function timeAgo(iso: string) {
   const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000)
@@ -36,10 +36,11 @@ interface MesaConPlan extends Mesa {
 }
 
 const ESTADO_CONFIG = {
-  abierta:   { label: 'Abierta',   bg: 'bg-[#1a3a2e]', border: 'border-[#4CC8A0]', text: 'text-[#4CC8A0]', dot: 'bg-[#4CC8A0]' },
-  enviada:   { label: 'En cocina', bg: 'bg-[#2d1a3a]', border: 'border-[#a855f7]', text: 'text-[#c084fc]', dot: 'bg-[#a855f7]' },
-  facturada: { label: 'Facturada', bg: 'bg-[#2d2500]', border: 'border-[#f59e0b]', text: 'text-[#fcd34d]', dot: 'bg-[#f59e0b]' },
-  cerrada:   { label: 'Cobrada',   bg: 'bg-[#1a1a2e]', border: 'border-[#6366f1]', text: 'text-[#818cf8]', dot: 'bg-[#6366f1]' },
+  abierta:   { label: 'Abierta',      bg: 'bg-[#1a3a2e]', border: 'border-[#4CC8A0]', text: 'text-[#4CC8A0]', dot: 'bg-[#4CC8A0]' },
+  enviada:   { label: 'En cocina',    bg: 'bg-[#2d1a3a]', border: 'border-[#a855f7]', text: 'text-[#c084fc]', dot: 'bg-[#a855f7]' },
+  facturada: { label: 'Facturada',    bg: 'bg-[#2d2500]', border: 'border-[#f59e0b]', text: 'text-[#fcd34d]', dot: 'bg-[#f59e0b]' },
+  liberada:  { label: 'Pte. cobro',   bg: 'bg-[#2d1200]', border: 'border-[#f97316]', text: 'text-[#fb923c]', dot: 'bg-[#f97316]' },
+  cerrada:   { label: 'Cobrada',      bg: 'bg-[#1a1a2e]', border: 'border-[#6366f1]', text: 'text-[#818cf8]', dot: 'bg-[#6366f1]' },
 }
 
 // ── Modal detalle de comanda ───────────────────────────────────────────────────
@@ -178,6 +179,27 @@ function ComandaDetalleModal({ comanda, planNombre, onClose, onCobrar }: {
           })()}
         </div>
 
+        {/* Mermas */}
+        {comanda.mermas?.length > 0 && (
+          <div className="px-5 py-3 border-t border-gray-800 bg-red-950/30">
+            <p className="text-red-400 text-xs font-bold uppercase tracking-wide mb-2">Mermas registradas</p>
+            <div className="space-y-1.5">
+              {comanda.mermas.map((m: ComandaMerma) => (
+                <div key={m.id} className="flex items-start gap-2">
+                  <span className="text-red-500 text-xs mt-0.5">▼</span>
+                  <div className="flex-1 min-w-0">
+                    <span className="text-gray-300 text-sm">{m.cantidad > 1 && <span className="text-red-400 font-bold mr-1">{m.cantidad}×</span>}{m.itemNombre}</span>
+                    <span className="text-gray-600 text-xs ml-2">
+                      {m.motivo === 'no_servido' ? 'No se sirvió' : m.motivo === 'queja_cliente' ? 'Queja' : 'Otro'}
+                    </span>
+                    {m.descripcion && <p className="text-gray-600 text-xs truncate">{m.descripcion}</p>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Footer total + cobrar */}
         <div className="px-5 py-4 border-t border-gray-700">
           <div className="flex items-center justify-between mb-3">
@@ -185,7 +207,7 @@ function ComandaDetalleModal({ comanda, planNombre, onClose, onCobrar }: {
             <span className="text-white text-2xl font-black">{fmt(total)} €</span>
           </div>
 
-          {comanda.estado === 'facturada' && onCobrar && (
+          {(comanda.estado === 'facturada' || comanda.estado === 'liberada') && onCobrar && (
             <div>
               <p className="text-gray-500 text-xs mb-2 text-center">Método de pago</p>
               <div className="grid grid-cols-2 gap-2 mb-2">
@@ -420,6 +442,7 @@ export default function MesasFeedPage() {
       setDetalle(null)
       queryClient.invalidateQueries({ queryKey: ['comandas-feed-activas', restaurantId] })
       queryClient.invalidateQueries({ queryKey: ['comandas-feed-cerradas', restaurantId] })
+      queryClient.invalidateQueries({ queryKey: ['comandas-feed-liberadas', restaurantId] })
     },
   })
 
@@ -453,6 +476,13 @@ export default function MesasFeedPage() {
     refetchInterval: 30_000,
   })
 
+  const { data: liberadas } = useQuery({
+    queryKey: ['comandas-feed-liberadas', restaurantId],
+    queryFn: () => api.comandas.list(restaurantId!, 'liberada'),
+    enabled: !!restaurantId,
+    refetchInterval: 15_000,
+  })
+
   const hoy = new Date().toDateString()
   const cerradasHoy = cerradas?.filter(c => c.closedAt && new Date(c.closedAt).toDateString() === hoy) ?? []
 
@@ -480,9 +510,11 @@ export default function MesasFeedPage() {
 
   const mesasOrdenadas = [...todasMesas].sort((a, b) => ordenPrioridad(a) - ordenPrioridad(b))
 
-  const numActivas   = todasMesas.filter(m => m.estado.tipo === 'activa').length
-  const numCerradas  = cerradasHoy.length
-  const totalCobrado = cerradasHoy.reduce((s, c) => s + c.items.reduce((ss, i) => ss + i.precio * i.cantidad, 0), 0)
+  const numActivas      = todasMesas.filter(m => m.estado.tipo === 'activa').length
+  const numCerradas     = cerradasHoy.length
+  const totalCobrado    = cerradasHoy.reduce((s, c) => s + c.items.reduce((ss, i) => ss + i.precio * i.cantidad, 0), 0)
+  const numLiberadas    = liberadas?.length ?? 0
+  const totalLiberadas  = (liberadas ?? []).reduce((s, c) => s + c.items.reduce((ss, i) => ss + i.precio * i.cantidad, 0), 0)
 
   return (
     <div className="max-w-2xl mx-auto p-4">
@@ -513,6 +545,66 @@ export default function MesasFeedPage() {
           <p className="text-gray-900 text-xl font-black">{fmt(totalCobrado)} €</p>
         </div>
       </div>
+
+      {/* Caja — mesas liberadas pendientes de cobro */}
+      {numLiberadas > 0 && (
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" />
+              <span className="text-orange-400 font-bold text-sm">Pendiente de cobro ({numLiberadas})</span>
+            </div>
+            <span className="text-orange-300 font-black">{fmt(totalLiberadas)} €</span>
+          </div>
+          <div className="space-y-2">
+            {(liberadas ?? []).map(c => {
+              const total = c.items.reduce((s, i) => s + i.precio * i.cantidad, 0)
+              return (
+                <div key={c.id} className="bg-[#2d1200] border border-orange-700/60 rounded-2xl overflow-hidden">
+                  <button
+                    onClick={() => setDetalle({ comanda: c, planNombre: '' })}
+                    className="w-full flex items-center gap-4 px-4 py-3 hover:bg-orange-900/20 transition-colors text-left">
+                    <div className="w-10 h-10 rounded-xl border-2 border-orange-600 flex items-center justify-center shrink-0">
+                      <span className="text-orange-400 font-black">{c.mesa.numero}</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white font-bold text-sm">Mesa {c.mesa.numero}</p>
+                      <p className="text-gray-500 text-xs">
+                        {c.pax} pax{c.camareroNombre ? ` · ${c.camareroNombre}` : ''} · {timeAgo(c.createdAt)}
+                      </p>
+                    </div>
+                    <span className="text-white font-black">{fmt(total)} €</span>
+                  </button>
+                  {c.mermas?.length > 0 && (
+                    <div className="px-4 pb-2 space-y-0.5 border-t border-orange-900/40 pt-2">
+                      {c.mermas.map((m: ComandaMerma) => (
+                        <p key={m.id} className="text-red-400 text-xs">
+                          ▼ {m.cantidad > 1 ? `${m.cantidad}× ` : ''}{m.itemNombre}
+                          <span className="text-gray-600 ml-1">
+                            ({m.motivo === 'no_servido' ? 'no servido' : m.motivo === 'queja_cliente' ? 'queja' : 'otro'})
+                          </span>
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-px bg-orange-900/30">
+                    <button
+                      onClick={() => cobrarComanda.mutate({ id: c.id, metodoPago: 'cash' })}
+                      className="py-3 text-green-400 font-bold text-sm hover:bg-green-900/30 transition-colors">
+                      Efectivo
+                    </button>
+                    <button
+                      onClick={() => cobrarComanda.mutate({ id: c.id, metodoPago: 'tarjeta' })}
+                      className="py-3 text-blue-400 font-bold text-sm hover:bg-blue-900/30 transition-colors">
+                      Tarjeta
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Feed */}
       <div className="space-y-2">
