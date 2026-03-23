@@ -152,11 +152,18 @@ export async function comandaRoutes(app: FastifyInstance) {
     const id = Number((req.params as { id: string }).id)
     const { niveles } = req.body as { niveles: { itemId: number; nivel: number; nota?: string }[] }
 
+    // Calcular la ronda: siguiente al máximo ya enviado (ronda > 0)
+    const { _max } = await prisma.comandaItem.aggregate({
+      where: { comandaId: id, ronda: { gt: 0 } },
+      _max: { ronda: true },
+    })
+    const nextRonda = (_max.ronda ?? 0) + 1
+
     await Promise.all(
       (niveles ?? []).map(({ itemId, nivel, nota }) =>
         prisma.comandaItem.update({
           where: { id: itemId },
-          data: { nivel, ...(nota !== undefined && { nota }) },
+          data: { nivel, ronda: nextRonda, ...(nota !== undefined && { nota }) },
         })
       )
     )

@@ -127,20 +127,25 @@ function ComandaDetalleModal({ comanda, planNombre, onClose, onCobrar }: {
           {(() => {
             const itemsCocina = comanda.items.filter(i => i.tipo !== 'barra')
             const itemsBarra  = comanda.items.filter(i => i.tipo === 'barra')
-            const cocinaEnviada  = itemsCocina.filter(i => i.nivel != null)
-            const cocinaPendiente = itemsCocina.filter(i => i.nivel == null)
+            const cocinaOriginal   = itemsCocina.filter(i => i.ronda === 1)
+            const cocinaMarchaPasa = itemsCocina.filter(i => i.ronda > 1)
+            const cocinaPendiente  = itemsCocina.filter(i => i.ronda === 0 && i.nivel == null)
+
+            const maxNivelOrig = cocinaOriginal.length > 0
+              ? Math.max(...cocinaOriginal.map(i => i.nivel!))
+              : tienenNivel ? maxNivel : 1
 
             return (
               <div className="space-y-4">
                 {/* Cocina */}
                 {tienenNivel ? (
                   <div className="space-y-4">
-                    {/* Items pendientes de confirmar (marcha pasa en curso) */}
+                    {/* Pendiente en curso (ronda=0, camarero aún no envió) */}
                     {cocinaPendiente.length > 0 && (
                       <div>
                         <div className="flex items-center gap-2 mb-2">
-                          <div className="w-6 h-6 rounded-full bg-amber-600 flex items-center justify-center text-white text-xs font-black shrink-0">+</div>
-                          <span className="text-amber-400 text-xs font-semibold uppercase tracking-wide">Marcha pasa — pendiente</span>
+                          <div className="w-6 h-6 rounded-full bg-gray-600 flex items-center justify-center text-white text-xs font-black shrink-0">…</div>
+                          <span className="text-gray-500 text-xs font-semibold uppercase tracking-wide">Pendiente de enviar</span>
                           <div className="flex-1 h-px bg-gray-800" />
                         </div>
                         <div className="space-y-1.5">
@@ -150,9 +155,9 @@ function ComandaDetalleModal({ comanda, planNombre, onClose, onCobrar }: {
                         </div>
                       </div>
                     )}
-                    {/* Items confirmados agrupados por nivel */}
-                    {Array.from({ length: maxNivel }, (_, i) => i + 1).map(nv => {
-                      const items = cocinaEnviada.filter(i => i.nivel === nv)
+                    {/* Comanda original (ronda=1) */}
+                    {Array.from({ length: maxNivelOrig }, (_, i) => i + 1).map(nv => {
+                      const items = cocinaOriginal.filter(i => i.nivel === nv)
                       if (!items.length) return null
                       return (
                         <div key={nv}>
@@ -162,13 +167,40 @@ function ComandaDetalleModal({ comanda, planNombre, onClose, onCobrar }: {
                             <div className="flex-1 h-px bg-gray-800" />
                           </div>
                           <div className="space-y-1.5">
-                            {items.map((item: ComandaItem) => (
-                              <ItemLine key={item.id} item={item} />
-                            ))}
+                            {items.map((item: ComandaItem) => (<ItemLine key={item.id} item={item} />))}
                           </div>
                         </div>
                       )
                     })}
+                    {/* Marcha pasa (ronda>=2), agrupadas */}
+                    {cocinaMarchaPasa.length > 0 && (() => {
+                      const rondasExtra = [...new Set(cocinaMarchaPasa.map(i => i.ronda))].sort()
+                      return rondasExtra.map((ronda, idx) => {
+                        const itemsRonda = cocinaMarchaPasa.filter(i => i.ronda === ronda)
+                        const maxNv = Math.max(...itemsRonda.map(i => i.nivel ?? 1))
+                        return (
+                          <div key={ronda}>
+                            <div className="flex items-center gap-2 mb-2">
+                              <div className="w-6 h-6 rounded-full bg-amber-600 flex items-center justify-center text-white text-xs font-black shrink-0">+{idx + 1}</div>
+                              <span className="text-amber-400 text-xs font-semibold uppercase tracking-wide">Marcha pasa {rondasExtra.length > 1 ? idx + 1 : ''}</span>
+                              <div className="flex-1 h-px bg-gray-800" />
+                            </div>
+                            <div className="space-y-1.5">
+                              {Array.from({ length: maxNv }, (_, i) => i + 1).map(nv => {
+                                const its = itemsRonda.filter(i => (i.nivel ?? 1) === nv)
+                                if (!its.length) return null
+                                return (
+                                  <div key={nv}>
+                                    {maxNv > 1 && <p className="text-gray-600 text-xs mb-1 pl-1">salida {nv}</p>}
+                                    {its.map((item: ComandaItem) => (<ItemLine key={item.id} item={item} />))}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )
+                      })
+                    })()}
                   </div>
                 ) : (
                   <div className="space-y-1.5">

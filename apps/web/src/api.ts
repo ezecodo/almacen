@@ -206,6 +206,7 @@ export interface ComandaItem {
   cantidad:  number
   nota:      string
   nivel:     number | null
+  ronda:     number  // 0=pendiente, 1=comanda original, 2+=marcha pasa
 }
 
 export interface ComandaMerma {

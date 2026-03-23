@@ -175,6 +175,7 @@ model ComandaItem {
   cantidad   Int     @default(1)
   nota       String  @default("")
   nivel      Int?
+  ronda      Int     @default(0) // 0=pendiente, 1=comanda original, 2+=marcha pasa
   tipo       String  @default("cocina") // 'cocina' | 'barra'
 }
 
