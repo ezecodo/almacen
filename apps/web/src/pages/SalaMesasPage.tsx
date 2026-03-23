@@ -715,13 +715,35 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar 
                         ))}
                       </div>
                     ) : (
-                      // Comanda enviada: agrupar por nivel
+                      // Comanda enviada: pendientes arriba + confirmados por nivel
                       (() => {
-                        const maxNivel = Math.max(...itemsCocina.map(i => i.nivel ?? 1))
+                        const enviados   = itemsCocina.filter(i => i.nivel != null)
+                        const pendientes = itemsCocina.filter(i => i.nivel == null)
+                        const maxNivel   = enviados.length > 0 ? Math.max(...enviados.map(i => i.nivel!)) : 1
                         return (
                           <div className="space-y-4">
+                            {/* Marcha pasa en curso */}
+                            {pendientes.length > 0 && (
+                              <div>
+                                <div className="flex items-center gap-2 mb-2">
+                                  <div className="w-7 h-7 rounded-full bg-amber-500 flex items-center justify-center text-white text-xs font-black shrink-0">+</div>
+                                  <span className="text-amber-400 text-xs font-semibold uppercase tracking-wide">Marcha pasa</span>
+                                  <div className="flex-1 h-px bg-gray-700" />
+                                </div>
+                                <div className="space-y-2">
+                                  {pendientes.map((item: ComandaItem) => (
+                                    <ItemRow key={item.id} item={item} nota={nota} setNota={setNota}
+                                      onUpdate={cantidad => updateItem.mutate({ itemId: item.id, cantidad })}
+                                      onDelete={() => deleteItem.mutate(item.id)}
+                                      onSaveNota={v => saveNota.mutate({ itemId: item.id, value: v })}
+                                      onMerma={() => setMermaItem(item)} />
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {/* Confirmados por nivel */}
                             {Array.from({ length: maxNivel }, (_, i) => i + 1).map(nv => {
-                              const items = itemsCocina.filter(i => (i.nivel ?? 1) === nv)
+                              const items = enviados.filter(i => i.nivel === nv)
                               if (!items.length) return null
                               return (
                                 <div key={nv}>
