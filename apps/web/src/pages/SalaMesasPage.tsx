@@ -796,6 +796,23 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar 
 
           {tab === 'menu' && (
             <div className="flex flex-col h-full">
+              {/* Marcha pasa en curso — visible mientras se añaden items */}
+              {comanda.items.some(i => i.nivel != null) && itemsNuevos.length > 0 && (
+                <div className="px-4 pt-3 pb-2 border-b border-amber-900/40 bg-amber-950/30">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <div className="w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center text-white text-xs font-black shrink-0">+</div>
+                    <span className="text-amber-400 text-xs font-semibold uppercase tracking-wide">Marcha pasa</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {itemsNuevos.map(i => (
+                      <span key={i.id} className="flex items-center gap-1 bg-amber-900/40 border border-amber-700/40 rounded-lg px-2 py-1">
+                        <span className="text-amber-200 text-xs font-medium">{i.nombre}</span>
+                        {i.cantidad > 1 && <span className="text-amber-400 text-xs font-black">×{i.cantidad}</span>}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
               {/* Grupo tabs + search */}
               <div className="px-4 pt-3 pb-2 space-y-2 border-b border-gray-800">
                 {grupos.length > 1 && (
