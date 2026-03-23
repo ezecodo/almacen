@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, Comanda, ComandaItem, Mesa, MenuCategoria, MenuItem, MermaMotivo, MiTurno } from '../api'
+import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
 
 const SQUARE_SIZE = 80
 const RECT_W = 160
@@ -520,6 +521,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar 
   const [verCuenta, setVerCuenta] = useState(false)
   const [animFacturada, setAnimFacturada] = useState(false)
   const [mermaItem, setMermaItem] = useState<ComandaItem | null>(null)
+  const [mermaReciente, setMermaReciente] = useState(false)
   const [oidoAnim, setOidoAnim] = useState(false)
   const [dotsAnim, setDotsAnim] = useState(false)
 
@@ -529,7 +531,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar 
   const itemsNuevosCocina = itemsNuevos.filter(i => i.tipo !== 'barra')
   const itemsNuevosBarra  = itemsNuevos.filter(i => i.tipo === 'barra')
   const esMarchaPasa  = !yaEnviada && !yaFacturada && itemsNuevosCocina.length > 0 && comanda.items.some(i => i.nivel != null)
-  const hayPendientes = itemsNuevos.length > 0
+  const hayPendientes = itemsNuevos.length > 0 || mermaReciente
 
   const handleOido = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -538,7 +540,8 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar 
     setTimeout(() => {
       setOidoAnim(false)
       if (itemsNuevosCocina.length > 0) setOrdenando(true)
-      else onEnviar(itemsNuevosBarra.map(i => ({ itemId: i.id, nivel: 1 })), true)
+      else if (itemsNuevosBarra.length > 0) onEnviar(itemsNuevosBarra.map(i => ({ itemId: i.id, nivel: 1 })), true)
+      else if (mermaReciente) { setMermaReciente(false); onClose() }
     }, 500)
   }
 
@@ -556,6 +559,9 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar 
         comandaId:      comanda.id,
         itemNombre:     mermaItem!.nombre,
         cantidad:       mermaItem!.cantidad,
+        precio:         mermaItem!.precio,
+        itemNivel:      mermaItem!.nivel,
+        itemRonda:      mermaItem!.ronda,
         camareroNombre: camareroSesion?.nombre ?? undefined,
         motivo,
         descripcion,
@@ -563,6 +569,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar 
     onSuccess: async () => {
       await api.comandas.deleteItem(comanda.id, mermaItem!.id)
       setMermaItem(null)
+      setMermaReciente(true)
       queryClient.invalidateQueries({ queryKey: ['comanda-sala', comanda.id] })
     },
   })
@@ -715,28 +722,27 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar 
                         ))}
                       </div>
                     ) : (
-                      // Comanda enviada: pendientes arriba + confirmados por nivel
+                      // Comanda enviada: chip strip unificado (cocina+barra pendiente) + confirmados por nivel
                       (() => {
-                        const enviados   = itemsCocina.filter(i => i.nivel != null)
-                        const pendientes = itemsCocina.filter(i => i.nivel == null)
-                        const maxNivel   = enviados.length > 0 ? Math.max(...enviados.map(i => i.nivel!)) : 1
+                        const enviados = itemsCocina.filter(i => i.nivel != null)
+                        const maxNivel = enviados.length > 0 ? Math.max(...enviados.map(i => i.nivel!)) : 1
                         return (
                           <div className="space-y-4">
-                            {/* Marcha pasa en curso */}
-                            {pendientes.length > 0 && (
+                            {/* Marcha pasa — chip strip unificado (cocina + barra pendiente) */}
+                            {itemsNuevos.length > 0 && (
                               <div>
-                                <div className="flex items-center gap-2 mb-2">
+                                <div className="flex items-center gap-2 mb-1.5">
                                   <div className="w-7 h-7 rounded-full bg-amber-500 flex items-center justify-center text-white text-xs font-black shrink-0">+</div>
                                   <span className="text-amber-400 text-xs font-semibold uppercase tracking-wide">Marcha pasa</span>
                                   <div className="flex-1 h-px bg-gray-700" />
                                 </div>
-                                <div className="space-y-2">
-                                  {pendientes.map((item: ComandaItem) => (
-                                    <ItemRow key={item.id} item={item} nota={nota} setNota={setNota}
-                                      onUpdate={cantidad => updateItem.mutate({ itemId: item.id, cantidad })}
-                                      onDelete={() => deleteItem.mutate(item.id)}
-                                      onSaveNota={v => saveNota.mutate({ itemId: item.id, value: v })}
-                                      onMerma={() => setMermaItem(item)} />
+                                <div className="flex flex-wrap gap-1.5">
+                                  {itemsNuevos.map(i => (
+                                    <div key={i.id} className="flex items-center gap-1 bg-amber-900/40 border border-amber-700/50 rounded-xl px-3 py-1.5">
+                                      <span className="text-amber-100 text-sm font-semibold">{i.nombre}</span>
+                                      {i.cantidad > 1 && !(i.tipo === 'barra' && i.ronda > 0) && <span className="text-amber-400 text-sm font-black ml-1">×{i.cantidad}</span>}
+                                      <button onClick={() => deleteItem.mutate(i.id)} className="ml-2 text-gray-600 hover:text-red-400 text-xs leading-none">✕</button>
+                                    </div>
                                   ))}
                                 </div>
                               </div>
@@ -770,49 +776,32 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar 
                       })()
                     )}
 
-                    {/* ── Barra ── */}
+                    {/* ── Barra ya enviada (agrupada por nombre) ── */}
                     {(() => {
-                      const barraPendiente = tienenNivel ? itemsBarra.filter(i => i.nivel == null) : []
-                      const barraEnviada   = tienenNivel ? itemsBarra.filter(i => i.nivel != null) : itemsBarra
-                      return (<>
-                        {/* Chips de barra pendiente (solo en mesa ya enviada) */}
-                        {barraPendiente.length > 0 && (
-                          <div>
-                            <div className="flex items-center gap-2 mb-1.5">
-                              <div className="w-7 h-7 rounded-full bg-amber-500 flex items-center justify-center text-white text-xs font-black shrink-0">+</div>
-                              <span className="text-amber-400 text-xs font-semibold uppercase tracking-wide">Barra</span>
-                              <div className="flex-1 h-px bg-gray-700" />
-                            </div>
-                            <div className="flex flex-wrap gap-1.5">
-                              {barraPendiente.map(i => (
-                                <div key={i.id} className="flex items-center gap-1 bg-amber-900/40 border border-amber-700/50 rounded-xl px-3 py-1.5">
-                                  <span className="text-amber-100 text-sm font-semibold">{i.nombre}</span>
-                                  {i.cantidad > 1 && <span className="text-amber-400 text-sm font-black ml-1">×{i.cantidad}</span>}
-                                  <button onClick={() => deleteItem.mutate(i.id)} className="ml-2 text-gray-600 hover:text-red-400 text-xs leading-none">✕</button>
-                                </div>
-                              ))}
-                            </div>
+                      const barraEnviada = tienenNivel ? itemsBarra.filter(i => i.nivel != null) : itemsBarra
+                      if (!barraEnviada.length) return null
+                      const grouped = barraEnviada.reduce<{ firstItem: ComandaItem; cantidad: number }[]>((acc, item) => {
+                        const found = acc.find(g => g.firstItem.nombre === item.nombre)
+                        if (found) { found.cantidad += item.cantidad } else { acc.push({ firstItem: item, cantidad: item.cantidad }) }
+                        return acc
+                      }, [])
+                      return (
+                        <div>
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="text-amber-400 text-xs font-semibold uppercase tracking-wide">🍺 Barra</span>
+                            <div className="flex-1 h-px bg-gray-700" />
                           </div>
-                        )}
-                        {/* Barra ya enviada — editable */}
-                        {barraEnviada.length > 0 && (
-                          <div>
-                            <div className="flex items-center gap-2 mb-2">
-                              <span className="text-amber-400 text-xs font-semibold uppercase tracking-wide">🍺 Barra</span>
-                              <div className="flex-1 h-px bg-gray-700" />
-                            </div>
-                            <div className="space-y-2">
-                              {barraEnviada.map((item: ComandaItem) => (
-                                <ItemRow key={item.id} item={item} nota={nota} setNota={setNota}
-                                  onUpdate={cantidad => updateItem.mutate({ itemId: item.id, cantidad })}
-                                  onDelete={() => deleteItem.mutate(item.id)}
-                                  onSaveNota={v => saveNota.mutate({ itemId: item.id, value: v })}
-                                  onMerma={() => setMermaItem(item)} />
-                              ))}
-                            </div>
+                          <div className="space-y-2">
+                            {grouped.map(({ firstItem, cantidad }) => (
+                              <ItemRow key={firstItem.id} item={{ ...firstItem, cantidad }} nota={nota} setNota={setNota}
+                                onUpdate={newQty => updateItem.mutate({ itemId: firstItem.id, cantidad: firstItem.cantidad + (newQty - cantidad) })}
+                                onDelete={() => deleteItem.mutate(firstItem.id)}
+                                onSaveNota={v => saveNota.mutate({ itemId: firstItem.id, value: v })}
+                                onMerma={() => setMermaItem(firstItem)} />
+                            ))}
                           </div>
-                        )}
-                      </>)
+                        </div>
+                      )
                     })()}
                   </div>
                 )
@@ -833,7 +822,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar 
                     {itemsNuevos.map(i => (
                       <span key={i.id} className="flex items-center gap-1 bg-amber-900/40 border border-amber-700/40 rounded-lg px-2 py-1">
                         <span className="text-amber-200 text-xs font-medium">{i.nombre}</span>
-                        {i.cantidad > 1 && <span className="text-amber-400 text-xs font-black">×{i.cantidad}</span>}
+                        {i.cantidad > 1 && !(i.tipo === 'barra' && i.ronda > 0) && <span className="text-amber-400 text-xs font-black">×{i.cantidad}</span>}
                       </span>
                     ))}
                   </div>
@@ -1122,6 +1111,8 @@ export default function SalaMesasPage() {
     catch { return null }
   })()
 
+  useRestaurantEvents(restaurant?.id ?? null)
+
   useEffect(() => {
     if (!restaurant) navigate('/sala/setup', { replace: true })
     else if (!camarero) navigate('/sala', { replace: true })
@@ -1148,7 +1139,8 @@ export default function SalaMesasPage() {
     queryKey: ['comanda-sala', comandaAbierta],
     queryFn: () => api.comandas.get(comandaAbierta!),
     enabled: !!comandaAbierta,
-    refetchInterval: 10_000,
+    refetchInterval: 8_000,
+    refetchOnWindowFocus: true,
   })
   const { data: menu } = useQuery({
     queryKey: ['menu', restaurant?.id],

@@ -32,6 +32,9 @@ model Merma {
   comanda        Comanda?   @relation(fields: [comandaId], references: [id])
   itemNombre     String
   cantidad       Int        @default(1)
+  precio         Float      @default(0)
+  itemNivel      Int?
+  itemRonda      Int        @default(1)
   camareroNombre String?
   motivo         String     // 'no_servido' | 'queja_cliente' | 'otro'
   descripcion    String?

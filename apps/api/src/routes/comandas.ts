@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../server'
+import { broadcast } from '../sse'
 
 const itemSchema = z.object({
   nombre:   z.string().min(1),
@@ -49,6 +50,7 @@ export async function comandaRoutes(app: FastifyInstance) {
       data: { restaurantId, mesaId, pax, estado: 'abierta', camareroNombre: camareroNombre ?? null },
       include: { items: true, mesa: true },
     })
+    broadcast(restaurantId, 'update')
     return reply.status(201).send(comanda)
   })
 
@@ -57,7 +59,7 @@ export async function comandaRoutes(app: FastifyInstance) {
     const id = Number((req.params as { id: string }).id)
     const comanda = await prisma.comanda.findUnique({
       where: { id },
-      include: { items: true, mesa: true },
+      include: { items: true, mesa: true, mermas: true },
     })
     if (!comanda) return reply.status(404).send({ error: 'No encontrada' })
     return comanda
@@ -74,6 +76,8 @@ export async function comandaRoutes(app: FastifyInstance) {
       where: { comandaId, nombre: result.data.nombre, tipo: result.data.tipo, nivel: null },
     })
 
+    const { restaurantId: rId } = (await prisma.comanda.findUnique({ where: { id: comandaId }, select: { restaurantId: true } }))!
+
     if (existing) {
       const [item] = await prisma.$transaction([
         prisma.comandaItem.update({
@@ -82,6 +86,7 @@ export async function comandaRoutes(app: FastifyInstance) {
         }),
         prisma.comanda.update({ where: { id: comandaId }, data: { estado: 'abierta' } }),
       ])
+      broadcast(rId, 'update')
       return reply.status(200).send(item)
     }
 
@@ -89,6 +94,7 @@ export async function comandaRoutes(app: FastifyInstance) {
       prisma.comandaItem.create({ data: { ...result.data, comandaId } }),
       prisma.comanda.update({ where: { id: comandaId }, data: { estado: 'abierta' } }),
     ])
+    broadcast(rId, 'update')
     return reply.status(201).send(item)
   })
 
@@ -111,11 +117,28 @@ export async function comandaRoutes(app: FastifyInstance) {
       && cantidad !== undefined && cantidad > (existing.cantidad ?? 0)
 
     if (isIncrementConfirmedBarra) {
-      const [item] = await prisma.$transaction([
-        prisma.comandaItem.update({ where: { id: itemId }, data: { cantidad, nivel: null } }),
-        prisma.comanda.update({ where: { id: comandaId }, data: { estado: 'abierta' } }),
-      ])
-      return item
+      const delta = cantidad! - (existing?.cantidad ?? 0)
+      const pending = await prisma.comandaItem.findFirst({
+        where: { comandaId, nombre: existing!.nombre, tipo: 'barra', nivel: null },
+      })
+      if (pending) {
+        const [item] = await prisma.$transaction([
+          prisma.comandaItem.update({
+            where: { id: pending.id },
+            data: { cantidad: pending.cantidad + delta },
+          }),
+          prisma.comanda.update({ where: { id: comandaId }, data: { estado: 'abierta' } }),
+        ])
+        return item
+      } else {
+        const [item] = await prisma.$transaction([
+          prisma.comandaItem.create({
+            data: { comandaId, nombre: existing!.nombre, precio: existing!.precio, tipo: 'barra', cantidad: delta, nota: '' },
+          }),
+          prisma.comanda.update({ where: { id: comandaId }, data: { estado: 'abierta' } }),
+        ])
+        return item
+      }
     }
 
     if (isIncrementConfirmedCocina) {
@@ -147,13 +170,18 @@ export async function comandaRoutes(app: FastifyInstance) {
       where: { id: itemId },
       data: { ...(cantidad !== undefined && { cantidad }), ...(nota !== undefined && { nota }) },
     })
+    const { restaurantId: rId } = (await prisma.comanda.findUnique({ where: { id: comandaId }, select: { restaurantId: true } }))!
+    broadcast(rId, 'update')
     return item
   })
 
   // Eliminar item de comanda
   app.delete('/comandas/:id/items/:itemId', async (req, reply) => {
-    const itemId = Number((req.params as { id: string; itemId: string }).itemId)
+    const comandaId = Number((req.params as { id: string; itemId: string }).id)
+    const itemId    = Number((req.params as { id: string; itemId: string }).itemId)
     await prisma.comandaItem.delete({ where: { id: itemId } })
+    const c = await prisma.comanda.findUnique({ where: { id: comandaId }, select: { restaurantId: true } })
+    if (c) broadcast(c.restaurantId, 'update')
     return reply.status(204).send()
   })
 
@@ -183,6 +211,7 @@ export async function comandaRoutes(app: FastifyInstance) {
       data: { estado: 'enviada' },
       include: { items: true, mesa: true },
     })
+    broadcast(comanda.restaurantId, 'update')
     return comanda
   })
 
@@ -194,6 +223,7 @@ export async function comandaRoutes(app: FastifyInstance) {
       data: { estado: 'facturada' },
       include: { items: true, mesa: true },
     })
+    broadcast(comanda.restaurantId, 'update')
     return comanda
   })
 
@@ -205,6 +235,7 @@ export async function comandaRoutes(app: FastifyInstance) {
       data: { estado: 'liberada' },
       include: { items: true, mesa: true },
     })
+    broadcast(comanda.restaurantId, 'update')
     return comanda
   })
 
@@ -218,6 +249,7 @@ export async function comandaRoutes(app: FastifyInstance) {
       data: { estado: 'cerrada', closedAt: new Date(), metodoPago: metodoPago ?? null },
       include: { items: true, mesa: true },
     })
+    broadcast(comanda.restaurantId, 'update')
     return comanda
   })
 }

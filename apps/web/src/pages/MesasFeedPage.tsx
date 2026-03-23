@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
 import { api, Comanda, ComandaItem, ComandaMerma, FloorPlan, Mesa, Restaurante } from '../api'
 
 function timeAgo(iso: string) {
@@ -44,11 +45,12 @@ const ESTADO_CONFIG = {
 }
 
 // ── Modal detalle de comanda ───────────────────────────────────────────────────
-function ComandaDetalleModal({ comanda, planNombre, onClose, onCobrar }: {
+function ComandaDetalleModal({ comanda, planNombre, onClose, onCobrar, onRestituir }: {
   comanda: Comanda
   planNombre: string
   onClose: () => void
   onCobrar?: (metodoPago: 'cash' | 'tarjeta') => void
+  onRestituir?: (mermaId: number) => void
 }) {
   const [metodoPago, setMetodoPago] = useState<'cash' | 'tarjeta' | null>(null)
   const cfg = ESTADO_CONFIG[comanda.estado as keyof typeof ESTADO_CONFIG] ?? ESTADO_CONFIG.abierta
@@ -213,7 +215,7 @@ function ComandaDetalleModal({ comanda, planNombre, onClose, onCobrar }: {
                   </div>
                 )}
 
-                {/* Barra */}
+                {/* Barra — agrupada por nombre */}
                 {itemsBarra.length > 0 && (
                   <div>
                     <div className="flex items-center gap-2 mb-2">
@@ -221,8 +223,12 @@ function ComandaDetalleModal({ comanda, planNombre, onClose, onCobrar }: {
                       <div className="flex-1 h-px bg-gray-800" />
                     </div>
                     <div className="space-y-1.5">
-                      {itemsBarra.map((item: ComandaItem) => (
-                        <ItemLine key={item.id} item={item} />
+                      {itemsBarra.reduce<{ nombre: string; cantidad: number; precio: number; id: number }[]>((acc, item) => {
+                        const found = acc.find(g => g.nombre === item.nombre)
+                        if (found) { found.cantidad += item.cantidad } else { acc.push({ nombre: item.nombre, cantidad: item.cantidad, precio: item.precio, id: item.id }) }
+                        return acc
+                      }, []).map(g => (
+                        <ItemLine key={g.id} item={{ ...itemsBarra.find(i => i.id === g.id)!, cantidad: g.cantidad }} />
                       ))}
                     </div>
                   </div>
@@ -247,6 +253,15 @@ function ComandaDetalleModal({ comanda, planNombre, onClose, onCobrar }: {
                     </span>
                     {m.descripcion && <p className="text-gray-600 text-xs truncate">{m.descripcion}</p>}
                   </div>
+                  {onRestituir && (
+                    <button
+                      onClick={() => onRestituir(m.id)}
+                      className="text-xs text-emerald-600 hover:text-emerald-400 shrink-0 transition-colors font-medium"
+                      title="Restituir a la comanda"
+                    >
+                      ↩ Restituir
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -505,6 +520,20 @@ export default function MesasFeedPage() {
     },
   })
 
+  const restituirMerma = useMutation({
+    mutationFn: (mermaId: number) => api.mermas.restituir(mermaId),
+    onSuccess: async () => {
+      queryClient.invalidateQueries({ queryKey: ['comandas-feed-activas', restaurantId] })
+      queryClient.invalidateQueries({ queryKey: ['comandas-feed-liberadas', restaurantId] })
+      if (detalle) {
+        const updated = await api.comandas.get(detalle.comanda.id)
+        setDetalle({ ...detalle, comanda: updated })
+      }
+    },
+  })
+
+  useRestaurantEvents(restaurantId)
+
   const { data: restaurantes } = useQuery({
     queryKey: ['restaurantes'],
     queryFn: () => api.restaurantes.list(),
@@ -525,21 +554,23 @@ export default function MesasFeedPage() {
     queryKey: ['comandas-feed-activas', restaurantId],
     queryFn: () => api.comandas.list(restaurantId!),
     enabled: !!restaurantId,
-    refetchInterval: 15_000,
+    refetchInterval: 8_000,
+    refetchOnWindowFocus: true,
   })
 
   const { data: cerradas } = useQuery({
     queryKey: ['comandas-feed-cerradas', restaurantId],
     queryFn: () => api.comandas.list(restaurantId!, 'cerrada'),
     enabled: !!restaurantId,
-    refetchInterval: 30_000,
+    refetchInterval: 20_000,
   })
 
   const { data: liberadas } = useQuery({
     queryKey: ['comandas-feed-liberadas', restaurantId],
     queryFn: () => api.comandas.list(restaurantId!, 'liberada'),
     enabled: !!restaurantId,
-    refetchInterval: 15_000,
+    refetchInterval: 8_000,
+    refetchOnWindowFocus: true,
   })
 
   const hoy = new Date().toDateString()
@@ -690,6 +721,7 @@ export default function MesasFeedPage() {
           planNombre={detalle.planNombre}
           onClose={() => setDetalle(null)}
           onCobrar={metodoPago => cobrarComanda.mutate({ id: detalle.comanda.id, metodoPago })}
+          onRestituir={mermaId => restituirMerma.mutate(mermaId)}
         />
       )}
 

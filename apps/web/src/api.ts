@@ -386,6 +386,7 @@ export const api = {
       patch<{ ok: boolean }>(`/salon/${planId}/mesas`, positions),
   },
   mermas: {
+    restituir: (id: number) => del(`/mermas/${id}`),
     create: (body: {
       restaurantId: number
       mesaNumero?: number
@@ -393,6 +394,9 @@ export const api = {
       comandaId?: number
       itemNombre: string
       cantidad: number
+      precio?: number
+      itemNivel?: number | null
+      itemRonda?: number
       camareroNombre?: string
       motivo: MermaMotivo
       descripcion?: string
