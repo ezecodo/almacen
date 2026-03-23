@@ -771,23 +771,49 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar 
                     )}
 
                     {/* ── Barra ── */}
-                    {itemsBarra.length > 0 && (
-                      <div>
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-amber-400 text-xs font-semibold uppercase tracking-wide">🍺 Barra</span>
-                          <div className="flex-1 h-px bg-gray-700" />
-                        </div>
-                        <div className="space-y-2">
-                          {itemsBarra.map((item: ComandaItem) => (
-                            <ItemRow key={item.id} item={item} nota={nota} setNota={setNota}
-                              onUpdate={cantidad => updateItem.mutate({ itemId: item.id, cantidad })}
-                              onDelete={() => deleteItem.mutate(item.id)}
-                              onSaveNota={v => saveNota.mutate({ itemId: item.id, value: v })}
-                              onMerma={() => setMermaItem(item)} />
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                    {(() => {
+                      const barraPendiente = tienenNivel ? itemsBarra.filter(i => i.nivel == null) : []
+                      const barraEnviada   = tienenNivel ? itemsBarra.filter(i => i.nivel != null) : itemsBarra
+                      return (<>
+                        {/* Chips de barra pendiente (solo en mesa ya enviada) */}
+                        {barraPendiente.length > 0 && (
+                          <div>
+                            <div className="flex items-center gap-2 mb-1.5">
+                              <div className="w-7 h-7 rounded-full bg-amber-500 flex items-center justify-center text-white text-xs font-black shrink-0">+</div>
+                              <span className="text-amber-400 text-xs font-semibold uppercase tracking-wide">Barra</span>
+                              <div className="flex-1 h-px bg-gray-700" />
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {barraPendiente.map(i => (
+                                <div key={i.id} className="flex items-center gap-1 bg-amber-900/40 border border-amber-700/50 rounded-xl px-3 py-1.5">
+                                  <span className="text-amber-100 text-sm font-semibold">{i.nombre}</span>
+                                  {i.cantidad > 1 && <span className="text-amber-400 text-sm font-black ml-1">×{i.cantidad}</span>}
+                                  <button onClick={() => deleteItem.mutate(i.id)} className="ml-2 text-gray-600 hover:text-red-400 text-xs leading-none">✕</button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {/* Barra ya enviada — editable */}
+                        {barraEnviada.length > 0 && (
+                          <div>
+                            <div className="flex items-center gap-2 mb-2">
+                              <span className="text-amber-400 text-xs font-semibold uppercase tracking-wide">🍺 Barra</span>
+                              <div className="flex-1 h-px bg-gray-700" />
+                            </div>
+                            <div className="space-y-2">
+                              {barraEnviada.map((item: ComandaItem) => (
+                                <ItemRow key={item.id} item={item} nota={nota} setNota={setNota}
+                                  onUpdate={cantidad => updateItem.mutate({ itemId: item.id, cantidad })}
+                                  onDelete={() => deleteItem.mutate(item.id)}
+                                  onSaveNota={v => saveNota.mutate({ itemId: item.id, value: v })}
+                                  onMerma={() => setMermaItem(item)} />
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>)
+                    })()}
                   </div>
                 )
               })()}
