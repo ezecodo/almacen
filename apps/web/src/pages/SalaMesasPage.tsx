@@ -500,10 +500,11 @@ function ItemRow({ item, nota, setNota, onUpdate, onDelete, onSaveNota, onMerma,
 }
 
 // ── Panel comanda (modo camarero) ─────────────────────────────────────────────
-function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar }: {
+function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar }: {
   comanda: Comanda; menu: MenuItem[]; categorias: MenuCategoria[]
   onClose: () => void
   onEnviar: (niveles: { itemId: number; nivel: number; nota?: string }[], silent?: boolean) => void
+  onLiberar: () => void
 }) {
   const queryClient = useQueryClient()
   const [tab, setTab] = useState<'pedido' | 'menu'>(comanda.items.length === 0 ? 'menu' : 'pedido')
@@ -577,13 +578,6 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar }: {
     },
   })
 
-  const liberarMesa = useMutation({
-    mutationFn: () => api.comandas.liberar(comanda.id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['comandas-sala'] })
-      onClose()
-    },
-  })
   const total = comanda.items.reduce((s, i) => s + i.precio * i.cantidad, 0)
 
   const GRUPOS_BARRA = ['Bebidas', 'Vinos']
@@ -889,9 +883,8 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar }: {
               <div className="flex items-center justify-center gap-2 py-2 bg-amber-500/10 rounded-xl">
                 <span className="text-amber-400 text-sm font-bold">🧾 Cuenta impresa — pendiente de cobro</span>
               </div>
-              <button onClick={e => { e.stopPropagation(); liberarMesa.mutate() }}
-                disabled={liberarMesa.isPending}
-                className="w-full py-4 rounded-2xl bg-[#4CC8A0] text-white font-bold text-lg active:scale-95 transition-all disabled:opacity-60">
+              <button onClick={e => { e.stopPropagation(); onLiberar() }}
+                className="w-full py-4 rounded-2xl bg-[#4CC8A0] text-white font-bold text-lg active:scale-95 transition-all">
                 Mesa libre 🔓
               </button>
               <button onClick={e => { e.stopPropagation(); setVerCuenta(true) }}
@@ -1119,6 +1112,15 @@ export default function SalaMesasPage() {
     },
   })
 
+  const liberarMesa = useMutation({
+    mutationFn: (id: number) => api.comandas.liberar(id),
+    onSuccess: comanda => {
+      setComandaAbierta(null)
+      queryClient.invalidateQueries({ queryKey: ['comandas-sala', restaurant?.id] })
+      setAbrirMesa(comanda.mesa)
+    },
+  })
+
   const enviarComanda = useMutation({
     mutationFn: ({ id, niveles }: { id: number; niveles: { itemId: number; nivel: number; nota?: string }[]; silent?: boolean }) =>
       api.comandas.enviar(id, niveles),
@@ -1288,7 +1290,8 @@ export default function SalaMesasPage() {
       {comandaAbierta && comandaDetalle && (
         <ComandaPanel comanda={comandaDetalle} menu={menu ?? []} categorias={menuCategorias}
           onClose={() => setComandaAbierta(null)}
-          onEnviar={(niveles, silent) => enviarComanda.mutate({ id: comandaAbierta, niveles, silent })} />
+          onEnviar={(niveles, silent) => enviarComanda.mutate({ id: comandaAbierta, niveles, silent })}
+          onLiberar={() => liberarMesa.mutate(comandaAbierta)} />
       )}
 
       {showPerfil && camarero && (
