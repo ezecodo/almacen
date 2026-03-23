@@ -102,14 +102,24 @@ export async function comandaRoutes(app: FastifyInstance) {
     // resetear nivel a null y la comanda a 'abierta' para activar "Enviar a barra"
     const existing = await prisma.comandaItem.findUnique({ where: { id: itemId } })
 
-    // Si se incrementa la cantidad de un item ya confirmado (nivel != null):
-    // en vez de modificar el item confirmado, crear/incrementar un item DELTA pendiente.
-    // Así el OrdenarModal muestra solo el delta (p.ej. 1 extra) y el item original queda intacto.
-    const isIncrementConfirmed = existing?.nivel != null
+    // Para items de COCINA ya confirmados: crear item delta pendiente (el OrdenarModal
+    // muestra solo el extra). Para BARRA: actualizar directamente (no pasa por OrdenarModal).
+    const isIncrementConfirmedCocina = existing?.tipo !== 'barra' && existing?.nivel != null
       && cantidad !== undefined && cantidad > (existing.cantidad ?? 0)
 
-    if (isIncrementConfirmed) {
-      const delta = cantidad! - existing!.cantidad
+    const isIncrementConfirmedBarra = existing?.tipo === 'barra' && existing?.nivel != null
+      && cantidad !== undefined && cantidad > (existing.cantidad ?? 0)
+
+    if (isIncrementConfirmedBarra) {
+      const [item] = await prisma.$transaction([
+        prisma.comandaItem.update({ where: { id: itemId }, data: { cantidad, nivel: null } }),
+        prisma.comanda.update({ where: { id: comandaId }, data: { estado: 'abierta' } }),
+      ])
+      return item
+    }
+
+    if (isIncrementConfirmedCocina) {
+      const delta = cantidad! - (existing?.cantidad ?? 0)
       const pending = await prisma.comandaItem.findFirst({
         where: { comandaId, nombre: existing!.nombre, tipo: existing!.tipo, nivel: null },
       })
