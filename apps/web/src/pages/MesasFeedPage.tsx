@@ -285,7 +285,11 @@ function MesaCard({ mesa, onClick }: { mesa: MesaConPlan; onClick?: () => void }
 
   const { comanda } = estado
   const cfg = ESTADO_CONFIG[comanda.estado as keyof typeof ESTADO_CONFIG] ?? ESTADO_CONFIG.abierta
-  const total = comanda.items.reduce((s, i) => s + i.precio * i.cantidad, 0)
+  const sentItems  = comanda.items.filter(i => i.nivel != null)
+  const total      = sentItems.length > 0
+    ? sentItems.reduce((s, i) => s + i.precio * i.cantidad, 0)
+    : comanda.items.reduce((s, i) => s + i.precio * i.cantidad, 0)
+  const hasPending = sentItems.length > 0 && comanda.items.some(i => i.nivel == null)
 
   return (
     <button onClick={onClick}
@@ -323,7 +327,9 @@ function MesaCard({ mesa, onClick }: { mesa: MesaConPlan; onClick?: () => void }
             <span>{comanda.metodoPago === 'cash' ? '💵' : '💳'}</span>
           )}
         </div>
-        <span className="text-white font-bold text-sm">{fmt(total)} €</span>
+        <span className="text-white font-bold text-sm">
+          {fmt(total)} €{hasPending && <span className="text-gray-600 text-xs font-normal ml-1">+pdte.</span>}
+        </span>
       </div>
     </button>
   )

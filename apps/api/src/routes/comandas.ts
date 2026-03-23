@@ -101,10 +101,11 @@ export async function comandaRoutes(app: FastifyInstance) {
     // Si es un item de barra ya enviado (nivel != null) y se incrementa la cantidad,
     // resetear nivel a null y la comanda a 'abierta' para activar "Enviar a barra"
     const existing = await prisma.comandaItem.findUnique({ where: { id: itemId } })
-    const resetBarra = existing?.tipo === 'barra' && existing?.nivel != null
+    // Resetear nivel para CUALQUIER tipo cuando se incrementa cantidad de un item ya enviado
+    const resetNivel = existing?.nivel != null
       && cantidad !== undefined && cantidad > (existing?.cantidad ?? 0)
 
-    const item = resetBarra
+    const item = resetNivel
       ? await prisma.$transaction(async tx => {
           const updated = await tx.comandaItem.update({
             where: { id: itemId },
