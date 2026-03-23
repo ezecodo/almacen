@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, Comanda, ComandaItem, Mesa, MenuCategoria, MenuItem, MermaMotivo, MiTurno } from '../api'
@@ -508,6 +508,8 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar }: {
   const [tab, setTab] = useState<'pedido' | 'menu'>(comanda.items.length === 0 ? 'menu' : 'pedido')
   const [searchMenu, setSearchMenu] = useState('')
   const [grupoTab, setGrupoTab] = useState<string | null>(null)
+  const [selectedCat, setSelectedCat] = useState<string | null>(null)
+  const swipeRef = useRef<number | null>(null)
   const [nota, setNota] = useState<{ itemId: number; value: string } | null>(null)
   const [addedId, setAddedId] = useState<number | null>(null)
   const [qtyPending, setQtyPending] = useState<{ id: number; qty: number } | null>(null)
@@ -768,48 +770,74 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar }: {
           )}
 
           {tab === 'menu' && (
-            <div className="p-4">
-              {/* Tabs de sección (Comida / Bebidas / Vinos) */}
-              {grupos.length > 1 && (
-                <div className="flex gap-1.5 mb-3 overflow-x-auto pb-1">
-                  {grupos.map(g => (
-                    <button key={g} onClick={() => setGrupoTab(g)}
-                      className={`px-4 py-1.5 rounded-xl text-sm font-semibold whitespace-nowrap transition-colors ${
-                        grupoActivo === g
-                          ? 'bg-cyan-600 text-white'
-                          : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-                      }`}>
-                      {g}
-                    </button>
-                  ))}
+            <div className="flex flex-col h-full">
+              {/* Grupo tabs + search */}
+              <div className="px-4 pt-3 pb-2 space-y-2 border-b border-gray-800">
+                {grupos.length > 1 && (
+                  <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+                    {grupos.map(g => (
+                      <button key={g} onClick={() => { setGrupoTab(g); setSelectedCat(null); setSearchMenu('') }}
+                        className={`px-4 py-1.5 rounded-xl text-sm font-semibold whitespace-nowrap transition-colors ${
+                          grupoActivo === g ? 'bg-cyan-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                        }`}>
+                        {g}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <input value={searchMenu} onChange={e => { setSearchMenu(e.target.value); setSelectedCat(null) }}
+                  placeholder="Buscar plato o bebida…"
+                  className="w-full bg-gray-800 text-white text-sm px-4 py-2 rounded-xl outline-none placeholder:text-gray-600" />
+              </div>
+
+              {searchMenu.trim() ? (
+                /* ── Resultados de búsqueda (lista plana) ── */
+                <div className="flex-1 overflow-y-auto p-4 space-y-1.5">
+                  {filteredMenu.map((item: MenuItem) => {
+                    const isPending = qtyPending?.id === item.id
+                    const isAdded   = addedId === item.id
+                    return (
+                      <button key={item.id} onClick={() => handleMenuItemTap(item)}
+                        className={`w-full text-left rounded-xl px-4 py-3 transition-colors relative overflow-hidden ${isPending ? 'bg-[#0d2e20] border-2 border-[#4CC8A0]' : 'bg-[#1e2d45] hover:bg-[#263a55]'}`}>
+                        <p className="text-white text-sm font-medium">{item.nombre}</p>
+                        <p className="text-gray-500 text-xs">{item.categoria}</p>
+                        {isPending && <span className="absolute right-3 inset-y-0 flex items-center"><span className="text-[#4CC8A0] font-black text-2xl">{qtyPending!.qty}×</span></span>}
+                        {isAdded && (
+                          <span className="absolute inset-0 flex items-center justify-center bg-[#1a3a2e] rounded-xl" style={{ animation: 'fadeInOut 1s ease forwards' }}>
+                            <svg viewBox="0 0 52 58" className="h-8 w-8"><defs><linearGradient id="lgfbs2" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#4B9EDF"/><stop offset="100%" stopColor="#4CC8A0"/></linearGradient></defs><path d="M8 2 L44 2 Q50 2 50 8 L50 38 Q50 44 44 44 L32 44 L26 52 L20 44 L8 44 Q2 44 2 38 L2 8 Q2 2 8 2 Z" fill="url(#lgfbs2)"/><path d="M14 22 L23 31 L38 13" stroke="white" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>
+                          </span>
+                        )}
+                      </button>
+                    )
+                  })}
+                  {filteredMenu.length === 0 && <p className="text-center text-gray-600 text-sm py-8">Sin resultados</p>}
                 </div>
-              )}
-              <input value={searchMenu} onChange={e => setSearchMenu(e.target.value)}
-                placeholder="Buscar plato…"
-                className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl outline-none mb-4" />
-              {categoriasSorted.map(cat => (
-                <div key={cat} className="mb-5">
-                  <p className="text-gray-500 text-xs font-semibold uppercase tracking-wide mb-2">{cat}</p>
-                  <div className="space-y-1.5">
-                    {menuByCategoria[cat].map((item: MenuItem) => {
+              ) : selectedCat ? (
+                /* ── Items de la categoría seleccionada ── */
+                <div className="flex-1 overflow-y-auto"
+                  onTouchStart={e => { swipeRef.current = e.touches[0].clientX }}
+                  onTouchEnd={e => {
+                    if (swipeRef.current !== null && e.changedTouches[0].clientX - swipeRef.current > 80)
+                      setSelectedCat(null)
+                    swipeRef.current = null
+                  }}>
+                  <button onClick={() => setSelectedCat(null)}
+                    className="flex items-center gap-2 px-4 py-3 text-cyan-400 text-sm font-semibold w-full border-b border-gray-800 hover:bg-gray-800/40">
+                    ← {selectedCat}
+                  </button>
+                  <div className="p-4 space-y-1.5">
+                    {(menu.filter(m => m.activo && m.categoria === selectedCat)).map((item: MenuItem) => {
                       const isPending = qtyPending?.id === item.id
                       const isAdded   = addedId === item.id
                       return (
                         <button key={item.id} onClick={() => handleMenuItemTap(item)}
-                          className={`w-full text-left rounded-xl px-4 py-3 transition-colors relative overflow-hidden ${isPending ? 'bg-[#0d2e20] border-2 border-[#4CC8A0]' : 'bg-[#1e2d45] hover:bg-[#263a55]'}`}>
+                          className={`w-full text-left rounded-xl px-4 py-3.5 transition-colors relative overflow-hidden ${isPending ? 'bg-[#0d2e20] border-2 border-[#4CC8A0]' : 'bg-[#1e2d45] hover:bg-[#263a55]'}`}>
                           <span className="text-white text-base font-medium">{item.nombre}</span>
-                          {isPending && (
-                            <span className="absolute right-3 inset-y-0 flex items-center">
-                              <span className="text-[#4CC8A0] font-black text-2xl">{qtyPending!.qty}×</span>
-                            </span>
-                          )}
+                          {item.descripcion ? <p className="text-gray-500 text-xs mt-0.5 truncate">{item.descripcion}</p> : null}
+                          {isPending && <span className="absolute right-3 inset-y-0 flex items-center"><span className="text-[#4CC8A0] font-black text-2xl">{qtyPending!.qty}×</span></span>}
                           {isAdded && (
                             <span className="absolute inset-0 flex items-center justify-center bg-[#1a3a2e] rounded-xl" style={{ animation: 'fadeInOut 1s ease forwards' }}>
-                              <svg viewBox="0 0 52 58" className="h-8 w-8">
-                                <defs><linearGradient id="lgfbs" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#4B9EDF"/><stop offset="100%" stopColor="#4CC8A0"/></linearGradient></defs>
-                                <path d="M8 2 L44 2 Q50 2 50 8 L50 38 Q50 44 44 44 L32 44 L26 52 L20 44 L8 44 Q2 44 2 38 L2 8 Q2 2 8 2 Z" fill="url(#lgfbs)"/>
-                                <path d="M14 22 L23 31 L38 13" stroke="white" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-                              </svg>
+                              <svg viewBox="0 0 52 58" className="h-8 w-8"><defs><linearGradient id="lgfbs3" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#4B9EDF"/><stop offset="100%" stopColor="#4CC8A0"/></linearGradient></defs><path d="M8 2 L44 2 Q50 2 50 8 L50 38 Q50 44 44 44 L32 44 L26 52 L20 44 L8 44 Q2 44 2 38 L2 8 Q2 2 8 2 Z" fill="url(#lgfbs3)"/><path d="M14 22 L23 31 L38 13" stroke="white" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>
                             </span>
                           )}
                         </button>
@@ -817,8 +845,26 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar }: {
                     })}
                   </div>
                 </div>
-              ))}
-              {filteredMenu.length === 0 && <p className="text-center text-gray-600 text-sm py-8">Sin resultados</p>}
+              ) : (
+                /* ── Grid de categorías ── */
+                <div className="flex-1 overflow-y-auto p-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    {categoriasSorted.map(cat => {
+                      const meta = categorias.find(c => c.nombre === cat)
+                      const count = menuByCategoria[cat]?.length ?? 0
+                      const esBarra = GRUPOS_BARRA.includes(meta?.grupo ?? '')
+                      return (
+                        <button key={cat} onClick={() => setSelectedCat(cat)}
+                          className="aspect-square rounded-2xl bg-[#1e2d45] active:scale-95 transition-all flex flex-col items-center justify-center gap-2 p-4 border border-gray-700/50 hover:border-cyan-700/40 hover:bg-[#243347]">
+                          <span className="text-5xl leading-none">{meta?.icono ?? '🍽'}</span>
+                          <span className="text-white text-sm font-bold text-center leading-tight">{cat}</span>
+                          <span className={`text-xs ${esBarra ? 'text-amber-500' : 'text-gray-500'}`}>{count} items</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
