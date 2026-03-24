@@ -144,11 +144,13 @@ model Mesa {
   floorPlanId Int
   floorPlan   FloorPlan @relation(fields: [floorPlanId], references: [id], onDelete: Cascade)
   numero      Int
-  tipo        String    // 'round' | 'square' | 'rectangular'
+  tipo        String    // 'round' | 'square' | 'rectangular' | 'barra' | 'silla_alta'
   x           Float
   y           Float
   capacidad   Int
   rotacion    Int       @default(0) // 0 | 90 | 180 | 270
+  ancho       Int?      // ancho px personalizado (barra)
+  alto        Int?      // alto px personalizado (barra)
   comandas    Comanda[]
   createdAt   DateTime  @default(now())
 }

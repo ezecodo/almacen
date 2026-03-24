@@ -16,6 +16,8 @@ export function useRestaurantEvents(restaurantId: number | null) {
           // Invalida todo lo relacionado con comandas de este restaurante
           queryClient.invalidateQueries({ queryKey: ['comandas-sala', restaurantId] })
           queryClient.invalidateQueries({ queryKey: ['comanda-sala'] })
+          queryClient.invalidateQueries({ queryKey: ['comandas', restaurantId] })
+          queryClient.invalidateQueries({ queryKey: ['comanda'] })
           queryClient.invalidateQueries({ queryKey: ['comandas-feed-activas', restaurantId] })
           queryClient.invalidateQueries({ queryKey: ['comandas-feed-liberadas', restaurantId] })
           queryClient.invalidateQueries({ queryKey: ['comandas-feed-cerradas', restaurantId] })

@@ -2,22 +2,28 @@ import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../server'
 
+const TIPOS_MESA = ['round', 'square', 'rectangular', 'barra', 'silla_alta'] as const
+
 const mesaSchema = z.object({
-  numero:    z.number().int().positive(),
-  tipo:      z.enum(['round', 'square', 'rectangular']),
+  numero:    z.number().int().min(0),
+  tipo:      z.enum(TIPOS_MESA),
   x:         z.number(),
   y:         z.number(),
-  capacidad: z.number().int().positive(),
+  capacidad: z.number().int().min(0),
   rotacion:  z.number().int().optional().default(0),
+  ancho:     z.number().int().positive().optional(),
+  alto:      z.number().int().positive().optional(),
 })
 
 const updateMesaSchema = z.object({
-  numero:    z.number().int().positive().optional(),
-  tipo:      z.enum(['round', 'square', 'rectangular']).optional(),
+  numero:    z.number().int().min(0).optional(),
+  tipo:      z.enum(TIPOS_MESA).optional(),
   x:         z.number().optional(),
   y:         z.number().optional(),
-  capacidad: z.number().int().positive().optional(),
+  capacidad: z.number().int().min(0).optional(),
   rotacion:  z.number().int().optional(),
+  ancho:     z.number().int().positive().optional(),
+  alto:      z.number().int().positive().optional(),
 })
 
 const batchSchema = z.array(z.object({

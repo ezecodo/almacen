@@ -35,18 +35,31 @@ export async function mermaRoutes(app: FastifyInstance) {
     if (!merma) return reply.status(404).send({ error: 'Merma no encontrada' })
 
     if (merma.comandaId) {
+      const existing = await prisma.comandaItem.findFirst({
+        where: {
+          comandaId: merma.comandaId,
+          nombre:    merma.itemNombre,
+          nivel:     merma.itemNivel ?? 1,
+          ronda:     merma.itemRonda,
+        },
+      })
       await prisma.$transaction([
-        prisma.comandaItem.create({
-          data: {
-            comandaId: merma.comandaId,
-            nombre:    merma.itemNombre,
-            precio:    merma.precio,
-            cantidad:  merma.cantidad,
-            nota:      '',
-            nivel:     merma.itemNivel ?? 1,
-            ronda:     merma.itemRonda,
-          },
-        }),
+        existing
+          ? prisma.comandaItem.update({
+              where: { id: existing.id },
+              data:  { cantidad: existing.cantidad + merma.cantidad },
+            })
+          : prisma.comandaItem.create({
+              data: {
+                comandaId: merma.comandaId,
+                nombre:    merma.itemNombre,
+                precio:    merma.precio,
+                cantidad:  merma.cantidad,
+                nota:      '',
+                nivel:     merma.itemNivel ?? 1,
+                ronda:     merma.itemRonda,
+              },
+            }),
         prisma.merma.delete({ where: { id } }),
       ])
     } else {

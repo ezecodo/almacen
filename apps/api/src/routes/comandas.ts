@@ -252,4 +252,116 @@ export async function comandaRoutes(app: FastifyInstance) {
     broadcast(comanda.restaurantId, 'update')
     return comanda
   })
+
+  // Mover comanda a otra mesa libre
+  app.patch('/comandas/:id/mover-mesa', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    const { mesaId } = req.body as { mesaId: number }
+    if (!mesaId) return reply.status(400).send({ error: 'mesaId requerido' })
+
+    const ocupada = await prisma.comanda.findFirst({
+      where: { mesaId, estado: { in: ['abierta', 'enviada', 'facturada'] } },
+    })
+    if (ocupada) return reply.status(409).send({ error: 'La mesa destino ya tiene una comanda activa' })
+
+    const comanda = await prisma.comanda.update({
+      where: { id },
+      data: { mesaId },
+      include: { items: true, mesa: true, mermas: true },
+    })
+    broadcast(comanda.restaurantId, 'update')
+    return comanda
+  })
+
+  // Mover items de una comanda a otra (merge parcial o total)
+  // itemIds: si se omite, mueve todos los items
+  app.post('/comandas/merge', async (req, reply) => {
+    const { sourceId, targetId, itemIds } = req.body as { sourceId: number; targetId: number; itemIds?: number[] }
+    if (!sourceId || !targetId) return reply.status(400).send({ error: 'sourceId y targetId requeridos' })
+
+    const source = await prisma.comanda.findUnique({ where: { id: sourceId }, include: { items: true } })
+    if (!source) return reply.status(404).send({ error: 'Comanda origen no encontrada' })
+
+    const targetComanda = await prisma.comanda.findUnique({ where: { id: targetId } })
+    if (!targetComanda) return reply.status(404).send({ error: 'Comanda destino no encontrada' })
+
+    const itemsToMove = itemIds
+      ? source.items.filter(i => itemIds.includes(i.id))
+      : source.items
+
+    if (itemsToMove.length === 0) return reply.status(400).send({ error: 'No hay items para mover' })
+
+    // Si la comanda destino ya está facturada (cobrada por camarero, pendiente de cierre por encargado),
+    // crear una nueva comanda limpia en esa mesa — igual que al abrir una mesa con factura pendiente.
+    // La comanda facturada queda intacta en la cola del dashboard.
+    let effectiveTargetId = targetId
+    if (targetComanda.estado === 'facturada') {
+      const nuevaComanda = await prisma.comanda.create({
+        data: {
+          restaurantId: targetComanda.restaurantId,
+          mesaId:       targetComanda.mesaId,
+          pax:          source.pax,
+          estado:       'abierta',
+          camareroNombre: source.camareroNombre,
+        },
+      })
+      effectiveTargetId = nuevaComanda.id
+    }
+
+    // Para cada item a mover: preservar nivel/ronda (items ya enviados mantienen su estado)
+    // Solo fusionar con items pendientes (nivel null) si el item a mover también es pendiente
+    for (const item of itemsToMove) {
+      if (item.nivel === null) {
+        const existing = await prisma.comandaItem.findFirst({
+          where: { comandaId: effectiveTargetId, nombre: item.nombre, tipo: item.tipo, nivel: null },
+        })
+        if (existing) {
+          await prisma.comandaItem.update({
+            where: { id: existing.id },
+            data: { cantidad: existing.cantidad + item.cantidad },
+          })
+          await prisma.comandaItem.delete({ where: { id: item.id } })
+          continue
+        }
+      }
+      // Item enviado (nivel != null) o sin match pendiente: crear fila nueva preservando nivel/ronda
+      await prisma.comandaItem.create({
+        data: {
+          comandaId: effectiveTargetId,
+          nombre:    item.nombre,
+          precio:    item.precio,
+          tipo:      item.tipo,
+          cantidad:  item.cantidad,
+          nota:      item.nota,
+          nivel:     item.nivel,
+          ronda:     item.ronda,
+        },
+      })
+      await prisma.comandaItem.delete({ where: { id: item.id } })
+    }
+
+    // Determinar estado correcto del destino: 'enviada' si todos los items tienen nivel asignado
+    const allItems = await prisma.comandaItem.findMany({ where: { comandaId: effectiveTargetId } })
+    const todoEnviado = allItems.length > 0 && allItems.every(i => i.nivel !== null)
+    if (effectiveTargetId === targetId) {
+      // comanda existente: si todos enviados → 'enviada', si no → 'abierta'
+      await prisma.comanda.update({ where: { id: effectiveTargetId }, data: { estado: todoEnviado ? 'enviada' : 'abierta' } })
+    } else if (todoEnviado) {
+      // nueva comanda creada para target facturado: si todos los items son enviados, marcar 'enviada'
+      await prisma.comanda.update({ where: { id: effectiveTargetId }, data: { estado: 'enviada' } })
+    }
+
+    // Si la comanda origen quedó vacía, liberarla
+    const remaining = await prisma.comandaItem.count({ where: { comandaId: sourceId } })
+    if (remaining === 0) {
+      await prisma.comanda.update({ where: { id: sourceId }, data: { estado: 'liberada' } })
+    }
+
+    const target = await prisma.comanda.findUnique({
+      where: { id: effectiveTargetId },
+      include: { items: true, mesa: true, mermas: true },
+    })
+    broadcast(source.restaurantId, 'update')
+    return target
+  })
 }

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
-import { api, Comanda, ComandaItem, ComandaMerma, FloorPlan, Mesa, Restaurante } from '../api'
+import { api, Comanda, ComandaItem, ComandaMerma, FloorPlan, Mesa, Restaurante, MermaMotivo } from '../api'
 
 function timeAgo(iso: string) {
   const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000)
@@ -44,15 +44,93 @@ const ESTADO_CONFIG = {
   cerrada:   { label: 'Cobrada',      bg: 'bg-[#1a1a2e]', border: 'border-[#6366f1]', text: 'text-[#818cf8]', dot: 'bg-[#6366f1]' },
 }
 
+// ── Merma modal ────────────────────────────────────────────────────────────────
+const MOTIVOS: { value: MermaMotivo; label: string; desc: string }[] = [
+  { value: 'no_servido',    label: 'No se sirvió',     desc: 'Se preparó pero no llegó al cliente' },
+  { value: 'queja_cliente', label: 'Queja de cliente', desc: 'El cliente lo rechazó o se quejó' },
+  { value: 'otro',          label: 'Otro',             desc: 'Especifica el motivo abajo' },
+]
+
+function MermaModal({ item, onConfirm, onClose }: {
+  item: ComandaItem
+  onConfirm: (motivo: MermaMotivo, descripcion?: string, cantidad?: number) => void
+  onClose: () => void
+}) {
+  const [motivo, setMotivo] = useState<MermaMotivo | null>(null)
+  const [descripcion, setDescripcion] = useState('')
+  const [cantidad, setCantidad] = useState(item.cantidad)
+
+  return (
+    <div className="fixed inset-0 bg-black/80 flex items-end z-[70]" onClick={onClose}>
+      <div className="bg-[#0f172a] w-full rounded-t-3xl shadow-2xl p-5" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-white font-bold text-base">Registrar merma</h3>
+            <p className="text-gray-400 text-xs mt-0.5">{item.nombre}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-500 text-xl">✕</button>
+        </div>
+
+        {item.cantidad > 1 && (
+          <div className="flex items-center justify-between bg-[#1e2d45] rounded-2xl px-4 py-3 mb-4">
+            <span className="text-gray-400 text-sm">Cantidad a mermar</span>
+            <div className="flex items-center gap-3">
+              <button onClick={() => setCantidad(c => Math.max(1, c - 1))}
+                className="w-8 h-8 rounded-full bg-gray-700 text-white font-bold text-lg flex items-center justify-center active:scale-90">−</button>
+              <span className="text-white font-bold text-lg w-6 text-center">{cantidad}</span>
+              <button onClick={() => setCantidad(c => Math.min(item.cantidad, c + 1))}
+                className="w-8 h-8 rounded-full bg-gray-700 text-white font-bold text-lg flex items-center justify-center active:scale-90">+</button>
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-2 mb-4">
+          {MOTIVOS.map(m => (
+            <button key={m.value} onClick={() => setMotivo(m.value)}
+              className={`w-full text-left px-4 py-3 rounded-2xl border transition-all ${
+                motivo === m.value
+                  ? 'bg-red-900/40 border-red-500'
+                  : 'bg-[#1e2d45] border-transparent hover:border-gray-600'
+              }`}>
+              <p className={`font-semibold text-sm ${motivo === m.value ? 'text-red-300' : 'text-white'}`}>{m.label}</p>
+              <p className="text-gray-500 text-xs mt-0.5">{m.desc}</p>
+            </button>
+          ))}
+        </div>
+
+        {motivo === 'otro' && (
+          <input
+            autoFocus
+            value={descripcion}
+            onChange={e => setDescripcion(e.target.value)}
+            placeholder="Describe el motivo…"
+            className="w-full bg-gray-800 text-white text-sm px-4 py-3 rounded-xl outline-none mb-4"
+          />
+        )}
+
+        <button
+          onClick={() => motivo && onConfirm(motivo, descripcion || undefined, cantidad)}
+          disabled={!motivo || (motivo === 'otro' && !descripcion.trim())}
+          className="w-full py-4 rounded-2xl bg-red-600 text-white font-bold text-base disabled:opacity-30 active:scale-95 transition-all"
+        >
+          Confirmar merma {item.cantidad > 1 && `(${cantidad}×)`}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── Modal detalle de comanda ───────────────────────────────────────────────────
-function ComandaDetalleModal({ comanda, planNombre, onClose, onCobrar, onRestituir }: {
+function ComandaDetalleModal({ comanda, planNombre, onClose, onCobrar, onRestituir, onMerma }: {
   comanda: Comanda
   planNombre: string
   onClose: () => void
   onCobrar?: (metodoPago: 'cash' | 'tarjeta') => void
   onRestituir?: (mermaId: number) => void
+  onMerma?: (item: ComandaItem, motivo: MermaMotivo, descripcion: string | undefined, cantidad: number) => void
 }) {
   const [metodoPago, setMetodoPago] = useState<'cash' | 'tarjeta' | null>(null)
+  const [mermaItem, setMermaItem] = useState<ComandaItem | null>(null)
   const cfg = ESTADO_CONFIG[comanda.estado as keyof typeof ESTADO_CONFIG] ?? ESTADO_CONFIG.abierta
   const total = comanda.items.reduce((s, i) => s + i.precio * i.cantidad, 0)
   const cocina = comanda.items.filter(i => i.tipo !== 'barra')
@@ -155,7 +233,7 @@ function ComandaDetalleModal({ comanda, planNombre, onClose, onCobrar, onRestitu
                         </div>
                         <div className="space-y-1.5">
                           {cocinaPendiente.map((item: ComandaItem) => (
-                            <ItemLine key={item.id} item={item} />
+                            <ItemLine key={item.id} item={item} onMerma={onMerma ? (i) => setMermaItem(i) : undefined} />
                           ))}
                         </div>
                       </div>
@@ -172,7 +250,7 @@ function ComandaDetalleModal({ comanda, planNombre, onClose, onCobrar, onRestitu
                             <div className="flex-1 h-px bg-gray-800" />
                           </div>
                           <div className="space-y-1.5">
-                            {items.map((item: ComandaItem) => (<ItemLine key={item.id} item={item} />))}
+                            {items.map((item: ComandaItem) => (<ItemLine key={item.id} item={item} onMerma={onMerma ? (i) => setMermaItem(i) : undefined} />))}
                           </div>
                         </div>
                       )
@@ -197,7 +275,7 @@ function ComandaDetalleModal({ comanda, planNombre, onClose, onCobrar, onRestitu
                                 return (
                                   <div key={nv}>
                                     {maxNv > 1 && <p className="text-gray-600 text-xs mb-1 pl-1">salida {nv}</p>}
-                                    {its.map((item: ComandaItem) => (<ItemLine key={item.id} item={item} />))}
+                                    {its.map((item: ComandaItem) => (<ItemLine key={item.id} item={item} onMerma={onMerma ? (i) => setMermaItem(i) : undefined} />))}
                                   </div>
                                 )
                               })}
@@ -210,7 +288,7 @@ function ComandaDetalleModal({ comanda, planNombre, onClose, onCobrar, onRestitu
                 ) : (
                   <div className="space-y-1.5">
                     {itemsCocina.map((item: ComandaItem) => (
-                      <ItemLine key={item.id} item={item} />
+                      <ItemLine key={item.id} item={item} onMerma={onMerma ? (i) => setMermaItem(i) : undefined} />
                     ))}
                   </div>
                 )}
@@ -228,7 +306,7 @@ function ComandaDetalleModal({ comanda, planNombre, onClose, onCobrar, onRestitu
                         if (found) { found.cantidad += item.cantidad } else { acc.push({ nombre: item.nombre, cantidad: item.cantidad, precio: item.precio, id: item.id }) }
                         return acc
                       }, []).map(g => (
-                        <ItemLine key={g.id} item={{ ...itemsBarra.find(i => i.id === g.id)!, cantidad: g.cantidad }} />
+                        <ItemLine key={g.id} item={{ ...itemsBarra.find(i => i.id === g.id)!, cantidad: g.cantidad }} onMerma={onMerma ? (i) => setMermaItem(i) : undefined} />
                       ))}
                     </div>
                   </div>
@@ -311,11 +389,22 @@ function ComandaDetalleModal({ comanda, planNombre, onClose, onCobrar, onRestitu
           )}
         </div>
       </div>
+
+      {mermaItem && (
+        <MermaModal
+          item={mermaItem}
+          onClose={() => setMermaItem(null)}
+          onConfirm={(motivo, descripcion, cantidad) => {
+            onMerma?.(mermaItem, motivo, descripcion, cantidad ?? mermaItem.cantidad)
+            setMermaItem(null)
+          }}
+        />
+      )}
     </div>
   )
 }
 
-function ItemLine({ item }: { item: ComandaItem }) {
+function ItemLine({ item, onMerma }: { item: ComandaItem; onMerma?: (item: ComandaItem) => void }) {
   return (
     <div className="flex items-center justify-between py-1.5 px-3 bg-gray-800/40 rounded-xl">
       <div className="flex items-center gap-2 min-w-0">
@@ -327,7 +416,17 @@ function ItemLine({ item }: { item: ComandaItem }) {
           {item.nota && <p className="text-gray-600 text-xs truncate">{item.nota}</p>}
         </div>
       </div>
-      <span className="text-gray-400 text-sm shrink-0 ml-3">{fmt(item.precio * item.cantidad)} €</span>
+      <div className="flex items-center gap-2 shrink-0 ml-3">
+        <span className="text-gray-400 text-sm">{fmt(item.precio * item.cantidad)} €</span>
+        {onMerma && (
+          <button
+            onClick={e => { e.stopPropagation(); onMerma(item) }}
+            className="text-red-500 hover:text-red-400 text-xs px-2 py-0.5 rounded-lg bg-red-950/60 hover:bg-red-900/50 transition-colors"
+          >
+            merma
+          </button>
+        )}
+      </div>
     </div>
   )
 }
@@ -532,6 +631,43 @@ export default function MesasFeedPage() {
     },
   })
 
+  const crearMerma = useMutation({
+    mutationFn: async ({ item, motivo, descripcion, cantidad }: {
+      item: ComandaItem
+      motivo: MermaMotivo
+      descripcion?: string
+      cantidad: number
+    }) => {
+      if (!detalle) return
+      await api.mermas.create({
+        restaurantId:   detalle.comanda.restaurantId,
+        mesaNumero:     detalle.comanda.mesa.numero,
+        comandaId:      detalle.comanda.id,
+        itemNombre:     item.nombre,
+        cantidad,
+        precio:         item.precio,
+        itemNivel:      item.nivel,
+        itemRonda:      item.ronda,
+        motivo,
+        descripcion,
+      })
+      const restante = item.cantidad - cantidad
+      if (restante > 0) {
+        await api.comandas.updateItem(detalle.comanda.id, item.id, { cantidad: restante })
+      } else {
+        await api.comandas.deleteItem(detalle.comanda.id, item.id)
+      }
+    },
+    onSuccess: async () => {
+      queryClient.invalidateQueries({ queryKey: ['comandas-feed-activas', restaurantId] })
+      queryClient.invalidateQueries({ queryKey: ['comandas-feed-liberadas', restaurantId] })
+      if (detalle) {
+        const updated = await api.comandas.get(detalle.comanda.id)
+        setDetalle({ ...detalle, comanda: updated })
+      }
+    },
+  })
+
   useRestaurantEvents(restaurantId)
 
   const { data: restaurantes } = useQuery({
@@ -577,15 +713,23 @@ export default function MesasFeedPage() {
   const cerradasHoy = cerradas?.filter(c => c.closedAt && new Date(c.closedAt).toDateString() === hoy) ?? []
 
   const todasMesas: MesaConPlan[] = (planes ?? []).flatMap((plan: FloorPlan) =>
-    plan.mesas.map((mesa: Mesa) => {
-      const comActiva  = activas?.find(c => c.mesaId === mesa.id)
+    plan.mesas.filter((mesa: Mesa) => mesa.tipo !== 'barra').flatMap((mesa: Mesa) => {
+      const comandasActivas = activas?.filter(c => c.mesaId === mesa.id) ?? []
       const comCerrada = cerradasHoy.find(c => c.mesaId === mesa.id)
+      // Si hay varias comandas activas para la misma mesa (p.ej. facturada original + enviada tras traslado),
+      // generar una entrada por cada comanda para que el admin las vea todas
+      if (comandasActivas.length > 1) {
+        return comandasActivas.map(comanda => ({
+          ...mesa, planNombre: plan.nombre, estado: { tipo: 'activa' as const, comanda },
+        }))
+      }
+      const comActiva = comandasActivas[0]
       const estado: EstadoMesa = comActiva
         ? { tipo: 'activa', comanda: comActiva }
         : comCerrada
           ? { tipo: 'cerrada_hoy', comanda: comCerrada }
           : { tipo: 'libre' }
-      return { ...mesa, planNombre: plan.nombre, estado }
+      return [{ ...mesa, planNombre: plan.nombre, estado }]
     })
   )
 
@@ -603,8 +747,9 @@ export default function MesasFeedPage() {
   const numActivas      = todasMesas.filter(m => m.estado.tipo === 'activa').length
   const numCerradas     = cerradasHoy.length
   const totalCobrado    = cerradasHoy.reduce((s, c) => s + c.items.reduce((ss, i) => ss + i.precio * i.cantidad, 0), 0)
-  const numLiberadas    = liberadas?.length ?? 0
-  const totalLiberadas  = (liberadas ?? []).reduce((s, c) => s + c.items.reduce((ss, i) => ss + i.precio * i.cantidad, 0), 0)
+  const liberadasConItems = (liberadas ?? []).filter(c => c.items.length > 0)
+  const numLiberadas    = liberadasConItems.length
+  const totalLiberadas  = liberadasConItems.reduce((s, c) => s + c.items.reduce((ss, i) => ss + i.precio * i.cantidad, 0), 0)
 
   return (
     <div className="max-w-2xl mx-auto p-4">
@@ -647,7 +792,7 @@ export default function MesasFeedPage() {
             <span className="text-orange-300 font-black">{fmt(totalLiberadas)} €</span>
           </div>
           <div className="space-y-2">
-            {(liberadas ?? []).map(c => {
+            {liberadasConItems.map(c => {
               const total = c.items.reduce((s, i) => s + i.precio * i.cantidad, 0)
               return (
                 <div key={c.id} className="bg-[#2d1200] border border-orange-700/60 rounded-2xl overflow-hidden">
@@ -700,7 +845,7 @@ export default function MesasFeedPage() {
       <div className="space-y-2">
         {mesasOrdenadas.map(mesa => (
           <MesaCard
-            key={mesa.id}
+            key={mesa.estado.tipo === 'activa' ? mesa.estado.comanda.id : mesa.id}
             mesa={mesa}
             onClick={mesa.estado.tipo !== 'libre'
               ? () => setDetalle({ comanda: mesa.estado.tipo !== 'libre' ? (mesa.estado as { comanda: Comanda }).comanda : null!, planNombre: mesa.planNombre })
@@ -722,6 +867,7 @@ export default function MesasFeedPage() {
           onClose={() => setDetalle(null)}
           onCobrar={metodoPago => cobrarComanda.mutate({ id: detalle.comanda.id, metodoPago })}
           onRestituir={mermaId => restituirMerma.mutate(mermaId)}
+          onMerma={(item, motivo, descripcion, cantidad) => crearMerma.mutate({ item, motivo, descripcion, cantidad })}
         />
       )}
 

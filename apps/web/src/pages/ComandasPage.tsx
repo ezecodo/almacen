@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, Comanda, ComandaItem, Mesa, MenuItem, Restaurante } from '../api'
+import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
 
 const SQUARE_SIZE = 80
 const RECT_W = 160
@@ -766,6 +767,8 @@ export default function ComandasPage() {
     enabled: !!restaurantId,
   })
 
+  useRestaurantEvents(restaurantId)
+
   useEffect(() => {
     if (!restaurantId && restaurantes?.length) setRestaurantId(restaurantes[0].id)
   }, [restaurantes, restaurantId])
@@ -802,7 +805,14 @@ export default function ComandasPage() {
     },
   })
 
-  const comandaByMesa = (mesaId: number) => comandas?.find(c => c.mesaId === mesaId)
+  // Si hay varias comandas para la misma mesa (ej: facturada pendiente + nueva abierta),
+  // priorizar la que más atención necesita: facturada > enviada > abierta
+  const comandaByMesa = (mesaId: number) => {
+    const all = comandas?.filter(c => c.mesaId === mesaId) ?? []
+    return all.find(c => c.estado === 'facturada')
+        ?? all.find(c => c.estado === 'enviada')
+        ?? all.find(c => c.estado === 'abierta')
+  }
 
   const handleMesaClick = (mesa: Mesa) => {
     const comanda = comandaByMesa(mesa.id)

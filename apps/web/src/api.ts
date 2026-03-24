@@ -183,11 +183,13 @@ export interface Mesa {
   id:         number
   floorPlanId: number
   numero:     number
-  tipo:       'round' | 'square' | 'rectangular'
+  tipo:       'round' | 'square' | 'rectangular' | 'barra' | 'silla_alta'
   x:          number
   y:          number
   capacidad:  number
   rotacion:   number
+  ancho?:     number
+  alto?:      number
 }
 
 export interface FloorPlan {
@@ -371,6 +373,10 @@ export const api = {
     liberar:   (id: number) => patch<Comanda>(`/comandas/${id}/liberar`, {}),
     cerrar:    (id: number, metodoPago: 'cash' | 'tarjeta') =>
       patch<Comanda>(`/comandas/${id}/cerrar`, { metodoPago }),
+    moverMesa: (id: number, mesaId: number) =>
+      patch<Comanda>(`/comandas/${id}/mover-mesa`, { mesaId }),
+    merge:     (sourceId: number, targetId: number, itemIds?: number[]) =>
+      post<Comanda>('/comandas/merge', { sourceId, targetId, itemIds }),
   },
   salon: {
     list:   (restaurantId: number) => get<FloorPlan[]>(`/salon?restaurantId=${restaurantId}`),
