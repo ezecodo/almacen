@@ -8,18 +8,44 @@ datasource db {
 }
 
 model Restaurant {
-  id         Int              @id @default(autoincrement())
-  nombre     String
-  placeId    String?
-  retiros    Retiro[]
-  reviews    ReviewSnapshot[]
-  propinas   PropinaDia[]
-  menu       MenuItem[]
-  menuCats   MenuCategoria[]
-  floorPlans FloorPlan[]
-  comandas   Comanda[]
-  mermas     Merma[]
-  createdAt  DateTime         @default(now())
+  id            Int                   @id @default(autoincrement())
+  nombre        String
+  placeId       String?
+  retiros       Retiro[]
+  reviews       ReviewSnapshot[]
+  propinas      PropinaDia[]
+  menu          MenuItem[]
+  menuCats      MenuCategoria[]
+  floorPlans    FloorPlan[]
+  comandas      Comanda[]
+  mermas        Merma[]
+  grupoMenus    GrupoMenuTemplate[]
+  turnos        Turno[]
+  invCategorias InventarioCategoria[]
+  invProductos  InventarioProducto[]
+  invConteos    InventarioConteo[]
+  reservaConfig ReservaConfig?
+  reservas      Reserva[]
+  createdAt     DateTime              @default(now())
+}
+
+model Turno {
+  id              Int        @id @default(autoincrement())
+  restaurantId    Int
+  restaurant      Restaurant @relation(fields: [restaurantId], references: [id])
+  estado          String     @default("abierto") // 'abierto' | 'cerrado'
+  encargadoNombre String?
+  aperturaAt      DateTime   @default(now())
+  cierreAt        DateTime?
+  // Totales calculados al cerrar
+  totalEfectivo   Float?
+  totalTarjeta    Float?
+  totalVentas     Float?
+  totalMermas     Float?
+  totalPropinas   Float?
+  numComandas     Int?
+  propina         PropinaDia?
+  createdAt       DateTime   @default(now())
 }
 
 model Merma {
@@ -66,6 +92,8 @@ model PropinaDia {
   id           Int            @id @default(autoincrement())
   restaurantId Int
   restaurant   Restaurant     @relation(fields: [restaurantId], references: [id])
+  turnoId      Int?           @unique
+  turno        Turno?         @relation(fields: [turnoId], references: [id])
   fecha        DateTime
   efectivo     Float          @default(0)
   tarjeta      Float          @default(0)
@@ -126,6 +154,7 @@ model MenuItem {
   descripcion  String     @default("")
   precio       Float
   activo       Boolean    @default(true)
+  autoPorPax   Boolean    @default(false)
   orden        Int        @default(0)
   createdAt    DateTime   @default(now())
 }
@@ -159,11 +188,12 @@ model Comanda {
   id           Int           @id @default(autoincrement())
   restaurantId Int
   restaurant   Restaurant    @relation(fields: [restaurantId], references: [id])
-  mesaId       Int
-  mesa         Mesa          @relation(fields: [mesaId], references: [id])
+  mesaId       Int?
+  mesa         Mesa?         @relation(fields: [mesaId], references: [id])
   pax            Int
   estado         String        @default("abierta") // 'abierta' | 'enviada' | 'facturada' | 'liberada' | 'cerrada'
   metodoPago     String?       // 'cash' | 'tarjeta' | null
+  propina        Float         @default(0)
   camareroNombre String?
   items        ComandaItem[]
   mermas       Merma[]
@@ -181,7 +211,8 @@ model ComandaItem {
   nota       String  @default("")
   nivel      Int?
   ronda      Int     @default(0) // 0=pendiente, 1=comanda original, 2+=marcha pasa
-  tipo       String  @default("cocina") // 'cocina' | 'barra'
+  tipo         String  @default("cocina") // 'cocina' | 'barra'
+  autoGenerado Boolean @default(false)   // true = auto-añadido al abrir mesa (no va a cocina/barra)
 }
 
 model Producto {
@@ -191,4 +222,109 @@ model Producto {
   unidad    String   @default("ud")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model InventarioCategoria {
+  id           Int                  @id @default(autoincrement())
+  nombre       String
+  orden        Int                  @default(0)
+  restaurantId Int?
+  restaurant   Restaurant?          @relation(fields: [restaurantId], references: [id])
+  productos    InventarioProducto[]
+}
+
+model InventarioProducto {
+  id           Int                    @id @default(autoincrement())
+  nombre       String
+  unidad       String                 @default("ud")
+  stockMinimo  Float                  @default(0)
+  orden        Int                    @default(0)
+  activo       Boolean                @default(true)
+  categoriaId  Int
+  categoria    InventarioCategoria    @relation(fields: [categoriaId], references: [id])
+  restaurantId Int?
+  restaurant   Restaurant?            @relation(fields: [restaurantId], references: [id])
+  items        InventarioConteoItem[]
+}
+
+model InventarioConteo {
+  id           Int                    @id @default(autoincrement())
+  restaurantId Int
+  restaurant   Restaurant             @relation(fields: [restaurantId], references: [id])
+  fecha        DateTime               @default(now())
+  creadoPor    String?
+  notas        String?
+  cerrado      Boolean                @default(false)
+  items        InventarioConteoItem[]
+  createdAt    DateTime               @default(now())
+}
+
+model InventarioConteoItem {
+  id         Int                @id @default(autoincrement())
+  conteoId   Int
+  conteo     InventarioConteo   @relation(fields: [conteoId], references: [id], onDelete: Cascade)
+  productoId Int
+  producto   InventarioProducto @relation(fields: [productoId], references: [id])
+  cantidad   Float
+
+  @@unique([conteoId, productoId])
+}
+
+model ReservaConfig {
+  id             Int              @id @default(autoincrement())
+  restaurantId   Int              @unique
+  restaurant     Restaurant       @relation(fields: [restaurantId], references: [id])
+  slug           String           @unique
+  activo         Boolean          @default(true)
+  maxPaxPorSlot  Int              @default(20)
+  duracionMin    Int              @default(90)
+  diasAntelacion Int              @default(30)
+  horarios       ReservaHorario[]
+  reservas       Reserva[]
+  createdAt      DateTime         @default(now())
+}
+
+model ReservaHorario {
+  id           Int           @id @default(autoincrement())
+  configId     Int
+  config       ReservaConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  nombre       String        @default("Noche")
+  diasSemana   Json
+  horaInicio   String
+  horaFin      String
+  intervaloMin Int           @default(15)
+  maxPax       Int           @default(20)
+  activo       Boolean       @default(true)
+}
+
+model Reserva {
+  id           Int           @id @default(autoincrement())
+  restaurantId Int
+  restaurant   Restaurant    @relation(fields: [restaurantId], references: [id])
+  configId     Int
+  config       ReservaConfig @relation(fields: [configId], references: [id])
+  fecha        DateTime
+  hora         String
+  pax          Int
+  nombre       String
+  telefono     String
+  email        String?
+  notas        String?
+  estado       String        @default("confirmada")
+  origen       String        @default("web")
+  createdAt    DateTime      @default(now())
+}
+
+// Plantillas de menú cerrado para grupos
+// niveles: GrupoMenuNivel[] almacenado como JSON
+// GrupoMenuNivel = { nivel: number, plato: string, vegetariano?: string, sinCerdo?: string, sinGluten?: string, esPostre?: boolean }
+model GrupoMenuTemplate {
+  id           Int        @id @default(autoincrement())
+  restaurantId Int
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  nombre       String     // "Estándar" | "Premium" | "Deluxe"
+  precio       Float      // precio por persona
+  niveles      Json       // GrupoMenuNivel[]
+  activo       Boolean    @default(true)
+  createdAt    DateTime   @default(now())
 }

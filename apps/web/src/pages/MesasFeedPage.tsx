@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
-import { api, Comanda, ComandaItem, ComandaMerma, FloorPlan, Mesa, Restaurante, MermaMotivo } from '../api'
+import { api, Comanda, ComandaItem, ComandaMerma, FloorPlan, Mesa, Restaurante, MermaMotivo, Turno } from '../api'
 
 function timeAgo(iso: string) {
   const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000)
@@ -125,11 +125,12 @@ function ComandaDetalleModal({ comanda, planNombre, onClose, onCobrar, onRestitu
   comanda: Comanda
   planNombre: string
   onClose: () => void
-  onCobrar?: (metodoPago: 'cash' | 'tarjeta') => void
+  onCobrar?: (metodoPago: 'cash' | 'tarjeta', propina: number) => void
   onRestituir?: (mermaId: number) => void
   onMerma?: (item: ComandaItem, motivo: MermaMotivo, descripcion: string | undefined, cantidad: number) => void
 }) {
   const [metodoPago, setMetodoPago] = useState<'cash' | 'tarjeta' | null>(null)
+  const [importe, setImporte] = useState('')
   const [mermaItem, setMermaItem] = useState<ComandaItem | null>(null)
   const cfg = ESTADO_CONFIG[comanda.estado as keyof typeof ESTADO_CONFIG] ?? ESTADO_CONFIG.abierta
   const total = comanda.items.reduce((s, i) => s + i.precio * i.cantidad, 0)
@@ -353,40 +354,67 @@ function ComandaDetalleModal({ comanda, planNombre, onClose, onCobrar, onRestitu
             <span className="text-white text-2xl font-black">{fmt(total)} €</span>
           </div>
 
-          {(comanda.estado === 'facturada' || comanda.estado === 'liberada') && onCobrar && (
-            <div>
-              <p className="text-gray-500 text-xs mb-2 text-center">Método de pago</p>
-              <div className="grid grid-cols-2 gap-2 mb-2">
+          {(comanda.estado === 'facturada' || comanda.estado === 'liberada') && onCobrar && (() => {
+            const importeNum = parseFloat(importe.replace(',', '.')) || 0
+            const cambio     = metodoPago === 'cash'    ? importeNum - total : null
+            const propina    = metodoPago === 'tarjeta' ? Math.max(0, importeNum - total) : 0
+            const canCobrar  = !!metodoPago && (importe === '' || importeNum >= total)
+            return (
+              <div>
+                <p className="text-gray-500 text-xs mb-2 text-center">Método de pago</p>
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  <button onClick={() => { setMetodoPago('cash'); setImporte('') }}
+                    className={`py-2.5 rounded-xl text-sm font-semibold transition-all ${metodoPago === 'cash' ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
+                    💵 Efectivo
+                  </button>
+                  <button onClick={() => { setMetodoPago('tarjeta'); setImporte('') }}
+                    className={`py-2.5 rounded-xl text-sm font-semibold transition-all ${metodoPago === 'tarjeta' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
+                    💳 Tarjeta
+                  </button>
+                </div>
+
+                {metodoPago && (
+                  <div className="mb-3">
+                    <label className="text-gray-500 text-xs mb-1 block">
+                      {metodoPago === 'cash' ? 'Importe recibido' : 'Importe en ticket'}
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number" inputMode="decimal" placeholder={fmt(total)}
+                        value={importe} onChange={e => setImporte(e.target.value)}
+                        className="flex-1 bg-gray-800 text-white text-lg font-bold px-4 py-2.5 rounded-xl outline-none focus:ring-2 focus:ring-amber-500 text-right"
+                      />
+                      <span className="text-gray-500 font-medium">€</span>
+                    </div>
+
+                    {metodoPago === 'cash' && importeNum > 0 && cambio !== null && (
+                      <div className={`mt-2 flex items-center justify-between px-4 py-2 rounded-xl ${cambio >= 0 ? 'bg-green-900/40' : 'bg-red-900/40'}`}>
+                        <span className="text-gray-400 text-sm">Cambio</span>
+                        <span className={`font-black text-lg ${cambio >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          {fmt(cambio)} €
+                        </span>
+                      </div>
+                    )}
+
+                    {metodoPago === 'tarjeta' && importeNum > total && (
+                      <div className="mt-2 flex items-center justify-between px-4 py-2 rounded-xl bg-amber-900/40">
+                        <span className="text-gray-400 text-sm">Propina</span>
+                        <span className="text-amber-400 font-black text-lg">{fmt(propina)} €</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <button
-                  onClick={() => setMetodoPago('cash')}
-                  className={`py-2.5 rounded-xl text-sm font-semibold transition-all ${
-                    metodoPago === 'cash'
-                      ? 'bg-green-600 text-white'
-                      : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-                  }`}
+                  onClick={() => metodoPago && onCobrar(metodoPago, propina)}
+                  disabled={!canCobrar}
+                  className="w-full py-3 rounded-xl bg-amber-500 text-black font-black text-base disabled:opacity-30 hover:bg-amber-400 active:scale-[0.98] transition-all"
                 >
-                  💵 Efectivo
-                </button>
-                <button
-                  onClick={() => setMetodoPago('tarjeta')}
-                  className={`py-2.5 rounded-xl text-sm font-semibold transition-all ${
-                    metodoPago === 'tarjeta'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-                  }`}
-                >
-                  💳 Tarjeta
+                  {metodoPago === 'tarjeta' && propina > 0 ? `Cobrar · +${fmt(propina)} € propina` : 'Cobrar mesa'}
                 </button>
               </div>
-              <button
-                onClick={() => metodoPago && onCobrar(metodoPago)}
-                disabled={!metodoPago}
-                className="w-full py-3 rounded-xl bg-amber-500 text-black font-black text-base disabled:opacity-30 hover:bg-amber-400 active:scale-[0.98] transition-all"
-              >
-                Cobrar mesa
-              </button>
-            </div>
-          )}
+            )
+          })()}
         </div>
       </div>
 
@@ -602,15 +630,100 @@ function BuscadorMesa({ mesas, onSelect }: {
   )
 }
 
+// ── Modal cierre de turno ─────────────────────────────────────────────────────
+type TurnoPreview = {
+  efectivo: number; tarjeta: number; ventas: number
+  propinas: number; numComandas: number
+}
+
+function CierreTurnoModal({ turno, mesasAbiertas, preview, onConfirm, onClose, loading }: {
+  turno: Turno
+  mesasAbiertas: number
+  preview: TurnoPreview
+  onConfirm: () => void
+  onClose: () => void
+  loading: boolean
+}) {
+  const duracion = () => {
+    const mins = Math.floor((Date.now() - new Date(turno.aperturaAt).getTime()) / 60000)
+    if (mins < 60) return `${mins} min`
+    return `${Math.floor(mins / 60)}h ${mins % 60}m`
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/80 flex items-end sm:items-center justify-center z-50 p-4">
+      <div className="bg-[#0f172a] w-full max-w-md rounded-3xl shadow-2xl overflow-hidden">
+        <div className="px-6 pt-6 pb-4 border-b border-gray-800">
+          <h2 className="text-white font-black text-xl">Cierre de turno</h2>
+          <p className="text-gray-400 text-sm mt-1">Turno abierto hace {duracion()}</p>
+        </div>
+
+        <div className="px-6 py-5 space-y-3">
+          <div className="bg-[#1e2d45] rounded-2xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-gray-400 text-sm">💵 Efectivo</span>
+              <span className="text-white font-bold">{fmt(preview.efectivo)} €</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-gray-400 text-sm">💳 Tarjeta</span>
+              <span className="text-white font-bold">{fmt(preview.tarjeta)} €</span>
+            </div>
+            <div className="h-px bg-gray-700" />
+            <div className="flex items-center justify-between">
+              <span className="text-white font-bold">Total ventas</span>
+              <span className="text-[#4CC8A0] font-black text-xl">{fmt(preview.ventas)} €</span>
+            </div>
+          </div>
+
+          <div className="bg-[#1e2d45] rounded-2xl p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-gray-400 text-sm">Comandas cobradas</span>
+              <span className="text-white font-bold">{preview.numComandas}</span>
+            </div>
+            {preview.propinas > 0 && (
+              <div className="flex items-center justify-between">
+                <span className="text-gray-400 text-sm">Propinas tarjeta</span>
+                <span className="text-amber-400 font-bold">{fmt(preview.propinas)} €</span>
+              </div>
+            )}
+          </div>
+
+          {mesasAbiertas > 0 && (
+            <div className="bg-amber-900/30 border border-amber-700/50 rounded-2xl p-4 flex items-center gap-3">
+              <span className="text-amber-400 text-xl">⚠️</span>
+              <p className="text-amber-300 text-sm font-medium">
+                Hay {mesasAbiertas} {mesasAbiertas === 1 ? 'mesa activa' : 'mesas activas'}. Se recomienda cerrarlas antes de cerrar el turno.
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="px-6 pb-6 flex gap-3">
+          <button onClick={onClose} disabled={loading}
+            className="flex-1 py-3 rounded-xl bg-gray-700 text-gray-300 font-medium hover:bg-gray-600 disabled:opacity-50">
+            Cancelar
+          </button>
+          <button onClick={onConfirm} disabled={loading}
+            className="flex-1 py-3 rounded-xl bg-red-600 text-white font-bold hover:bg-red-500 disabled:opacity-50 transition-colors">
+            {loading ? 'Cerrando…' : 'Confirmar cierre'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Página principal ──────────────────────────────────────────────────────────
 export default function MesasFeedPage() {
   const queryClient = useQueryClient()
   const [restaurantId, setRestaurantId] = useState<number | null>(null)
   const [detalle, setDetalle] = useState<{ comanda: Comanda; planNombre: string } | null>(null)
+  const [showCierre, setShowCierre] = useState(false)
+  const [turnoResumen, setTurnoResumen] = useState<Turno | null>(null)
 
   const cobrarComanda = useMutation({
-    mutationFn: ({ id, metodoPago }: { id: number; metodoPago: 'cash' | 'tarjeta' }) =>
-      api.comandas.cerrar(id, metodoPago),
+    mutationFn: ({ id, metodoPago, propina = 0 }: { id: number; metodoPago: 'cash' | 'tarjeta'; propina?: number }) =>
+      api.comandas.cerrar(id, metodoPago, propina),
     onSuccess: () => {
       setDetalle(null)
       queryClient.invalidateQueries({ queryKey: ['comandas-feed-activas', restaurantId] })
@@ -668,6 +781,28 @@ export default function MesasFeedPage() {
     },
   })
 
+  const { data: turnoActivo, refetch: refetchTurno } = useQuery({
+    queryKey: ['turno-activo', restaurantId],
+    queryFn: () => api.turnos.getActivo(restaurantId!),
+    enabled: !!restaurantId,
+    refetchInterval: 30_000,
+  })
+
+  const abrirTurno = useMutation({
+    mutationFn: () => api.turnos.abrir(restaurantId!),
+    onSuccess: () => { refetchTurno() },
+  })
+
+  const cerrarTurno = useMutation({
+    mutationFn: () => api.turnos.cerrar(turnoActivo!.id),
+    onSuccess: (turno) => {
+      setTurnoResumen(turno)
+      setShowCierre(false)
+      refetchTurno()
+      queryClient.invalidateQueries({ queryKey: ['comandas-feed-activas', restaurantId] })
+    },
+  })
+
   useRestaurantEvents(restaurantId)
 
   const { data: restaurantes } = useQuery({
@@ -698,7 +833,8 @@ export default function MesasFeedPage() {
     queryKey: ['comandas-feed-cerradas', restaurantId],
     queryFn: () => api.comandas.list(restaurantId!, 'cerrada'),
     enabled: !!restaurantId,
-    refetchInterval: 20_000,
+    refetchInterval: 8_000,
+    refetchOnWindowFocus: true,
   })
 
   const { data: liberadas } = useQuery({
@@ -747,6 +883,15 @@ export default function MesasFeedPage() {
   const numActivas      = todasMesas.filter(m => m.estado.tipo === 'activa').length
   const numCerradas     = cerradasHoy.length
   const totalCobrado    = cerradasHoy.reduce((s, c) => s + c.items.reduce((ss, i) => ss + i.precio * i.cantidad, 0), 0)
+
+  // Preview live para el modal de cierre de turno
+  const turnoPreview: TurnoPreview = {
+    efectivo:    cerradasHoy.filter(c => c.metodoPago === 'cash').reduce((s, c) => s + c.items.reduce((ss, i) => ss + i.precio * i.cantidad, 0), 0),
+    tarjeta:     cerradasHoy.filter(c => c.metodoPago === 'tarjeta').reduce((s, c) => s + c.items.reduce((ss, i) => ss + i.precio * i.cantidad, 0), 0),
+    ventas:      cerradasHoy.reduce((s, c) => s + c.items.reduce((ss, i) => ss + i.precio * i.cantidad, 0), 0),
+    propinas:    cerradasHoy.reduce((s, c) => s + (c.propina ?? 0), 0),
+    numComandas: cerradasHoy.length,
+  }
   const liberadasConItems = (liberadas ?? []).filter(c => c.items.length > 0)
   const numLiberadas    = liberadasConItems.length
   const totalLiberadas  = liberadasConItems.reduce((s, c) => s + c.items.reduce((ss, i) => ss + i.precio * i.cantidad, 0), 0)
@@ -764,6 +909,38 @@ export default function MesasFeedPage() {
           </button>
         ))}
       </div>
+
+      {/* Barra de turno */}
+      {turnoActivo === null && (
+        <div className="mb-5 bg-[#1e2d45] border border-gray-700 rounded-2xl p-4 flex items-center justify-between gap-4">
+          <div>
+            <p className="text-white font-bold text-sm">Turno no iniciado</p>
+            <p className="text-gray-500 text-xs mt-0.5">Los camareros no pueden usar la sala hasta que abras el turno</p>
+          </div>
+          <button
+            onClick={() => abrirTurno.mutate()}
+            disabled={abrirTurno.isPending}
+            className="shrink-0 px-4 py-2 rounded-xl bg-[#4CC8A0] text-black font-black text-sm hover:brightness-110 active:scale-95 transition-all disabled:opacity-50">
+            {abrirTurno.isPending ? '…' : 'Abrir turno'}
+          </button>
+        </div>
+      )}
+      {turnoActivo && (
+        <div className="mb-5 bg-[#0f2b1f] border border-[#4CC8A0]/30 rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-[#4CC8A0] animate-pulse" />
+            <div>
+              <p className="text-[#4CC8A0] font-bold text-sm">Turno activo</p>
+              <p className="text-gray-500 text-xs">Desde {fmtHora(turnoActivo.aperturaAt)}</p>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowCierre(true)}
+            className="shrink-0 px-3 py-1.5 rounded-xl bg-gray-800 text-gray-400 text-xs font-medium hover:bg-gray-700 border border-gray-700 transition-colors">
+            Cerrar turno
+          </button>
+        </div>
+      )}
 
       {/* Resumen */}
       <div className="grid grid-cols-3 gap-3 mb-6">
@@ -822,18 +999,11 @@ export default function MesasFeedPage() {
                       ))}
                     </div>
                   )}
-                  <div className="grid grid-cols-2 gap-px bg-orange-900/30">
-                    <button
-                      onClick={() => cobrarComanda.mutate({ id: c.id, metodoPago: 'cash' })}
-                      className="py-3 text-green-400 font-bold text-sm hover:bg-green-900/30 transition-colors">
-                      Efectivo
-                    </button>
-                    <button
-                      onClick={() => cobrarComanda.mutate({ id: c.id, metodoPago: 'tarjeta' })}
-                      className="py-3 text-blue-400 font-bold text-sm hover:bg-blue-900/30 transition-colors">
-                      Tarjeta
-                    </button>
-                  </div>
+                  <button
+                    onClick={() => setDetalle({ comanda: c, planNombre: '' })}
+                    className="w-full py-3 text-amber-400 font-bold text-sm hover:bg-amber-900/20 transition-colors border-t border-orange-900/30">
+                    Cobrar mesa →
+                  </button>
                 </div>
               )
             })}
@@ -865,7 +1035,7 @@ export default function MesasFeedPage() {
           comanda={detalle.comanda}
           planNombre={detalle.planNombre}
           onClose={() => setDetalle(null)}
-          onCobrar={metodoPago => cobrarComanda.mutate({ id: detalle.comanda.id, metodoPago })}
+          onCobrar={(metodoPago, propina) => cobrarComanda.mutate({ id: detalle.comanda.id, metodoPago, propina })}
           onRestituir={mermaId => restituirMerma.mutate(mermaId)}
           onMerma={(item, motivo, descripcion, cantidad) => crearMerma.mutate({ item, motivo, descripcion, cantidad })}
         />
@@ -878,6 +1048,75 @@ export default function MesasFeedPage() {
           planNombre: mesa.planNombre,
         })}
       />
+
+      {showCierre && turnoActivo && (
+        <CierreTurnoModal
+          turno={turnoActivo}
+          mesasAbiertas={numActivas}
+          preview={turnoPreview}
+          onClose={() => setShowCierre(false)}
+          onConfirm={() => cerrarTurno.mutate()}
+          loading={cerrarTurno.isPending}
+        />
+      )}
+
+      {/* Resumen post-cierre */}
+      {turnoResumen && (
+        <div className="fixed inset-0 bg-black/80 flex items-end sm:items-center justify-center z-50 p-4">
+          <div className="bg-[#0f172a] w-full max-w-md rounded-3xl shadow-2xl overflow-hidden">
+            <div className="px-6 pt-6 pb-4 border-b border-gray-800 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-[#4CC8A0]/20 flex items-center justify-center">
+                <span className="text-[#4CC8A0] text-xl">✓</span>
+              </div>
+              <div>
+                <h2 className="text-white font-black text-xl">Turno cerrado</h2>
+                <p className="text-gray-500 text-xs">
+                  {fmtHora(turnoResumen.aperturaAt)} → {turnoResumen.cierreAt ? fmtHora(turnoResumen.cierreAt) : ''}
+                </p>
+              </div>
+            </div>
+            <div className="px-6 py-5 space-y-3">
+              <div className="bg-[#1e2d45] rounded-2xl p-4 space-y-3">
+                <div className="flex justify-between">
+                  <span className="text-gray-400 text-sm">💵 Efectivo</span>
+                  <span className="text-white font-bold">{fmt(turnoResumen.totalEfectivo ?? 0)} €</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-400 text-sm">💳 Tarjeta</span>
+                  <span className="text-white font-bold">{fmt(turnoResumen.totalTarjeta ?? 0)} €</span>
+                </div>
+                <div className="h-px bg-gray-700" />
+                <div className="flex justify-between">
+                  <span className="text-white font-bold">Total ventas</span>
+                  <span className="text-[#4CC8A0] font-black text-2xl">{fmt(turnoResumen.totalVentas ?? 0)} €</span>
+                </div>
+              </div>
+              <div className="bg-[#1e2d45] rounded-2xl p-4 space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-gray-400 text-sm">Comandas cobradas</span>
+                  <span className="text-white font-bold">{turnoResumen.numComandas ?? 0}</span>
+                </div>
+                {(turnoResumen.totalPropinas ?? 0) > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-400 text-sm">Propinas tarjeta</span>
+                    <span className="text-amber-400 font-bold">{fmt(turnoResumen.totalPropinas ?? 0)} €</span>
+                  </div>
+                )}
+                <div className="flex justify-between">
+                  <span className="text-gray-400 text-sm">Total mermas</span>
+                  <span className="text-red-400 font-bold">{fmt(turnoResumen.totalMermas ?? 0)} €</span>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 pb-6">
+              <button onClick={() => setTurnoResumen(null)}
+                className="w-full py-3 rounded-xl bg-[#4CC8A0] text-black font-black hover:brightness-110 transition-all">
+                Entendido
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -1,13 +1,23 @@
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../server'
-import { appendPropinaToSheet, appendRestauranteToSheet } from '../sheets'
+import { appendPropinaToSheet, appendRestauranteToSheet, clearRemovedTurnosFromSheet } from '../sheets'
 
 const createSchema = z.object({
   restaurantId: z.number().int().positive(),
   fecha:        z.string(), // ISO date string
   efectivo:     z.number().min(0).default(0),
   tarjeta:      z.number().min(0).default(0),
+  turnoId:      z.number().int().positive().optional(),
+  turnos: z.array(z.object({
+    empleadoId: z.number().int().positive(),
+    horas:      z.number().positive().max(24).default(8),
+  })).min(1),
+})
+
+const updateSchema = z.object({
+  efectivo: z.number().min(0).default(0),
+  tarjeta:  z.number().min(0).default(0),
   turnos: z.array(z.object({
     empleadoId: z.number().int().positive(),
     horas:      z.number().positive().max(24).default(8),
@@ -40,6 +50,7 @@ export async function propinaRoutes(app: FastifyInstance) {
         efectivo,
         tarjeta,
         total,
+        turnoId: result.data.turnoId ?? undefined,
         turnos: {
           create: turnos.map((t) => ({
             empleadoId: t.empleadoId,
@@ -97,6 +108,56 @@ export async function propinaRoutes(app: FastifyInstance) {
     })
     if (!propina) return reply.status(404).send({ error: 'No encontrado' })
     return propina
+  })
+
+  // Actualizar propina (recalcula y reescribe sheets)
+  app.patch('/propinas/:id', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    const result = updateSchema.safeParse(req.body)
+    if (!result.success) return reply.status(400).send({ error: result.error.flatten() })
+
+    const { efectivo, tarjeta, turnos } = result.data
+    const total = efectivo + tarjeta
+    const totalHoras = turnos.reduce((s, t) => s + t.horas, 0)
+
+    // Fetch old propina with turnos BEFORE deleting (to know which employees to clear in sheets)
+    const oldPropina = await prisma.propinaDia.findUnique({
+      where: { id },
+      include: { restaurant: true, turnos: { include: { empleado: true } } },
+    })
+    if (!oldPropina) return reply.status(404).send({ error: 'Propina no encontrada' })
+
+    const newEmpleadoIds = new Set(turnos.map(t => t.empleadoId))
+    const removedTurnos = oldPropina.turnos.filter(t => !newEmpleadoIds.has(t.empleadoId))
+
+    await prisma.propinaTurno.deleteMany({ where: { propinaDiaId: id } })
+
+    const updated = await prisma.propinaDia.update({
+      where: { id },
+      data: {
+        efectivo,
+        tarjeta,
+        total,
+        turnos: {
+          create: turnos.map((t) => ({
+            empleadoId: t.empleadoId,
+            horas:      t.horas,
+            propina:    Math.round((total * (t.horas / totalHoras)) * 100) / 100,
+          })),
+        },
+      },
+      include: {
+        restaurant: true,
+        turnos: { include: { empleado: true } },
+      },
+    })
+
+    // First clear removed employees, then write updated data
+    clearRemovedTurnosFromSheet(updated, removedTurnos)
+    appendPropinaToSheet(updated)
+    appendRestauranteToSheet(updated)
+
+    return updated
   })
 
   // Eliminar propina

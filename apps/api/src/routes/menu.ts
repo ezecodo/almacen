@@ -161,6 +161,15 @@ export async function menuRoutes(app: FastifyInstance) {
     return item
   })
 
+  // PATCH /menu/:id/toggleAutoPorPax
+  app.patch('/menu/:id/toggleAutoPorPax', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    const current = await prisma.menuItem.findUnique({ where: { id } })
+    if (!current) return reply.status(404).send({ error: 'No encontrado' })
+    const item = await prisma.menuItem.update({ where: { id }, data: { autoPorPax: !current.autoPorPax } })
+    return item
+  })
+
   // DELETE /menu/:id
   app.delete('/menu/:id', async (req, reply) => {
     const id = Number((req.params as { id: string }).id)

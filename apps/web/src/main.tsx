@@ -22,6 +22,13 @@ import MermasPage from './pages/MermasPage'
 import SetupPage from './pages/SetupPage'
 import SalaLoginPage from './pages/SalaLoginPage'
 import SalaMesasPage from './pages/SalaMesasPage'
+import GrupoMenuPage from './pages/GrupoMenuPage'
+import TurnosPage from './pages/TurnosPage'
+import TurnoDetallePage from './pages/TurnoDetallePage'
+import InventarioPage from './pages/InventarioPage'
+import ReservasAdminPage from './pages/ReservasAdminPage'
+import ReservaPublicaPage from './pages/ReservaPublicaPage'
+import AdminHomePage from './pages/AdminHomePage'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -42,9 +49,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           <Route path="/retiro" element={<RetiroPage />} />
           <Route path="/verificar/:id" element={<VerificarPage />} />
           <Route path="/mis-propinas" element={<MisPropinasPage />} />
+          <Route path="/reservas/:slug" element={<ReservaPublicaPage />} />
           <Route element={<AdminGuard />}>
             <Route element={<AdminLayout />}>
-              <Route path="/admin" element={<AdminPage />} />
+              <Route path="/admin" element={<AdminHomePage />} />
+              <Route path="/admin/retiros" element={<AdminPage />} />
               <Route path="/admin/productos" element={<ProductosPage />} />
               <Route path="/admin/empleados" element={<EmpleadosPage />} />
               <Route path="/admin/stats" element={<StatsPage />} />
@@ -55,6 +64,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               <Route path="/admin/comandas" element={<ComandasPage />} />
               <Route path="/admin/mesas" element={<MesasFeedPage />} />
               <Route path="/admin/mermas" element={<MermasPage />} />
+              <Route path="/admin/grupos" element={<GrupoMenuPage />} />
+              <Route path="/admin/turnos" element={<TurnosPage />} />
+              <Route path="/admin/turnos/:id" element={<TurnoDetallePage />} />
+              <Route path="/admin/inventario" element={<InventarioPage />} />
+              <Route path="/admin/reservas" element={<ReservasAdminPage />} />
             </Route>
           </Route>
         </Routes>

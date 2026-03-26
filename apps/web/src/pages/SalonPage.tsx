@@ -9,6 +9,15 @@ const RECT_W         = 160  // ancho mesa rectangular
 const RECT_H         = 80   // alto mesa rectangular
 const BARRA_DEFAULT_W = 240 // ancho barra por defecto
 const BARRA_DEFAULT_H = 80  // alto barra por defecto
+
+// Elementos decorativos de referencia (no son mesas)
+const ELEM_DEFS: Record<string, { label: string; bg: string; border: string; color: string }> = {
+  pared:   { label: 'PARED',   bg: '#111827', border: '#4b5563', color: '#6b7280' },
+  columna: { label: 'COLUMNA', bg: '#0d1117', border: '#374151', color: '#4b5563' },
+  ventana: { label: 'VENTANA', bg: '#0c1a2e', border: '#1d4ed8', color: '#3b82f6' },
+  entrada: { label: 'ENTRADA', bg: '#0f1c0d', border: '#4d7c0f', color: '#65a30d' },
+}
+const isElemDeco = (tipo: string) => tipo in ELEM_DEFS
 const SILLA_ALTA_SIZE = 60  // diámetro silla alta (múltiplo de 10)
 const SNAP = CELL / 4       // snapping al grid (10px) — clave para simetría exacta
 
@@ -29,25 +38,18 @@ function visualBounds(mesa: Mesa, overX?: number, overY?: number) {
 }
 
 function mesaWidth(mesa: Mesa): number {
-  if (mesa.tipo === 'barra')      return mesa.ancho ?? BARRA_DEFAULT_W
+  if (mesa.tipo === 'barra' || isElemDeco(mesa.tipo)) return mesa.ancho ?? BARRA_DEFAULT_W
   if (mesa.tipo === 'silla_alta') return mesa.ancho ?? SILLA_ALTA_SIZE
   if (mesa.tipo === 'rectangular') return mesa.ancho ?? RECT_W
   return mesa.ancho ?? SQUARE_SIZE  // round, square
 }
 function mesaHeight(mesa: Mesa): number {
-  if (mesa.tipo === 'barra')      return mesa.alto ?? BARRA_DEFAULT_H
+  if (mesa.tipo === 'barra' || isElemDeco(mesa.tipo)) return mesa.alto ?? BARRA_DEFAULT_H
   if (mesa.tipo === 'silla_alta') return mesa.ancho ?? SILLA_ALTA_SIZE  // siempre cuadrada
   if (mesa.tipo === 'rectangular') return mesa.alto ?? RECT_H
   return mesa.ancho ?? SQUARE_SIZE  // round, square — siempre cuadrada
 }
 
-// ── Colores por capacidad ────────────────────────────────────────────────────
-function mesaColor(capacidad: number) {
-  if (capacidad <= 2)  return { bg: '#1e3a5f', border: '#4B9EDF', text: '#93c5fd' }
-  if (capacidad <= 4)  return { bg: '#1a3a2e', border: '#4CC8A0', text: '#6ee7b7' }
-  if (capacidad <= 6)  return { bg: '#3b2a1a', border: '#f59e0b', text: '#fcd34d' }
-  return               { bg: '#3a1a2e', border: '#a855f7', text: '#d8b4fe' }
-}
 
 // ── Modal barra (tamaño ajustable) ───────────────────────────────────────────
 function BarraModal({ mesa, onConfirm, onDelete, onClose }: {
@@ -110,6 +112,97 @@ function BarraModal({ mesa, onConfirm, onDelete, onClose }: {
           )}
           <button onClick={() => onConfirm({ ancho: anchoU * CELL, alto: altoU * CELL })}
             className="flex-1 py-3 rounded-xl bg-amber-700 text-white font-bold hover:bg-amber-600">
+            {mesa ? 'Guardar' : 'Añadir'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Modal elemento decorativo ────────────────────────────────────────────────
+function ElementoModal({ mesa, onConfirm, onDelete, onClose }: {
+  mesa?: Mesa
+  onConfirm: (data: { tipo: string; ancho: number; alto: number }) => void
+  onDelete?: () => void
+  onClose: () => void
+}) {
+  const [tipoLocal, setTipoLocal] = useState(mesa?.tipo ?? 'pared')
+  const [anchoU, setAnchoU] = useState(Math.round((mesa?.ancho ?? BARRA_DEFAULT_W) / CELL))
+  const [altoU,  setAltoU]  = useState(Math.round((mesa?.alto  ?? BARRA_DEFAULT_H) / CELL))
+  const def = ELEM_DEFS[tipoLocal]
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 px-4">
+      <div className="bg-[#1e2d45] rounded-2xl p-6 w-full max-w-xs shadow-2xl">
+        <h3 className="text-white font-bold text-lg mb-5">
+          {mesa ? 'Editar elemento' : 'Nuevo elemento'}
+        </h3>
+
+        {/* Selector de tipo */}
+        <div className="mb-5">
+          <label className="text-gray-400 text-xs mb-2 block">Tipo</label>
+          <div className="grid grid-cols-2 gap-2">
+            {Object.entries(ELEM_DEFS).map(([t, d]) => (
+              <button key={t} onClick={() => setTipoLocal(t)}
+                className={`py-2 px-3 rounded-xl text-xs font-bold transition-all border ${
+                  tipoLocal === t
+                    ? 'bg-gray-700 text-white border-gray-400'
+                    : 'bg-gray-800 text-gray-500 border-gray-700 hover:bg-gray-700'
+                }`}
+                style={tipoLocal === t ? { borderColor: d.border, color: d.color } : {}}>
+                {d.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Ancho */}
+        <div className="mb-4">
+          <label className="text-gray-400 text-xs mb-2 block">Anchura — {anchoU * CELL}px</label>
+          <div className="flex items-center gap-3">
+            <button onClick={() => setAnchoU(a => Math.max(1, a - 1))}
+              className="w-10 h-10 rounded-xl bg-gray-700 text-white text-xl hover:bg-gray-600">−</button>
+            <span className="flex-1 text-center text-white text-2xl font-bold">{anchoU}</span>
+            <button onClick={() => setAnchoU(a => Math.min(20, a + 1))}
+              className="w-10 h-10 rounded-xl bg-gray-700 text-white text-xl hover:bg-gray-600">+</button>
+          </div>
+        </div>
+
+        {/* Alto */}
+        <div className="mb-5">
+          <label className="text-gray-400 text-xs mb-2 block">Altura — {altoU * CELL}px</label>
+          <div className="flex items-center gap-3">
+            <button onClick={() => setAltoU(a => Math.max(1, a - 1))}
+              className="w-10 h-10 rounded-xl bg-gray-700 text-white text-xl hover:bg-gray-600">−</button>
+            <span className="flex-1 text-center text-white text-2xl font-bold">{altoU}</span>
+            <button onClick={() => setAltoU(a => Math.min(10, a + 1))}
+              className="w-10 h-10 rounded-xl bg-gray-700 text-white text-xl hover:bg-gray-600">+</button>
+          </div>
+        </div>
+
+        {/* Preview */}
+        <div className="mb-5 flex items-center justify-center">
+          <div style={{
+            width: Math.min(anchoU * CELL, 240), height: altoU * CELL,
+            background: def.bg, border: `2px solid ${def.border}`, borderRadius: 6,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <span style={{ color: def.color, fontWeight: 800, fontSize: 11, letterSpacing: '0.1em' }}>{def.label}</span>
+          </div>
+        </div>
+
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-gray-700 text-gray-300 font-medium hover:bg-gray-600">
+            Cancelar
+          </button>
+          {onDelete && (
+            <button onClick={onDelete} className="py-3 px-4 rounded-xl bg-red-900/60 text-red-400 font-medium hover:bg-red-900">
+              🗑
+            </button>
+          )}
+          <button onClick={() => onConfirm({ tipo: tipoLocal, ancho: anchoU * CELL, alto: altoU * CELL })}
+            className="flex-1 py-3 rounded-xl bg-gray-600 text-white font-bold hover:bg-gray-500">
             {mesa ? 'Guardar' : 'Añadir'}
           </button>
         </div>
@@ -317,6 +410,31 @@ function MesaShape({
     )
   }
 
+  // ── Elementos decorativos ──────────────────────────────────────────────────
+  if (isElemDeco(mesa.tipo)) {
+    const def = ELEM_DEFS[mesa.tipo]
+    return (
+      <div
+        onMouseDown={onMouseDown}
+        onClick={onClick}
+        style={{
+          position: 'absolute', left: mesa.x, top: mesa.y, width: w, height: h,
+          borderRadius: 6,
+          background: def.bg,
+          border: `2px solid ${selected ? '#fbbf24' : def.border}`,
+          boxShadow: selected ? '0 0 0 3px #fbbf2455, 0 4px 20px #0008' : '0 2px 8px #0006',
+          cursor: 'grab', userSelect: 'none',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+          zIndex: selected ? 10 : 0,
+          opacity: 0.85,
+        }}
+      >
+        <span style={{ color: def.color, fontWeight: 800, fontSize: 11, letterSpacing: '0.12em' }}>{def.label}</span>
+        {selected && <span style={{ color: def.border, fontSize: 10, opacity: 0.7 }}>clic para editar</span>}
+      </div>
+    )
+  }
+
   // ── Silla alta ─────────────────────────────────────────────────────────────
   if (mesa.tipo === 'silla_alta') {
     return (
@@ -326,20 +444,23 @@ function MesaShape({
         style={{
           position: 'absolute', left: mesa.x, top: mesa.y, width: w, height: h,
           borderRadius: '50%',
-          background: mergeTarget ? '#14532d' : '#241000',
-          border: `2px solid ${mergeTarget ? '#22c55e' : selected ? '#fbbf24' : '#d97706'}`,
+          background: mergeTarget ? '#2d1a3a' : '#1a1000',
+          border: `2px solid ${mergeTarget ? '#a855f7' : selected ? '#fbbf24' : '#d97706'}`,
           boxShadow: selected
-            ? '0 0 0 3px #d9770655, 0 4px 20px #0008'
-            : '0 2px 8px #0006',
+            ? '0 0 0 3px #fbbf2455, 0 4px 20px #0008'
+            : mergeTarget
+              ? '0 0 20px #a855f799, 0 0 40px #a855f733'
+              : '0 0 20px #d9770699, 0 0 40px #d9770633',
           cursor: 'grab', userSelect: 'none',
           display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          transition: 'all 0.2s',
           zIndex: selected ? 10 : 1,
         }}
       >
         <span style={{ color: '#fbbf24', fontWeight: 800, fontSize: 14, lineHeight: 1 }}>
           {mesa.numero}
         </span>
-        <span style={{ color: '#d97706', fontSize: 9, marginTop: 1 }}>
+        <span style={{ color: '#f59e0b', fontSize: 9, marginTop: 1 }}>
           {mesa.capacidad}p
         </span>
       </div>
@@ -347,7 +468,6 @@ function MesaShape({
   }
 
   // ── Mesas normales ─────────────────────────────────────────────────────────
-  const colors = mesaColor(mesa.capacidad)
   const isRound = mesa.tipo === 'round'
 
   return (
@@ -360,31 +480,31 @@ function MesaShape({
         top: mesa.y,
         width: w,
         height: h,
-        borderRadius: isRound ? '50%' : mesa.tipo === 'rectangular' ? '14px' : '16px',
-        background: mergeTarget ? '#14532d' : colors.bg,
-        border: `2px solid ${mergeTarget ? '#22c55e' : selected ? '#fff' : colors.border}`,
+        borderRadius: isRound ? '50%' : '6px',
+        background: mergeTarget ? '#2d1a3a' : '#1a3828',
+        border: `2px solid ${mergeTarget ? '#a855f7' : selected ? '#fbbf24' : '#22c55e'}`,
         boxShadow: selected
-          ? `0 0 0 3px ${colors.border}55, 0 4px 20px #0008`
+          ? '0 0 0 3px #fbbf2455, 0 4px 20px #0008'
           : mergeTarget
-            ? '0 0 0 3px #22c55e55'
-            : '0 2px 8px #0006',
+            ? '0 0 20px #a855f799, 0 0 40px #a855f733'
+            : '0 0 16px #22c55e88, 0 0 32px #22c55e22',
         cursor: 'grab',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
         userSelect: 'none',
-        transition: 'border-color 0.15s, box-shadow 0.15s, background 0.15s',
+        transition: 'all 0.2s',
         zIndex: selected ? 10 : 1,
         transform: mesa.rotacion ? `rotate(${mesa.rotacion}deg)` : undefined,
         transformOrigin: 'center center',
       }}
     >
       <div style={{ transform: mesa.rotacion ? `rotate(${-mesa.rotacion}deg)` : undefined, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-        <span style={{ color: colors.text, fontWeight: 800, fontSize: 18, lineHeight: 1 }}>
+        <span style={{ color: '#22c55e', fontWeight: 800, fontSize: 18, lineHeight: 1 }}>
           {mesa.numero}
         </span>
-        <span style={{ color: colors.border, fontSize: 10, marginTop: 2, opacity: 0.8 }}>
+        <span style={{ color: '#4ade80', fontSize: 10, marginTop: 2, opacity: 0.8 }}>
           {mesa.capacidad} pax
         </span>
       </div>
@@ -438,14 +558,18 @@ function MesaMenu({
 // ── Canvas del salón ─────────────────────────────────────────────────────────
 function SalonCanvas({ plan }: { plan: FloorPlan }) {
   const queryClient = useQueryClient()
+  const tempCounter = useRef(-1)
   const [mesas, setMesas] = useState<Mesa[]>(plan.mesas)
+  const [deletedIds, setDeletedIds] = useState<Set<number>>(new Set())
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [mergeTargetId, setMergeTargetId] = useState<number | null>(null)
   const [modal, setModal] = useState<{ tipo?: Mesa['tipo']; mesa?: Mesa } | null>(null)
   const [barraModal, setBarraModal] = useState<{ mesa?: Mesa } | null>(null)
+  const [elemModal, setElemModal] = useState<{ mesa?: Mesa } | null>(null)
   const [contextMenu, setContextMenu] = useState<{ mesa: Mesa; x: number; y: number } | null>(null)
   const [dirty, setDirty] = useState(false)
-  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [isSaving, setIsSaving] = useState(false)
   const [guides, setGuides] = useState<{ x?: number; y?: number }[]>([])
 
   const didDrag = useRef(false)
@@ -464,46 +588,74 @@ function SalonCanvas({ plan }: { plan: FloorPlan }) {
   const marqueeRef = useRef<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
   const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
 
-  // Sincronizar cuando cambia el plan (e.g. tras mutación)
-  useEffect(() => { setMesas(plan.mesas) }, [plan.mesas])
+  // Solo sincronizar desde servidor cuando no hay cambios pendientes
+  useEffect(() => {
+    if (!dirty) {
+      setMesas(plan.mesas)
+      setDeletedIds(new Set())
+    }
+  }, [plan.mesas, dirty])
 
-  const addMesa = useMutation({
-    mutationFn: (data: Omit<Mesa, 'id' | 'floorPlanId'>) => api.salon.addMesa(plan.id, data),
-    onSuccess: (mesa) => {
-      setMesas(prev => [...prev, mesa])
-      queryClient.invalidateQueries({ queryKey: ['salon-planes', plan.restaurantId] })
-    },
-  })
+  // ── Helpers locales (no tocan la DB) ──────────────────────────────────────
+  const localAdd = (data: Omit<Mesa, 'id' | 'floorPlanId'>) => {
+    const id = tempCounter.current--
+    setMesas(prev => [...prev, { id, floorPlanId: plan.id, ...data }])
+    setDirty(true)
+  }
 
-  const updateMesa = useMutation({
-    mutationFn: ({ mesaId, data }: { mesaId: number; data: Partial<Omit<Mesa, 'id' | 'floorPlanId'>> }) =>
-      api.salon.updateMesa(plan.id, mesaId, data),
-    onSuccess: (updated) => {
-      setMesas(prev => prev.map(m => m.id === updated.id ? updated : m))
-      queryClient.invalidateQueries({ queryKey: ['salon-planes', plan.restaurantId] })
-    },
-  })
+  const localUpdate = (mesaId: number, data: Partial<Omit<Mesa, 'id' | 'floorPlanId'>>) => {
+    setMesas(prev => prev.map(m => m.id === mesaId ? { ...m, ...data } : m))
+    setDirty(true)
+  }
 
-  const deleteMesa = useMutation({
-    mutationFn: (mesaId: number) => api.salon.deleteMesa(plan.id, mesaId),
-    onSuccess: (_, mesaId) => {
-      setMesas(prev => prev.filter(m => m.id !== mesaId))
-      setSelectedIds(prev => { const n = new Set(prev); n.delete(mesaId); return n })
-      queryClient.invalidateQueries({ queryKey: ['salon-planes', plan.restaurantId] })
-    },
-    onError: (err: Error) => {
-      setDeleteError(err.message.includes('409') ? 'Esta mesa tiene comandas y no se puede eliminar' : 'Error al eliminar la mesa')
-      setTimeout(() => setDeleteError(null), 3000)
-    },
-  })
+  const localDelete = (mesaId: number) => {
+    setMesas(prev => prev.filter(m => m.id !== mesaId))
+    if (mesaId > 0) setDeletedIds(prev => new Set([...prev, mesaId]))
+    setSelectedIds(prev => { const n = new Set(prev); n.delete(mesaId); return n })
+    setDirty(true)
+  }
 
-  const savePositions = useMutation({
-    mutationFn: () => api.salon.savePositions(plan.id, mesas.map(m => ({ id: m.id, x: m.x, y: m.y }))),
-    onSuccess: () => {
+  // ── Guardar todo en la DB ──────────────────────────────────────────────────
+  const handleSave = async () => {
+    setIsSaving(true)
+    setSaveError(null)
+    try {
+      for (const id of deletedIds) {
+        await api.salon.deleteMesa(plan.id, id)
+      }
+      for (const mesa of mesas.filter(m => m.id < 0)) {
+        const { id: _id, floorPlanId: _fp, ...data } = mesa
+        await api.salon.addMesa(plan.id, data)
+      }
+      const serverMap = new Map(plan.mesas.map(m => [m.id, m]))
+      const fields = ['numero', 'tipo', 'x', 'y', 'capacidad', 'rotacion', 'ancho', 'alto'] as const
+      for (const mesa of mesas.filter(m => m.id > 0)) {
+        const server = serverMap.get(mesa.id)
+        if (!server) continue
+        if (fields.some(k => mesa[k] !== server[k])) {
+          const upd: Partial<Omit<Mesa, 'id' | 'floorPlanId'>> = {}
+          fields.forEach(k => { (upd as Record<string, unknown>)[k] = mesa[k] })
+          await api.salon.updateMesa(plan.id, mesa.id, upd)
+        }
+      }
       setDirty(false)
+      setDeletedIds(new Set())
       queryClient.invalidateQueries({ queryKey: ['salon-planes', plan.restaurantId] })
-    },
-  })
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : ''
+      setSaveError(msg.includes('409') ? 'Una mesa tiene comandas activas y no puede eliminarse' : `Error al guardar${msg ? ': ' + msg : ''}`)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleDiscard = () => {
+    setMesas(plan.mesas)
+    setDeletedIds(new Set())
+    setDirty(false)
+    setSaveError(null)
+    setSelectedIds(new Set())
+  }
 
   const nextNumero = mesas.length > 0 ? Math.max(...mesas.map(m => m.numero)) + 1 : 1
 
@@ -669,39 +821,31 @@ function SalonCanvas({ plan }: { plan: FloorPlan }) {
         capacidad: a.capacidad + b.capacidad,
         rotacion:  0,
       }
-      // Borrar ambas y crear rectangular
-      Promise.all([
-        api.salon.deleteMesa(plan.id, a.id),
-        api.salon.deleteMesa(plan.id, b.id),
-      ]).then(() => addMesa.mutate(newMesa))
-      setMesas(prev => prev.filter(m => m.id !== mesaId && m.id !== mergeTargetId))
+      localDelete(a.id)
+      localDelete(b.id)
+      localAdd(newMesa)
       setMergeTargetId(null)
     } else {
       setDirty(true)
     }
 
     dragging.current = null
-  }, [mergeTargetId, mesas, plan.id, addMesa])
+  }, [mergeTargetId, mesas])
 
   // ── Partir rectangular ────────────────────────────────────────────────────
   const handleSplit = useCallback((mesa: Mesa) => {
     setContextMenu(null)
     const half = Math.ceil(mesa.capacidad / 2)
-    Promise.all([
-      api.salon.addMesa(plan.id, { numero: mesa.numero,     tipo: 'square', x: mesa.x,               y: mesa.y, capacidad: half,                          rotacion: 0 }),
-      api.salon.addMesa(plan.id, { numero: mesa.numero + 1, tipo: 'square', x: mesa.x + SQUARE_SIZE + 10, y: mesa.y, capacidad: Math.floor(mesa.capacidad / 2), rotacion: 0 }),
-    ]).then(([a, b]) => {
-      setMesas(prev => [...prev.filter(m => m.id !== mesa.id), a, b])
-      api.salon.deleteMesa(plan.id, mesa.id)
-      queryClient.invalidateQueries({ queryKey: ['salon-planes', plan.restaurantId] })
-    })
-  }, [plan.id, queryClient])
+    localDelete(mesa.id)
+    localAdd({ numero: mesa.numero,     tipo: 'square', x: mesa.x,                    y: mesa.y, capacidad: half,                          rotacion: 0 })
+    localAdd({ numero: mesa.numero + 1, tipo: 'square', x: mesa.x + SQUARE_SIZE + 10, y: mesa.y, capacidad: Math.floor(mesa.capacidad / 2), rotacion: 0 })
+  }, [])
 
   return (
     <div className="flex flex-col h-full">
-      {deleteError && (
+      {saveError && (
         <div className="bg-red-900/80 border border-red-500 text-red-200 text-sm px-4 py-2 text-center">
-          {deleteError}
+          {saveError}
         </div>
       )}
       {/* Toolbar */}
@@ -730,6 +874,13 @@ function SalonCanvas({ plan }: { plan: FloorPlan }) {
         >
           ⬤ Silla alta
         </button>
+        <div className="w-px h-5 bg-gray-600 mx-1" />
+        <button
+          onClick={() => setElemModal({})}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gray-800 text-gray-400 text-xs font-medium hover:bg-gray-700 border border-gray-600 transition-colors"
+        >
+          ▦ Elemento
+        </button>
 
         <div className="ml-auto flex items-center gap-2">
           {selectedIds.size > 1 && (
@@ -737,15 +888,20 @@ function SalonCanvas({ plan }: { plan: FloorPlan }) {
               {selectedIds.size} seleccionadas · arrastra para mover grupo
             </span>
           )}
-          {dirty && (
-            <span className="text-yellow-400 text-xs">● Sin guardar</span>
+          {dirty && !isSaving && (
+            <button
+              onClick={handleDiscard}
+              className="px-3 py-1.5 rounded-xl bg-gray-700 text-gray-300 text-xs font-medium hover:bg-gray-600 transition-colors"
+            >
+              Descartar
+            </button>
           )}
           <button
-            onClick={() => savePositions.mutate()}
-            disabled={!dirty || savePositions.isPending}
+            onClick={handleSave}
+            disabled={!dirty || isSaving}
             className="px-4 py-1.5 rounded-xl bg-cyan-600 text-white text-xs font-bold disabled:opacity-30 hover:bg-cyan-500 transition-colors"
           >
-            {savePositions.isPending ? 'Guardando…' : 'Guardar'}
+            {isSaving ? 'Guardando…' : dirty ? '● Guardar' : 'Guardado'}
           </button>
         </div>
       </div>
@@ -808,6 +964,8 @@ function SalonCanvas({ plan }: { plan: FloorPlan }) {
                 if (didDrag.current) return
                 if (mesa.tipo === 'barra') {
                   setBarraModal({ mesa })
+                } else if (isElemDeco(mesa.tipo)) {
+                  setElemModal({ mesa })
                 } else {
                   setContextMenu({ mesa, x: e.clientX, y: e.clientY })
                 }
@@ -824,18 +982,23 @@ function SalonCanvas({ plan }: { plan: FloorPlan }) {
       </div>
 
       {/* Leyenda */}
-      <div className="flex gap-4 px-4 py-2 border-t border-gray-700 flex-wrap">
-        {[
-          { label: '1–2 pax', color: '#4B9EDF' },
-          { label: '3–4 pax', color: '#4CC8A0' },
-          { label: '5–6 pax', color: '#f59e0b' },
-          { label: '7+ pax',  color: '#a855f7' },
-        ].map(({ label, color }) => (
-          <div key={label} className="flex items-center gap-1.5">
-            <div style={{ width: 10, height: 10, borderRadius: '50%', background: color }} />
-            <span className="text-gray-500 text-xs">{label}</span>
-          </div>
-        ))}
+      <div className="flex gap-4 px-4 py-2 border-t border-gray-700 flex-wrap items-center">
+        <div className="flex items-center gap-1.5">
+          <div style={{ width: 10, height: 10, borderRadius: 2, background: '#1a3828', border: '1.5px solid #22c55e' }} />
+          <span className="text-gray-500 text-xs">Mesa</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#1a1000', border: '1.5px solid #d97706' }} />
+          <span className="text-gray-500 text-xs">Silla alta</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div style={{ width: 10, height: 10, borderRadius: 2, background: '#130e08', border: '1.5px solid #78350f' }} />
+          <span className="text-gray-500 text-xs">Barra</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div style={{ width: 10, height: 10, borderRadius: 2, background: '#111827', border: '1.5px solid #4b5563' }} />
+          <span className="text-gray-500 text-xs">Elemento</span>
+        </div>
         <span className="text-gray-600 text-xs ml-auto">Arrastra el fondo para seleccionar varias · Arrastra cuadrada sobre otra para unir</span>
       </div>
 
@@ -848,11 +1011,9 @@ function SalonCanvas({ plan }: { plan: FloorPlan }) {
           onClose={() => setModal(null)}
           onConfirm={({ numero, capacidad, tipo, ancho, alto }) => {
             if (modal.mesa) {
-              updateMesa.mutate({ mesaId: modal.mesa.id, data: { numero, capacidad, tipo, ancho, alto } })
+              localUpdate(modal.mesa.id, { numero, capacidad, tipo, ancho, alto })
             } else {
-              const centerX = snapTo(300)
-              const centerY = snapTo(200)
-              addMesa.mutate({ numero, capacidad, tipo, x: centerX, y: centerY, rotacion: 0, ancho, alto })
+              localAdd({ numero, capacidad, tipo, x: snapTo(300), y: snapTo(200), rotacion: 0, ancho, alto })
             }
             setModal(null)
           }}
@@ -863,14 +1024,30 @@ function SalonCanvas({ plan }: { plan: FloorPlan }) {
         <BarraModal
           mesa={barraModal.mesa}
           onClose={() => setBarraModal(null)}
-          onDelete={barraModal.mesa ? () => { deleteMesa.mutate(barraModal.mesa!.id); setBarraModal(null) } : undefined}
+          onDelete={barraModal.mesa ? () => { localDelete(barraModal.mesa!.id); setBarraModal(null) } : undefined}
           onConfirm={({ ancho, alto }) => {
             if (barraModal.mesa) {
-              updateMesa.mutate({ mesaId: barraModal.mesa.id, data: { ancho, alto } })
+              localUpdate(barraModal.mesa.id, { ancho, alto })
             } else {
-              addMesa.mutate({ numero: 0, capacidad: 0, tipo: 'barra', x: snapTo(200), y: snapTo(150), rotacion: 0, ancho, alto })
+              localAdd({ numero: 0, capacidad: 0, tipo: 'barra', x: snapTo(200), y: snapTo(150), rotacion: 0, ancho, alto })
             }
             setBarraModal(null)
+          }}
+        />
+      )}
+
+      {elemModal !== null && (
+        <ElementoModal
+          mesa={elemModal.mesa}
+          onClose={() => setElemModal(null)}
+          onDelete={elemModal.mesa ? () => { localDelete(elemModal.mesa!.id); setElemModal(null) } : undefined}
+          onConfirm={({ tipo, ancho, alto }) => {
+            if (elemModal.mesa) {
+              localUpdate(elemModal.mesa.id, { tipo, ancho, alto })
+            } else {
+              localAdd({ numero: 0, capacidad: 0, tipo, x: snapTo(200), y: snapTo(150), rotacion: 0, ancho, alto })
+            }
+            setElemModal(null)
           }}
         />
       )}
@@ -884,7 +1061,7 @@ function SalonCanvas({ plan }: { plan: FloorPlan }) {
           onDuplicate={() => {
             const m = contextMenu.mesa
             const offset = snapTo(mesaWidth(m) + 20)
-            addMesa.mutate({
+            localAdd({
               numero: m.numero + 1,
               tipo: m.tipo, capacidad: m.capacidad,
               x: m.x + offset, y: m.y,
@@ -893,10 +1070,10 @@ function SalonCanvas({ plan }: { plan: FloorPlan }) {
             })
             setContextMenu(null)
           }}
-          onDelete={() => { deleteMesa.mutate(contextMenu.mesa.id); setContextMenu(null) }}
+          onDelete={() => { localDelete(contextMenu.mesa.id); setContextMenu(null) }}
           onSplit={contextMenu.mesa.tipo === 'rectangular' ? () => handleSplit(contextMenu.mesa) : undefined}
           onRotate={() => {
-            updateMesa.mutate({ mesaId: contextMenu.mesa.id, data: { rotacion: ((contextMenu.mesa.rotacion ?? 0) + 90) % 360 } })
+            localUpdate(contextMenu.mesa.id, { rotacion: ((contextMenu.mesa.rotacion ?? 0) + 90) % 360 })
             setContextMenu(null)
           }}
           onClose={() => setContextMenu(null)}

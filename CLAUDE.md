@@ -3,9 +3,10 @@
 ## Qué es este proyecto
 
 Sistema de gestión integral para un grupo de restaurantes (cliente: Sensi Tapas, Barcelona).
-Incluye dos módulos principales:
+Incluye tres módulos principales:
 1. **Almacén**: control de retiros de materia prima con pistola de código de barras
 2. **Sala (TPV)**: sistema de comandas para camareros y encargados — mesas, menú, cocina, propinas, mermas, Google Reviews
+3. **Inventario**: conteo periódico de stock de sala por restaurante, con catálogo global + específico por restaurante
 
 ## Contexto de negocio
 
@@ -41,7 +42,8 @@ almacen_app/
 │   │   │       ├── retiros.ts
 │   │   │       ├── productos.ts
 │   │   │       ├── restaurantes.ts
-│   │   │       └── empleados.ts
+│   │   │       ├── empleados.ts
+│   │   │       └── inventario.ts
 │   │   ├── prisma/
 │   │   │   ├── schema.prisma
 │   │   │   └── seed.ts
@@ -53,6 +55,9 @@ almacen_app/
 │           │   ├── MesasFeedPage.tsx     ← dashboard encargado (tiempo real)
 │           │   ├── ComandasPage.tsx      ← admin comandas + mapa sala
 │           │   ├── AdminPage.tsx         ← panel admin general
+│           │   ├── TurnosPage.tsx        ← historial turnos + propinas
+│           │   ├── TurnoDetallePage.tsx  ← detalle de un turno cerrado
+│           │   ├── InventarioPage.tsx    ← inventario de sala
 │           │   └── ...
 │           ├── hooks/
 │           │   ├── useRestaurantEvents.ts ← SSE → invalida React Query cache
@@ -141,6 +146,52 @@ Sistema de reparto de propinas por turno. Registro de efectivo + tarjeta del dí
 
 Widget en el dashboard admin que muestra el rating y total de reseñas por restaurante, con diferencial diario. Sync manual protegido por clave.
 
+### Turnos
+
+Gestionados desde `/admin/turnos`. Cada turno tiene estado `abierto` o `cerrado`. Al cerrar se calculan totales (efectivo, tarjeta, ventas, mermas, propinas, nº comandas).
+
+- `TurnosPage`: lista de turnos con historial, borrado con doble confirmación, y modal `PropinaTurnoModal` para registrar/modificar propinas del turno
+- `TurnoDetallePage` (`/admin/turnos/:id`): todas las comandas cerradas del turno agrupadas por mesa, con items, mermas y método de pago
+- **Propinas vinculadas a turno**: `PropinaDia.turnoId` es `@unique` — un turno solo puede tener una propina. El modal usa búsqueda por nombre (autocomplete) para seleccionar empleados. Al modificar, reescribe Google Sheets y limpia empleados eliminados con `clearRemovedTurnosFromSheet`.
+
+### Modo visual camarero (SalaMesasPage)
+
+Toggle claro/oscuro persistido en `localStorage('sala_theme')`. El tema se aplica mediante `data-sala-theme="dark|light"` en el div raíz, con CSS custom properties definidas en `index.css` (`--sala-bg`, `--sala-hdr`, `--sala-srf`, `--sala-txt`, etc.). `ThemeCtx` context pasa `isDark` a componentes hijos como `MesaBtn`. El toggle es un pill SVG luna/sol en el header del camarero.
+
+---
+
+## Módulo: Inventario
+
+### Concepto
+
+Catálogo **global** (compartido entre todos los restaurantes) + productos/categorías **específicos** por restaurante. Los conteos son siempre por restaurante individual.
+
+### Modelos
+
+```
+InventarioCategoria  restaurantId=null → global | restaurantId=X → específica
+InventarioProducto   restaurantId=null → global | restaurantId=X → específica
+                     unidad: ud | botella | caja | l | kg
+InventarioConteo     siempre por restaurantId, cerrado=true al guardar
+InventarioConteoItem conteoId + productoId + cantidad  @@unique([conteoId, productoId])
+```
+
+### API
+
+- `GET /inventario/categorias?restaurantId=X` — devuelve globales + específicas del restaurante, con productos incluidos
+- `POST/PATCH/DELETE /inventario/categorias/:id`
+- `POST/PATCH/DELETE /inventario/productos/:id`
+- `GET /inventario/conteos?restaurantId=X` — lista con `_count.items`
+- `POST /inventario/conteos` — crea y cierra inmediatamente con todos los items
+- `GET /inventario/conteos/:id` — detalle con diferencial vs conteo anterior del mismo restaurante
+- `DELETE /inventario/conteos/:id`
+
+### Frontend (`/admin/inventario`)
+
+**Pestaña Catálogo**: selector Global/restaurante, categorías con productos inline, badge "Global", campos nombre/unidad/stockMínimo.
+
+**Pestaña Conteos**: selector de restaurante, historial con fecha/autor/nº productos, nuevo conteo con inputs grandes (tablet-friendly) agrupados por categoría, vista detalle con tabla Cantidad | Anterior | Diferencia (verde/rojo) y productos bajo mínimo resaltados.
+
 ---
 
 ## Módulo: Almacén
@@ -158,6 +209,26 @@ Widget en el dashboard admin que muestra el rating y total de reseñas por resta
 
 La pistola envía chars a < 50ms entre sí y termina con Enter. Un humano tarda > 300ms.
 El hook distingue pistola vs teclado por velocidad.
+
+---
+
+## Componentes compartidos (`apps/web/src/components/`)
+
+### CheckOverlay
+
+Overlay de confirmación animado — la viñeta de OidoOps (speech bubble con gradiente azul-verde) con la tilde blanca que se dibuja animadamente, seguida del texto "OidoOps".
+
+**Uso:**
+```tsx
+import CheckOverlay from '../components/CheckOverlay'
+
+const [showCheck, setShowCheck] = useState(false)
+const triggerCheck = () => { setShowCheck(true); setTimeout(() => setShowCheck(false), 2000) }
+
+{showCheck && <CheckOverlay />}
+```
+
+Las keyframes (`checkOverlayFade`, `checkBadgeIn`, `drawCheckStroke`, `checkTextIn`) están definidas globalmente en `index.css`.
 
 ---
 

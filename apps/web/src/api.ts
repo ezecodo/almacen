@@ -21,6 +21,22 @@ export interface Restaurante {
   nombre: string
 }
 
+export interface Turno {
+  id:              number
+  restaurantId:    number
+  estado:          'abierto' | 'cerrado'
+  encargadoNombre?: string
+  aperturaAt:      string
+  cierreAt?:       string
+  totalEfectivo?:  number
+  totalTarjeta?:   number
+  totalVentas?:    number
+  totalMermas?:    number
+  totalPropinas?:  number
+  numComandas?:    number
+  propina?:        PropinaDia | null
+}
+
 export interface Empleado {
   id: number
   nombre: string
@@ -41,6 +57,7 @@ export interface PropinaDia {
   id: number
   restaurantId: number
   restaurant: { id: number; nombre: string }
+  turnoId?: number | null
   fecha: string
   efectivo: number
   tarjeta: number
@@ -176,6 +193,7 @@ export interface MenuItem {
   descripcion: string
   precio: number
   activo: boolean
+  autoPorPax: boolean
   orden: number
 }
 
@@ -183,7 +201,7 @@ export interface Mesa {
   id:         number
   floorPlanId: number
   numero:     number
-  tipo:       'round' | 'square' | 'rectangular' | 'barra' | 'silla_alta'
+  tipo:       'round' | 'square' | 'rectangular' | 'barra' | 'silla_alta' | 'pared' | 'columna' | 'ventana' | 'entrada'
   x:          number
   y:          number
   capacidad:  number
@@ -200,15 +218,16 @@ export interface FloorPlan {
 }
 
 export interface ComandaItem {
-  id:        number
-  comandaId: number
-  tipo:      'cocina' | 'barra'
-  nombre:    string
-  precio:    number
-  cantidad:  number
-  nota:      string
-  nivel:     number | null
-  ronda:     number  // 0=pendiente, 1=comanda original, 2+=marcha pasa
+  id:           number
+  comandaId:    number
+  tipo:         'cocina' | 'barra'
+  nombre:       string
+  precio:       number
+  cantidad:     number
+  nota:         string
+  nivel:        number | null
+  ronda:        number  // 0=pendiente, 1=comanda original, 2+=marcha pasa
+  autoGenerado: boolean
 }
 
 export interface ComandaMerma {
@@ -228,6 +247,7 @@ export interface Comanda {
   pax:            number
   estado:         'abierta' | 'enviada' | 'facturada' | 'liberada' | 'cerrada'
   metodoPago:     'cash' | 'tarjeta' | null
+  propina:        number
   camareroNombre: string | null
   items:          ComandaItem[]
   mermas:         ComandaMerma[]
@@ -259,6 +279,134 @@ export interface MermasResponse {
   pages:  number
 }
 
+export interface GrupoMenuNivel {
+  nivel:       number
+  plato:       string
+  vegetariano: string | null
+  sinCerdo:    string | null
+  sinGluten:   string | null
+  esPostre:    boolean
+}
+
+export interface GrupoMenuTemplate {
+  id:           number
+  restaurantId: number
+  nombre:       string
+  precio:       number
+  niveles:      GrupoMenuNivel[]
+  activo:       boolean
+  createdAt:    string
+}
+
+export interface GrupoMenuRestricciones {
+  normales:     number
+  vegetarianos: number
+  sinCerdo:     number
+  sinGluten:    number
+}
+
+export interface InventarioCategoria {
+  id: number
+  nombre: string
+  orden: number
+  restaurantId: number | null
+  productos: InventarioProducto[]
+}
+
+export interface InventarioProducto {
+  id: number
+  nombre: string
+  unidad: string
+  stockMinimo: number
+  orden: number
+  activo: boolean
+  categoriaId: number
+  restaurantId: number | null
+}
+
+export interface InventarioConteoResumen {
+  id: number
+  restaurantId: number
+  fecha: string
+  creadoPor: string | null
+  notas: string | null
+  cerrado: boolean
+  createdAt: string
+  _count: { items: number }
+}
+
+export interface InventarioConteo {
+  id: number
+  restaurantId: number
+  fecha: string
+  creadoPor: string | null
+  cerrado: boolean
+  createdAt: string
+}
+
+export interface InventarioConteoDetalleItem {
+  productoId: number
+  nombre: string
+  unidad: string
+  stockMinimo: number
+  categoriaId: number
+  categoriaNombre: string
+  cantidad: number
+  anterior: number | null
+  diferencia: number | null
+}
+
+export interface InventarioConteoDetalle {
+  conteo: InventarioConteo
+  items: InventarioConteoDetalleItem[]
+}
+
+export interface ReservaConfig {
+  id: number
+  restaurantId: number
+  slug: string
+  activo: boolean
+  maxPaxPorSlot: number
+  duracionMin: number
+  diasAntelacion: number
+  horarios: ReservaHorario[]
+  createdAt: string
+}
+
+export interface ReservaHorario {
+  id: number
+  configId: number
+  nombre: string
+  diasSemana: number[]
+  horaInicio: string
+  horaFin: string
+  intervaloMin: number
+  maxPax: number
+  activo: boolean
+}
+
+export interface Reserva {
+  id: number
+  restaurantId: number
+  configId: number
+  fecha: string
+  hora: string
+  pax: number
+  nombre: string
+  telefono: string
+  email: string | null
+  notas: string | null
+  estado: string
+  origen: string
+  createdAt: string
+}
+
+export interface SlotDisponible {
+  hora: string
+  disponible: boolean
+  disponibles: number
+}
+
 export const api = {
   restaurantes: {
     list: () => get<Restaurante[]>('/restaurantes'),
@@ -288,8 +436,11 @@ export const api = {
       fecha: string
       efectivo: number
       tarjeta: number
+      turnoId?: number
       turnos: { empleadoId: number; horas: number }[]
     }) => post<PropinaDia>('/propinas', body),
+    update: (id: number, body: { efectivo: number; tarjeta: number; turnos: { empleadoId: number; horas: number }[] }) =>
+      patch<PropinaDia>(`/propinas/${id}`, body),
     delete: (id: number) => del(`/propinas/${id}`),
     misTurnos: (empleadoId: number, desde?: string, hasta?: string) => {
       const params = new URLSearchParams({ empleadoId: String(empleadoId) })
@@ -347,9 +498,10 @@ export const api = {
   menu: {
     list:   (restaurantId: number, categoria?: string) =>
       get<MenuItem[]>(`/menu?restaurantId=${restaurantId}${categoria ? `&categoria=${encodeURIComponent(categoria)}` : ''}`),
-    create: (body: Omit<MenuItem, 'id' | 'activo'>) => post<MenuItem>('/menu', body),
+    create: (body: Omit<MenuItem, 'id' | 'activo' | 'autoPorPax'>) => post<MenuItem>('/menu', body),
     update: (id: number, body: Partial<Omit<MenuItem, 'id' | 'restaurantId' | 'activo'>>) => put<MenuItem>(`/menu/${id}`, body),
-    toggle: (id: number) => patch<MenuItem>(`/menu/${id}/toggle`, {}),
+    toggle:           (id: number) => patch<MenuItem>(`/menu/${id}/toggle`, {}),
+    toggleAutoPorPax: (id: number) => patch<MenuItem>(`/menu/${id}/toggleAutoPorPax`, {}),
     delete: (id: number) => del(`/menu/${id}`),
   },
   reviews: {
@@ -369,10 +521,11 @@ export const api = {
     deleteItem:(id: number, itemId: number) => del(`/comandas/${id}/items/${itemId}`),
     enviar:    (id: number, niveles: { itemId: number; nivel: number; nota?: string }[]) =>
       patch<Comanda>(`/comandas/${id}/enviar`, { niveles }),
+    cambiarPax:(id: number, pax: number) => patch<Comanda>(`/comandas/${id}/pax`, { pax }),
     facturar:  (id: number) => patch<Comanda>(`/comandas/${id}/facturar`, {}),
     liberar:   (id: number) => patch<Comanda>(`/comandas/${id}/liberar`, {}),
-    cerrar:    (id: number, metodoPago: 'cash' | 'tarjeta') =>
-      patch<Comanda>(`/comandas/${id}/cerrar`, { metodoPago }),
+    cerrar:    (id: number, metodoPago: 'cash' | 'tarjeta', propina = 0) =>
+      patch<Comanda>(`/comandas/${id}/cerrar`, { metodoPago, propina }),
     moverMesa: (id: number, mesaId: number) =>
       patch<Comanda>(`/comandas/${id}/mover-mesa`, { mesaId }),
     merge:     (sourceId: number, targetId: number, itemIds?: number[]) =>
@@ -414,10 +567,67 @@ export const api = {
       return get<MermasResponse>(`/mermas?${params}`)
     },
   },
+  grupoMenu: {
+    list:   (restaurantId: number) => get<GrupoMenuTemplate[]>(`/grupo-menu?restaurantId=${restaurantId}`),
+    create: (body: { restaurantId: number; nombre: string; precio: number; niveles: GrupoMenuNivel[] }) =>
+      post<GrupoMenuTemplate>('/grupo-menu', body),
+    update: (id: number, body: Partial<{ nombre: string; precio: number; niveles: GrupoMenuNivel[] }>) =>
+      put<GrupoMenuTemplate>(`/grupo-menu/${id}`, body),
+    delete: (id: number) => del(`/grupo-menu/${id}`),
+    generar: (id: number, body: {
+      mesaId: number
+      camareroNombre?: string
+      incluyePostre: boolean
+      restricciones: GrupoMenuRestricciones
+    }) => post<Comanda>(`/grupo-menu/${id}/generar`, body),
+  },
+  turnos: {
+    getActivo: (restaurantId: number) => get<Turno | null>(`/turnos/activo?restaurantId=${restaurantId}`),
+    abrir:     (restaurantId: number, encargadoNombre?: string) =>
+      post<Turno>('/turnos', { restaurantId, encargadoNombre }),
+    cerrar:    (id: number) => patch<Turno>(`/turnos/${id}/cerrar`, {}),
+    list:      (restaurantId: number) => get<Turno[]>(`/turnos?restaurantId=${restaurantId}`),
+    getComanadas: (turnoId: number) => get<Comanda[]>(`/turnos/${turnoId}/comandas`),
+    delete:    (id: number) => del(`/turnos/${id}`),
+  },
+  reservas: {
+    getConfig: (restaurantId: number) => get<ReservaConfig>(`/reservas/config/${restaurantId}`),
+    upsertConfig: (restaurantId: number, body: Partial<ReservaConfig>) => put<ReservaConfig>(`/reservas/config/${restaurantId}`, body),
+    createHorario: (body: { configId: number; nombre?: string; diasSemana: number[]; horaInicio: string; horaFin: string; intervaloMin?: number; maxPax?: number }) => post<ReservaHorario>('/reservas/horarios', body),
+    updateHorario: (id: number, body: Partial<ReservaHorario>) => patch<ReservaHorario>(`/reservas/horarios/${id}`, body),
+    deleteHorario: (id: number) => del(`/reservas/horarios/${id}`),
+    list: (restaurantId: number, fecha?: string) => get<Reserva[]>(`/reservas?restaurantId=${restaurantId}${fecha ? `&fecha=${fecha}` : ''}`),
+    create: (body: { restaurantId: number; fecha: string; hora: string; pax: number; nombre: string; telefono: string; email?: string; notas?: string }) => post<Reserva>('/reservas', body),
+    updateEstado: (id: number, estado: string) => patch<Reserva>(`/reservas/${id}`, { estado }),
+    delete: (id: number) => del(`/reservas/${id}`),
+    getPublicConfig: (slug: string) => get<{ restaurantNombre: string; slug: string; activo: boolean; maxPaxPorSlot: number; duracionMin: number; diasAntelacion: number; horarios: ReservaHorario[] }>(`/reservas/publica/config?slug=${slug}`),
+    getSlots: (slug: string, fecha: string, pax: number) => get<SlotDisponible[]>(`/reservas/publica/slots?slug=${slug}&fecha=${fecha}&pax=${pax}`),
+    createPublica: (body: { slug: string; fecha: string; hora: string; pax: number; nombre: string; telefono: string; email?: string; notas?: string }) => post<Reserva>('/reservas/publica', body),
+  },
   stats: {
     retirosPorDia: (dias = 30) => get<{ fecha: string; total: number }[]>(`/stats/retiros-por-dia?dias=${dias}`),
     retirosPorRestaurante: (mes?: string) => get<{ restaurantId: number; nombre: string; total: number }[]>(`/stats/retiros-por-restaurante${mes ? `?mes=${mes}` : ''}`),
     productosTop: (limit = 10, dias = 30) => get<{ nombre: string; totalCantidad: number; vecesRetirado: number }[]>(`/stats/productos-top?limit=${limit}&dias=${dias}`),
     actividadEmpleados: (mes?: string) => get<{ empleadoId: number; nombre: string; total: number }[]>(`/stats/actividad-empleados${mes ? `?mes=${mes}` : ''}`),
+  },
+  inventario: {
+    getCategorias: (restaurantId?: number) =>
+      get<InventarioCategoria[]>(`/inventario/categorias${restaurantId ? `?restaurantId=${restaurantId}` : ''}`),
+    createCategoria: (body: { nombre: string; restaurantId?: number }) =>
+      post<InventarioCategoria>('/inventario/categorias', body),
+    updateCategoria: (id: number, body: { nombre?: string; orden?: number }) =>
+      patch<InventarioCategoria>(`/inventario/categorias/${id}`, body),
+    deleteCategoria: (id: number) => del(`/inventario/categorias/${id}`),
+    createProducto: (body: { nombre: string; categoriaId: number; unidad: string; stockMinimo: number; restaurantId?: number }) =>
+      post<InventarioProducto>('/inventario/productos', body),
+    updateProducto: (id: number, body: Partial<{ nombre: string; unidad: string; stockMinimo: number; activo: boolean; orden: number }>) =>
+      patch<InventarioProducto>(`/inventario/productos/${id}`, body),
+    deleteProducto: (id: number) => del(`/inventario/productos/${id}`),
+    getConteos: (restaurantId: number) =>
+      get<InventarioConteoResumen[]>(`/inventario/conteos?restaurantId=${restaurantId}`),
+    createConteo: (body: { restaurantId: number; creadoPor?: string; items: { productoId: number; cantidad: number }[] }) =>
+      post<InventarioConteo>('/inventario/conteos', body),
+    getConteo: (id: number) => get<InventarioConteoDetalle>(`/inventario/conteos/${id}`),
+    deleteConteo: (id: number) => del(`/inventario/conteos/${id}`),
   },
 }

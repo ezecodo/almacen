@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../server'
 
-const TIPOS_MESA = ['round', 'square', 'rectangular', 'barra', 'silla_alta'] as const
+const TIPOS_MESA = ['round', 'square', 'rectangular', 'barra', 'silla_alta', 'pared', 'columna', 'ventana', 'entrada'] as const
 
 const mesaSchema = z.object({
   numero:    z.number().int().min(0),
@@ -98,10 +98,14 @@ export async function salonRoutes(app: FastifyInstance) {
   // Eliminar mesa
   app.delete('/salon/:id/mesas/:mesaId', async (req, reply) => {
     const mesaId = Number((req.params as { id: string; mesaId: string }).mesaId)
-    const comandas = await prisma.comanda.count({ where: { mesaId } })
-    if (comandas > 0) {
-      return reply.status(409).send({ error: 'La mesa tiene comandas asociadas y no se puede eliminar' })
+    const activas = await prisma.comanda.count({
+      where: { mesaId, estado: { notIn: ['cerrada'] } },
+    })
+    if (activas > 0) {
+      return reply.status(409).send({ error: 'La mesa tiene comandas activas y no se puede eliminar' })
     }
+    // Desvincular comandas cerradas históricas antes de eliminar
+    await prisma.comanda.updateMany({ where: { mesaId }, data: { mesaId: null } })
     await prisma.mesa.delete({ where: { id: mesaId } })
     return reply.status(204).send()
   })

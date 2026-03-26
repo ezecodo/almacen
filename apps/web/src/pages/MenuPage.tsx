@@ -149,6 +149,11 @@ function CategoriaPanel({
     onSuccess: () => qc.invalidateQueries({ queryKey: ['menu-items', restaurantId, cat.nombre] }),
   })
 
+  const toggleAutoPorPax = useMutation({
+    mutationFn: (id: number) => api.menu.toggleAutoPorPax(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['menu-items', restaurantId, cat.nombre] }),
+  })
+
   const eliminar = useMutation({
     mutationFn: (id: number) => api.menu.delete(id),
     onSuccess: () => {
@@ -193,12 +198,22 @@ function CategoriaPanel({
             ) : (
               <div className={`flex items-start gap-3 px-3 py-3 rounded-xl border ${item.activo ? 'border-gray-100' : 'border-dashed border-gray-200 opacity-40'}`}>
                 <div className="flex-1 min-w-0">
-                  <p className="font-medium text-gray-900 text-sm">{item.nombre}</p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="font-medium text-gray-900 text-sm">{item.nombre}</p>
+                    {item.autoPorPax && (
+                      <span className="text-xs bg-amber-100 text-amber-700 font-semibold px-1.5 py-0.5 rounded">×pax</span>
+                    )}
+                  </div>
                   {item.descripcion && <p className="text-xs text-gray-400 mt-0.5">{item.descripcion}</p>}
                 </div>
                 <span className="text-sm font-bold text-cyan-600 shrink-0">{formatEur(item.precio)}</span>
                 <div className="flex items-center gap-2 shrink-0">
                   <button onClick={() => setEditando(item)} className="text-xs text-cyan-500 hover:text-cyan-700">Editar</button>
+                  <button onClick={() => toggleAutoPorPax.mutate(item.id)}
+                    className={`text-xs font-medium ${item.autoPorPax ? 'text-amber-600 hover:text-amber-800' : 'text-gray-300 hover:text-amber-500'}`}
+                    title="Auto-añadir al abrir mesa (×pax)">
+                    ×pax
+                  </button>
                   <button onClick={() => toggle.mutate(item.id)}
                     className={`text-xs font-medium ${item.activo ? 'text-gray-400 hover:text-gray-600' : 'text-green-500 hover:text-green-700'}`}>
                     {item.activo ? 'Ocultar' : 'Activar'}

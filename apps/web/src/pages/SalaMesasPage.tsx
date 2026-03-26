@@ -1,4 +1,7 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, createContext, useContext } from 'react'
+
+const ThemeCtx = createContext<boolean>(true) // true = dark
+import CheckOverlay from '../components/CheckOverlay'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, Comanda, ComandaItem, FloorPlan, Mesa, MenuCategoria, MenuItem, MermaMotivo, MiTurno } from '../api'
@@ -9,14 +12,24 @@ const RECT_W = 160
 const RECT_H = 80
 const SILLA_ALTA_SIZE = 56
 
+const ELEM_DECO = ['pared', 'columna', 'ventana', 'entrada'] as const
+const isElemDeco = (tipo: string) => (ELEM_DECO as readonly string[]).includes(tipo)
+
+const ELEM_STYLES: Record<string, { bg: string; border: string; label: string }> = {
+  pared:   { bg: '#111827', border: '#4b5563', label: 'PARED' },
+  columna: { bg: '#0d1117', border: '#374151', label: 'COLUMNA' },
+  ventana: { bg: '#0c1a2e', border: '#1d4ed8', label: 'VENTANA' },
+  entrada: { bg: '#0f1c0d', border: '#4d7c0f', label: 'ENTRADA' },
+}
+
 function mesaWidth(mesa: Mesa): number {
-  if (mesa.tipo === 'barra')       return mesa.ancho ?? 240
+  if (mesa.tipo === 'barra' || isElemDeco(mesa.tipo)) return mesa.ancho ?? 240
   if (mesa.tipo === 'silla_alta')  return mesa.ancho ?? SILLA_ALTA_SIZE
   if (mesa.tipo === 'rectangular') return mesa.ancho ?? RECT_W
   return mesa.ancho ?? SQUARE_SIZE
 }
 function mesaHeight(mesa: Mesa): number {
-  if (mesa.tipo === 'barra')       return mesa.alto ?? 80
+  if (mesa.tipo === 'barra' || isElemDeco(mesa.tipo)) return mesa.alto ?? 80
   if (mesa.tipo === 'silla_alta')  return mesa.ancho ?? SILLA_ALTA_SIZE  // siempre cuadrada
   if (mesa.tipo === 'rectangular') return mesa.alto ?? RECT_H
   return mesa.ancho ?? SQUARE_SIZE  // round/square siempre cuadrada
@@ -48,8 +61,25 @@ function suggestNivel(nombre: string, menu: MenuItem[]): number {
 
 // ── Mesa visual ───────────────────────────────────────────────────────────────
 function MesaBtn({ mesa, comanda, onClick }: { mesa: Mesa; comanda?: Comanda; onClick: () => void }) {
+  const isDark = useContext(ThemeCtx)
   const w = mesaWidth(mesa)
   const h = mesaHeight(mesa)
+
+  // Elementos decorativos — no interactivos, solo referencia visual
+  if (isElemDeco(mesa.tipo)) {
+    const def = ELEM_STYLES[mesa.tipo]
+    return (
+      <div style={{
+        position: 'absolute', left: mesa.x, top: mesa.y, width: w, height: h,
+        borderRadius: 6, background: def.bg, border: `2px solid ${def.border}`,
+        opacity: 0.7, pointerEvents: 'none', userSelect: 'none',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        <span style={{ color: def.border, fontWeight: 800, fontSize: 10, letterSpacing: '0.1em' }}>{def.label}</span>
+      </div>
+    )
+  }
+
   const libre      = !comanda
   const enviada    = comanda?.estado === 'enviada'
   const facturada  = comanda?.estado === 'facturada'
@@ -57,21 +87,23 @@ function MesaBtn({ mesa, comanda, onClick }: { mesa: Mesa; comanda?: Comanda; on
 
   const isSillaAlta = mesa.tipo === 'silla_alta'
 
-  // libre y facturada: fondo verde "space" — facturada añade borde ámbar ("cobrada, pendiente de cerrar")
-  const bg     = libre || facturada ? '#1a3828'
-               : enviada            ? '#2d1a3a'
-               : isSillaAlta        ? '#1a1000' : '#0f2240'
+  // libre y facturada: fondo verde "space" — facturada añade borde ámbar
+  const bg     = isDark
+    ? (libre || facturada ? '#1a3828' : enviada ? '#2d1a3a' : isSillaAlta ? '#1a1000' : '#0f2240')
+    : (libre || facturada ? '#dcfce7' : enviada ? '#f3e8ff' : isSillaAlta ? '#fef3c7' : '#dbeafe')
 
   const border = libre      ? '#22c55e'
                : facturada  ? '#f59e0b'
                : enviada    ? '#a855f7'
                : isSillaAlta ? '#d97706' : '#4CC8A0'
 
-  const glow   = libre      ? '0 0 16px #22c55e88, 0 0 32px #22c55e22'
-               : facturada  ? '0 0 20px #f59e0b99, 0 0 40px #f59e0b33'
-               : enviada    ? '0 0 20px #a855f799, 0 0 40px #a855f733'
-               : isSillaAlta ? '0 0 20px #d9770699, 0 0 40px #d9770633'
-               :               '0 0 20px #4CC8A099, 0 0 40px #4CC8A033'
+  const glow   = isDark
+    ? (libre      ? '0 0 16px #22c55e88, 0 0 32px #22c55e22'
+     : facturada  ? '0 0 20px #f59e0b99, 0 0 40px #f59e0b33'
+     : enviada    ? '0 0 20px #a855f799, 0 0 40px #a855f733'
+     : isSillaAlta ? '0 0 20px #d9770699, 0 0 40px #d9770633'
+     :               '0 0 20px #4CC8A099, 0 0 40px #4CC8A033')
+    : 'none'
 
   return (
     <div onClick={onClick} style={{
@@ -81,22 +113,26 @@ function MesaBtn({ mesa, comanda, onClick }: { mesa: Mesa; comanda?: Comanda; on
       cursor: 'pointer', display: 'flex', flexDirection: 'column',
       alignItems: 'center', justifyContent: 'center', userSelect: 'none',
       transition: 'all 0.2s',
+      transform: mesa.rotacion ? `rotate(${mesa.rotacion}deg)` : undefined,
+      transformOrigin: 'center center',
     }}>
-      <span style={{
-        color: libre     ? '#22c55e'
-             : facturada ? '#f59e0b'
-             : enviada   ? '#c084fc'
-             : isSillaAlta ? '#fbbf24' : '#4CC8A0',
-        fontWeight: 800, fontSize: isSillaAlta ? 14 : 18,
-      }}>
-        {mesa.numero}
-      </span>
-      {!libre && !facturada && (
+      <div style={{ transform: mesa.rotacion ? `rotate(${-mesa.rotacion}deg)` : undefined, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
         <span style={{
-          color: enviada ? '#d8b4fe' : isSillaAlta ? '#f59e0b' : '#6ee7b7',
-          fontSize: 9, marginTop: 1,
-        }}>{timeAgo(comanda!.createdAt)}</span>
-      )}
+          color: libre      ? '#16a34a'
+               : facturada  ? '#d97706'
+               : enviada    ? (isDark ? '#c084fc' : '#9333ea')
+               : isSillaAlta ? '#d97706' : (isDark ? '#4CC8A0' : '#0d9488'),
+          fontWeight: 800, fontSize: isSillaAlta ? 14 : 18,
+        }}>
+          {mesa.numero}
+        </span>
+        {!libre && !facturada && (
+          <span style={{
+            color: enviada ? (isDark ? '#d8b4fe' : '#7c3aed') : isSillaAlta ? '#d97706' : (isDark ? '#6ee7b7' : '#059669'),
+            fontSize: 9, marginTop: 1,
+          }}>{timeAgo(comanda!.createdAt)}</span>
+        )}
+      </div>
     </div>
   )
 }
@@ -106,17 +142,17 @@ function AbrirMesaModal({ mesa, onConfirm, onClose }: { mesa: Mesa; onConfirm: (
   const [pax, setPax] = useState(2)
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 px-4">
-      <div className="bg-[#1e2d45] rounded-2xl p-6 w-full max-w-xs shadow-2xl">
-        <h3 className="text-white font-bold text-lg mb-1">Mesa {mesa.numero}</h3>
-        <p className="text-gray-400 text-sm mb-6">¿Cuántos comensales?</p>
+      <div className="bg-[var(--sala-srf)] rounded-2xl p-6 w-full max-w-xs shadow-2xl">
+        <h3 className="text-[var(--sala-txt)] font-bold text-lg mb-1">Mesa {mesa.numero}</h3>
+        <p className="text-[var(--sala-tx2)] text-sm mb-6">¿Cuántos comensales?</p>
         <div className="flex items-center gap-4 mb-8">
-          <button onClick={() => setPax(p => Math.max(1, p - 1))} className="w-14 h-14 rounded-xl bg-gray-700 text-white text-3xl hover:bg-gray-600">−</button>
-          <span className="flex-1 text-center text-white text-5xl font-bold">{pax}</span>
-          <button onClick={() => setPax(p => p + 1)} className="w-14 h-14 rounded-xl bg-gray-700 text-white text-3xl hover:bg-gray-600">+</button>
+          <button onClick={() => setPax(p => Math.max(1, p - 1))} className="w-14 h-14 rounded-xl bg-[var(--sala-btn)] text-[var(--sala-txt)] text-3xl hover:bg-gray-600">−</button>
+          <span className="flex-1 text-center text-[var(--sala-txt)] text-5xl font-bold">{pax}</span>
+          <button onClick={() => setPax(p => p + 1)} className="w-14 h-14 rounded-xl bg-[var(--sala-btn)] text-[var(--sala-txt)] text-3xl hover:bg-gray-600">+</button>
         </div>
         <div className="flex gap-3">
-          <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-gray-700 text-gray-300 font-medium">Cancelar</button>
-          <button onClick={() => onConfirm(pax)} className="flex-1 py-3 rounded-xl bg-[#4CC8A0] text-white font-bold">Abrir mesa</button>
+          <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-[var(--sala-btn)] text-[var(--sala-tx1)] font-medium">Cancelar</button>
+          <button onClick={() => onConfirm(pax)} className="flex-1 py-3 rounded-xl bg-[#4CC8A0] text-[var(--sala-txt)] font-bold">Abrir mesa</button>
         </div>
       </div>
     </div>
@@ -128,28 +164,28 @@ function VerCuentaModal({ comanda, onClose, onFacturar }: { comanda: Comanda; on
   const total = comanda.items.reduce((s, i) => s + i.precio * i.cantidad, 0)
   return (
     <div className="fixed inset-0 bg-black/80 flex items-end sm:items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-[#0f172a] w-full sm:max-w-sm rounded-t-3xl sm:rounded-2xl overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
-        <div className="px-5 pt-5 pb-3 border-b border-gray-700 flex items-center justify-between">
+      <div className="bg-[var(--sala-hdr)] w-full sm:max-w-sm rounded-t-3xl sm:rounded-2xl overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="px-5 pt-5 pb-3 border-b border-[var(--sala-brd)] flex items-center justify-between">
           <div>
-            <h3 className="text-white font-bold text-lg">Mesa {comanda.mesa.numero}</h3>
-            <p className="text-gray-400 text-sm">{comanda.pax} pax</p>
+            <h3 className="text-[var(--sala-txt)] font-bold text-lg">Mesa {comanda.mesa.numero}</h3>
+            <p className="text-[var(--sala-tx2)] text-sm">{comanda.pax} pax</p>
           </div>
-          <button onClick={onClose} className="text-gray-500 text-xl">✕</button>
+          <button onClick={onClose} className="text-[var(--sala-tx3)] text-xl">✕</button>
         </div>
         <div className="px-5 py-4 space-y-2 max-h-64 overflow-y-auto">
           {comanda.items.map(item => (
             <div key={item.id} className="flex items-center justify-between">
-              <span className="text-gray-300 text-sm">{item.cantidad > 1 && <span className="text-cyan-400 font-bold mr-1">{item.cantidad}×</span>}{item.nombre}</span>
-              <span className="text-white font-semibold text-sm">{(item.precio * item.cantidad).toFixed(2)} €</span>
+              <span className="text-[var(--sala-tx1)] text-sm">{item.cantidad > 1 && <span className="text-cyan-400 font-bold mr-1">{item.cantidad}×</span>}{item.nombre}</span>
+              <span className="text-[var(--sala-txt)] font-semibold text-sm">{(item.precio * item.cantidad).toFixed(2)} €</span>
             </div>
           ))}
         </div>
-        <div className="px-5 py-4 border-t border-gray-700 flex items-center justify-between">
-          <span className="text-gray-400 font-medium">Total</span>
-          <span className="text-white text-3xl font-black">{total.toFixed(2)} €</span>
+        <div className="px-5 py-4 border-t border-[var(--sala-brd)] flex items-center justify-between">
+          <span className="text-[var(--sala-tx2)] font-medium">Total</span>
+          <span className="text-[var(--sala-txt)] text-3xl font-black">{total.toFixed(2)} €</span>
         </div>
         <div className="px-5 pb-5">
-          <button onClick={onFacturar} className="w-full py-4 rounded-2xl bg-[#f59e0b] text-white font-bold text-lg">
+          <button onClick={onFacturar} className="w-full py-4 rounded-2xl bg-[#f59e0b] text-[var(--sala-txt)] font-bold text-lg">
             🧾 Entregar cuenta
           </button>
         </div>
@@ -234,10 +270,15 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
   }
 
   // En marcha pasa solo mostramos los items nuevos (sin nivel asignado aún)
-  const todosPendientes = marchaPasa ? comanda.items.filter(i => i.nivel == null) : comanda.items
+  // Los autoGenerados (ej. pan por pax) nunca se muestran en el modal de envío
+  const todosPendientes = marchaPasa
+    ? comanda.items.filter(i => i.nivel == null && !i.autoGenerado)
+    : comanda.items.filter(i => !i.autoGenerado)
   // Solo los items de cocina necesitan asignación de nivel
   const itemsActivos = todosPendientes.filter(i => i.tipo !== 'barra')
   const itemsBarra   = todosPendientes.filter(i => i.tipo === 'barra').sort((a, b) => a.id - b.id)
+  // Auto-items pendientes: se envían solos con nivel=1 sin mostrarse
+  const autoItemsPendientes = comanda.items.filter(i => i.autoGenerado && i.nivel == null)
 
   const sorted = [...itemsActivos].sort((a, b) => {
     const diff = (niveles[a.id] ?? suggestNivel(a.nombre, menu)) - (niveles[b.id] ?? suggestNivel(b.nombre, menu))
@@ -248,38 +289,38 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
 
   return (
     <div className="fixed inset-0 bg-black/80 flex items-stretch sm:items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-[#0f172a] w-full sm:max-w-md sm:rounded-2xl overflow-hidden shadow-2xl flex flex-col sm:max-h-[90vh]" onClick={e => e.stopPropagation()}>
-        <div className="px-5 pt-5 pb-3 border-b border-gray-700">
+      <div className="bg-[var(--sala-hdr)] w-full sm:max-w-md sm:rounded-2xl overflow-hidden shadow-2xl flex flex-col sm:max-h-[90vh]" onClick={e => e.stopPropagation()}>
+        <div className="px-5 pt-5 pb-3 border-b border-[var(--sala-brd)]">
           <div className="flex items-center justify-between mb-3">
             <div>
-              <h3 className="text-white font-bold text-lg">
+              <h3 className="text-[var(--sala-txt)] font-bold text-lg">
                 {marchaPasa ? '🔁 Marcha Pasa' : 'Orden de salida'}
               </h3>
-              <p className="text-gray-400 text-xs mt-0.5">Mesa {comanda.mesa.numero} · {itemsActivos.length} cocina · {itemsBarra.length} barra</p>
+              <p className="text-[var(--sala-tx2)] text-xs mt-0.5">Mesa {comanda.mesa.numero} · {itemsActivos.length} cocina · {itemsBarra.length} barra</p>
             </div>
-            <button onClick={onClose} className="text-gray-500 text-xl">✕</button>
+            <button onClick={onClose} className="text-[var(--sala-tx3)] text-xl">✕</button>
           </div>
           {/* Search rápido para añadir items */}
           <div className="relative">
             <input value={search} onChange={e => setSearch(e.target.value)}
               placeholder="Añadir algo más… buscar plato o bebida"
-              className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl outline-none placeholder:text-gray-600 pr-8" />
+              className="w-full bg-[var(--sala-btn2)] text-[var(--sala-txt)] text-sm px-4 py-2.5 rounded-xl outline-none placeholder:text-[var(--sala-tx4)] pr-8" />
             {search && (
-              <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 text-sm">✕</button>
+              <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--sala-tx3)] hover:text-[var(--sala-tx1)] text-sm">✕</button>
             )}
           </div>
           {/* Resultados del search */}
           {search.trim().length > 0 && (
-            <div className="mt-1.5 bg-gray-800 rounded-xl overflow-hidden max-h-48 overflow-y-auto">
+            <div className="mt-1.5 bg-[var(--sala-btn2)] rounded-xl overflow-hidden max-h-48 overflow-y-auto">
               {menu.filter(m => m.activo && m.nombre.toLowerCase().includes(search.toLowerCase())).slice(0, 8).map(item => (
                 <button key={item.id} onClick={() => addItem.mutate(item)}
-                  className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-gray-700 active:bg-gray-600 border-b border-gray-700/50 last:border-0">
-                  <span className="text-white text-sm text-left">{item.nombre}</span>
-                  <span className="text-gray-400 text-xs shrink-0 ml-2">{item.precio.toFixed(2)} €</span>
+                  className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-gray-700 active:bg-gray-600 border-b border-[var(--sala-brd)]/50 last:border-0">
+                  <span className="text-[var(--sala-txt)] text-sm text-left">{item.nombre}</span>
+                  <span className="text-[var(--sala-tx2)] text-xs shrink-0 ml-2">{item.precio.toFixed(2)} €</span>
                 </button>
               ))}
               {menu.filter(m => m.activo && m.nombre.toLowerCase().includes(search.toLowerCase())).length === 0 && (
-                <p className="text-gray-600 text-sm px-4 py-3">Sin resultados</p>
+                <p className="text-[var(--sala-tx4)] text-sm px-4 py-3">Sin resultados</p>
               )}
             </div>
           )}
@@ -292,42 +333,42 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
             return (
               <div key={nv}>
                 <div className="flex items-center gap-2 mb-2">
-                  <div className="w-8 h-8 rounded-full bg-cyan-600 flex items-center justify-center text-white text-sm font-black shrink-0">{nv}</div>
+                  <div className="w-8 h-8 rounded-full bg-cyan-600 flex items-center justify-center text-[var(--sala-txt)] text-sm font-black shrink-0">{nv}</div>
                   <div className="flex gap-1">
                     <button onClick={e => { e.stopPropagation(); if (nv > 1) itemsEnNivel.forEach(i => moveItem(i.id, -1)) }} disabled={nv <= 1}
                       className="w-7 h-7 rounded-lg bg-cyan-600/30 text-cyan-400 text-xs font-black hover:bg-cyan-600/60 disabled:opacity-20 flex items-center justify-center">▲</button>
                     <button onClick={e => { e.stopPropagation(); itemsEnNivel.forEach(i => moveItem(i.id, 1)) }}
                       className="w-7 h-7 rounded-lg bg-cyan-600/30 text-cyan-400 text-xs font-black hover:bg-cyan-600/60 flex items-center justify-center">▼</button>
                   </div>
-                  <span className="text-gray-400 text-xs font-semibold uppercase tracking-wide">Salida {nv}</span>
-                  <div className="flex-1 h-px bg-gray-700" />
+                  <span className="text-[var(--sala-tx2)] text-xs font-semibold uppercase tracking-wide">Salida {nv}</span>
+                  <div className="flex-1 h-px bg-[var(--sala-btn)]" />
                 </div>
                 <div className="space-y-2">
                   {itemsEnNivel.map(item => (
-                    <div key={item.id} className={`bg-[#1e2d45] rounded-xl overflow-hidden ${notaModal?.itemId === item.id ? 'ring-2 ring-cyan-500' : ''}`}>
+                    <div key={item.id} className={`bg-[var(--sala-srf)] rounded-xl overflow-hidden ${notaModal?.itemId === item.id ? 'ring-2 ring-cyan-500' : ''}`}>
                       <div className="flex items-center gap-3 px-3 py-2.5">
                         <div className="w-1.5 self-stretch rounded-full bg-cyan-600/40 shrink-0" />
                         <div className="flex-1 min-w-0">
-                          <span className="text-white font-medium text-sm">{item.nombre}</span>
-                          {notas[item.id] && <p className="text-gray-400 text-xs mt-0.5 truncate">{notas[item.id]}</p>}
+                          <span className="text-[var(--sala-txt)] font-medium text-sm">{item.nombre}</span>
+                          {notas[item.id] && <p className="text-[var(--sala-tx2)] text-xs mt-0.5 truncate">{notas[item.id]}</p>}
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
                           <button onClick={e => { e.stopPropagation(); if (item.cantidad > 1) updateItem.mutate({ itemId: item.id, cantidad: item.cantidad - 1 }); else deleteItem.mutate(item.id) }}
-                            className="w-9 h-9 rounded-lg bg-gray-700 text-gray-300 text-lg font-bold hover:bg-gray-600 flex items-center justify-center active:scale-90">−</button>
-                          <span className="text-white font-black text-lg w-6 text-center">{item.cantidad}</span>
+                            className="w-9 h-9 rounded-lg bg-[var(--sala-btn)] text-[var(--sala-tx1)] text-lg font-bold hover:bg-gray-600 flex items-center justify-center active:scale-90">−</button>
+                          <span className="text-[var(--sala-txt)] font-black text-lg w-6 text-center">{item.cantidad}</span>
                           <button onClick={e => { e.stopPropagation(); updateItem.mutate({ itemId: item.id, cantidad: item.cantidad + 1 }) }}
-                            className="w-9 h-9 rounded-lg bg-gray-700 text-gray-300 text-lg font-bold hover:bg-gray-600 flex items-center justify-center active:scale-90">+</button>
+                            className="w-9 h-9 rounded-lg bg-[var(--sala-btn)] text-[var(--sala-tx1)] text-lg font-bold hover:bg-gray-600 flex items-center justify-center active:scale-90">+</button>
                           <button onClick={e => { e.stopPropagation(); setNotaModal(m => m?.itemId === item.id ? null : { itemId: item.id, value: notas[item.id] ?? '' }) }}
-                            className={`w-9 h-9 rounded-lg flex items-center justify-center ${notas[item.id] ? 'bg-cyan-600' : 'bg-gray-700 hover:bg-gray-600'}`}>
+                            className={`w-9 h-9 rounded-lg flex items-center justify-center ${notas[item.id] ? 'bg-cyan-600' : 'bg-[var(--sala-btn)] hover:bg-gray-600'}`}>
                             <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4">
                               <path d="M4 2 L20 2 Q22 2 22 4 L22 15 Q22 17 20 17 L14 17 L11 21 L8 17 L4 17 Q2 17 2 15 L2 4 Q2 2 4 2 Z" fill={notas[item.id] ? 'white' : '#9ca3af'} />
                               <path d="M7 10 L11 14 L17 6" stroke={notas[item.id] ? '#06b6d4' : '#374151'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
                             </svg>
                           </button>
                           <button onClick={e => { e.stopPropagation(); moveItem(item.id, -1) }} disabled={(niveles[item.id] ?? 1) <= 1}
-                            className="w-10 h-10 rounded-lg bg-gray-700 text-white text-base font-black hover:bg-gray-500 disabled:opacity-20 flex items-center justify-center active:scale-90">▲</button>
+                            className="w-10 h-10 rounded-lg bg-[var(--sala-btn)] text-[var(--sala-txt)] text-base font-black hover:bg-gray-500 disabled:opacity-20 flex items-center justify-center active:scale-90">▲</button>
                           <button onClick={e => { e.stopPropagation(); moveItem(item.id, 1) }}
-                            className="w-10 h-10 rounded-lg bg-gray-700 text-white text-base font-black hover:bg-gray-500 flex items-center justify-center active:scale-90">▼</button>
+                            className="w-10 h-10 rounded-lg bg-[var(--sala-btn)] text-[var(--sala-txt)] text-base font-black hover:bg-gray-500 flex items-center justify-center active:scale-90">▼</button>
                         </div>
                       </div>
                       {notaModal?.itemId === item.id && (
@@ -336,10 +377,10 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
                             onChange={e => setNotaModal(m => m ? { ...m, value: e.target.value } : null)}
                             onKeyDown={e => { if (e.key === 'Enter') { setNotas(prev => ({ ...prev, [item.id]: notaModal.value })); setNotaModal(null) } }}
                             placeholder="Sin gluten, sin cebolla…"
-                            className="w-full bg-gray-800 text-white text-sm px-4 py-3 rounded-xl outline-none placeholder:text-gray-600" />
+                            className="w-full bg-[var(--sala-btn2)] text-[var(--sala-txt)] text-sm px-4 py-3 rounded-xl outline-none placeholder:text-[var(--sala-tx4)]" />
                           <div className="flex gap-2 mt-2">
-                            <button onClick={e => { e.stopPropagation(); setNotaModal(null) }} className="flex-1 py-2 rounded-xl bg-gray-700 text-gray-400 text-sm">Cancelar</button>
-                            <button onClick={e => { e.stopPropagation(); setNotas(prev => ({ ...prev, [item.id]: notaModal.value })); setNotaModal(null) }} className="flex-1 py-2 rounded-xl bg-cyan-600 text-white text-sm font-bold">Guardar</button>
+                            <button onClick={e => { e.stopPropagation(); setNotaModal(null) }} className="flex-1 py-2 rounded-xl bg-[var(--sala-btn)] text-[var(--sala-tx2)] text-sm">Cancelar</button>
+                            <button onClick={e => { e.stopPropagation(); setNotas(prev => ({ ...prev, [item.id]: notaModal.value })); setNotaModal(null) }} className="flex-1 py-2 rounded-xl bg-cyan-600 text-[var(--sala-txt)] text-sm font-bold">Guardar</button>
                           </div>
                         </div>
                       )}
@@ -353,23 +394,23 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
 
         {/* Barra — colapsable, comprimida por defecto */}
         {itemsBarra.length > 0 && (
-          <div className="border-t border-gray-800">
+          <div className="border-t border-[var(--sala-brd)]">
             <button onClick={() => setBarraOpen(o => !o)}
-              className="w-full flex items-center gap-2 px-4 py-2.5 hover:bg-gray-800/40 transition-colors">
+              className="w-full flex items-center gap-2 px-4 py-2.5 hover:bg-[var(--sala-btn2)]/40 transition-colors">
               <span className="text-amber-400 text-xs font-semibold uppercase tracking-wide">🍺 Barra ({itemsBarra.length})</span>
-              <div className="flex-1 h-px bg-gray-800" />
-              <span className="text-gray-500 text-xs">{barraOpen ? '▲' : '▼'}</span>
+              <div className="flex-1 h-px bg-[var(--sala-btn2)]" />
+              <span className="text-[var(--sala-tx3)] text-xs">{barraOpen ? '▲' : '▼'}</span>
             </button>
             {barraOpen && (
               <div className="px-4 pb-3 space-y-1.5">
                 {itemsBarra.map(item => (
-                  <div key={item.id} className="flex items-center gap-3 bg-gray-800/60 rounded-xl px-3 py-2">
-                    <span className="text-gray-300 text-sm flex-1 truncate">{item.nombre}</span>
+                  <div key={item.id} className="flex items-center gap-3 bg-[var(--sala-btn2)]/60 rounded-xl px-3 py-2">
+                    <span className="text-[var(--sala-tx1)] text-sm flex-1 truncate">{item.nombre}</span>
                     <button onClick={e => { e.stopPropagation(); if (item.cantidad > 1) updateItem.mutate({ itemId: item.id, cantidad: item.cantidad - 1 }); else deleteItem.mutate(item.id) }}
-                      className="w-8 h-8 rounded-lg bg-gray-700 text-gray-300 text-lg font-bold hover:bg-gray-600 flex items-center justify-center active:scale-90">−</button>
-                    <span className="text-white font-black w-5 text-center">{item.cantidad}</span>
+                      className="w-8 h-8 rounded-lg bg-[var(--sala-btn)] text-[var(--sala-tx1)] text-lg font-bold hover:bg-gray-600 flex items-center justify-center active:scale-90">−</button>
+                    <span className="text-[var(--sala-txt)] font-black w-5 text-center">{item.cantidad}</span>
                     <button onClick={e => { e.stopPropagation(); updateItem.mutate({ itemId: item.id, cantidad: item.cantidad + 1 }) }}
-                      className="w-8 h-8 rounded-lg bg-gray-700 text-gray-300 text-lg font-bold hover:bg-gray-600 flex items-center justify-center active:scale-90">+</button>
+                      className="w-8 h-8 rounded-lg bg-[var(--sala-btn)] text-[var(--sala-tx1)] text-lg font-bold hover:bg-gray-600 flex items-center justify-center active:scale-90">+</button>
                   </div>
                 ))}
               </div>
@@ -377,7 +418,7 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
           </div>
         )}
 
-        <div className="p-4 border-t border-gray-700">
+        <div className="p-4 border-t border-[var(--sala-brd)]">
           <button onClick={e => {
             e.stopPropagation()
             if (oidoAnim) return
@@ -385,8 +426,9 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
             setTimeout(() => {
               setOidoAnim(false)
               const nivelesArray = Object.entries(nivelesActivos).map(([id, nivel]) => ({ itemId: Number(id), nivel, nota: notas[Number(id)] ?? '' }))
-              const barraArray = itemsBarra.map(i => ({ itemId: i.id, nivel: 1, nota: notas[i.id] ?? '' }))
-              onEnviar([...nivelesArray, ...barraArray])
+              const barraArray  = itemsBarra.map(i => ({ itemId: i.id, nivel: 1, nota: notas[i.id] ?? '' }))
+              const autoArray   = autoItemsPendientes.map(i => ({ itemId: i.id, nivel: 1, nota: '' }))
+              onEnviar([...nivelesArray, ...barraArray, ...autoArray])
             }, 500)
           }} className="w-full rounded-2xl flex items-center justify-center gap-3 py-4 active:scale-95 transition-all">
             <span style={{ fontFamily: "'Helvetica Neue', Arial, sans-serif", fontWeight: 800, fontSize: '2rem', color: '#4CC8A0', opacity: oidoAnim ? 0 : 1, transition: 'opacity 0.15s' }}>
@@ -429,24 +471,24 @@ function MermaModal({ item, onConfirm, onClose }: {
 
   return (
     <div className="fixed inset-0 bg-black/80 flex items-end z-[70]" onClick={onClose}>
-      <div className="bg-[#0f172a] w-full rounded-t-3xl shadow-2xl p-5" onClick={e => e.stopPropagation()}>
+      <div className="bg-[var(--sala-hdr)] w-full rounded-t-3xl shadow-2xl p-5" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-white font-bold text-base">Registrar merma</h3>
-            <p className="text-gray-400 text-xs mt-0.5">{item.nombre}</p>
+            <h3 className="text-[var(--sala-txt)] font-bold text-base">Registrar merma</h3>
+            <p className="text-[var(--sala-tx2)] text-xs mt-0.5">{item.nombre}</p>
           </div>
-          <button onClick={onClose} className="text-gray-500 text-xl">✕</button>
+          <button onClick={onClose} className="text-[var(--sala-tx3)] text-xl">✕</button>
         </div>
 
         {item.cantidad > 1 && (
-          <div className="flex items-center justify-between bg-[#1e2d45] rounded-2xl px-4 py-3 mb-4">
-            <span className="text-gray-400 text-sm">Cantidad a mermar</span>
+          <div className="flex items-center justify-between bg-[var(--sala-srf)] rounded-2xl px-4 py-3 mb-4">
+            <span className="text-[var(--sala-tx2)] text-sm">Cantidad a mermar</span>
             <div className="flex items-center gap-3">
               <button onClick={() => setCantidad(c => Math.max(1, c - 1))}
-                className="w-8 h-8 rounded-full bg-gray-700 text-white font-bold text-lg flex items-center justify-center active:scale-90">−</button>
-              <span className="text-white font-bold text-lg w-6 text-center">{cantidad}</span>
+                className="w-8 h-8 rounded-full bg-[var(--sala-btn)] text-[var(--sala-txt)] font-bold text-lg flex items-center justify-center active:scale-90">−</button>
+              <span className="text-[var(--sala-txt)] font-bold text-lg w-6 text-center">{cantidad}</span>
               <button onClick={() => setCantidad(c => Math.min(item.cantidad, c + 1))}
-                className="w-8 h-8 rounded-full bg-gray-700 text-white font-bold text-lg flex items-center justify-center active:scale-90">+</button>
+                className="w-8 h-8 rounded-full bg-[var(--sala-btn)] text-[var(--sala-txt)] font-bold text-lg flex items-center justify-center active:scale-90">+</button>
             </div>
           </div>
         )}
@@ -457,10 +499,10 @@ function MermaModal({ item, onConfirm, onClose }: {
               className={`w-full text-left px-4 py-3 rounded-2xl border transition-all ${
                 motivo === m.value
                   ? 'bg-red-900/40 border-red-500'
-                  : 'bg-[#1e2d45] border-transparent hover:border-gray-600'
+                  : 'bg-[var(--sala-srf)] border-transparent hover:border-[var(--sala-brd2)]'
               }`}>
-              <p className={`font-semibold text-sm ${motivo === m.value ? 'text-red-300' : 'text-white'}`}>{m.label}</p>
-              <p className="text-gray-500 text-xs mt-0.5">{m.desc}</p>
+              <p className={`font-semibold text-sm ${motivo === m.value ? 'text-red-300' : 'text-[var(--sala-txt)]'}`}>{m.label}</p>
+              <p className="text-[var(--sala-tx3)] text-xs mt-0.5">{m.desc}</p>
             </button>
           ))}
         </div>
@@ -471,14 +513,14 @@ function MermaModal({ item, onConfirm, onClose }: {
             value={descripcion}
             onChange={e => setDescripcion(e.target.value)}
             placeholder="Describe el motivo…"
-            className="w-full bg-gray-800 text-white text-sm px-4 py-3 rounded-xl outline-none mb-4"
+            className="w-full bg-[var(--sala-btn2)] text-[var(--sala-txt)] text-sm px-4 py-3 rounded-xl outline-none mb-4"
           />
         )}
 
         <button
           onClick={() => motivo && onConfirm(motivo, descripcion || undefined, cantidad)}
           disabled={!motivo || (motivo === 'otro' && !descripcion.trim())}
-          className="w-full py-4 rounded-2xl bg-red-600 text-white font-bold text-base disabled:opacity-30 active:scale-95 transition-all"
+          className="w-full py-4 rounded-2xl bg-red-600 text-[var(--sala-txt)] font-bold text-base disabled:opacity-30 active:scale-95 transition-all"
         >
           Confirmar merma {item.cantidad > 1 && `(${cantidad}×)`}
         </button>
@@ -499,21 +541,21 @@ function ItemRow({ item, nota, setNota, onUpdate, onDelete, onSaveNota, onMerma,
   onRepeat?: () => void
 }) {
   return (
-    <div className="bg-[#1e2d45] rounded-xl p-3">
+    <div className="bg-[var(--sala-srf)] rounded-xl p-3">
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-1">
           <button onClick={() => item.cantidad > 1 ? onUpdate(item.cantidad - 1) : onDelete()}
-            className="w-8 h-8 rounded-lg bg-gray-700 text-gray-300 text-sm hover:bg-gray-600 flex items-center justify-center">−</button>
-          <span className="text-white font-bold w-5 text-center">{item.cantidad}</span>
+            className="w-8 h-8 rounded-lg bg-[var(--sala-btn)] text-[var(--sala-tx1)] text-sm hover:bg-gray-600 flex items-center justify-center">−</button>
+          <span className="text-[var(--sala-txt)] font-bold w-5 text-center">{item.cantidad}</span>
           <button onClick={() => onUpdate(item.cantidad + 1)}
-            className="w-8 h-8 rounded-lg bg-gray-700 text-gray-300 text-sm hover:bg-gray-600 flex items-center justify-center">+</button>
+            className="w-8 h-8 rounded-lg bg-[var(--sala-btn)] text-[var(--sala-tx1)] text-sm hover:bg-gray-600 flex items-center justify-center">+</button>
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-white text-sm font-medium truncate">{item.nombre}</p>
-          {item.nota && <p className="text-gray-500 text-xs truncate">{item.nota}</p>}
+          <p className="text-[var(--sala-txt)] text-sm font-medium truncate">{item.nombre}</p>
+          {item.nota && <p className="text-[var(--sala-tx3)] text-xs truncate">{item.nota}</p>}
         </div>
         <button onClick={() => setNota(nota?.itemId === item.id ? null : { itemId: item.id, value: item.nota ?? '' })}
-          className="text-gray-600 text-xs hover:text-gray-400 shrink-0">nota</button>
+          className="text-[var(--sala-tx4)] text-xs hover:text-[var(--sala-tx2)] shrink-0">nota</button>
         {onRepeat && (
           <button onClick={onRepeat}
             className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 hover:bg-amber-500/40 text-lg font-bold flex items-center justify-center shrink-0 transition-colors"
@@ -532,9 +574,9 @@ function ItemRow({ item, nota, setNota, onUpdate, onDelete, onSaveNota, onMerma,
         <div className="flex gap-2 mt-2">
           <input autoFocus value={nota.value} onChange={e => setNota({ itemId: item.id, value: e.target.value })}
             placeholder="Sin gluten, sin cebolla…"
-            className="flex-1 bg-gray-800 text-white text-xs px-3 py-1.5 rounded-lg outline-none" />
-          <button onClick={() => onSaveNota(nota.value)} className="text-xs px-3 py-1.5 bg-cyan-600 text-white rounded-lg">OK</button>
-          <button onClick={() => setNota(null)} className="text-xs text-gray-500">✕</button>
+            className="flex-1 bg-[var(--sala-btn2)] text-[var(--sala-txt)] text-xs px-3 py-1.5 rounded-lg outline-none" />
+          <button onClick={() => onSaveNota(nota.value)} className="text-xs px-3 py-1.5 bg-cyan-600 text-[var(--sala-txt)] rounded-lg">OK</button>
+          <button onClick={() => setNota(null)} className="text-xs text-[var(--sala-tx3)]">✕</button>
         </div>
       )}
     </div>
@@ -542,15 +584,16 @@ function ItemRow({ item, nota, setNota, onUpdate, onDelete, onSaveNota, onMerma,
 }
 
 // ── Panel comanda (modo camarero) ─────────────────────────────────────────────
-function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar, onCambiarMesa }: {
+function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar, onCambiarMesa, onFacturar }: {
   comanda: Comanda; menu: MenuItem[]; categorias: MenuCategoria[]
   onClose: () => void
   onEnviar: (niveles: { itemId: number; nivel: number; nota?: string }[], silent?: boolean) => void
   onLiberar: () => void
   onCambiarMesa?: () => void
+  onFacturar?: () => void
 }) {
   const queryClient = useQueryClient()
-  const [tab, setTab] = useState<'pedido' | 'menu'>(comanda.items.length === 0 ? 'menu' : 'pedido')
+  const [tab, setTab] = useState<'pedido' | 'menu'>(comanda.items.every(i => i.autoGenerado) ? 'menu' : 'pedido')
   const [searchMenu, setSearchMenu] = useState('')
   const [grupoTab, setGrupoTab] = useState<string | null>(null)
   const [selectedCat, setSelectedCat] = useState<string | null>(null)
@@ -561,7 +604,6 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [ordenando, setOrdenando] = useState(false)
   const [verCuenta, setVerCuenta] = useState(false)
-  const [animFacturada, setAnimFacturada] = useState(false)
   const [mermaItem, setMermaItem] = useState<ComandaItem | null>(null)
   const [confirmarCerrar, setConfirmarCerrar] = useState(false)
   const [oidoAnim, setOidoAnim] = useState(false)
@@ -569,11 +611,12 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
 
   const yaEnviada    = comanda.estado === 'enviada'
   const yaFacturada  = comanda.estado === 'facturada'
-  const itemsNuevos       = comanda.items.filter(i => i.nivel == null)
-  const itemsNuevosCocina = itemsNuevos.filter(i => i.tipo !== 'barra')
-  const itemsNuevosBarra  = itemsNuevos.filter(i => i.tipo === 'barra')
-  const esMarchaPasa  = !yaEnviada && !yaFacturada && itemsNuevosCocina.length > 0 && comanda.items.some(i => i.nivel != null)
-  const hayPendientes = itemsNuevos.length > 0
+  const itemsNuevos         = comanda.items.filter(i => i.nivel == null && !i.autoGenerado)
+  const itemsNuevosCocina   = itemsNuevos.filter(i => i.tipo !== 'barra')
+  const itemsNuevosBarra    = itemsNuevos.filter(i => i.tipo === 'barra')
+  const autoItemsPendientes = comanda.items.filter(i => i.autoGenerado && i.nivel == null)
+  const esMarchaPasa  = !yaEnviada && !yaFacturada && itemsNuevosCocina.length > 0 && comanda.items.some(i => i.nivel != null && !i.autoGenerado)
+  const hayPendientes = itemsNuevos.length > 0 || autoItemsPendientes.length > 0
 
   const handleOido = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -581,8 +624,16 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
     setOidoAnim(true)
     setTimeout(() => {
       setOidoAnim(false)
-      if (itemsNuevosCocina.length > 0) setOrdenando(true)
-      else if (itemsNuevosBarra.length > 0) onEnviar(itemsNuevosBarra.map(i => ({ itemId: i.id, nivel: 1 })), true)
+      if (itemsNuevosCocina.length > 0) {
+        setOrdenando(true)
+      } else {
+        // Solo barra y/o auto-items → enviar todo y volver al mapa
+        const toSend = [
+          ...itemsNuevosBarra.map(i => ({ itemId: i.id, nivel: 1 })),
+          ...autoItemsPendientes.map(i => ({ itemId: i.id, nivel: 1 })),
+        ]
+        if (toSend.length > 0) onEnviar(toSend, false)
+      }
     }, 500)
   }
 
@@ -626,8 +677,8 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
       queryClient.invalidateQueries({ queryKey: ['comanda-sala', comanda.id] })
       queryClient.invalidateQueries({ queryKey: ['comandas-sala'] })
       setVerCuenta(false)
-      setAnimFacturada(true)
-      setTimeout(() => { setAnimFacturada(false); onClose() }, 1800)
+      onFacturar?.()
+      onClose()
     },
   })
 
@@ -683,6 +734,10 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
     mutationFn: (itemId: number) => api.comandas.deleteItem(comanda.id, itemId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['comanda-sala', comanda.id] }),
   })
+  const cambiarPax = useMutation({
+    mutationFn: (pax: number) => api.comandas.cambiarPax(comanda.id, pax),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['comanda-sala', comanda.id] }),
+  })
   const repeatItem = useMutation({
     mutationFn: (item: ComandaItem) =>
       api.comandas.addItem(comanda.id, { nombre: item.nombre, precio: item.precio, cantidad: 1, tipo: item.tipo }),
@@ -718,28 +773,40 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end" onClick={onClose}>
-      <div className="w-full sm:max-w-md bg-[#0f172a] h-full flex flex-col shadow-2xl border-l border-gray-700" onClick={e => e.stopPropagation()}>
+      <div className="w-full sm:max-w-md bg-[var(--sala-hdr)] h-full flex flex-col shadow-2xl border-l border-[var(--sala-brd)]" onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="px-5 pt-5 pb-3 border-b border-gray-700">
+        <div className="px-5 pt-5 pb-3 border-b border-[var(--sala-brd)]">
           <div className="flex items-start justify-between mb-1">
             <div>
-              <h2 className="text-white font-bold text-xl">Mesa {comanda.mesa.numero}</h2>
-              <p className="text-gray-400 text-sm">{comanda.pax} pax · {timeAgo(comanda.createdAt)}</p>
+              <h2 className="text-[var(--sala-txt)] font-bold text-xl">Mesa {comanda.mesa.numero}</h2>
+              <div className="flex items-center gap-2 mt-0.5">
+                <button onClick={() => cambiarPax.mutate(Math.max(1, comanda.pax - 1))}
+                  className="w-6 h-6 rounded-md bg-[var(--sala-btn)] text-[var(--sala-tx1)] text-sm font-bold hover:bg-gray-600 flex items-center justify-center leading-none">−</button>
+                <span className="text-[var(--sala-tx2)] text-sm">{comanda.pax} pax</span>
+                <button onClick={() => cambiarPax.mutate(comanda.pax + 1)}
+                  className="w-6 h-6 rounded-md bg-[var(--sala-btn)] text-[var(--sala-tx1)] text-sm font-bold hover:bg-gray-600 flex items-center justify-center leading-none">+</button>
+                <span className="text-[var(--sala-tx4)] text-xs">·</span>
+                <button onClick={() => setVerCuenta(true)} title="Ver cuenta"
+                  className="text-xl leading-none hover:scale-110 transition-transform active:scale-95">
+                  🧾
+                </button>
+                <span className="text-[var(--sala-tx4)] text-xs">· {timeAgo(comanda.createdAt)}</span>
+              </div>
             </div>
             <div className="flex items-center gap-2 mt-1">
               {onCambiarMesa && (
                 <button onClick={onCambiarMesa} title="Cambiar mesa"
-                  className="text-gray-500 hover:text-cyan-400 text-sm px-2 py-1 rounded-lg bg-gray-800 hover:bg-gray-700 transition-colors">
+                  className="text-[var(--sala-tx3)] hover:text-cyan-400 text-sm px-2 py-1 rounded-lg bg-[var(--sala-btn2)] hover:bg-gray-700 transition-colors">
                   ↔
                 </button>
               )}
-              <button onClick={() => itemsNuevos.length > 0 ? setConfirmarCerrar(true) : onClose()} className="text-gray-500 hover:text-gray-300 text-xl">✕</button>
+              <button onClick={() => itemsNuevos.length > 0 ? setConfirmarCerrar(true) : onClose()} className="text-[var(--sala-tx3)] hover:text-[var(--sala-tx1)] text-xl">✕</button>
             </div>
           </div>
           <div className="flex gap-1 mt-3">
             {(['pedido','menu'] as const).map(t => (
               <button key={t} onClick={() => setTab(t)}
-                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === t ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'}`}>
+                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === t ? 'bg-[var(--sala-btn)] text-[var(--sala-txt)]' : 'text-[var(--sala-tx3)] hover:text-[var(--sala-tx1)]'}`}>
                 {t === 'pedido' ? `Pedido (${comanda.items.length})` : 'Añadir'}
               </button>
             ))}
@@ -754,7 +821,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
             {comanda.items.some(i => i.nivel != null) && itemsNuevos.length > 0 && (
               <div className="sticky top-0 z-10 px-4 pt-3 pb-2 border-b border-amber-900/40 bg-amber-950/95 backdrop-blur-sm">
                 <div className="flex items-center gap-2 mb-1.5">
-                  <div className="w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center text-white text-xs font-black shrink-0">+</div>
+                  <div className="w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center text-[var(--sala-txt)] text-xs font-black shrink-0">+</div>
                   <span className="text-amber-400 text-xs font-semibold uppercase tracking-wide">Marcha pasa</span>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
@@ -769,7 +836,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
             )}
             <div className="p-4">
               {comanda.items.length === 0 && (
-                <div className="text-center py-12 text-gray-600">
+                <div className="text-center py-12 text-[var(--sala-tx4)]">
                   <p className="text-3xl mb-2">🍽</p>
                   <p className="text-sm">Sin items. Ve a "Añadir".</p>
                 </div>
@@ -805,7 +872,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                             {pendientesCocina.length > 0 && (
                               <div>
                                 <div className="flex items-center gap-2 mb-2">
-                                  <div className="w-7 h-7 rounded-full bg-amber-500 flex items-center justify-center text-white text-xs font-black shrink-0">+</div>
+                                  <div className="w-7 h-7 rounded-full bg-amber-500 flex items-center justify-center text-[var(--sala-txt)] text-xs font-black shrink-0">+</div>
                                   <span className="text-amber-400 text-xs font-semibold uppercase tracking-wide">Marcha pasa</span>
                                   <div className="flex-1 h-px bg-amber-900/40" />
                                 </div>
@@ -827,9 +894,9 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                               return (
                                 <div key={nv}>
                                   <div className="flex items-center gap-2 mb-2">
-                                    <div className="w-7 h-7 rounded-full bg-cyan-600 flex items-center justify-center text-white text-xs font-black shrink-0">{nv}</div>
-                                    <span className="text-gray-400 text-xs font-semibold uppercase tracking-wide">Salida {nv}</span>
-                                    <div className="flex-1 h-px bg-gray-700" />
+                                    <div className="w-7 h-7 rounded-full bg-cyan-600 flex items-center justify-center text-[var(--sala-txt)] text-xs font-black shrink-0">{nv}</div>
+                                    <span className="text-[var(--sala-tx2)] text-xs font-semibold uppercase tracking-wide">Salida {nv}</span>
+                                    <div className="flex-1 h-px bg-[var(--sala-btn)]" />
                                   </div>
                                   <div className="space-y-2">
                                     {items.map((item: ComandaItem) => (
@@ -862,7 +929,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                         <div>
                           <div className="flex items-center gap-2 mb-2">
                             <span className="text-amber-400 text-xs font-semibold uppercase tracking-wide">🍺 Barra</span>
-                            <div className="flex-1 h-px bg-gray-700" />
+                            <div className="flex-1 h-px bg-[var(--sala-btn)]" />
                           </div>
                           <div className="space-y-2">
                             {grouped.map(({ firstItem, cantidad }) => (
@@ -889,7 +956,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
               {comanda.items.some(i => i.nivel != null) && itemsNuevos.length > 0 && (
                 <div className="sticky top-0 z-10 px-4 pt-3 pb-2 border-b border-amber-900/40 bg-amber-950/95 backdrop-blur-sm">
                   <div className="flex items-center gap-2 mb-1.5">
-                    <div className="w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center text-white text-xs font-black shrink-0">+</div>
+                    <div className="w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center text-[var(--sala-txt)] text-xs font-black shrink-0">+</div>
                     <span className="text-amber-400 text-xs font-semibold uppercase tracking-wide">Marcha pasa</span>
                   </div>
                   <div className="flex flex-wrap gap-1.5">
@@ -903,13 +970,13 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                 </div>
               )}
               {/* Grupo tabs + search */}
-              <div className="px-4 pt-3 pb-2 space-y-2 border-b border-gray-800">
+              <div className="px-4 pt-3 pb-2 space-y-2 border-b border-[var(--sala-brd)]">
                 {grupos.length > 1 && (
                   <div className="flex gap-1.5 overflow-x-auto pb-0.5">
                     {grupos.map(g => (
                       <button key={g} onClick={() => { setGrupoTab(g); setSelectedCat(null); setSearchMenu('') }}
                         className={`px-4 py-1.5 rounded-xl text-sm font-semibold whitespace-nowrap transition-colors ${
-                          grupoActivo === g ? 'bg-cyan-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                          grupoActivo === g ? 'bg-cyan-600 text-[var(--sala-txt)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx2)] hover:bg-gray-700'
                         }`}>
                         {g}
                       </button>
@@ -918,7 +985,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                 )}
                 <input value={searchMenu} onChange={e => { setSearchMenu(e.target.value); setSelectedCat(null) }}
                   placeholder="Buscar plato o bebida…"
-                  className="w-full bg-gray-800 text-white text-sm px-4 py-2 rounded-xl outline-none placeholder:text-gray-600" />
+                  className="w-full bg-[var(--sala-btn2)] text-[var(--sala-txt)] text-sm px-4 py-2 rounded-xl outline-none placeholder:text-[var(--sala-tx4)]" />
               </div>
 
               {searchMenu.trim() ? (
@@ -929,19 +996,19 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                     const isAdded   = addedId === item.id
                     return (
                       <button key={item.id} onClick={() => handleMenuItemTap(item)}
-                        className={`w-full text-left rounded-xl px-4 py-3 transition-colors relative overflow-hidden ${isPending ? 'bg-[#0d2e20] border-2 border-[#4CC8A0]' : 'bg-[#1e2d45] hover:bg-[#263a55]'}`}>
-                        <p className="text-white text-sm font-medium">{item.nombre}</p>
-                        <p className="text-gray-500 text-xs">{item.categoria}</p>
+                        className={`w-full text-left rounded-xl px-4 py-3 transition-colors relative overflow-hidden ${isPending ? 'bg-[var(--sala-srf2)] border-2 border-[#4CC8A0]' : 'bg-[var(--sala-srf)] hover:bg-[var(--sala-srf2)]'}`}>
+                        <p className="text-[var(--sala-txt)] text-sm font-medium">{item.nombre}</p>
+                        <p className="text-[var(--sala-tx3)] text-xs">{item.categoria}</p>
                         {isPending && <span className="absolute right-3 inset-y-0 flex items-center"><span className="text-[#4CC8A0] font-black text-2xl">{qtyPending!.qty}×</span></span>}
                         {isAdded && (
-                          <span className="absolute inset-0 flex items-center justify-center bg-[#1a3a2e] rounded-xl" style={{ animation: 'fadeInOut 1s ease forwards' }}>
+                          <span className="absolute inset-0 flex items-center justify-center bg-[var(--sala-srf)] rounded-xl" style={{ animation: 'fadeInOut 1s ease forwards' }}>
                             <svg viewBox="0 0 52 58" className="h-8 w-8"><defs><linearGradient id="lgfbs2" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#4B9EDF"/><stop offset="100%" stopColor="#4CC8A0"/></linearGradient></defs><path d="M8 2 L44 2 Q50 2 50 8 L50 38 Q50 44 44 44 L32 44 L26 52 L20 44 L8 44 Q2 44 2 38 L2 8 Q2 2 8 2 Z" fill="url(#lgfbs2)"/><path d="M14 22 L23 31 L38 13" stroke="white" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>
                           </span>
                         )}
                       </button>
                     )
                   })}
-                  {filteredMenu.length === 0 && <p className="text-center text-gray-600 text-sm py-8">Sin resultados</p>}
+                  {filteredMenu.length === 0 && <p className="text-center text-[var(--sala-tx4)] text-sm py-8">Sin resultados</p>}
                 </div>
               ) : selectedCat ? (
                 /* ── Items de la categoría seleccionada ── */
@@ -953,7 +1020,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                     swipeRef.current = null
                   }}>
                   <button onClick={() => setSelectedCat(null)}
-                    className="flex items-center gap-2 px-4 py-3 text-cyan-400 text-sm font-semibold w-full border-b border-gray-800 hover:bg-gray-800/40">
+                    className="flex items-center gap-2 px-4 py-3 text-cyan-400 text-sm font-semibold w-full border-b border-[var(--sala-brd)] hover:bg-[var(--sala-btn2)]/40">
                     ← {selectedCat}
                   </button>
                   <div className="p-4 space-y-1.5">
@@ -962,12 +1029,12 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                       const isAdded   = addedId === item.id
                       return (
                         <button key={item.id} onClick={() => handleMenuItemTap(item)}
-                          className={`w-full text-left rounded-xl px-4 py-3.5 transition-colors relative overflow-hidden ${isPending ? 'bg-[#0d2e20] border-2 border-[#4CC8A0]' : 'bg-[#1e2d45] hover:bg-[#263a55]'}`}>
-                          <span className="text-white text-base font-medium">{item.nombre}</span>
-                          {item.descripcion ? <p className="text-gray-500 text-xs mt-0.5 truncate">{item.descripcion}</p> : null}
+                          className={`w-full text-left rounded-xl px-4 py-3.5 transition-colors relative overflow-hidden ${isPending ? 'bg-[var(--sala-srf2)] border-2 border-[#4CC8A0]' : 'bg-[var(--sala-srf)] hover:bg-[var(--sala-srf2)]'}`}>
+                          <span className="text-[var(--sala-txt)] text-base font-medium">{item.nombre}</span>
+                          {item.descripcion ? <p className="text-[var(--sala-tx3)] text-xs mt-0.5 truncate">{item.descripcion}</p> : null}
                           {isPending && <span className="absolute right-3 inset-y-0 flex items-center"><span className="text-[#4CC8A0] font-black text-2xl">{qtyPending!.qty}×</span></span>}
                           {isAdded && (
-                            <span className="absolute inset-0 flex items-center justify-center bg-[#1a3a2e] rounded-xl" style={{ animation: 'fadeInOut 1s ease forwards' }}>
+                            <span className="absolute inset-0 flex items-center justify-center bg-[var(--sala-srf)] rounded-xl" style={{ animation: 'fadeInOut 1s ease forwards' }}>
                               <svg viewBox="0 0 52 58" className="h-8 w-8"><defs><linearGradient id="lgfbs3" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#4B9EDF"/><stop offset="100%" stopColor="#4CC8A0"/></linearGradient></defs><path d="M8 2 L44 2 Q50 2 50 8 L50 38 Q50 44 44 44 L32 44 L26 52 L20 44 L8 44 Q2 44 2 38 L2 8 Q2 2 8 2 Z" fill="url(#lgfbs3)"/><path d="M14 22 L23 31 L38 13" stroke="white" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>
                             </span>
                           )}
@@ -986,10 +1053,10 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                       const esBarra = GRUPOS_BARRA.includes(meta?.grupo ?? '')
                       return (
                         <button key={cat} onClick={() => setSelectedCat(cat)}
-                          className="aspect-square rounded-2xl bg-[#1e2d45] active:scale-95 transition-all flex flex-col items-center justify-center gap-2 p-4 border border-gray-700/50 hover:border-cyan-700/40 hover:bg-[#243347]">
+                          className="aspect-square rounded-2xl bg-[var(--sala-srf)] active:scale-95 transition-all flex flex-col items-center justify-center gap-2 p-4 border border-[var(--sala-brd)]/50 hover:border-cyan-700/40 hover:bg-[var(--sala-srf2)]">
                           <span className="text-5xl leading-none">{meta?.icono ?? '🍽'}</span>
-                          <span className="text-white text-sm font-bold text-center leading-tight">{cat}</span>
-                          <span className={`text-xs ${esBarra ? 'text-amber-500' : 'text-gray-500'}`}>{count} items</span>
+                          <span className="text-[var(--sala-txt)] text-sm font-bold text-center leading-tight">{cat}</span>
+                          <span className={`text-xs ${esBarra ? 'text-amber-500' : 'text-[var(--sala-tx3)]'}`}>{count} items</span>
                         </button>
                       )
                     })}
@@ -1001,10 +1068,10 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-gray-700">
+        <div className="p-4 border-t border-[var(--sala-brd)]">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-gray-400 text-sm">Total</span>
-            <span className="text-white text-2xl font-bold">{total.toFixed(2)} €</span>
+            <span className="text-[var(--sala-tx2)] text-sm">Total</span>
+            <span className="text-[var(--sala-txt)] text-2xl font-bold">{total.toFixed(2)} €</span>
           </div>
           {yaFacturada ? (
             <div className="space-y-2">
@@ -1012,22 +1079,22 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                 <span className="text-amber-400 text-sm font-bold">🧾 Cuenta impresa — pendiente de cobro</span>
               </div>
               <button onClick={e => { e.stopPropagation(); onLiberar() }}
-                className="w-full py-4 rounded-2xl bg-[#4CC8A0] text-white font-bold text-lg active:scale-95 transition-all">
+                className="w-full py-4 rounded-2xl bg-[#4CC8A0] text-[var(--sala-txt)] font-bold text-lg active:scale-95 transition-all">
                 Mesa libre 🔓
               </button>
               <button onClick={e => { e.stopPropagation(); setVerCuenta(true) }}
-                className="w-full py-2 rounded-2xl bg-[#1e2d45] border border-gray-600 text-gray-400 font-medium text-sm">
+                className="w-full py-2 rounded-2xl bg-[var(--sala-srf)] border border-[var(--sala-brd2)] text-[var(--sala-tx2)] font-medium text-sm">
                 Ver cuenta de nuevo
               </button>
             </div>
           ) : !hayPendientes && (yaEnviada || comanda.items.some(i => i.nivel != null)) ? (
             <div className="space-y-2">
               <button onClick={e => { e.stopPropagation(); setVerCuenta(true) }}
-                className="w-full py-4 rounded-2xl bg-[#f59e0b] text-white font-bold text-lg active:scale-95 transition-all">
+                className="w-full py-4 rounded-2xl bg-[#f59e0b] text-[var(--sala-txt)] font-bold text-lg active:scale-95 transition-all">
                 Ver cuenta 🧾
               </button>
               {yaEnviada && (
-                <button onClick={() => setOrdenando(true)} className="w-full py-2 text-gray-500 text-xs underline">
+                <button onClick={() => setOrdenando(true)} className="w-full py-2 text-[var(--sala-tx3)] text-xs underline">
                   re-enviar comanda
                 </button>
               )}
@@ -1081,23 +1148,23 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
       )}
       {confirmarCerrar && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 px-6">
-          <div className="bg-[#1e293b] rounded-2xl p-6 w-full max-w-xs shadow-2xl">
-            <p className="text-white font-bold text-base mb-1">¿Descartar cambios?</p>
-            <p className="text-gray-400 text-sm mb-5">
+          <div className="bg-[var(--sala-srf)] rounded-2xl p-6 w-full max-w-xs shadow-2xl">
+            <p className="text-[var(--sala-txt)] font-bold text-base mb-1">¿Descartar cambios?</p>
+            <p className="text-[var(--sala-tx2)] text-sm mb-5">
               {itemsNuevos.length === 1
                 ? 'Hay 1 item sin enviar que se eliminará.'
                 : `Hay ${itemsNuevos.length} items sin enviar que se eliminarán.`}
             </p>
             <div className="flex gap-3">
               <button onClick={() => setConfirmarCerrar(false)}
-                className="flex-1 py-3 rounded-xl bg-gray-700 text-gray-300 font-medium">
+                className="flex-1 py-3 rounded-xl bg-[var(--sala-btn)] text-[var(--sala-tx1)] font-medium">
                 Cancelar
               </button>
               <button onClick={async () => {
                 await Promise.all(itemsNuevos.map(i => api.comandas.deleteItem(comanda.id, i.id)))
                 setConfirmarCerrar(false)
                 onClose()
-              }} className="flex-1 py-3 rounded-xl bg-red-600 text-white font-bold">
+              }} className="flex-1 py-3 rounded-xl bg-red-600 text-[var(--sala-txt)] font-bold">
                 Descartar
               </button>
             </div>
@@ -1114,19 +1181,6 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
       )}
 
       {verCuenta && <VerCuentaModal comanda={comanda} onClose={() => setVerCuenta(false)} onFacturar={() => facturarComanda.mutate()} />}
-
-      {animFacturada && (
-        <div className="fixed inset-0 z-[60] bg-[#0f172a] flex flex-col items-center justify-center"
-          style={{ animation: 'fadeInOut 1.8s ease forwards' }}>
-          <img src="/oidoops.svg" alt="OidoOps" className="h-20 mb-6 opacity-90" />
-          <div className="w-16 h-16 rounded-full bg-[#4CC8A0]/20 flex items-center justify-center mb-4">
-            <svg viewBox="0 0 52 52" className="w-10 h-10">
-              <path d="M10 26 L22 38 L42 14" stroke="#4CC8A0" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-            </svg>
-          </div>
-          <p className="text-[#4CC8A0] font-bold text-lg">Cuenta entregada</p>
-        </div>
-      )}
     </div>
   )
 }
@@ -1173,14 +1227,14 @@ function MoverMesaModal({ comanda, planes, comandas, onMoverALibre, onMerge, onC
   if (step === 'confirm-libre' && targetMesa) {
     return (
       <div className="fixed inset-0 bg-black/80 flex items-end z-[60]" onClick={onClose}>
-        <div className="bg-[#0f172a] w-full rounded-t-3xl shadow-2xl p-5" onClick={e => e.stopPropagation()}>
-          <h3 className="text-white font-bold text-base mb-1">Mover a mesa {targetMesa.numero}</h3>
-          <p className="text-gray-400 text-sm mb-5">
-            Toda la comanda de la mesa <strong className="text-white">{comanda.mesa.numero}</strong> se trasladará a la mesa <strong className="text-white">{targetMesa.numero}</strong> (libre).
+        <div className="bg-[var(--sala-hdr)] w-full rounded-t-3xl shadow-2xl p-5" onClick={e => e.stopPropagation()}>
+          <h3 className="text-[var(--sala-txt)] font-bold text-base mb-1">Mover a mesa {targetMesa.numero}</h3>
+          <p className="text-[var(--sala-tx2)] text-sm mb-5">
+            Toda la comanda de la mesa <strong className="text-[var(--sala-txt)]">{comanda.mesa.numero}</strong> se trasladará a la mesa <strong className="text-[var(--sala-txt)]">{targetMesa.numero}</strong> (libre).
           </p>
           <div className="flex gap-3">
-            <button onClick={() => setStep('select')} className="flex-1 py-3 rounded-xl bg-gray-700 text-gray-300 font-medium">Cancelar</button>
-            <button onClick={() => onMoverALibre(targetMesa.id)} className="flex-1 py-3 rounded-xl bg-[#4CC8A0] text-white font-bold">Confirmar</button>
+            <button onClick={() => setStep('select')} className="flex-1 py-3 rounded-xl bg-[var(--sala-btn)] text-[var(--sala-tx1)] font-medium">Cancelar</button>
+            <button onClick={() => onMoverALibre(targetMesa.id)} className="flex-1 py-3 rounded-xl bg-[#4CC8A0] text-[var(--sala-txt)] font-bold">Confirmar</button>
           </div>
         </div>
       </div>
@@ -1192,10 +1246,10 @@ function MoverMesaModal({ comanda, planes, comandas, onMoverALibre, onMerge, onC
     const targetTotal = targetComanda.items.reduce((s, i) => s + i.precio * i.cantidad, 0)
     return (
       <div className="fixed inset-0 bg-black/80 flex items-end z-[60]" onClick={onClose}>
-        <div className="bg-[#0f172a] w-full rounded-t-3xl shadow-2xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
-          <div className="px-5 pt-5 pb-3 border-b border-gray-700">
-            <h3 className="text-white font-bold text-base">Unir con mesa {targetMesa.numero}</h3>
-            <p className="text-gray-400 text-xs mt-0.5">Mesa {comanda.mesa.numero} → Mesa {targetMesa.numero}</p>
+        <div className="bg-[var(--sala-hdr)] w-full rounded-t-3xl shadow-2xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+          <div className="px-5 pt-5 pb-3 border-b border-[var(--sala-brd)]">
+            <h3 className="text-[var(--sala-txt)] font-bold text-base">Unir con mesa {targetMesa.numero}</h3>
+            <p className="text-[var(--sala-tx2)] text-xs mt-0.5">Mesa {comanda.mesa.numero} → Mesa {targetMesa.numero}</p>
           </div>
 
           {/* Aviso si ya está facturada */}
@@ -1210,30 +1264,30 @@ function MoverMesaModal({ comanda, planes, comandas, onMoverALibre, onMerge, onC
 
           {/* Items que ya hay en la mesa destino */}
           <div className="px-5 pt-4 pb-2">
-            <p className="text-gray-500 text-xs font-semibold uppercase tracking-wide mb-2">
+            <p className="text-[var(--sala-tx3)] text-xs font-semibold uppercase tracking-wide mb-2">
               Ya en mesa {targetMesa.numero} ({targetComanda.items.length} items · {targetTotal.toFixed(2)} €)
             </p>
             <div className="space-y-1 max-h-32 overflow-y-auto">
               {targetComanda.items.map(item => (
                 <div key={item.id} className="flex items-center justify-between text-xs">
-                  <span className="text-gray-400">{item.cantidad > 1 ? <span className="text-cyan-600 font-bold">{item.cantidad}× </span> : null}{item.nombre}</span>
-                  <span className="text-gray-600">{(item.precio * item.cantidad).toFixed(2)} €</span>
+                  <span className="text-[var(--sala-tx2)]">{item.cantidad > 1 ? <span className="text-cyan-600 font-bold">{item.cantidad}× </span> : null}{item.nombre}</span>
+                  <span className="text-[var(--sala-tx4)]">{(item.precio * item.cantidad).toFixed(2)} €</span>
                 </div>
               ))}
             </div>
           </div>
 
-          <div className="px-5 pb-2 pt-3 border-t border-gray-800 space-y-2">
+          <div className="px-5 pb-2 pt-3 border-t border-[var(--sala-brd)] space-y-2">
             <button onClick={() => onMerge(targetComanda.id)}
-              className="w-full py-3.5 rounded-xl bg-[#1e2d45] border border-cyan-700/50 text-cyan-400 font-semibold text-sm text-left px-4">
+              className="w-full py-3.5 rounded-xl bg-[var(--sala-srf)] border border-cyan-700/50 text-cyan-400 font-semibold text-sm text-left px-4">
               Mover todos los items de mesa {comanda.mesa.numero} → {targetMesa.numero}
             </button>
             <button onClick={() => setStep('select-items')}
-              className="w-full py-3.5 rounded-xl bg-[#1e2d45] border border-gray-600 text-gray-300 font-semibold text-sm text-left px-4">
+              className="w-full py-3.5 rounded-xl bg-[var(--sala-srf)] border border-[var(--sala-brd2)] text-[var(--sala-tx1)] font-semibold text-sm text-left px-4">
               Elegir qué items mover…
             </button>
           </div>
-          <button onClick={() => setStep('select')} className="w-full py-3 text-gray-600 text-sm">Volver</button>
+          <button onClick={() => setStep('select')} className="w-full py-3 text-[var(--sala-tx4)] text-sm">Volver</button>
         </div>
       </div>
     )
@@ -1242,13 +1296,13 @@ function MoverMesaModal({ comanda, planes, comandas, onMoverALibre, onMerge, onC
   if (step === 'select-items' && targetComanda) {
     return (
       <div className="fixed inset-0 bg-black/80 flex items-end z-[60]" onClick={onClose}>
-        <div className="bg-[#0f172a] w-full rounded-t-3xl shadow-2xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
-          <div className="px-5 pt-5 pb-3 border-b border-gray-700 flex items-center justify-between">
+        <div className="bg-[var(--sala-hdr)] w-full rounded-t-3xl shadow-2xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+          <div className="px-5 pt-5 pb-3 border-b border-[var(--sala-brd)] flex items-center justify-between">
             <div>
-              <h3 className="text-white font-bold text-base">Selecciona items a mover</h3>
-              <p className="text-gray-400 text-xs mt-0.5">Mesa {comanda.mesa.numero} → Mesa {targetMesa!.numero}</p>
+              <h3 className="text-[var(--sala-txt)] font-bold text-base">Selecciona items a mover</h3>
+              <p className="text-[var(--sala-tx2)] text-xs mt-0.5">Mesa {comanda.mesa.numero} → Mesa {targetMesa!.numero}</p>
             </div>
-            <button onClick={() => setStep('confirm-merge')} className="text-gray-500 text-sm">Volver</button>
+            <button onClick={() => setStep('confirm-merge')} className="text-[var(--sala-tx3)] text-sm">Volver</button>
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-2">
             {comanda.items.map(item => (
@@ -1256,24 +1310,24 @@ function MoverMesaModal({ comanda, planes, comandas, onMoverALibre, onMerge, onC
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border transition-colors ${
                   selectedItemIds.has(item.id)
                     ? 'bg-cyan-900/30 border-cyan-700/50'
-                    : 'bg-[#1e2d45] border-transparent'
+                    : 'bg-[var(--sala-srf)] border-transparent'
                 }`}>
                 <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 ${
-                  selectedItemIds.has(item.id) ? 'bg-[#4CC8A0] border-[#4CC8A0]' : 'border-gray-600'
+                  selectedItemIds.has(item.id) ? 'bg-[#4CC8A0] border-[#4CC8A0]' : 'border-[var(--sala-brd2)]'
                 }`}>
-                  {selectedItemIds.has(item.id) && <span className="text-white text-xs font-black">✓</span>}
+                  {selectedItemIds.has(item.id) && <span className="text-[var(--sala-txt)] text-xs font-black">✓</span>}
                 </div>
-                <span className="text-white text-sm flex-1 text-left">
+                <span className="text-[var(--sala-txt)] text-sm flex-1 text-left">
                   {item.cantidad > 1 ? <span className="text-cyan-400 font-bold mr-1">{item.cantidad}×</span> : null}{item.nombre}
                 </span>
               </button>
             ))}
           </div>
-          <div className="p-4 border-t border-gray-700">
+          <div className="p-4 border-t border-[var(--sala-brd)]">
             <button
               onClick={() => onMerge(targetComanda.id, [...selectedItemIds])}
               disabled={selectedItemIds.size === 0}
-              className="w-full py-4 rounded-2xl bg-[#4CC8A0] text-white font-bold text-base disabled:opacity-30 active:scale-95 transition-all">
+              className="w-full py-4 rounded-2xl bg-[#4CC8A0] text-[var(--sala-txt)] font-bold text-base disabled:opacity-30 active:scale-95 transition-all">
               Mover {selectedItemIds.size} item{selectedItemIds.size !== 1 ? 's' : ''} →
             </button>
           </div>
@@ -1285,21 +1339,21 @@ function MoverMesaModal({ comanda, planes, comandas, onMoverALibre, onMerge, onC
   // step === 'select' — mesa picker
   return (
     <div className="fixed inset-0 bg-black/80 flex items-end z-[60]" onClick={onClose}>
-      <div className="bg-[#0f172a] w-full rounded-t-3xl shadow-2xl max-h-[75vh] flex flex-col" onClick={e => e.stopPropagation()}>
-        <div className="px-5 pt-5 pb-3 border-b border-gray-700 flex items-center justify-between">
+      <div className="bg-[var(--sala-hdr)] w-full rounded-t-3xl shadow-2xl max-h-[75vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="px-5 pt-5 pb-3 border-b border-[var(--sala-brd)] flex items-center justify-between">
           <div>
-            <h3 className="text-white font-bold text-base">↔ Cambiar mesa</h3>
-            <p className="text-gray-400 text-xs mt-0.5">Selecciona la mesa destino</p>
+            <h3 className="text-[var(--sala-txt)] font-bold text-base">↔ Cambiar mesa</h3>
+            <p className="text-[var(--sala-tx2)] text-xs mt-0.5">Selecciona la mesa destino</p>
           </div>
-          <button onClick={onClose} className="text-gray-500 text-xl">✕</button>
+          <button onClick={onClose} className="text-[var(--sala-tx3)] text-xl">✕</button>
         </div>
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {planes.map(plan => {
-            const mesas = plan.mesas.filter(m => m.tipo !== 'barra').sort((a, b) => a.numero - b.numero)
+            const mesas = plan.mesas.filter(m => m.tipo !== 'barra' && !isElemDeco(m.tipo)).sort((a, b) => a.numero - b.numero)
             if (!mesas.length) return null
             return (
               <div key={plan.id}>
-                {planes.length > 1 && <p className="text-gray-500 text-xs font-semibold uppercase tracking-wide mb-2">{plan.nombre}</p>}
+                {planes.length > 1 && <p className="text-[var(--sala-tx3)] text-xs font-semibold uppercase tracking-wide mb-2">{plan.nombre}</p>}
                 <div className="grid grid-cols-4 gap-2">
                   {mesas.map(mesa => {
                     const esCurrent = mesa.id === comanda.mesaId
@@ -1310,12 +1364,12 @@ function MoverMesaModal({ comanda, planes, comandas, onMoverALibre, onMerge, onC
                         disabled={esCurrent}
                         className={`rounded-xl py-3 flex flex-col items-center gap-0.5 transition-colors ${
                           esCurrent
-                            ? 'bg-gray-800 opacity-40 cursor-default'
+                            ? 'bg-[var(--sala-btn2)] opacity-40 cursor-default'
                             : libre
                             ? 'bg-[#1a3828] border border-[#22c55e] active:scale-95'
                             : 'bg-[#0f2240] border border-[#4CC8A0] active:scale-95'
                         }`}>
-                        <span className={`font-black text-lg ${esCurrent ? 'text-gray-500' : libre ? 'text-[#22c55e]' : 'text-[#4CC8A0]'}`}>
+                        <span className={`font-black text-lg ${esCurrent ? 'text-[var(--sala-tx3)]' : libre ? 'text-[#22c55e]' : 'text-[#4CC8A0]'}`}>
                           {mesa.numero}
                         </span>
                         <span className={`text-xs ${libre ? 'text-green-700' : 'text-cyan-700'}`}>
@@ -1352,44 +1406,44 @@ function PerfilPanel({ camarero, onClose }: { camarero: { id: number; nombre: st
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-end z-50" onClick={onClose}>
-      <div className="w-full bg-[#0f172a] rounded-t-3xl shadow-2xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+      <div className="w-full bg-[var(--sala-hdr)] rounded-t-3xl shadow-2xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
         {/* Handle */}
         <div className="flex justify-center pt-3 pb-1">
-          <div className="w-10 h-1 rounded-full bg-gray-600" />
+          <div className="w-10 h-1 rounded-full bg-[var(--sala-btna)]" />
         </div>
 
         {/* Header */}
-        <div className="px-5 pt-2 pb-4 border-b border-gray-700 flex items-center justify-between">
+        <div className="px-5 pt-2 pb-4 border-b border-[var(--sala-brd)] flex items-center justify-between">
           <div>
-            <h2 className="text-white font-bold text-lg">{camarero.nombre}</h2>
-            <p className="text-gray-500 text-xs mt-0.5">Propinas este mes</p>
+            <h2 className="text-[var(--sala-txt)] font-bold text-lg">{camarero.nombre}</h2>
+            <p className="text-[var(--sala-tx3)] text-xs mt-0.5">Propinas este mes</p>
           </div>
-          <button onClick={onClose} className="text-gray-500 text-xl">✕</button>
+          <button onClick={onClose} className="text-[var(--sala-tx3)] text-xl">✕</button>
         </div>
 
         {/* Resumen */}
         <div className="grid grid-cols-2 gap-3 px-5 py-4">
-          <div className="bg-[#1e2d45] rounded-2xl p-4">
-            <p className="text-gray-400 text-xs mb-1">Total propinas</p>
+          <div className="bg-[var(--sala-srf)] rounded-2xl p-4">
+            <p className="text-[var(--sala-tx2)] text-xs mb-1">Total propinas</p>
             <p className="text-[#4CC8A0] text-2xl font-black">{fmt(totalMes)} €</p>
           </div>
-          <div className="bg-[#1e2d45] rounded-2xl p-4">
-            <p className="text-gray-400 text-xs mb-1">Horas trabajadas</p>
-            <p className="text-white text-2xl font-black">{totalHoras}h</p>
+          <div className="bg-[var(--sala-srf)] rounded-2xl p-4">
+            <p className="text-[var(--sala-tx2)] text-xs mb-1">Horas trabajadas</p>
+            <p className="text-[var(--sala-txt)] text-2xl font-black">{totalHoras}h</p>
           </div>
         </div>
 
         {/* Lista de turnos */}
         <div className="flex-1 overflow-y-auto px-5 pb-6">
-          {isLoading && <p className="text-gray-600 text-sm text-center py-6">Cargando…</p>}
+          {isLoading && <p className="text-[var(--sala-tx4)] text-sm text-center py-6">Cargando…</p>}
           {!isLoading && !turnos?.length && (
-            <p className="text-gray-600 text-sm text-center py-6">Sin propinas registradas este mes</p>
+            <p className="text-[var(--sala-tx4)] text-sm text-center py-6">Sin propinas registradas este mes</p>
           )}
           {turnos?.map((t: MiTurno) => (
-            <div key={t.id} className="flex items-center justify-between py-3 border-b border-gray-800">
+            <div key={t.id} className="flex items-center justify-between py-3 border-b border-[var(--sala-brd)]">
               <div>
-                <p className="text-white text-sm font-medium">{fmtFecha(t.fecha)}</p>
-                <p className="text-gray-500 text-xs">{t.horas}h · {t.restaurante}</p>
+                <p className="text-[var(--sala-txt)] text-sm font-medium">{fmtFecha(t.fecha)}</p>
+                <p className="text-[var(--sala-tx3)] text-xs">{t.horas}h · {t.restaurante}</p>
               </div>
               <span className="text-[#4CC8A0] font-bold text-sm">{fmt(t.propina)} €</span>
             </div>
@@ -1427,6 +1481,20 @@ export default function SalaMesasPage() {
   const [view, setView] = useState<'mapa' | 'mesas' | 'nueva'>('mapa')
   const [showPerfil, setShowPerfil]       = useState(false)
   const [showMoverMesa, setShowMoverMesa] = useState(false)
+  const [animFacturada, setAnimFacturada] = useState(false)
+  const [isDark, setIsDark] = useState(() => localStorage.getItem('sala_theme') !== 'light')
+  const toggleTheme = () => setIsDark(d => {
+    const next = !d
+    localStorage.setItem('sala_theme', next ? 'dark' : 'light')
+    return next
+  })
+
+  const { data: turnoActivo, isLoading: turnoLoading } = useQuery({
+    queryKey: ['turno-activo', restaurant?.id],
+    queryFn: () => api.turnos.getActivo(restaurant!.id),
+    enabled: !!restaurant,
+    refetchInterval: 30_000,
+  })
 
   const { data: planes } = useQuery({
     queryKey: ['salon-planes', restaurant?.id],
@@ -1536,28 +1604,89 @@ export default function SalaMesasPage() {
 
   if (!restaurant || !camarero) return null
 
+  // Bloqueo si el turno no está iniciado
+  if (!turnoLoading && turnoActivo === null) {
+    return (
+      <div className="flex flex-col h-screen bg-[var(--sala-bg)] items-center justify-center px-8 text-center">
+        <div className="flex items-center gap-3 mb-8 opacity-60">
+          <svg width="52" height="55" viewBox="0 0 68 72">
+            <defs>
+              <linearGradient id="og-lock" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stopColor="#4B9EDF"/>
+                <stop offset="100%" stopColor="#4CC8A0"/>
+              </linearGradient>
+            </defs>
+            <path d="M14 2 L54 2 Q66 2 66 14 L66 52 Q66 62 54 62 L40 62 L34 70 L28 62 L14 62 Q2 62 2 52 L2 14 Q2 2 14 2 Z" fill="url(#og-lock)" />
+            <path d="M15 34 L29 48 L55 18" fill="none" stroke="white" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span className="text-4xl font-extrabold tracking-tight" style={{ fontFamily: "'Helvetica Neue', Arial, sans-serif" }}>
+            <span className="text-[var(--sala-txt)]">Oido</span><span className="text-[#4CC8A0]">Ops</span>
+          </span>
+        </div>
+        <p className="text-[var(--sala-txt)] font-black text-xl mb-2">Turno no iniciado</p>
+        <p className="text-[var(--sala-tx3)] text-sm">El encargado debe abrir el turno desde el panel de sala antes de que puedas usar las mesas.</p>
+      </div>
+    )
+  }
+
   return (
-    <div className="flex flex-col h-screen bg-[#111827]">
+    <ThemeCtx.Provider value={isDark}>
+    <div data-sala-theme={isDark ? 'dark' : 'light'} className="flex flex-col h-screen bg-[var(--sala-bg)]">
       {/* Header */}
-      <div className="bg-[#0f172a] border-b border-gray-700 px-4 py-3">
+      <div className="bg-[var(--sala-hdr)] border-b border-[var(--sala-brd)] px-4 py-3">
         <div className="flex items-center justify-between mb-3">
           <button onClick={() => setShowPerfil(true)} className="text-left group">
             <p className="text-[#4CC8A0] text-xs font-semibold">{restaurant.nombre}</p>
-            <p className="text-gray-400 text-xs group-hover:text-gray-200 transition-colors">
+            <p className="text-[var(--sala-tx2)] text-xs group-hover:text-[var(--sala-tx1)] transition-colors">
               👤 {camarero.nombre}
             </p>
           </button>
-          <button onClick={() => { sessionStorage.removeItem('oidoops_camarero'); navigate('/sala', { replace: true }) }}
-            className="text-gray-600 text-xs hover:text-gray-400">
-            Salir
-          </button>
+          <div className="flex items-center gap-3">
+            {/* Theme toggle pill */}
+            <button onClick={toggleTheme} title={isDark ? 'Modo claro' : 'Modo oscuro'}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                background: isDark ? '#1e2d45' : '#e2e8f0',
+                border: `1.5px solid ${isDark ? '#374151' : '#cbd5e1'}`,
+                borderRadius: 20, padding: '4px 8px', cursor: 'pointer',
+                transition: 'all 0.25s',
+              }}>
+              {/* Moon */}
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" style={{ opacity: isDark ? 1 : 0.35, transition: 'opacity 0.25s' }}>
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" fill={isDark ? '#818cf8' : '#94a3b8'} />
+              </svg>
+              {/* Sliding dot */}
+              <div style={{
+                width: 16, height: 16, borderRadius: '50%',
+                background: isDark ? '#818cf8' : '#f59e0b',
+                boxShadow: isDark ? '0 0 8px #818cf866' : '0 0 8px #f59e0b99',
+                transition: 'all 0.25s',
+              }} />
+              {/* Sun */}
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" style={{ opacity: isDark ? 0.35 : 1, transition: 'opacity 0.25s' }}>
+                <circle cx="12" cy="12" r="4" fill={isDark ? '#94a3b8' : '#f59e0b'} />
+                {[0,45,90,135,180,225,270,315].map(a => (
+                  <line key={a}
+                    x1={12 + 7 * Math.cos(a * Math.PI / 180)}
+                    y1={12 + 7 * Math.sin(a * Math.PI / 180)}
+                    x2={12 + 9.5 * Math.cos(a * Math.PI / 180)}
+                    y2={12 + 9.5 * Math.sin(a * Math.PI / 180)}
+                    stroke={isDark ? '#94a3b8' : '#f59e0b'} strokeWidth="2" strokeLinecap="round" />
+                ))}
+              </svg>
+            </button>
+            <button onClick={() => { sessionStorage.removeItem('oidoops_camarero'); navigate('/sala', { replace: true }) }}
+              className="text-[var(--sala-tx4)] text-xs hover:text-[var(--sala-tx2)]">
+              Salir
+            </button>
+          </div>
         </div>
         {/* Vista tabs */}
         <div className="flex items-center gap-2">
           {(['mapa', 'mesas', 'nueva'] as const).map(v => (
             <button key={v} onClick={() => setView(v)}
               className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                view === v ? 'bg-gray-600 text-white' : 'bg-gray-800 text-gray-500 hover:bg-gray-700'
+                view === v ? 'bg-[var(--sala-btna)] text-[var(--sala-txt)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)] hover:bg-gray-700'
               }`}>
               {v === 'mapa' ? '🗺 Mapa' : v === 'mesas' ? `📋 Mesas (${comandas?.length ?? 0})` : '➕ Nueva'}
             </button>
@@ -1566,7 +1695,7 @@ export default function SalaMesasPage() {
             <div className="flex gap-1 ml-1 overflow-x-auto">
               {planes.map(p => (
                 <button key={p.id} onClick={() => setPlanId(p.id)}
-                  className={`px-3 py-1 rounded-lg text-xs font-medium whitespace-nowrap ${activePlan?.id === p.id ? 'bg-gray-600 text-white' : 'bg-gray-800 text-gray-500'}`}>
+                  className={`px-3 py-1 rounded-lg text-xs font-medium whitespace-nowrap ${activePlan?.id === p.id ? 'bg-[var(--sala-btna)] text-[var(--sala-txt)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)]'}`}>
                   {p.nombre}
                 </button>
               ))}
@@ -1579,24 +1708,31 @@ export default function SalaMesasPage() {
       {view === 'mapa' && (activePlan ? (
         <div className="flex-1 overflow-hidden relative" ref={el => {
           if (!el || !activePlan.mesas.length) return
-          const PAD = 24
-          const ms = activePlan.mesas
-          const minX = Math.min(...ms.map(m => m.x)) - PAD
-          const minY = Math.min(...ms.map(m => m.y)) - PAD
-          const maxX = Math.max(...ms.map(m => m.x + mesaWidth(m))) + PAD
-          const maxY = Math.max(...ms.map(m => m.y + mesaHeight(m))) + PAD
-          const scaleX = el.clientWidth  / (maxX - minX)
-          const scaleY = el.clientHeight / (maxY - minY)
-          const scale  = Math.min(scaleX, scaleY)
-          const canvas = el.querySelector('.plan-canvas') as HTMLElement
-          if (canvas) {
-            canvas.style.transformOrigin = '0 0'
-            canvas.style.transform = `scale(${scale}) translate(${-minX}px, ${-minY}px)`
+          const applyScale = () => {
+            const PAD = 24
+            const ms = activePlan.mesas
+            const minX = Math.min(...ms.map(m => m.x)) - PAD
+            const minY = Math.min(...ms.map(m => m.y)) - PAD
+            const contentW = Math.max(...ms.map(m => m.x + mesaWidth(m)))  + PAD - minX
+            const contentH = Math.max(...ms.map(m => m.y + mesaHeight(m))) + PAD - minY
+            const scale   = Math.min(el.clientWidth / contentW, el.clientHeight / contentH)
+            const offsetX = (el.clientWidth  - contentW * scale) / 2
+            const offsetY = (el.clientHeight - contentH * scale) / 2
+            const canvas  = el.querySelector('.plan-canvas') as HTMLElement
+            if (canvas) {
+              canvas.style.transformOrigin = '0 0'
+              canvas.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale}) translate(${-minX}px, ${-minY}px)`
+            }
           }
+          applyScale()
+          const ro = new ResizeObserver(applyScale)
+          ro.observe(el)
+          ;(el as HTMLElement & { _ro?: ResizeObserver })._ro?.disconnect()
+          ;(el as HTMLElement & { _ro?: ResizeObserver })._ro = ro
         }}>
           <div className="plan-canvas" style={{
             position: 'absolute', top: 0, left: 0,
-            backgroundImage: `linear-gradient(to right, #ffffff06 1px, transparent 1px), linear-gradient(to bottom, #ffffff06 1px, transparent 1px)`,
+            backgroundImage: `linear-gradient(to right, var(--sala-grid) 1px, transparent 1px), linear-gradient(to bottom, var(--sala-grid) 1px, transparent 1px)`,
             backgroundSize: '40px 40px',
             width: Math.max(...(activePlan.mesas.map(m => m.x + mesaWidth(m))), 400) + 40,
             height: Math.max(...(activePlan.mesas.map(m => m.y + mesaHeight(m))), 400) + 40,
@@ -1622,7 +1758,7 @@ export default function SalaMesasPage() {
         </div>
       ) : (
         <div className="flex-1 flex items-center justify-center">
-          <p className="text-gray-600 text-sm">No hay planos configurados.</p>
+          <p className="text-[var(--sala-tx4)] text-sm">No hay planos configurados.</p>
         </div>
       ))}
 
@@ -1630,7 +1766,7 @@ export default function SalaMesasPage() {
       {view === 'mesas' && (
         <div className="flex-1 overflow-y-auto p-4">
           {!comandas?.length ? (
-            <div className="text-center py-16 text-gray-600">
+            <div className="text-center py-16 text-[var(--sala-tx4)]">
               <p className="text-4xl mb-3">🍽</p>
               <p className="text-sm">No hay mesas abiertas</p>
             </div>
@@ -1640,14 +1776,14 @@ export default function SalaMesasPage() {
                 const badge = estadoBadge(c)
                 return (
                   <button key={c.id} onClick={() => setComandaAbierta(c.id)}
-                    className="w-full bg-[#1e2d45] hover:bg-[#263a55] rounded-2xl p-4 text-left transition-colors active:scale-95">
+                    className="w-full bg-[var(--sala-srf)] hover:bg-[var(--sala-srf2)] rounded-2xl p-4 text-left transition-colors active:scale-95">
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-white text-2xl font-black">Mesa {c.mesa.numero}</span>
+                      <span className="text-[var(--sala-txt)] text-2xl font-black">Mesa {c.mesa.numero}</span>
                       <span className={`text-xs font-semibold px-2 py-1 rounded-lg ${badge.color}`}>{badge.label}</span>
                     </div>
                     <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-400">{c.pax} pax · {c.items.length} items</span>
-                      <span className="text-gray-500 text-xs">{timeAgo(c.createdAt)}</span>
+                      <span className="text-[var(--sala-tx2)]">{c.pax} pax · {c.items.length} items</span>
+                      <span className="text-[var(--sala-tx3)] text-xs">{timeAgo(c.createdAt)}</span>
                     </div>
                   </button>
                 )
@@ -1661,7 +1797,7 @@ export default function SalaMesasPage() {
       {view === 'nueva' && (
         <div className="flex-1 overflow-y-auto p-4">
           {!mesasLibres.length ? (
-            <div className="text-center py-16 text-gray-600">
+            <div className="text-center py-16 text-[var(--sala-tx4)]">
               <p className="text-4xl mb-3">🎉</p>
               <p className="text-sm">Todas las mesas están ocupadas</p>
             </div>
@@ -1669,9 +1805,9 @@ export default function SalaMesasPage() {
             <div className="grid grid-cols-3 gap-3">
               {mesasLibres.map(m => (
                 <button key={m.id} onClick={() => { setAbrirMesa(m); setView('mapa') }}
-                  className="bg-[#1e2d45] hover:bg-[#263a55] border border-gray-700 rounded-2xl p-5 flex flex-col items-center gap-1 transition-colors active:scale-95">
-                  <span className="text-white text-3xl font-black">{m.numero}</span>
-                  <span className="text-gray-500 text-xs">{m.planNombre}</span>
+                  className="bg-[var(--sala-srf)] hover:bg-[var(--sala-srf2)] border border-[var(--sala-brd)] rounded-2xl p-5 flex flex-col items-center gap-1 transition-colors active:scale-95">
+                  <span className="text-[var(--sala-txt)] text-3xl font-black">{m.numero}</span>
+                  <span className="text-[var(--sala-tx3)] text-xs">{m.planNombre}</span>
                 </button>
               ))}
             </div>
@@ -1689,8 +1825,11 @@ export default function SalaMesasPage() {
           onClose={() => setComandaAbierta(null)}
           onEnviar={(niveles, silent) => enviarComanda.mutate({ id: comandaAbierta, niveles, silent })}
           onLiberar={() => liberarMesa.mutate(comandaAbierta)}
-          onCambiarMesa={comandaDetalle.estado !== 'facturada' ? () => setShowMoverMesa(true) : undefined} />
+          onCambiarMesa={comandaDetalle.estado !== 'facturada' ? () => setShowMoverMesa(true) : undefined}
+          onFacturar={() => { setAnimFacturada(true); setTimeout(() => setAnimFacturada(false), 1800) }} />
       )}
+
+      {animFacturada && <CheckOverlay />}
 
       {showMoverMesa && comandaDetalle && planes && (
         <MoverMesaModal
@@ -1707,5 +1846,6 @@ export default function SalaMesasPage() {
         <PerfilPanel camarero={camarero} onClose={() => setShowPerfil(false)} />
       )}
     </div>
+    </ThemeCtx.Provider>
   )
 }

@@ -260,6 +260,60 @@ export interface PropinaDiaSheets {
   }[]
 }
 
+// Borra las celdas de día de empleados que ya no están en la propina actualizada
+export async function clearRemovedTurnosFromSheet(
+  propina: PropinaDiaSheets,
+  removedTurnos: PropinaDiaSheets['turnos'],
+) {
+  if (!removedTurnos.length) return
+  try {
+    const auth = getAuth()
+    const sheets = google.sheets({ version: 'v4', auth })
+
+    const fecha = new Date(propina.fecha)
+    const periodName = getPeriodName(fecha)
+    const periodDates = getPeriodDates(periodName)
+    const dayIndex = periodDates.findIndex(d => d.toDateString() === fecha.toDateString())
+    if (dayIndex === -1) return
+
+    const restCol    = dayStartCol(dayIndex)
+    const propinaCol = restCol + 2
+
+    // Check sheet exists
+    const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID })
+    const existingSheet = meta.data.sheets?.find(s => s.properties?.title === periodName)
+    if (!existingSheet) return
+
+    // Read employee names column
+    const dataRes = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `'${periodName}'!A3:A200`,
+    })
+    const nameRows: string[] = ((dataRes.data.values ?? []) as string[][]).map(r => r[0] ?? '')
+
+    const clears: sheets_v4.Schema$ValueRange[] = []
+    for (const turno of removedTurnos) {
+      const empIdx = nameRows.findIndex(n => n === turno.empleado.nombre)
+      if (empIdx === -1) continue
+      const sheetRow = empIdx + 3
+      clears.push({
+        range: `'${periodName}'!${colLetter(restCol)}${sheetRow}:${colLetter(propinaCol)}${sheetRow}`,
+        values: [['', '', '']],
+      })
+    }
+
+    if (clears.length > 0) {
+      await sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId: SPREADSHEET_ID,
+        requestBody: { valueInputOption: 'RAW', data: clears },
+      })
+      console.log(`[Sheets] Cleared ${clears.length} removed employees from "${periodName}"`)
+    }
+  } catch (err) {
+    console.error('[Sheets] Error clearing removed employees:', err)
+  }
+}
+
 export async function appendPropinaToSheet(propina: PropinaDiaSheets) {
   try {
     const auth = getAuth()

@@ -46,8 +46,26 @@ export async function comandaRoutes(app: FastifyInstance) {
     const abierta = await prisma.comanda.findFirst({ where: { mesaId, estado: 'abierta' } })
     if (abierta) return reply.status(409).send({ error: 'La mesa ya tiene una comanda abierta' })
 
+    const autoItems = await prisma.menuItem.findMany({
+      where: { restaurantId, autoPorPax: true, activo: true },
+    })
+
     const comanda = await prisma.comanda.create({
-      data: { restaurantId, mesaId, pax, estado: 'abierta', camareroNombre: camareroNombre ?? null },
+      data: {
+        restaurantId, mesaId, pax, estado: 'abierta', camareroNombre: camareroNombre ?? null,
+        items: autoItems.length > 0 ? {
+          create: autoItems.map(item => ({
+            nombre:        item.nombre,
+            precio:        item.precio,
+            cantidad:      pax,
+            tipo:          'barra' as const,
+            nota:          '',
+            nivel:         null,
+            ronda:         0,
+            autoGenerado:  true,
+          })),
+        } : undefined,
+      },
       include: { items: true, mesa: true },
     })
     broadcast(restaurantId, 'update')
@@ -215,6 +233,32 @@ export async function comandaRoutes(app: FastifyInstance) {
     return comanda
   })
 
+  // Cambiar PAX (actualiza cantidad de auto-items y los marca como pendientes)
+  app.patch('/comandas/:id/pax', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    const { pax } = req.body as { pax: number }
+    if (!pax || pax < 1) return reply.status(400).send({ error: 'pax inválido' })
+
+    const current = await prisma.comanda.findUnique({ where: { id } })
+    if (!current) return reply.status(404).send({ error: 'No encontrado' })
+
+    // Resetear auto-items a pendiente (nivel=null) para que el camarero confirme con "Oído"
+    await prisma.comandaItem.updateMany({
+      where: { comandaId: id, autoGenerado: true },
+      data:  { cantidad: pax, nivel: null, ronda: 0 },
+    })
+
+    // Si estaba enviada, volver a abierta para mostrar el botón "Oído"
+    const nuevoEstado = current.estado === 'enviada' ? 'abierta' : current.estado
+    const comanda = await prisma.comanda.update({
+      where: { id },
+      data:  { pax, estado: nuevoEstado },
+      include: { items: true, mesa: true },
+    })
+    broadcast(comanda.restaurantId, 'update')
+    return comanda
+  })
+
   // Facturar comanda (camarero imprimió la cuenta)
   app.patch('/comandas/:id/facturar', async (req, reply) => {
     const id = Number((req.params as { id: string }).id)
@@ -242,11 +286,11 @@ export async function comandaRoutes(app: FastifyInstance) {
   // Cerrar comanda (cobrada — requiere método de pago)
   app.patch('/comandas/:id/cerrar', async (req, reply) => {
     const id = Number((req.params as { id: string }).id)
-    const { metodoPago } = req.body as { metodoPago?: 'cash' | 'tarjeta' }
+    const { metodoPago, propina = 0 } = req.body as { metodoPago?: 'cash' | 'tarjeta'; propina?: number }
 
     const comanda = await prisma.comanda.update({
       where: { id },
-      data: { estado: 'cerrada', closedAt: new Date(), metodoPago: metodoPago ?? null },
+      data: { estado: 'cerrada', closedAt: new Date(), metodoPago: metodoPago ?? null, propina },
       include: { items: true, mesa: true },
     })
     broadcast(comanda.restaurantId, 'update')
