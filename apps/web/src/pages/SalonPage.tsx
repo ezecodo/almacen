@@ -123,11 +123,11 @@ function BarraModal({ mesa, onConfirm, onDelete, onClose }: {
 // ── Modal elemento decorativo ────────────────────────────────────────────────
 function ElementoModal({ mesa, onConfirm, onDelete, onClose }: {
   mesa?: Mesa
-  onConfirm: (data: { tipo: string; ancho: number; alto: number }) => void
+  onConfirm: (data: { tipo: Mesa['tipo']; ancho: number; alto: number }) => void
   onDelete?: () => void
   onClose: () => void
 }) {
-  const [tipoLocal, setTipoLocal] = useState(mesa?.tipo ?? 'pared')
+  const [tipoLocal, setTipoLocal] = useState<keyof typeof ELEM_DEFS>(mesa?.tipo as keyof typeof ELEM_DEFS ?? 'pared')
   const [anchoU, setAnchoU] = useState(Math.round((mesa?.ancho ?? BARRA_DEFAULT_W) / CELL))
   const [altoU,  setAltoU]  = useState(Math.round((mesa?.alto  ?? BARRA_DEFAULT_H) / CELL))
   const def = ELEM_DEFS[tipoLocal]
@@ -144,7 +144,7 @@ function ElementoModal({ mesa, onConfirm, onDelete, onClose }: {
           <label className="text-gray-400 text-xs mb-2 block">Tipo</label>
           <div className="grid grid-cols-2 gap-2">
             {Object.entries(ELEM_DEFS).map(([t, d]) => (
-              <button key={t} onClick={() => setTipoLocal(t)}
+              <button key={t} onClick={() => setTipoLocal(t as keyof typeof ELEM_DEFS)}
                 className={`py-2 px-3 rounded-xl text-xs font-bold transition-all border ${
                   tipoLocal === t
                     ? 'bg-gray-700 text-white border-gray-400'
@@ -201,7 +201,7 @@ function ElementoModal({ mesa, onConfirm, onDelete, onClose }: {
               🗑
             </button>
           )}
-          <button onClick={() => onConfirm({ tipo: tipoLocal, ancho: anchoU * CELL, alto: altoU * CELL })}
+          <button onClick={() => onConfirm({ tipo: tipoLocal as Mesa['tipo'], ancho: anchoU * CELL, alto: altoU * CELL })}
             className="flex-1 py-3 rounded-xl bg-gray-600 text-white font-bold hover:bg-gray-500">
             {mesa ? 'Guardar' : 'Añadir'}
           </button>

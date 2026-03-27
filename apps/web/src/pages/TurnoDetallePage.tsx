@@ -11,9 +11,6 @@ function fmtHora(iso: string) {
   return new Date(iso).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
 }
 
-function fmtFecha(iso: string) {
-  return new Date(iso).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-}
 
 function ComandaCard({ comanda }: { comanda: Comanda }) {
   const total = comanda.items.reduce((s, i) => s + i.precio * i.cantidad, 0)

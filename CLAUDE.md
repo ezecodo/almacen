@@ -84,6 +84,15 @@ cd apps/api && npx prisma studio
 cd apps/api && npx tsx prisma/seed.ts
 ```
 
+## Deploy
+
+**GitHub Actions se encarga del deploy automático al VPS.**
+Basta con hacer `git push` desde local — el workflow actualiza el VPS automáticamente (git pull + build frontend + migraciones + restart PM2).
+
+- VPS: Ubuntu, directorio `/root/almacen`
+- Proceso PM2: `almacen-api` (el frontend lo sirve Nginx como estáticos)
+- Para ver estado en VPS: `pm2 status` / `pm2 logs --lines 50`
+
 ---
 
 ## Módulo: Sala (TPV)

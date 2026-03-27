@@ -85,11 +85,10 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
               {group.icon} {group.label}
             </p>
             <div className="space-y-0.5">
-              {group.items.map(({ to, label, end }) => (
+              {group.items.map(({ to, label }) => (
                 <NavLink
                   key={to}
                   to={to}
-                  end={end}
                   className={linkClass}
                   onClick={onNavigate}
                 >
