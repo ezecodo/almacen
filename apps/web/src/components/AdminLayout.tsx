@@ -74,7 +74,9 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     <div className="flex flex-col h-full">
       {/* Logo */}
       <div className="px-4 py-4 border-b border-gray-200">
-        <img src="/oidoops.svg" alt="OidoOps" className="h-7 object-contain" />
+        <Link to="/admin" onClick={onNavigate}>
+          <img src="/oidoops.svg" alt="OidoOps" className="h-7 object-contain" />
+        </Link>
       </div>
 
       {/* Nav groups */}

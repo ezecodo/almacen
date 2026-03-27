@@ -16,6 +16,15 @@ export async function turnoRoutes(app: FastifyInstance) {
     return turno ?? null
   })
 
+  // Todos los turnos activos (para dashboard global)
+  app.get('/turnos/activos', async (_req, _reply) => {
+    return prisma.turno.findMany({
+      where: { estado: 'abierto' },
+      include: { restaurant: true },
+      orderBy: { aperturaAt: 'asc' },
+    })
+  })
+
   // Abrir turno
   app.post('/turnos', async (req, reply) => {
     const schema = z.object({

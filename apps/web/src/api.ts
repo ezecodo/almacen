@@ -582,7 +582,8 @@ export const api = {
     }) => post<Comanda>(`/grupo-menu/${id}/generar`, body),
   },
   turnos: {
-    getActivo: (restaurantId: number) => get<Turno | null>(`/turnos/activo?restaurantId=${restaurantId}`),
+    getActivo:  (restaurantId: number) => get<Turno | null>(`/turnos/activo?restaurantId=${restaurantId}`),
+    getActivos: () => get<(Turno & { restaurant: Restaurante })[]>('/turnos/activos'),
     abrir:     (restaurantId: number, encargadoNombre?: string) =>
       post<Turno>('/turnos', { restaurantId, encargadoNombre }),
     cerrar:    (id: number) => patch<Turno>(`/turnos/${id}/cerrar`, {}),

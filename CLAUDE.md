@@ -250,3 +250,32 @@ Las keyframes (`checkOverlayFade`, `checkBadgeIn`, `drawCheckStroke`, `checkText
 - Zod para validación en el backend
 - Nombres en español para variables de dominio (comanda, mesa, retiro, empleado)
 - Nombres en inglés para términos técnicos (handler, props, state)
+
+## TypeScript — errores frecuentes a evitar
+
+**Siempre verificar con `cd apps/web && npx tsc --noEmit` antes de hacer commit.** El build de producción falla si hay errores TS.
+
+Errores que han ocurrido:
+
+1. **Funciones declaradas y no usadas** — eliminarlas directamente, no dejarlas comentadas.
+   ```ts
+   // ❌ function fmtFecha(...) { ... }  // declared but never read
+   ```
+
+2. **`Object.entries()` devuelve `string`**, no el tipo union de la key. Castear explícitamente:
+   ```ts
+   // ❌ onClick={() => setTipoLocal(t)}
+   // ✅ onClick={() => setTipoLocal(t as Mesa['tipo'])}
+   ```
+
+3. **Props de componentes con tipo `string` cuando el estado espera un union type** — usar `Mesa['tipo']` en lugar de `string` en las interfaces de props:
+   ```ts
+   // ❌ onConfirm: (data: { tipo: string }) => void
+   // ✅ onConfirm: (data: { tipo: Mesa['tipo'] }) => void
+   ```
+
+4. **Desestructurar propiedades que no existen en el tipo** — si un array de objetos no tiene una propiedad opcional, no desestructurarla o añadirla al tipo:
+   ```ts
+   // ❌ items.map(({ to, label, end }) => ...)  // si 'end' no está en el tipo
+   // ✅ items.map(({ to, label }) => ...)
+   ```
