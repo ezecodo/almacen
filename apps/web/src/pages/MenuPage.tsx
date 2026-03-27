@@ -562,7 +562,7 @@ export default function MenuPage() {
                         selected={catSeleccionada?.id === cat.id}
                         onSelect={() => { setCatSeleccionada(cat); setCreandoCat(null); setEditandoCat(null) }}
                         onEdit={() => { setEditandoCat(cat); setCatSeleccionada(null); setCreandoCat(null) }}
-                        onDelete={() => { if (confirm(`¿Eliminar "${cat.nombre}"?`)) eliminarCat.mutate(cat.id) }}
+                        onDelete={() => { if (confirm(`¿Eliminar "${cat.nombre}"?\n\nSe eliminarán también todos sus items.`)) eliminarCat.mutate(cat.id) }}
                         onCopiar={() => setCopiandoCat(cat)}
                       />
                     ))}

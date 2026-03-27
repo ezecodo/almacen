@@ -107,13 +107,9 @@ export async function menuRoutes(app: FastifyInstance) {
     const cat = await prisma.menuCategoria.findUnique({ where: { id } })
     if (!cat) return reply.status(404).send({ error: 'No encontrada' })
 
-    const itemCount = await prisma.menuItem.count({
+    await prisma.menuItem.deleteMany({
       where: { restaurantId: cat.restaurantId, categoria: cat.nombre },
     })
-    if (itemCount > 0) {
-      return reply.status(409).send({ error: `Tiene ${itemCount} items. Elimínalos primero.` })
-    }
-
     await prisma.menuCategoria.delete({ where: { id } })
     return reply.status(204).send()
   })
