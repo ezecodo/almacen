@@ -111,27 +111,37 @@ function ReviewsWidget() {
         <div className="px-5 py-8 text-center text-gray-300 text-sm">Cargando…</div>
       ) : (
         <div className="divide-y divide-gray-50">
-          {reviews.map(r => (
-            <div key={r.restaurantId} className="px-5 py-3 flex items-center justify-between">
-              <p className="text-sm font-semibold text-gray-800">{r.nombre}</p>
-              <div className="flex items-center gap-3">
-                {r.diff !== null && r.diff !== 0 && (
-                  <span className={`text-xs font-medium ${r.diff > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                    {r.diff > 0 ? `+${r.diff}` : r.diff} hoy
-                  </span>
-                )}
-                {r.rating ? (
-                  <div className="flex items-center gap-1">
-                    <span className="text-amber-400 text-sm">★</span>
-                    <span className="text-sm font-bold text-gray-800">{r.rating.toFixed(1)}</span>
-                    <span className="text-xs text-gray-400">({r.total})</span>
+          {reviews.map(r => {
+            const ratingBajo = r.ratingDiff !== null && r.ratingDiff < 0
+            return (
+              <div key={r.restaurantId} className={`px-5 py-3 ${ratingBajo ? 'bg-red-50' : ''}`}>
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-gray-800">{r.nombre}</p>
+                  <div className="flex items-center gap-3">
+                    {r.diff !== null && r.diff !== 0 && (
+                      <span className={`text-xs font-medium ${r.diff > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                        {r.diff > 0 ? `+${r.diff}` : r.diff} hoy
+                      </span>
+                    )}
+                    {r.rating ? (
+                      <div className="flex items-center gap-1">
+                        <span className="text-amber-400 text-sm">★</span>
+                        <span className={`text-sm font-bold ${ratingBajo ? 'text-red-600' : 'text-gray-800'}`}>{r.rating.toFixed(1)}</span>
+                        <span className="text-xs text-gray-400">({r.total})</span>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-gray-300">Sin datos</span>
+                    )}
                   </div>
-                ) : (
-                  <span className="text-xs text-gray-300">Sin datos</span>
+                </div>
+                {ratingBajo && (
+                  <p className="text-xs text-red-500 mt-0.5">
+                    ⚠️ Rating bajó {r.ratingDiff} desde ayer ({r.ratingAnterior?.toFixed(1)} → {r.rating?.toFixed(1)}) — revisar Google Maps
+                  </p>
                 )}
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>

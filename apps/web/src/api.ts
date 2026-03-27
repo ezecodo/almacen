@@ -505,7 +505,7 @@ export const api = {
     delete: (id: number) => del(`/menu/${id}`),
   },
   reviews: {
-    list: () => get<{ restaurantId: number; nombre: string; total: number | null; rating: number | null; diff: number | null; fecha: string | null }[]>('/reviews'),
+    list: () => get<{ restaurantId: number; nombre: string; total: number | null; rating: number | null; ratingAnterior: number | null; ratingDiff: number | null; diff: number | null; fecha: string | null }[]>('/reviews'),
     sync: () => post<{ synced: number }>('/reviews/sync', {}),
   },
   comandas: {

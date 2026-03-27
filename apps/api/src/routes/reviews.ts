@@ -30,11 +30,14 @@ export async function reviewRoutes(app: FastifyInstance) {
       const ultimo = r.reviews[0] ?? null
       const anterior = r.reviews[1] ?? null
       const diff = ultimo && anterior ? ultimo.total - anterior.total : null
+      const ratingDiff = ultimo && anterior ? +(ultimo.rating - anterior.rating).toFixed(1) : null
       return {
         restaurantId: r.id,
         nombre: r.nombre,
         total: ultimo?.total ?? null,
         rating: ultimo?.rating ?? null,
+        ratingAnterior: anterior?.rating ?? null,
+        ratingDiff,
         diff,
         fecha: ultimo?.fecha ?? null,
       }
