@@ -505,9 +505,9 @@ export const api = {
     delete: (id: number) => del(`/menu/${id}`),
   },
   reviews: {
-    list: () => get<{ restaurantId: number; nombre: string; total: number | null; rating: number | null; ratingAnterior: number | null; ratingDiff: number | null; diff: number | null; fecha: string | null; totalMes: number | null; objetivoMensual: number | null }[]>('/reviews'),
+    list: () => get<{ restaurantId: number; nombre: string; total: number | null; rating: number | null; ratingAnterior: number | null; ratingDiff: number | null; diff: number | null; fecha: string | null; totalMes: number | null; tasa: number | null; paxMes: number; objetivoDinamico: number | null }[]>('/reviews'),
     sync: () => post<{ synced: number }>('/reviews/sync', {}),
-    setObjetivo: (restaurantId: number, objetivo: number) => patch<{ restaurantId: number; objetivo: number | null }>('/reviews/objetivo', { restaurantId, objetivo }),
+    setObjetivo: (restaurantId: number, tasa: number) => patch<{ restaurantId: number; tasa: number | null }>('/reviews/objetivo', { restaurantId, tasa }),
   },
   comandas: {
     list:      (restaurantId: number, estado?: string) =>

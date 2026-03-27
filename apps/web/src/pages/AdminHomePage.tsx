@@ -103,7 +103,7 @@ function ReviewsWidget() {
 
   const openModal = () => {
     const initial: Record<number, string> = {}
-    reviews.forEach(r => { initial[r.restaurantId] = r.objetivoMensual?.toString() ?? '' })
+    reviews.forEach(r => { initial[r.restaurantId] = r.tasa?.toString() ?? '' })
     setObjetivos(initial)
     setModalOpen(true)
   }
@@ -113,7 +113,7 @@ function ReviewsWidget() {
     await Promise.all(
       reviews.map(r => {
         const val = parseInt(objetivos[r.restaurantId] ?? '', 10)
-        if (!isNaN(val) && val !== (r.objetivoMensual ?? null)) {
+        if (!isNaN(val) && val >= 1 && val !== (r.tasa ?? null)) {
           return api.reviews.setObjetivo(r.restaurantId, val)
         }
       })
@@ -149,8 +149,8 @@ function ReviewsWidget() {
           <div className="divide-y divide-gray-50">
             {reviews.map(r => {
               const ratingBajo = r.ratingDiff !== null && r.ratingDiff < 0
-              const pct = r.objetivoMensual && r.totalMes !== null
-                ? Math.min(100, Math.round((r.totalMes / r.objetivoMensual) * 100))
+              const pct = r.objetivoDinamico && r.totalMes !== null
+                ? Math.min(100, Math.round((r.totalMes / r.objetivoDinamico) * 100))
                 : null
               return (
                 <div key={r.restaurantId} className={`px-5 py-3 ${ratingBajo ? 'bg-red-50' : ''}`}>
@@ -181,7 +181,7 @@ function ReviewsWidget() {
                   {pct !== null && (
                     <div className="mt-1.5">
                       <div className="flex items-center justify-between mb-0.5">
-                        <span className="text-xs text-gray-400">{r.totalMes} / {r.objetivoMensual} este mes</span>
+                        <span className="text-xs text-gray-400">{r.totalMes} / {r.objetivoDinamico} este mes ({r.paxMes} pax)</span>
                         <span className={`text-xs font-medium ${pct >= 100 ? 'text-emerald-600' : 'text-gray-500'}`}>{pct}%</span>
                       </div>
                       <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
@@ -205,20 +205,22 @@ function ReviewsWidget() {
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm">
             <div className="px-5 py-4 border-b border-gray-100">
               <h3 className="font-bold text-gray-800">Objetivo de reviews — <span className="capitalize">{mesActual}</span></h3>
-              <p className="text-xs text-gray-400 mt-0.5">Reviews nuevas a conseguir este mes por restaurante</p>
+              <p className="text-xs text-gray-400 mt-0.5">1 review por cada X comensales atendidos este mes</p>
             </div>
             <div className="px-5 py-4 space-y-3">
               {reviews.map(r => (
-                <div key={r.restaurantId} className="flex items-center justify-between gap-4">
+                <div key={r.restaurantId} className="flex items-center gap-3">
                   <label className="text-sm text-gray-700 flex-1">{r.nombre}</label>
+                  <span className="text-xs text-gray-400 shrink-0">1 cada</span>
                   <input
                     type="number"
-                    min={0}
+                    min={1}
                     value={objetivos[r.restaurantId] ?? ''}
                     onChange={e => setObjetivos(prev => ({ ...prev, [r.restaurantId]: e.target.value }))}
                     placeholder="—"
-                    className="w-20 text-center border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-300"
+                    className="w-16 text-center border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-300"
                   />
+                  <span className="text-xs text-gray-400 shrink-0">pax</span>
                 </div>
               ))}
             </div>

@@ -11,7 +11,7 @@ model Restaurant {
   id                     Int                   @id @default(autoincrement())
   nombre                 String
   placeId                String?
-  reviewObjetivoMensual  Int?
+  reviewObjetivoTasa     Int?
   retiros       Retiro[]
   reviews       ReviewSnapshot[]
   propinas      PropinaDia[]
