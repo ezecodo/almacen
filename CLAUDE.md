@@ -153,7 +153,17 @@ Sistema de reparto de propinas por turno. Registro de efectivo + tarjeta del dí
 
 ### Google Reviews
 
-Widget en el dashboard admin que muestra el rating y total de reseñas por restaurante, con diferencial diario. Sync manual protegido por clave.
+Widget en el dashboard admin (`AdminHomePage`) que muestra por restaurante:
+- Rating actual ★ + total de reseñas
+- Diferencial diario (`diff` hoy)
+- **Alerta ⚠️** si el rating bajó respecto al snapshot anterior (`ratingDiff < 0`) — fondo rojo, manager debe revisar Google Maps
+- **Barra de progreso mensual**: objetivo dinámico = `floor(paxMes / tasa)`. La tasa (1 review cada X comensales) se configura por restaurante con el ⚙️ del widget.
+
+**Snapshots**: cron diario a las 17:44 en VPS (`44 17 * * * curl ... POST /api/reviews/sync`). Un snapshot por restaurante por día. Se conservan todos — el diff usa `take: 2 orderBy fecha desc`. El progreso mensual usa el primer snapshot del mes vs el último.
+
+**Campo en Restaurant**: `reviewObjetivoTasa Int?` — tasa de objetivo. `PATCH /reviews/objetivo` para actualizarlo.
+
+**Prisma db push**: en local usar `npx prisma db push` (no `migrate dev`) ya que las migraciones tienen conflictos con la shadow DB.
 
 ### Turnos
 
@@ -163,9 +173,27 @@ Gestionados desde `/admin/turnos`. Cada turno tiene estado `abierto` o `cerrado`
 - `TurnoDetallePage` (`/admin/turnos/:id`): todas las comandas cerradas del turno agrupadas por mesa, con items, mermas y método de pago
 - **Propinas vinculadas a turno**: `PropinaDia.turnoId` es `@unique` — un turno solo puede tener una propina. El modal usa búsqueda por nombre (autocomplete) para seleccionar empleados. Al modificar, reescribe Google Sheets y limpia empleados eliminados con `clearRemovedTurnosFromSheet`.
 
+**Endpoints extra**:
+- `GET /turnos/activos` — todos los turnos abiertos con `restaurant` incluido (widget TurnosWidget)
+- `GET /turnos/activos/stats` — facturación en vivo por restaurante: suma de comandas cerradas desde apertura del turno (`totalEfectivo`, `totalTarjeta`, `totalVentas`, `numComandas`). Incluye restaurantes sin turno activo (con ceros).
+
 ### Modo visual camarero (SalaMesasPage)
 
 Toggle claro/oscuro persistido en `localStorage('sala_theme')`. El tema se aplica mediante `data-sala-theme="dark|light"` en el div raíz, con CSS custom properties definidas en `index.css` (`--sala-bg`, `--sala-hdr`, `--sala-srf`, `--sala-txt`, etc.). `ThemeCtx` context pasa `isDark` a componentes hijos como `MesaBtn`. El toggle es un pill SVG luna/sol en el header del camarero.
+
+---
+
+## Dashboard Admin (`/admin` — AdminHomePage)
+
+Página de inicio tras el login. Animación de entrada: viñeta grande aparece con spring → encoge → viñeta pequeña queda como acento sobre la "ı" de "OıdoOps" → tagline → widgets.
+
+### Widgets
+
+**TurnosWidget** — turnos activos en este momento, con nombre del encargado y tiempo transcurrido. Polling 30s.
+
+**ReviewsWidget** — rating + total + diferencial diario por restaurante. Alerta ⚠️ si rating bajó. Barra de progreso mensual si hay tasa configurada. Ruedita ⚙️ abre modal para configurar `1 review cada X pax` por restaurante. Polling 60s.
+
+**FacturacionWidget** — facturación en vivo del día por restaurante (ocupa 2 columnas). Muestra total global en el header. Por restaurante: total €, desglose efectivo/tarjeta, nº comandas. Restaurantes sin turno activo aparecen en gris. Polling 30s.
 
 ---
 
