@@ -261,6 +261,7 @@ export interface PropinaDiaSheets {
 }
 
 // Borra las celdas de día de empleados que ya no están en la propina actualizada
+// Solo limpia la fila (1 o 2) que corresponde al restaurante de esta propina
 export async function clearRemovedTurnosFromSheet(
   propina: PropinaDiaSheets,
   removedTurnos: PropinaDiaSheets['turnos'],
@@ -279,27 +280,36 @@ export async function clearRemovedTurnosFromSheet(
     const restCol    = dayStartCol(dayIndex)
     const propinaCol = restCol + 2
 
-    // Check sheet exists
     const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID })
     const existingSheet = meta.data.sheets?.find(s => s.properties?.title === periodName)
     if (!existingSheet) return
 
-    // Read employee names column
-    const dataRes = await sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `'${periodName}'!A3:A200`,
-    })
-    const nameRows: string[] = ((dataRes.data.values ?? []) as string[][]).map(r => r[0] ?? '')
+    // Read col A (names) and restaurant col for this day — to know which row to clear
+    const [namesRes, restsRes] = await Promise.all([
+      sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `'${periodName}'!A3:A200` }),
+      sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `'${periodName}'!${colLetter(restCol)}3:${colLetter(restCol)}200` }),
+    ])
+    const nameRows: string[] = ((namesRes.data.values ?? []) as string[][]).map(r => r[0] ?? '')
+    const restRows: string[] = ((restsRes.data.values ?? []) as string[][]).map(r => r[0] ?? '')
 
     const clears: sheets_v4.Schema$ValueRange[] = []
     for (const turno of removedTurnos) {
       const empIdx = nameRows.findIndex(n => n === turno.empleado.nombre)
       if (empIdx === -1) continue
-      const sheetRow = empIdx + 3
-      clears.push({
-        range: `'${periodName}'!${colLetter(restCol)}${sheetRow}:${colLetter(propinaCol)}${sheetRow}`,
-        values: [['', '', '']],
-      })
+      const sheetRow1 = empIdx + 3
+      const sheetRow2 = sheetRow1 + 1
+      // Clear the row that has this restaurant's data
+      if ((restRows[empIdx] ?? '') === propina.restaurant.nombre) {
+        clears.push({ range: `'${periodName}'!${colLetter(restCol)}${sheetRow1}:${colLetter(propinaCol)}${sheetRow1}`, values: [['', '', '']] })
+      } else if ((restRows[empIdx + 1] ?? '') === propina.restaurant.nombre) {
+        clears.push({ range: `'${periodName}'!${colLetter(restCol)}${sheetRow2}:${colLetter(propinaCol)}${sheetRow2}`, values: [['', '', '']] })
+      } else {
+        // Fallback: clear both rows for this day
+        clears.push(
+          { range: `'${periodName}'!${colLetter(restCol)}${sheetRow1}:${colLetter(propinaCol)}${sheetRow1}`, values: [['', '', '']] },
+          { range: `'${periodName}'!${colLetter(restCol)}${sheetRow2}:${colLetter(propinaCol)}${sheetRow2}`, values: [['', '', '']] },
+        )
+      }
     }
 
     if (clears.length > 0) {
@@ -307,7 +317,7 @@ export async function clearRemovedTurnosFromSheet(
         spreadsheetId: SPREADSHEET_ID,
         requestBody: { valueInputOption: 'RAW', data: clears },
       })
-      console.log(`[Sheets] Cleared ${clears.length} removed employees from "${periodName}"`)
+      console.log(`[Sheets] Cleared ${clears.length} cells from "${periodName}"`)
     }
   } catch (err) {
     console.error('[Sheets] Error clearing removed employees:', err)
@@ -339,19 +349,15 @@ export async function appendPropinaToSheet(propina: PropinaDiaSheets) {
     // 1. Ensure sheet tab exists
     const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID })
     const existingSheet = meta.data.sheets?.find(s => s.properties?.title === periodName)
-
     let sheetId: number
 
     if (!existingSheet) {
       const addRes = await sheets.spreadsheets.batchUpdate({
         spreadsheetId: SPREADSHEET_ID,
-        requestBody: {
-          requests: [{ addSheet: { properties: { title: periodName } } }],
-        },
+        requestBody: { requests: [{ addSheet: { properties: { title: periodName } } }] },
       })
       sheetId = addRes.data.replies?.[0]?.addSheet?.properties?.sheetId!
 
-      // Build header rows
       const row1: string[] = ['NOMBRE']
       const row2: string[] = ['']
       for (const d of periodDates) {
@@ -371,70 +377,141 @@ export async function appendPropinaToSheet(propina: PropinaDiaSheets) {
           ],
         },
       })
-
-      // Apply formatting
       await formatNewSheet(sheets, sheetId, totalDays)
     } else {
       sheetId = existingSheet.properties?.sheetId!
     }
 
-    // 2. Read existing employee names
-    const dataRes = await sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `'${periodName}'!A3:A200`,
-    })
-    const nameRows: string[] = ((dataRes.data.values ?? []) as string[][]).map(r => r[0] ?? '')
+    // 2. Read col A (names) and restaurant col for this day (to decide row1 vs row2 per employee)
+    // Each employee occupies 2 consecutive rows: row1 = name + data, row2 = blank name + overflow data
+    const [namesRes, restsRes] = await Promise.all([
+      sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `'${periodName}'!A3:A200` }),
+      sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `'${periodName}'!${colLetter(restCol)}3:${colLetter(restCol)}200` }),
+    ])
+    const nameRows: string[] = ((namesRes.data.values ?? []) as string[][]).map(r => r[0] ?? '')
+    // The Sheets API omits trailing empty rows — pad to even length so each employee's row2 placeholder is accounted for
+    if (nameRows.length % 2 !== 0) nameRows.push('')
+    const existingRests: string[] = ((restsRes.data.values ?? []) as string[][]).map(r => r[0] ?? '')
+    while (existingRests.length < nameRows.length) existingRests.push('')
 
-    // 3. Build value updates
     const updates: sheets_v4.Schema$ValueRange[] = []
+    const formatRequests: sheets_v4.Schema$Request[] = []
 
-    for (const turno of propina.turnos) {
-      let empIdx = nameRows.findIndex(n => n === turno.empleado.nombre)
+    // ── Pre-pass: insert rows for new employees in alphabetical order ──────────
+    // Process sorted so each insertion index is correct relative to the previous ones
+    const newEmpNames = propina.turnos
+      .map(t => t.empleado.nombre)
+      .filter(name => !nameRows.some(n => n === name))
 
-      if (empIdx === -1) {
-        empIdx = nameRows.length
-        nameRows.push(turno.empleado.nombre)
-        updates.push({
-          range: `'${periodName}'!A${empIdx + 3}`,
-          values: [[turno.empleado.nombre]],
+    if (newEmpNames.length > 0) {
+      const currentEmpNames = nameRows.filter((_, i) => i % 2 === 0)
+      const allEmpSorted = [...new Set([...currentEmpNames, ...newEmpNames])]
+        .sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }))
+      const newEmpsSorted = [...newEmpNames].sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }))
+
+      for (const name of newEmpsSorted) {
+        const sortedIdx   = allEmpSorted.indexOf(name)
+        const nameRowsIdx = sortedIdx * 2
+        const insertAtSheetIdx = nameRowsIdx + 2 // 0-indexed, +2 for header rows
+
+        // insertDimension must be the first requests in the batch
+        formatRequests.push({
+          insertDimension: {
+            range: { sheetId, dimension: 'ROWS', startIndex: insertAtSheetIdx, endIndex: insertAtSheetIdx + 2 },
+            inheritFromBefore: false,
+          },
         })
+
+        // Mirror insertion in memory so subsequent sortedIdx calculations stay correct
+        nameRows.splice(nameRowsIdx, 0, name, '')
+        existingRests.splice(nameRowsIdx, 0, '', '')
+      }
+    }
+
+    // ── Main loop: write data and apply formatting for new employees ───────────
+    for (const turno of propina.turnos) {
+      const empIdx = nameRows.findIndex(n => n === turno.empleado.nombre)
+      const isNew  = newEmpNames.includes(turno.empleado.nombre)
+
+      // sheetRow1 = row with employee name, sheetRow2 = continuation row
+      const sheetRow1 = empIdx + 3
+      const sheetRow2 = sheetRow1 + 1
+
+      if (isNew) {
+        updates.push({ range: `'${periodName}'!A${sheetRow1}`, values: [[turno.empleado.nombre]] })
       }
 
-      const sheetRow = empIdx + 3
+      // Decide target row: row1 if empty or same restaurant, row2 otherwise
+      const restInRow1 = existingRests[empIdx] ?? ''
+      const targetRow = (restInRow1 === '' || restInRow1 === propina.restaurant.nombre)
+        ? sheetRow1
+        : sheetRow2
 
+      // Write day data to target row
       updates.push({
-        range: `'${periodName}'!${colLetter(restCol)}${sheetRow}:${colLetter(propinaCol)}${sheetRow}`,
+        range: `'${periodName}'!${colLetter(restCol)}${targetRow}:${colLetter(propinaCol)}${targetRow}`,
         values: [[propina.restaurant.nombre, turno.horas, turno.propina]],
       })
 
-      const horasTotalFormula   = `=${periodDates.map((_, i) => `${colLetter(dayStartCol(i) + 1)}${sheetRow}`).join('+')}`
-      const propinaTotalFormula = `=${periodDates.map((_, i) => `${colLetter(dayStartCol(i) + 2)}${sheetRow}`).join('+')}`
+      // Total formulas in row1 only — sum both rows of this employee block
+      const horasFormula   = `=${periodDates.map((_, i) => { const c = colLetter(dayStartCol(i) + 1); return `${c}${sheetRow1}+${c}${sheetRow2}` }).join('+')}`
+      const propinaFormula = `=${periodDates.map((_, i) => { const c = colLetter(dayStartCol(i) + 2); return `${c}${sheetRow1}+${c}${sheetRow2}` }).join('+')}`
 
       updates.push({
-        range: `'${periodName}'!${colLetter(totalHorasCol)}${sheetRow}:${colLetter(totalPropinaCol)}${sheetRow}`,
-        values: [[horasTotalFormula, propinaTotalFormula]],
+        range: `'${periodName}'!${colLetter(totalHorasCol)}${sheetRow1}:${colLetter(totalPropinaCol)}${sheetRow1}`,
+        values: [[horasFormula, propinaFormula]],
       })
 
-      // Apply name column formatting for new employees
-      if (nameRows.indexOf(turno.empleado.nombre) === empIdx) {
-        await sheets.spreadsheets.batchUpdate({
-          spreadsheetId: SPREADSHEET_ID,
-          requestBody: {
-            requests: [{
-              repeatCell: {
-                range: { sheetId, startRowIndex: sheetRow - 1, endRowIndex: sheetRow, startColumnIndex: 0, endColumnIndex: 1 },
-                cell: {
-                  userEnteredFormat: {
-                    backgroundColor: C.gray,
-                    textFormat: { bold: true },
-                  },
-                },
-                fields: 'userEnteredFormat(backgroundColor,textFormat)',
-              },
-            }],
+      // Format col A for new employee (both rows) + merge + borders
+      if (isNew) {
+        const lastCol = totalPropinaCol + 1
+        formatRequests.push(
+          // Col A merged cell: larger bold name, vertically centered, gray bg
+          {
+            repeatCell: {
+              range: { sheetId, startRowIndex: sheetRow1 - 1, endRowIndex: sheetRow2, startColumnIndex: 0, endColumnIndex: 1 },
+              cell: { userEnteredFormat: { backgroundColor: C.gray, textFormat: { bold: true, fontSize: 12 }, verticalAlignment: 'MIDDLE' } },
+              fields: 'userEnteredFormat(backgroundColor,textFormat,verticalAlignment)',
+            },
           },
-        })
+          // Merge col A so the name visually spans both rows
+          {
+            mergeCells: {
+              range: { sheetId, startRowIndex: sheetRow1 - 1, endRowIndex: sheetRow2, startColumnIndex: 0, endColumnIndex: 1 },
+              mergeType: 'MERGE_ALL',
+            },
+          },
+          // Row heights — taller to accommodate merged name cell
+          {
+            updateDimensionProperties: {
+              range: { sheetId, dimension: 'ROWS', startIndex: sheetRow1 - 1, endIndex: sheetRow2 },
+              properties: { pixelSize: 24 },
+              fields: 'pixelSize',
+            },
+          },
+          // Thick top border across entire employee block (separates from previous employee)
+          {
+            updateBorders: {
+              range: { sheetId, startRowIndex: sheetRow1 - 1, endRowIndex: sheetRow2, startColumnIndex: 0, endColumnIndex: lastCol },
+              top: { style: 'SOLID_MEDIUM', color: C.grayMid },
+            },
+          },
+          // Internal divider between row1 and row2 (data columns only — col A is merged)
+          {
+            updateBorders: {
+              range: { sheetId, startRowIndex: sheetRow1 - 1, endRowIndex: sheetRow1, startColumnIndex: 1, endColumnIndex: lastCol },
+              bottom: { style: 'DASHED', color: C.grayMid },
+            },
+          },
+        )
       }
+    }
+
+    if (formatRequests.length > 0) {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: SPREADSHEET_ID,
+        requestBody: { requests: formatRequests },
+      })
     }
 
     if (updates.length > 0) {

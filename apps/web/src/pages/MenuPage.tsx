@@ -405,6 +405,8 @@ function CategoriaCard({
   onEdit,
   onDelete,
   onCopiar,
+  onMoveUp,
+  onMoveDown,
 }: {
   cat: MenuCategoria
   selected: boolean
@@ -412,6 +414,8 @@ function CategoriaCard({
   onEdit: () => void
   onDelete: () => void
   onCopiar: () => void
+  onMoveUp?: () => void
+  onMoveDown?: () => void
 }) {
   return (
     <div
@@ -420,6 +424,20 @@ function CategoriaCard({
         selected ? 'border-cyan-400 bg-cyan-50' : 'border-gray-100 hover:border-gray-200 hover:bg-gray-50'
       }`}
     >
+      {/* Flechas de orden */}
+      <div className="flex flex-col shrink-0" onClick={e => e.stopPropagation()}>
+        <button
+          onClick={onMoveUp}
+          disabled={!onMoveUp}
+          className="text-gray-300 hover:text-gray-500 disabled:opacity-20 leading-none p-0.5"
+        >▲</button>
+        <button
+          onClick={onMoveDown}
+          disabled={!onMoveDown}
+          className="text-gray-300 hover:text-gray-500 disabled:opacity-20 leading-none p-0.5"
+        >▼</button>
+      </div>
+
       {cat.icono ? (
         <span className="text-xl shrink-0">{cat.icono}</span>
       ) : (
@@ -485,6 +503,17 @@ export default function MenuPage() {
     },
     onError: (err: Error) => showToast(err.message),
   })
+
+  const moverCat = async (cats: MenuCategoria[], idx: number, direccion: -1 | 1) => {
+    const a = cats[idx]
+    const b = cats[idx + direccion]
+    if (!a || !b) return
+    await Promise.all([
+      api.menuCategorias.update(a.id, { orden: b.orden }),
+      api.menuCategorias.update(b.id, { orden: a.orden }),
+    ])
+    qc.invalidateQueries({ queryKey: ['menu-cats', restaurantId] })
+  }
 
   // Agrupar categorías por grupo
   const gruposUnicos = ['', ...new Set(categorias.filter(c => c.grupo).map(c => c.grupo))]
@@ -555,7 +584,7 @@ export default function MenuPage() {
                   </div>
 
                   <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {cats.map(cat => (
+                    {cats.map((cat, idx) => (
                       <CategoriaCard
                         key={cat.id}
                         cat={cat}
@@ -564,6 +593,8 @@ export default function MenuPage() {
                         onEdit={() => { setEditandoCat(cat); setCatSeleccionada(null); setCreandoCat(null) }}
                         onDelete={() => { if (confirm(`¿Eliminar "${cat.nombre}"?\n\nSe eliminarán también todos sus items.`)) eliminarCat.mutate(cat.id) }}
                         onCopiar={() => setCopiandoCat(cat)}
+                        onMoveUp={idx > 0 ? () => moverCat(cats, idx, -1) : undefined}
+                        onMoveDown={idx < cats.length - 1 ? () => moverCat(cats, idx, 1) : undefined}
                       />
                     ))}
                   </div>
