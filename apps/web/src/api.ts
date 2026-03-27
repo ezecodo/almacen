@@ -505,8 +505,9 @@ export const api = {
     delete: (id: number) => del(`/menu/${id}`),
   },
   reviews: {
-    list: () => get<{ restaurantId: number; nombre: string; total: number | null; rating: number | null; ratingAnterior: number | null; ratingDiff: number | null; diff: number | null; fecha: string | null }[]>('/reviews'),
+    list: () => get<{ restaurantId: number; nombre: string; total: number | null; rating: number | null; ratingAnterior: number | null; ratingDiff: number | null; diff: number | null; fecha: string | null; totalMes: number | null; objetivoMensual: number | null }[]>('/reviews'),
     sync: () => post<{ synced: number }>('/reviews/sync', {}),
+    setObjetivo: (restaurantId: number, objetivo: number) => patch<{ restaurantId: number; objetivo: number | null }>('/reviews/objetivo', { restaurantId, objetivo }),
   },
   comandas: {
     list:      (restaurantId: number, estado?: string) =>
@@ -584,6 +585,7 @@ export const api = {
   turnos: {
     getActivo:  (restaurantId: number) => get<Turno | null>(`/turnos/activo?restaurantId=${restaurantId}`),
     getActivos: () => get<(Turno & { restaurant: Restaurante })[]>('/turnos/activos'),
+    getStats:   () => get<{ restaurantId: number; nombre: string; activo: boolean; aperturaAt: string | null; turnoId: number | null; totalEfectivo: number; totalTarjeta: number; totalVentas: number; numComandas: number }[]>('/turnos/activos/stats'),
     abrir:     (restaurantId: number, encargadoNombre?: string) =>
       post<Turno>('/turnos', { restaurantId, encargadoNombre }),
     cerrar:    (id: number) => patch<Turno>(`/turnos/${id}/cerrar`, {}),

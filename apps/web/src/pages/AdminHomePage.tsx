@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 
 const now = new Date()
@@ -91,57 +91,210 @@ function TurnosWidget() {
 
 // ── Widget: Google Reviews ─────────────────────────────────────────────────────
 function ReviewsWidget() {
+  const qc = useQueryClient()
   const { data: reviews = [], isLoading } = useQuery({
     queryKey: ['reviews-dashboard'],
     queryFn: () => api.reviews.list(),
     refetchInterval: 60_000,
   })
+  const [modalOpen, setModalOpen] = useState(false)
+  const [objetivos, setObjetivos] = useState<Record<number, string>>({})
+  const [saving, setSaving] = useState(false)
+
+  const openModal = () => {
+    const initial: Record<number, string> = {}
+    reviews.forEach(r => { initial[r.restaurantId] = r.objetivoMensual?.toString() ?? '' })
+    setObjetivos(initial)
+    setModalOpen(true)
+  }
+
+  const saveObjetivos = async () => {
+    setSaving(true)
+    await Promise.all(
+      reviews.map(r => {
+        const val = parseInt(objetivos[r.restaurantId] ?? '', 10)
+        if (!isNaN(val) && val !== (r.objetivoMensual ?? null)) {
+          return api.reviews.setObjetivo(r.restaurantId, val)
+        }
+      })
+    )
+    await qc.invalidateQueries({ queryKey: ['reviews-dashboard'] })
+    setSaving(false)
+    setModalOpen(false)
+  }
+
+  const mesActual = new Date().toLocaleString('es-ES', { month: 'long' })
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+    <>
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-base">⭐</span>
+            <h2 className="font-bold text-gray-800 text-sm">Google Reviews</h2>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-400">{reviews.filter(r => r.rating).length} restaurantes</span>
+            <button onClick={openModal} className="text-gray-300 hover:text-gray-500 transition-colors" title="Configurar objetivos">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        {isLoading ? (
+          <div className="px-5 py-8 text-center text-gray-300 text-sm">Cargando…</div>
+        ) : (
+          <div className="divide-y divide-gray-50">
+            {reviews.map(r => {
+              const ratingBajo = r.ratingDiff !== null && r.ratingDiff < 0
+              const pct = r.objetivoMensual && r.totalMes !== null
+                ? Math.min(100, Math.round((r.totalMes / r.objetivoMensual) * 100))
+                : null
+              return (
+                <div key={r.restaurantId} className={`px-5 py-3 ${ratingBajo ? 'bg-red-50' : ''}`}>
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-gray-800">{r.nombre}</p>
+                    <div className="flex items-center gap-3">
+                      {r.diff !== null && r.diff !== 0 && (
+                        <span className={`text-xs font-medium ${r.diff > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                          {r.diff > 0 ? `+${r.diff}` : r.diff} hoy
+                        </span>
+                      )}
+                      {r.rating ? (
+                        <div className="flex items-center gap-1">
+                          <span className="text-amber-400 text-sm">★</span>
+                          <span className={`text-sm font-bold ${ratingBajo ? 'text-red-600' : 'text-gray-800'}`}>{r.rating.toFixed(1)}</span>
+                          <span className="text-xs text-gray-400">({r.total})</span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-gray-300">Sin datos</span>
+                      )}
+                    </div>
+                  </div>
+                  {ratingBajo && (
+                    <p className="text-xs text-red-500 mt-0.5">
+                      ⚠️ Rating bajó {r.ratingDiff} desde ayer ({r.ratingAnterior?.toFixed(1)} → {r.rating?.toFixed(1)}) — revisar Google Maps
+                    </p>
+                  )}
+                  {pct !== null && (
+                    <div className="mt-1.5">
+                      <div className="flex items-center justify-between mb-0.5">
+                        <span className="text-xs text-gray-400">{r.totalMes} / {r.objetivoMensual} este mes</span>
+                        <span className={`text-xs font-medium ${pct >= 100 ? 'text-emerald-600' : 'text-gray-500'}`}>{pct}%</span>
+                      </div>
+                      <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${pct >= 100 ? 'bg-emerald-400' : 'bg-cyan-400'}`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Modal objetivos */}
+      {modalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm">
+            <div className="px-5 py-4 border-b border-gray-100">
+              <h3 className="font-bold text-gray-800">Objetivo de reviews — <span className="capitalize">{mesActual}</span></h3>
+              <p className="text-xs text-gray-400 mt-0.5">Reviews nuevas a conseguir este mes por restaurante</p>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              {reviews.map(r => (
+                <div key={r.restaurantId} className="flex items-center justify-between gap-4">
+                  <label className="text-sm text-gray-700 flex-1">{r.nombre}</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={objetivos[r.restaurantId] ?? ''}
+                    onChange={e => setObjetivos(prev => ({ ...prev, [r.restaurantId]: e.target.value }))}
+                    placeholder="—"
+                    className="w-20 text-center border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-300"
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="px-5 py-4 border-t border-gray-100 flex justify-end gap-2">
+              <button onClick={() => setModalOpen(false)} className="text-sm text-gray-400 hover:text-gray-600 px-3 py-1.5">
+                Cancelar
+              </button>
+              <button
+                onClick={saveObjetivos}
+                disabled={saving}
+                className="text-sm bg-cyan-500 text-white px-4 py-1.5 rounded-lg hover:bg-cyan-600 disabled:opacity-50 transition-colors"
+              >
+                {saving ? 'Guardando…' : 'Guardar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
+// ── Widget: Facturación del día ────────────────────────────────────────────────
+function fmt(n: number) {
+  return n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR', minimumFractionDigits: 0, maximumFractionDigits: 0 })
+}
+
+function FacturacionWidget() {
+  const { data: stats = [], isLoading } = useQuery({
+    queryKey: ['facturacion-dia'],
+    queryFn: () => api.turnos.getStats(),
+    refetchInterval: 30_000,
+  })
+
+  const activos = stats.filter(s => s.activo)
+  const totalGlobal = activos.reduce((s, r) => s + r.totalVentas, 0)
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden md:col-span-2">
       <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="text-base">⭐</span>
-          <h2 className="font-bold text-gray-800 text-sm">Google Reviews</h2>
+          <span className="text-base">💶</span>
+          <h2 className="font-bold text-gray-800 text-sm">Facturación del día</h2>
         </div>
-        <span className="text-xs text-gray-400">{reviews.filter(r => r.rating).length} restaurantes</span>
+        {activos.length > 0 && (
+          <span className="text-sm font-bold text-emerald-700">{fmt(totalGlobal)}</span>
+        )}
       </div>
 
       {isLoading ? (
         <div className="px-5 py-8 text-center text-gray-300 text-sm">Cargando…</div>
       ) : (
         <div className="divide-y divide-gray-50">
-          {reviews.map(r => {
-            const ratingBajo = r.ratingDiff !== null && r.ratingDiff < 0
-            return (
-              <div key={r.restaurantId} className={`px-5 py-3 ${ratingBajo ? 'bg-red-50' : ''}`}>
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold text-gray-800">{r.nombre}</p>
-                  <div className="flex items-center gap-3">
-                    {r.diff !== null && r.diff !== 0 && (
-                      <span className={`text-xs font-medium ${r.diff > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                        {r.diff > 0 ? `+${r.diff}` : r.diff} hoy
-                      </span>
-                    )}
-                    {r.rating ? (
-                      <div className="flex items-center gap-1">
-                        <span className="text-amber-400 text-sm">★</span>
-                        <span className={`text-sm font-bold ${ratingBajo ? 'text-red-600' : 'text-gray-800'}`}>{r.rating.toFixed(1)}</span>
-                        <span className="text-xs text-gray-400">({r.total})</span>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-gray-300">Sin datos</span>
-                    )}
-                  </div>
-                </div>
-                {ratingBajo && (
-                  <p className="text-xs text-red-500 mt-0.5">
-                    ⚠️ Rating bajó {r.ratingDiff} desde ayer ({r.ratingAnterior?.toFixed(1)} → {r.rating?.toFixed(1)}) — revisar Google Maps
-                  </p>
+          {stats.map(r => (
+            <div key={r.restaurantId} className={`px-5 py-3 flex items-center justify-between ${!r.activo ? 'opacity-40' : ''}`}>
+              <div className="flex items-center gap-2">
+                {r.activo && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />}
+                <p className="text-sm font-semibold text-gray-800">{r.nombre}</p>
+              </div>
+              <div className="flex items-center gap-4">
+                {r.activo ? (
+                  <>
+                    <div className="text-right hidden sm:block">
+                      <p className="text-xs text-gray-400">
+                        💵 {fmt(r.totalEfectivo)} · 💳 {fmt(r.totalTarjeta)}
+                      </p>
+                      <p className="text-xs text-gray-400">{r.numComandas} comanda{r.numComandas !== 1 ? 's' : ''}</p>
+                    </div>
+                    <span className="text-sm font-bold text-gray-900">{fmt(r.totalVentas)}</span>
+                  </>
+                ) : (
+                  <span className="text-xs text-gray-300">Sin turno activo</span>
                 )}
               </div>
-            )
-          })}
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -245,6 +398,7 @@ export default function AdminHomePage() {
         >
           <TurnosWidget />
           <ReviewsWidget />
+          <FacturacionWidget />
         </div>
 
       </div>

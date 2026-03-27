@@ -8,9 +8,10 @@ datasource db {
 }
 
 model Restaurant {
-  id            Int                   @id @default(autoincrement())
-  nombre        String
-  placeId       String?
+  id                     Int                   @id @default(autoincrement())
+  nombre                 String
+  placeId                String?
+  reviewObjetivoMensual  Int?
   retiros       Retiro[]
   reviews       ReviewSnapshot[]
   propinas      PropinaDia[]

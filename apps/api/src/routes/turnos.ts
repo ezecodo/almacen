@@ -25,6 +25,68 @@ export async function turnoRoutes(app: FastifyInstance) {
     })
   })
 
+  // Facturación en vivo por restaurante (para dashboard)
+  app.get('/turnos/activos/stats', async () => {
+    const restaurantes = await prisma.restaurant.findMany({
+      orderBy: { nombre: 'asc' },
+      include: {
+        turnos: {
+          where: { estado: 'abierto' },
+          take: 1,
+          orderBy: { aperturaAt: 'desc' },
+        },
+      },
+    })
+
+    const stats = await Promise.all(restaurantes.map(async (r) => {
+      const turno = r.turnos[0] ?? null
+      if (!turno) {
+        return {
+          restaurantId: r.id,
+          nombre: r.nombre,
+          activo: false,
+          aperturaAt: null,
+          turnoId: null,
+          totalEfectivo: 0,
+          totalTarjeta: 0,
+          totalVentas: 0,
+          numComandas: 0,
+        }
+      }
+
+      const comandas = await prisma.comanda.findMany({
+        where: {
+          restaurantId: r.id,
+          estado: 'cerrada',
+          closedAt: { gte: turno.aperturaAt },
+        },
+        include: { items: true },
+      })
+
+      const totalEfectivo = comandas
+        .filter(c => c.metodoPago === 'cash')
+        .reduce((s, c) => s + c.items.reduce((ss, i) => ss + i.precio * i.cantidad, 0), 0)
+
+      const totalTarjeta = comandas
+        .filter(c => c.metodoPago === 'tarjeta')
+        .reduce((s, c) => s + c.items.reduce((ss, i) => ss + i.precio * i.cantidad, 0), 0)
+
+      return {
+        restaurantId: r.id,
+        nombre: r.nombre,
+        activo: true,
+        aperturaAt: turno.aperturaAt,
+        turnoId: turno.id,
+        totalEfectivo,
+        totalTarjeta,
+        totalVentas: totalEfectivo + totalTarjeta,
+        numComandas: comandas.length,
+      }
+    }))
+
+    return stats
+  })
+
   // Abrir turno
   app.post('/turnos', async (req, reply) => {
     const schema = z.object({

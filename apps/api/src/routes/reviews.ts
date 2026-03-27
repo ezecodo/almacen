@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify'
+import { z } from 'zod'
 import { prisma } from '../server'
 
 const PLACES_API_KEY = process.env.GOOGLE_PLACES_API_KEY
@@ -16,6 +17,10 @@ export async function reviewRoutes(app: FastifyInstance) {
 
   // Obtener último snapshot de reviews por restaurante
   app.get('/reviews', async () => {
+    const inicioMes = new Date()
+    inicioMes.setDate(1)
+    inicioMes.setHours(0, 0, 0, 0)
+
     const restaurantes = await prisma.restaurant.findMany({
       where: { placeId: { not: null } },
       include: {
@@ -26,11 +31,26 @@ export async function reviewRoutes(app: FastifyInstance) {
       },
     })
 
+    // Primer snapshot de cada restaurante en el mes actual
+    const primerosDelMes = await prisma.reviewSnapshot.findMany({
+      where: {
+        restaurantId: { in: restaurantes.map(r => r.id) },
+        fecha: { gte: inicioMes },
+      },
+      orderBy: { fecha: 'asc' },
+      distinct: ['restaurantId'],
+    })
+    const primeroMesMap = new Map(primerosDelMes.map(s => [s.restaurantId, s]))
+
     return restaurantes.map((r) => {
       const ultimo = r.reviews[0] ?? null
       const anterior = r.reviews[1] ?? null
       const diff = ultimo && anterior ? ultimo.total - anterior.total : null
       const ratingDiff = ultimo && anterior ? +(ultimo.rating - anterior.rating).toFixed(1) : null
+
+      const primeroMes = primeroMesMap.get(r.id)
+      const totalMes = ultimo && primeroMes ? ultimo.total - primeroMes.total : null
+
       return {
         restaurantId: r.id,
         nombre: r.nombre,
@@ -40,8 +60,26 @@ export async function reviewRoutes(app: FastifyInstance) {
         ratingDiff,
         diff,
         fecha: ultimo?.fecha ?? null,
+        totalMes,
+        objetivoMensual: r.reviewObjetivoMensual ?? null,
       }
     })
+  })
+
+  // Configurar objetivo mensual de reviews por restaurante
+  app.patch('/reviews/objetivo', async (req, reply) => {
+    const schema = z.object({
+      restaurantId: z.number().int().positive(),
+      objetivo: z.number().int().min(0),
+    })
+    const result = schema.safeParse(req.body)
+    if (!result.success) return reply.status(400).send({ error: result.error.flatten() })
+
+    const updated = await prisma.restaurant.update({
+      where: { id: result.data.restaurantId },
+      data: { reviewObjetivoMensual: result.data.objetivo },
+    })
+    return { restaurantId: updated.id, objetivo: updated.reviewObjetivoMensual }
   })
 
   // Actualizar reviews de todos los restaurantes (una vez al día)
