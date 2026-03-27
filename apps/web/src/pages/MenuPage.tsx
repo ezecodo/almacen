@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api, MenuCategoria, MenuItem } from '../api'
+import { api, MenuCategoria, MenuItem, Restaurante } from '../api'
 
 function formatEur(n: number) {
   return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
@@ -130,10 +130,12 @@ function CategoriaPanel({
   restaurantId,
   cat,
   onClose,
+  onCopiarItem,
 }: {
   restaurantId: number
   cat: MenuCategoria
   onClose: () => void
+  onCopiarItem: (item: MenuItem) => void
 }) {
   const qc = useQueryClient()
   const [creando, setCreando]   = useState(false)
@@ -209,6 +211,7 @@ function CategoriaPanel({
                 <span className="text-sm font-bold text-cyan-600 shrink-0">{formatEur(item.precio)}</span>
                 <div className="flex items-center gap-2 shrink-0">
                   <button onClick={() => setEditando(item)} className="text-xs text-cyan-500 hover:text-cyan-700">Editar</button>
+                  <button onClick={() => onCopiarItem(item)} className="text-xs text-gray-400 hover:text-indigo-500">Copiar</button>
                   <button onClick={() => toggleAutoPorPax.mutate(item.id)}
                     className={`text-xs font-medium ${item.autoPorPax ? 'text-amber-600 hover:text-amber-800' : 'text-gray-300 hover:text-amber-500'}`}
                     title="Auto-añadir al abrir mesa (×pax)">
@@ -230,6 +233,170 @@ function CategoriaPanel({
   )
 }
 
+// ── Modal: copiar categoría ───────────────────────────────────────────────────
+function CopiarCategoriaModal({
+  cat,
+  restaurantes,
+  restaurantActualId,
+  onClose,
+  onDone,
+}: {
+  cat: MenuCategoria
+  restaurantes: Restaurante[]
+  restaurantActualId: number
+  onClose: () => void
+  onDone: (msg: string) => void
+}) {
+  const [seleccionados, setSeleccionados] = useState<number[]>([])
+  const [incluirItems, setIncluirItems]   = useState(true)
+  const [copiando, setCopiando] = useState(false)
+
+  const toggle = (id: number) =>
+    setSeleccionados(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+
+  const copiar = async () => {
+    if (!seleccionados.length) return
+    setCopiando(true)
+    const { resultados } = await api.menuCategorias.copiar(cat.id, seleccionados, incluirItems)
+    const total = resultados.reduce((s, r) => s + r.copiados, 0)
+    onDone(`✓ Categoría copiada — ${total} items nuevos`)
+  }
+
+  const destinos = restaurantes.filter(r => r.id !== restaurantActualId)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm">
+        <div className="px-5 py-4 border-b border-gray-100">
+          <h3 className="font-bold text-gray-800">Copiar "{cat.nombre}"</h3>
+          <p className="text-xs text-gray-400 mt-0.5">Selecciona los restaurantes destino</p>
+        </div>
+        <div className="px-5 py-4 space-y-2">
+          {destinos.map(r => (
+            <label key={r.id} className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={seleccionados.includes(r.id)}
+                onChange={() => toggle(r.id)}
+                className="w-4 h-4 accent-cyan-500"
+              />
+              <span className="text-sm text-gray-700">{r.nombre}</span>
+            </label>
+          ))}
+          <div className="pt-2 border-t border-gray-100">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={incluirItems}
+                onChange={e => setIncluirItems(e.target.checked)}
+                className="w-4 h-4 accent-cyan-500"
+              />
+              <span className="text-sm text-gray-700">Incluir items de la categoría</span>
+            </label>
+          </div>
+        </div>
+        <div className="px-5 py-4 border-t border-gray-100 flex justify-end gap-2">
+          <button onClick={onClose} className="text-sm text-gray-400 hover:text-gray-600 px-3 py-1.5">Cancelar</button>
+          <button
+            onClick={copiar}
+            disabled={!seleccionados.length || copiando}
+            className="text-sm bg-cyan-500 text-white px-4 py-1.5 rounded-lg hover:bg-cyan-600 disabled:opacity-40 transition-colors"
+          >
+            {copiando ? 'Copiando…' : 'Copiar'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Modal: copiar item ────────────────────────────────────────────────────────
+function CopiarItemModal({
+  item,
+  restaurantes,
+  restaurantActualId,
+  onClose,
+  onDone,
+}: {
+  item: MenuItem
+  restaurantes: Restaurante[]
+  restaurantActualId: number
+  onClose: () => void
+  onDone: (msg: string) => void
+}) {
+  const [restaurantDestino, setRestaurantDestino] = useState<number | null>(null)
+  const [categoriaDestino, setCategoriaDestino]   = useState<string>('')
+  const [copiando, setCopiando] = useState(false)
+
+  const { data: cats = [] } = useQuery<MenuCategoria[]>({
+    queryKey: ['menu-cats', restaurantDestino],
+    queryFn:  () => api.menuCategorias.list(restaurantDestino!),
+    enabled:  !!restaurantDestino,
+  })
+
+  const copiar = async () => {
+    if (!restaurantDestino || !categoriaDestino) return
+    setCopiando(true)
+    try {
+      await api.menu.copiar(item.id, restaurantDestino, categoriaDestino)
+      onDone(`✓ "${item.nombre}" copiado`)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Error al copiar'
+      onDone('⚠ ' + msg)
+    }
+  }
+
+  const destinos = restaurantes.filter(r => r.id !== restaurantActualId)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm">
+        <div className="px-5 py-4 border-b border-gray-100">
+          <h3 className="font-bold text-gray-800">Copiar "{item.nombre}"</h3>
+          <p className="text-xs text-gray-400 mt-0.5">{formatEur(item.precio)}</p>
+        </div>
+        <div className="px-5 py-4 space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Restaurante destino</label>
+            <select
+              value={restaurantDestino ?? ''}
+              onChange={e => { setRestaurantDestino(Number(e.target.value)); setCategoriaDestino('') }}
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyan-400"
+            >
+              <option value="">Seleccionar…</option>
+              {destinos.map(r => <option key={r.id} value={r.id}>{r.nombre}</option>)}
+            </select>
+          </div>
+          {restaurantDestino && (
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Categoría destino</label>
+              <select
+                value={categoriaDestino}
+                onChange={e => setCategoriaDestino(e.target.value)}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyan-400"
+              >
+                <option value="">Seleccionar…</option>
+                {cats.map(c => <option key={c.id} value={c.nombre}>{c.icono} {c.nombre}</option>)}
+                <option value={item.categoria}>+ Misma categoría ("{item.categoria}")</option>
+              </select>
+            </div>
+          )}
+        </div>
+        <div className="px-5 py-4 border-t border-gray-100 flex justify-end gap-2">
+          <button onClick={onClose} className="text-sm text-gray-400 hover:text-gray-600 px-3 py-1.5">Cancelar</button>
+          <button
+            onClick={copiar}
+            disabled={!restaurantDestino || !categoriaDestino || copiando}
+            className="text-sm bg-cyan-500 text-white px-4 py-1.5 rounded-lg hover:bg-cyan-600 disabled:opacity-40 transition-colors"
+          >
+            {copiando ? 'Copiando…' : 'Copiar'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Tarjeta de categoría ──────────────────────────────────────────────────────
 function CategoriaCard({
   cat,
@@ -237,12 +404,14 @@ function CategoriaCard({
   onSelect,
   onEdit,
   onDelete,
+  onCopiar,
 }: {
   cat: MenuCategoria
   selected: boolean
   onSelect: () => void
   onEdit: () => void
   onDelete: () => void
+  onCopiar: () => void
 }) {
   return (
     <div
@@ -267,6 +436,11 @@ function CategoriaCard({
           className="text-xs text-gray-400 hover:text-cyan-600 px-2 py-1 rounded-lg hover:bg-gray-100">
           Editar
         </button>
+        <button onClick={onCopiar}
+          className="text-xs text-gray-400 hover:text-indigo-500 px-2 py-1 rounded-lg hover:bg-gray-100"
+          title="Copiar a otro restaurante">
+          Copiar
+        </button>
         <button onClick={onDelete}
           className="text-xs text-gray-400 hover:text-red-500 px-2 py-1 rounded-lg hover:bg-gray-100">
           ✕
@@ -281,8 +455,10 @@ export default function MenuPage() {
   const qc = useQueryClient()
   const [restaurantId, setRestaurantId] = useState<number | null>(null)
   const [catSeleccionada, setCatSeleccionada] = useState<MenuCategoria | null>(null)
-  const [creandoCat, setCreandoCat]     = useState<string | null>(null) // grupo por defecto
+  const [creandoCat, setCreandoCat]     = useState<string | null>(null)
   const [editandoCat, setEditandoCat]   = useState<MenuCategoria | null>(null)
+  const [copiandoCat, setCopiandoCat]   = useState<MenuCategoria | null>(null)
+  const [copiandoItem, setCopiandoItem] = useState<MenuItem | null>(null)
   const [toast, setToast] = useState<string | null>(null)
 
   const { data: restaurantes } = useQuery({
@@ -347,6 +523,7 @@ export default function MenuPage() {
                 restaurantId={restaurantId}
                 cat={catSeleccionada}
                 onClose={() => setCatSeleccionada(null)}
+                onCopiarItem={item => setCopiandoItem(item)}
               />
             )}
 
@@ -386,6 +563,7 @@ export default function MenuPage() {
                         onSelect={() => { setCatSeleccionada(cat); setCreandoCat(null); setEditandoCat(null) }}
                         onEdit={() => { setEditandoCat(cat); setCatSeleccionada(null); setCreandoCat(null) }}
                         onDelete={() => { if (confirm(`¿Eliminar "${cat.nombre}"?`)) eliminarCat.mutate(cat.id) }}
+                        onCopiar={() => setCopiandoCat(cat)}
                       />
                     ))}
                   </div>
@@ -410,8 +588,35 @@ export default function MenuPage() {
         )}
       </div>
 
+      {copiandoCat && restaurantId && restaurantes && (
+        <CopiarCategoriaModal
+          cat={copiandoCat}
+          restaurantes={restaurantes}
+          restaurantActualId={restaurantId}
+          onClose={() => setCopiandoCat(null)}
+          onDone={msg => {
+            setCopiandoCat(null)
+            showToast(msg)
+            qc.invalidateQueries({ queryKey: ['menu-cats'] })
+          }}
+        />
+      )}
+
+      {copiandoItem && restaurantId && restaurantes && (
+        <CopiarItemModal
+          item={copiandoItem}
+          restaurantes={restaurantes}
+          restaurantActualId={restaurantId}
+          onClose={() => setCopiandoItem(null)}
+          onDone={msg => {
+            setCopiandoItem(null)
+            showToast(msg)
+          }}
+        />
+      )}
+
       {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 px-6 py-3 rounded-xl shadow-lg bg-red-600 text-white text-sm font-medium z-50">
+        <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 px-6 py-3 rounded-xl shadow-lg text-white text-sm font-medium z-50 ${toast.startsWith('⚠') ? 'bg-red-600' : 'bg-emerald-600'}`}>
           {toast}
         </div>
       )}

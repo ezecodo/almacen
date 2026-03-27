@@ -494,6 +494,10 @@ export const api = {
     update: (id: number, body: Partial<{ grupo: string; nombre: string; icono: string; orden: number }>) =>
       put<MenuCategoria>(`/menu/categorias/${id}`, body),
     delete: (id: number) => del(`/menu/categorias/${id}`),
+    copiar: (id: number, restaurantIds: number[], incluirItems: boolean) =>
+      post<{ resultados: { restaurantId: number; copiados: number; omitidos: number }[] }>(
+        `/menu/categorias/${id}/copiar`, { restaurantIds, incluirItems }
+      ),
   },
   menu: {
     list:   (restaurantId: number, categoria?: string) =>
@@ -502,6 +506,8 @@ export const api = {
     update: (id: number, body: Partial<Omit<MenuItem, 'id' | 'restaurantId' | 'activo'>>) => put<MenuItem>(`/menu/${id}`, body),
     toggle:           (id: number) => patch<MenuItem>(`/menu/${id}/toggle`, {}),
     toggleAutoPorPax: (id: number) => patch<MenuItem>(`/menu/${id}/toggleAutoPorPax`, {}),
+    copiar: (id: number, restaurantId: number, categoria: string) =>
+      post<MenuItem>(`/menu/items/${id}/copiar`, { restaurantId, categoria }),
     delete: (id: number) => del(`/menu/${id}`),
   },
   reviews: {

@@ -176,4 +176,113 @@ export async function menuRoutes(app: FastifyInstance) {
     await prisma.menuItem.delete({ where: { id } })
     return reply.status(204).send()
   })
+
+  // POST /menu/categorias/:id/copiar
+  app.post('/menu/categorias/:id/copiar', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    const schema = z.object({
+      restaurantIds: z.array(z.number().int().positive()),
+      incluirItems:  z.boolean().default(true),
+    })
+    const result = schema.safeParse(req.body)
+    if (!result.success) return reply.status(400).send({ error: result.error.flatten() })
+
+    const cat = await prisma.menuCategoria.findUnique({ where: { id } })
+    if (!cat) return reply.status(404).send({ error: 'Categoría no encontrada' })
+
+    const items = result.data.incluirItems
+      ? await prisma.menuItem.findMany({ where: { restaurantId: cat.restaurantId, categoria: cat.nombre } })
+      : []
+
+    const resultados = []
+    for (const rid of result.data.restaurantIds) {
+      // Crear categoría si no existe en el destino
+      const catExiste = await prisma.menuCategoria.findFirst({
+        where: { restaurantId: rid, nombre: cat.nombre },
+      })
+      if (!catExiste) {
+        await prisma.menuCategoria.create({
+          data: { restaurantId: rid, nombre: cat.nombre, icono: cat.icono, grupo: cat.grupo, orden: cat.orden },
+        })
+      }
+
+      let copiados = 0
+      let omitidos = 0
+      if (items.length > 0) {
+        const existentes = await prisma.menuItem.findMany({
+          where: { restaurantId: rid, categoria: cat.nombre },
+          select: { nombre: true },
+        })
+        const nombresExistentes = new Set(existentes.map(i => i.nombre))
+
+        for (const item of items) {
+          if (nombresExistentes.has(item.nombre)) { omitidos++; continue }
+          await prisma.menuItem.create({
+            data: {
+              restaurantId: rid,
+              categoria:    item.categoria,
+              nombre:       item.nombre,
+              descripcion:  item.descripcion,
+              precio:       item.precio,
+              orden:        item.orden,
+            },
+          })
+          copiados++
+        }
+      }
+      resultados.push({ restaurantId: rid, copiados, omitidos })
+    }
+
+    return { resultados }
+  })
+
+  // POST /menu/items/:id/copiar
+  app.post('/menu/items/:id/copiar', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    const schema = z.object({
+      restaurantId: z.number().int().positive(),
+      categoria:    z.string().min(1),
+    })
+    const result = schema.safeParse(req.body)
+    if (!result.success) return reply.status(400).send({ error: result.error.flatten() })
+
+    const item = await prisma.menuItem.findUnique({ where: { id } })
+    if (!item) return reply.status(404).send({ error: 'Item no encontrado' })
+
+    const yaExiste = await prisma.menuItem.findFirst({
+      where: { restaurantId: result.data.restaurantId, categoria: result.data.categoria, nombre: item.nombre },
+    })
+    if (yaExiste) return reply.status(409).send({ error: `Ya existe "${item.nombre}" en esa categoría` })
+
+    // Crear la categoría destino si no existe
+    const catExiste = await prisma.menuCategoria.findFirst({
+      where: { restaurantId: result.data.restaurantId, nombre: result.data.categoria },
+    })
+    if (!catExiste) {
+      const catOrigen = await prisma.menuCategoria.findFirst({
+        where: { restaurantId: item.restaurantId, nombre: item.categoria },
+      })
+      await prisma.menuCategoria.create({
+        data: {
+          restaurantId: result.data.restaurantId,
+          nombre:       result.data.categoria,
+          icono:        catOrigen?.icono ?? '',
+          grupo:        catOrigen?.grupo ?? '',
+          orden:        catOrigen?.orden ?? 0,
+        },
+      })
+    }
+
+    const nuevo = await prisma.menuItem.create({
+      data: {
+        restaurantId: result.data.restaurantId,
+        categoria:    result.data.categoria,
+        nombre:       item.nombre,
+        descripcion:  item.descripcion,
+        precio:       item.precio,
+        orden:        item.orden,
+      },
+    })
+    return reply.status(201).send(nuevo)
+  })
 }
