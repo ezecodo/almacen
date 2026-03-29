@@ -3,18 +3,26 @@ import { z } from 'zod'
 import { prisma } from '../server'
 
 const createSchema = z.object({
-  nombre:   z.string().min(1),
-  tipo:     z.enum(['cocina', 'sala']).default('cocina'),
-  pin:      z.string().length(4).regex(/^\d{4}$/),
-  telefono: z.string().optional(),
+  nombre:         z.string().min(1),
+  tipo:           z.enum(['cocina', 'sala']).default('cocina'),
+  pin:            z.string().length(4).regex(/^\d{4}$/),
+  telefono:       z.string().optional(),
+  email:          z.string().email().optional(),
+  horasSemanales: z.number().int().refine(v => [20, 30, 35, 40].includes(v), { message: 'Debe ser 20, 30, 35 o 40' }).default(40),
+  rol:            z.enum(['friegaplatos', 'cocinero', 'jefe_cocina', 'produccion', 'camarero', 'encargado']).optional(),
+  restaurantId:   z.number().int().positive().optional().nullable(),
 })
 
 const updateSchema = z.object({
-  nombre:   z.string().min(1).optional(),
-  tipo:     z.enum(['cocina', 'sala']).optional(),
-  pin:      z.string().length(4).regex(/^\d{4}$/).optional(),
-  telefono: z.string().optional().nullable(),
-  activo:   z.boolean().optional(),
+  nombre:         z.string().min(1).optional(),
+  tipo:           z.enum(['cocina', 'sala']).optional(),
+  pin:            z.string().length(4).regex(/^\d{4}$/).optional(),
+  telefono:       z.string().optional().nullable(),
+  email:          z.string().email().optional().nullable(),
+  horasSemanales: z.number().int().refine(v => [20, 30, 35, 40].includes(v), { message: 'Debe ser 20, 30, 35 o 40' }).optional(),
+  rol:            z.enum(['friegaplatos', 'cocinero', 'jefe_cocina', 'produccion', 'camarero', 'encargado']).optional().nullable(),
+  restaurantId:   z.number().int().positive().optional().nullable(),
+  activo:         z.boolean().optional(),
 })
 
 export async function empleadoRoutes(app: FastifyInstance) {
@@ -37,6 +45,7 @@ export async function empleadoRoutes(app: FastifyInstance) {
     const { tipo } = req.query as { tipo?: string }
     return prisma.empleado.findMany({
       where: tipo ? { tipo, activo: true } : undefined,
+      include: { restaurant: { select: { id: true, nombre: true } } },
       orderBy: [{ tipo: 'asc' }, { nombre: 'asc' }],
     })
   })
@@ -73,7 +82,7 @@ export async function empleadoRoutes(app: FastifyInstance) {
   })
 
   // Desactivar empleado (soft delete)
-  app.patch('/empleados/:id/desactivar', async (req, reply) => {
+  app.patch('/empleados/:id/desactivar', async (req, _reply) => {
     const id = Number((req.params as { id: string }).id)
     const empleado = await prisma.empleado.update({ where: { id }, data: { activo: false } })
     return empleado

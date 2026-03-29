@@ -12,22 +12,29 @@ model Restaurant {
   nombre                 String
   placeId                String?
   reviewObjetivoTasa     Int?
-  retiros       Retiro[]
-  reviews       ReviewSnapshot[]
-  propinas      PropinaDia[]
-  menu          MenuItem[]
-  menuCats      MenuCategoria[]
-  floorPlans    FloorPlan[]
-  comandas      Comanda[]
-  mermas        Merma[]
-  grupoMenus    GrupoMenuTemplate[]
-  turnos        Turno[]
-  invCategorias InventarioCategoria[]
-  invProductos  InventarioProducto[]
-  invConteos    InventarioConteo[]
-  reservaConfig ReservaConfig?
-  reservas      Reserva[]
-  createdAt     DateTime              @default(now())
+  retiros                Retiro[]
+  reviews                ReviewSnapshot[]
+  propinas               PropinaDia[]
+  menu                   MenuItem[]
+  menuCats               MenuCategoria[]
+  floorPlans             FloorPlan[]
+  comandas               Comanda[]
+  mermas                 Merma[]
+  grupoMenus             GrupoMenuTemplate[]
+  grupoAgendados         GrupoAgendado[]
+  empleados              Empleado[]
+  turnos                 Turno[]
+  invCategorias          InventarioCategoria[]
+  invProductos           InventarioProducto[]
+  invConteos             InventarioConteo[]
+  reservaConfig          ReservaConfig?
+  reservas               Reserva[]
+  turnosEmpleados        TurnoEmpleado[]
+  turnoTipos             TurnoTipo[]
+  staffingConfig         StaffingConfig?
+  necesidadesDia         StaffingNecesidadDia[]
+  necesidadesFecha       StaffingNecesidadFecha[]
+  createdAt              DateTime              @default(now())
 }
 
 model Turno {
@@ -78,15 +85,21 @@ model ReviewSnapshot {
 }
 
 model Empleado {
-  id        Int            @id @default(autoincrement())
-  nombre    String
-  tipo      String         @default("cocina")
-  pin       String?        @unique
-  telefono  String?
-  retiros   Retiro[]
-  turnos    PropinaTurno[]
-  activo    Boolean        @default(true)
-  createdAt DateTime       @default(now())
+  id              Int              @id @default(autoincrement())
+  nombre          String
+  tipo            String           @default("cocina")
+  pin             String?          @unique
+  telefono        String?
+  email           String?
+  rol             String?          // cocina: 'friegaplatos'|'cocinero'|'produccion' / sala: 'camarero'|'encargado'
+  restaurantId    Int?             // restaurante habitual (null = rotativo)
+  restaurant      Restaurant?      @relation(fields: [restaurantId], references: [id])
+  retiros         Retiro[]
+  turnos          PropinaTurno[]
+  activo          Boolean          @default(true)
+  horasSemanales  Int              @default(40)
+  turnosAsignados TurnoEmpleado[]
+  createdAt       DateTime         @default(now())
 }
 
 model PropinaDia {
@@ -157,6 +170,7 @@ model MenuItem {
   activo       Boolean    @default(true)
   autoPorPax   Boolean    @default(false)
   orden        Int        @default(0)
+  alergenos    Int        @default(0)
   createdAt    DateTime   @default(now())
 }
 
@@ -320,12 +334,104 @@ model Reserva {
 // niveles: GrupoMenuNivel[] almacenado como JSON
 // GrupoMenuNivel = { nivel: number, plato: string, vegetariano?: string, sinCerdo?: string, sinGluten?: string, esPostre?: boolean }
 model GrupoMenuTemplate {
+  id             Int              @id @default(autoincrement())
+  restaurantId   Int
+  restaurant     Restaurant       @relation(fields: [restaurantId], references: [id])
+  nombre         String           // "Estándar" | "Premium" | "Deluxe"
+  precio         Float            // precio por persona
+  niveles        Json             // GrupoMenuNivel[]
+  activo         Boolean          @default(true)
+  agendados      GrupoAgendado[]
+  createdAt      DateTime         @default(now())
+}
+
+// Grupo programado para una fecha concreta
+// restricciones: { normales, vegetarianos, sinCerdo, sinGluten }
+model GrupoAgendado {
+  id            Int               @id @default(autoincrement())
+  restaurantId  Int
+  restaurant    Restaurant        @relation(fields: [restaurantId], references: [id])
+  templateId    Int
+  template      GrupoMenuTemplate @relation(fields: [templateId], references: [id])
+  fecha         DateTime          // fecha del evento (solo se usa la parte de fecha)
+  pax           Int
+  restricciones Json              // GrupoMenuRestricciones
+  notas         String?
+  estado        String            @default("pendiente") // 'pendiente' | 'asignado' | 'cancelado'
+  comandaId     Int?              @unique
+  createdAt     DateTime          @default(now())
+}
+
+model TurnoTipo {
+  id           Int             @id @default(autoincrement())
+  restaurantId Int?            // null = global (compartido entre todos los restaurantes)
+  restaurant   Restaurant?     @relation(fields: [restaurantId], references: [id])
+  nombre       String
+  horaInicio   String
+  horaFin      String
+  horas        Float
+  color        String          @default("#6366f1")
+  tipoEmpleado String?         // 'cocina' | 'sala' | null (= ambos)
+  activo       Boolean         @default(true)
+  turnos       TurnoEmpleado[]
+  createdAt    DateTime        @default(now())
+}
+
+model TurnoEmpleado {
   id           Int        @id @default(autoincrement())
   restaurantId Int
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
-  nombre       String     // "Estándar" | "Premium" | "Deluxe"
-  precio       Float      // precio por persona
-  niveles      Json       // GrupoMenuNivel[]
-  activo       Boolean    @default(true)
+  empleadoId   Int
+  empleado     Empleado   @relation(fields: [empleadoId], references: [id])
+  tipoId       Int?
+  tipo         TurnoTipo? @relation(fields: [tipoId], references: [id])
+  fecha        DateTime
+  horaInicio   String
+  horaFin      String
+  estado       String     @default("planificado") // 'planificado' | 'confirmado' | 'ausente'
   createdAt    DateTime   @default(now())
+
+  @@index([restaurantId, fecha])
+}
+
+model StaffingConfig {
+  id              Int        @id @default(autoincrement())
+  restaurantId    Int        @unique
+  restaurant      Restaurant @relation(fields: [restaurantId], references: [id])
+  ratioSalaXPax   Int        @default(20)
+  ratioCocinaXPax Int        @default(30)
+  createdAt       DateTime   @default(now())
+}
+
+// Plantilla base: personal estándar por día de la semana
+model StaffingNecesidadDia {
+  id           Int        @id @default(autoincrement())
+  restaurantId Int
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  diaSemana    Int        // 0=Lun 1=Mar 2=Mié 3=Jue 4=Vie 5=Sáb 6=Dom
+  jefeCocina   Int        @default(0)
+  cocineros    Int        @default(0)
+  friegaplatos Int        @default(0)
+  produccion   Int        @default(0)
+  camareros    Int        @default(0)
+  encargados   Int        @default(0)
+
+  @@unique([restaurantId, diaSemana])
+}
+
+// Extras por fecha concreta (festivos, eventos, viernes especiales…)
+model StaffingNecesidadFecha {
+  id           Int        @id @default(autoincrement())
+  restaurantId Int
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  fecha        DateTime   // fecha exacta (UTC 00:00)
+  jefeCocina   Int        @default(0)
+  cocineros    Int        @default(0)
+  friegaplatos Int        @default(0)
+  produccion   Int        @default(0)
+  camareros    Int        @default(0)
+  encargados   Int        @default(0)
+  notas        String?
+
+  @@unique([restaurantId, fecha])
 }

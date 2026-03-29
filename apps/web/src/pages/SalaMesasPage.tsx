@@ -4,7 +4,7 @@ const ThemeCtx = createContext<boolean>(true) // true = dark
 import CheckOverlay from '../components/CheckOverlay'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, Comanda, ComandaItem, FloorPlan, Mesa, MenuCategoria, MenuItem, MermaMotivo, MiTurno } from '../api'
+import { api, Comanda, ComandaItem, FloorPlan, GrupoAgendado, Mesa, MenuCategoria, MenuItem, MermaMotivo, MiTurno } from '../api'
 import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
 
 const SQUARE_SIZE = 80
@@ -1525,6 +1525,16 @@ export default function SalaMesasPage() {
     enabled: !!restaurant,
   })
 
+  const today = new Date()
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+  const { data: gruposHoy = [] } = useQuery({
+    queryKey: ['grupo-agendados-hoy', restaurant?.id],
+    queryFn: () => api.grupoMenu.agendados.list(restaurant!.id, todayStr),
+    enabled: !!restaurant,
+    refetchInterval: 60_000,
+  })
+  const gruposPendientesHoy = (gruposHoy as GrupoAgendado[]).filter(g => g.estado === 'pendiente')
+
   const activePlan = planes?.find(p => p.id === planId) ?? planes?.[0] ?? null
 
   useEffect(() => {
@@ -1703,6 +1713,24 @@ export default function SalaMesasPage() {
           )}
         </div>
       </div>
+
+      {/* Banner grupos programados hoy */}
+      {gruposPendientesHoy.length > 0 && (
+        <div className="bg-indigo-600 text-white px-4 py-2 flex items-center gap-3">
+          <span className="text-base shrink-0">📅</span>
+          <div className="flex-1 min-w-0">
+            <span className="font-bold text-sm">
+              {gruposPendientesHoy.length === 1
+                ? `Grupo programado hoy: ${gruposPendientesHoy[0].template.nombre} · ${Object.values(gruposPendientesHoy[0].restricciones).reduce((s, v) => s + v, 0)} pax`
+                : `${gruposPendientesHoy.length} grupos programados para hoy`}
+            </span>
+            {gruposPendientesHoy[0].notas && (
+              <span className="text-indigo-200 text-xs ml-2">"{gruposPendientesHoy[0].notas}"</span>
+            )}
+          </div>
+          <span className="text-indigo-200 text-xs shrink-0">Asignar desde Grupos</span>
+        </div>
+      )}
 
       {/* Vista: Mapa — escala bounding box para llenar ancho y alto */}
       {view === 'mapa' && (activePlan ? (

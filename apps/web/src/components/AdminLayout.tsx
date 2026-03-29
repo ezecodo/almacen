@@ -51,6 +51,7 @@ const NAV_GROUPS = [
     icon: '👥',
     items: [
       { to: '/admin/empleados', label: 'Empleados' },
+      { to: '/admin/staffing',  label: 'Personal' },
     ],
   },
 ]

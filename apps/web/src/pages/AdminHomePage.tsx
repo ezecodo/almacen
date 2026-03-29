@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { api } from '../api'
+import { Link } from 'react-router-dom'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { api, Comanda, ComandaItem, FloorPlan, GrupoAgendado, GrupoMenuRestricciones, StaffingForecastDay } from '../api'
+import { useAdminEvents } from '../hooks/useAdminEvents'
 
 const now = new Date()
 const fecha = now.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })
@@ -243,6 +245,337 @@ function ReviewsWidget() {
   )
 }
 
+// ── Widget: Grupos de hoy ──────────────────────────────────────────────────────
+type AgendadoHoy = GrupoAgendado & { restaurant: { id: number; nombre: string } }
+
+function printTicketCocina(comanda: Comanda, restaurantNombre: string, templateNombre: string) {
+  const itemsCocina = comanda.items
+    .filter(i => i.tipo === 'cocina')
+    .sort((a, b) => (a.nivel ?? 0) - (b.nivel ?? 0))
+
+  const niveles = Array.from(new Set(itemsCocina.map(i => i.nivel))).sort((a, b) => (a ?? 0) - (b ?? 0))
+
+  const body = `
+    <html><head><title>Ticket cocina</title>
+    <style>
+      body { font-family: monospace; font-size: 13px; max-width: 320px; margin: 0 auto; padding: 12px; }
+      h2 { font-size: 15px; text-align: center; margin: 0 0 4px; }
+      p  { text-align: center; margin: 0 0 8px; font-size: 12px; }
+      hr { border: none; border-top: 1px dashed #000; margin: 8px 0; }
+      .nivel { font-weight: bold; font-size: 12px; margin: 8px 0 4px; text-transform: uppercase; }
+      .plato { padding-left: 8px; margin: 2px 0; }
+    </style></head>
+    <body>
+      <h2>${restaurantNombre}</h2>
+      <p>MENÚ GRUPO · ${templateNombre}<br>Mesa ${comanda.mesa?.numero ?? '—'} · ${comanda.pax} pax</p>
+      <hr>
+      ${niveles.map(nv => {
+        const items = itemsCocina.filter(i => i.nivel === nv)
+        return `<div class="nivel">Nivel ${nv}</div>
+          ${items.map(i => `<div class="plato">${i.cantidad}× ${i.nombre}</div>`).join('')}`
+      }).join('<hr>')}
+      <hr>
+      <p>${new Date().toLocaleString('es-ES')}</p>
+    </body></html>`
+
+  const w = window.open('', '_blank', 'width=400,height=600')
+  if (!w) return
+  w.document.write(body)
+  w.document.close()
+  w.focus()
+  setTimeout(() => { w.print(); w.close() }, 300)
+}
+
+function AsignarInline({
+  agendado,
+  onDone,
+}: {
+  agendado: AgendadoHoy
+  onDone: () => void
+}) {
+  const qc = useQueryClient()
+  const [mesaId, setMesaId]        = useState<number | null>(null)
+  const [incluyePostre, setPostre] = useState(true)
+  const [comanda, setComanda]      = useState<Comanda | null>(null)
+
+  const { data: planes = [] } = useQuery({
+    queryKey: ['salon-planes', agendado.restaurantId],
+    queryFn: () => api.salon.list(agendado.restaurantId),
+  })
+
+  const todasMesas = (planes as FloorPlan[]).flatMap(p =>
+    p.mesas.map(m => ({ ...m, planNombre: p.nombre }))
+  )
+
+  const r = agendado.restricciones as GrupoMenuRestricciones
+  const totalPax = r.normales + r.vegetarianos + r.sinCerdo + r.sinGluten
+
+  const asignar = useMutation({
+    mutationFn: () => api.grupoMenu.agendados.asignar(agendado.id, { mesaId: mesaId!, incluyePostre }),
+    onSuccess: (c) => {
+      setComanda(c)
+      qc.invalidateQueries({ queryKey: ['grupos-pendientes-hoy'] })
+    },
+  })
+
+  if (comanda) {
+    return (
+      <div className="mt-3 p-3 bg-green-50 rounded-xl border border-green-200 space-y-2">
+        <p className="text-sm font-semibold text-green-700">
+          ✓ Asignado a Mesa {comanda.mesa?.numero} · {totalPax} pax
+        </p>
+        <div className="text-xs text-gray-600 space-y-1">
+          {Array.from(new Set(comanda.items.filter(i => i.tipo === 'cocina').map((i: ComandaItem) => i.nivel)))
+            .sort((a, b) => (a ?? 0) - (b ?? 0))
+            .map(nv => {
+              const platos = comanda.items.filter((i: ComandaItem) => i.tipo === 'cocina' && i.nivel === nv)
+              return (
+                <div key={nv} className="flex gap-2">
+                  <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-[10px] shrink-0">{nv}</span>
+                  <span>{platos.map((i: ComandaItem) => i.nombre).join(' · ')}</span>
+                </div>
+              )
+            })}
+        </div>
+        <div className="flex gap-2 pt-1">
+          <button
+            onClick={() => printTicketCocina(comanda, agendado.restaurant.nombre, agendado.template.nombre)}
+            className="flex-1 py-2 rounded-lg bg-gray-900 text-white text-xs font-bold hover:bg-gray-700"
+          >
+            🖨 Imprimir para cocina
+          </button>
+          <button onClick={onDone} className="px-3 py-2 rounded-lg bg-green-100 text-green-700 text-xs font-medium hover:bg-green-200">
+            Cerrar
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-3 p-3 bg-indigo-50 rounded-xl border border-indigo-200 space-y-3">
+      <div>
+        <label className="text-xs font-medium text-gray-600 block mb-1">Mesa</label>
+        <select
+          value={mesaId ?? ''}
+          onChange={e => setMesaId(Number(e.target.value) || null)}
+          className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm bg-white"
+        >
+          <option value="">Seleccionar mesa…</option>
+          {todasMesas.map(m => (
+            <option key={m.id} value={m.id}>Mesa {m.numero} — {m.planNombre}</option>
+          ))}
+        </select>
+      </div>
+      <label className="flex items-center gap-2 cursor-pointer">
+        <div
+          onClick={() => setPostre(p => !p)}
+          className={`w-9 h-5 rounded-full transition-colors shrink-0 ${incluyePostre ? 'bg-indigo-500' : 'bg-gray-300'}`}
+        >
+          <div className={`w-4 h-4 bg-white rounded-full m-0.5 transition-transform shadow ${incluyePostre ? 'translate-x-4' : ''}`} />
+        </div>
+        <span className="text-xs text-gray-600">Incluye postre</span>
+      </label>
+      {asignar.isError && (
+        <p className="text-xs text-red-500">{(asignar.error as Error).message}</p>
+      )}
+      <div className="flex gap-2">
+        <button onClick={onDone} className="px-3 py-2 rounded-lg border border-gray-200 text-gray-500 text-xs hover:bg-white">
+          Cancelar
+        </button>
+        <button
+          onClick={() => asignar.mutate()}
+          disabled={!mesaId || asignar.isPending}
+          className="flex-1 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-500 disabled:opacity-40"
+        >
+          {asignar.isPending ? 'Asignando…' : 'Asignar y crear comanda'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function GruposHoyWidget() {
+  const { data: grupos = [], isLoading } = useQuery({
+    queryKey: ['grupos-pendientes-hoy'],
+    queryFn: () => api.grupoMenu.agendados.pendientesHoy(),
+    refetchInterval: 60_000,
+  })
+  const [asignando, setAsignando] = useState<number | null>(null) // agendado.id
+
+  if (isLoading) return null
+  if (grupos.length === 0) return null
+
+  return (
+    <div className="bg-white rounded-2xl border border-indigo-200 shadow-sm overflow-hidden md:col-span-2">
+      <div className="px-5 py-4 border-b border-indigo-100 flex items-center justify-between bg-indigo-50">
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
+          <h2 className="font-bold text-indigo-800 text-sm">Grupos para hoy</h2>
+        </div>
+        <span className="text-xs text-indigo-500 font-medium">{grupos.length} pendiente{grupos.length !== 1 ? 's' : ''}</span>
+      </div>
+      <div className="divide-y divide-gray-50">
+        {grupos.map(g => {
+          const r = g.restricciones as GrupoMenuRestricciones
+          const pax = r.normales + r.vegetarianos + r.sinCerdo + r.sinGluten
+          const total = g.template.precio * pax
+          const rDesc = [
+            r.normales     > 0 ? `${r.normales} normales` : null,
+            r.vegetarianos > 0 ? `${r.vegetarianos} veg` : null,
+            r.sinCerdo     > 0 ? `${r.sinCerdo} sin cerdo` : null,
+            r.sinGluten    > 0 ? `${r.sinGluten} sin gluten` : null,
+          ].filter(Boolean).join(' · ')
+          return (
+            <div key={g.id} className="px-5 py-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-gray-900 text-sm">{g.restaurant.nombre}</span>
+                    <span className="text-xs px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full font-medium">{g.template.nombre}</span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-0.5">{pax} pax · {rDesc}</p>
+                  {g.notas && <p className="text-xs text-gray-400 italic mt-0.5">"{g.notas}"</p>}
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-base font-black text-gray-900">{total.toFixed(2)} €</p>
+                  <p className="text-xs text-gray-400">{g.template.precio}€/pax</p>
+                </div>
+              </div>
+              {asignando === g.id ? (
+                <AsignarInline agendado={g} onDone={() => setAsignando(null)} />
+              ) : (
+                <button
+                  onClick={() => setAsignando(g.id)}
+                  className="mt-3 w-full py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-500"
+                >
+                  Asignar a mesa
+                </button>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ── Widget: Staffing ──────────────────────────────────────────────────────────
+function fmtDiaCorto(dateStr: string) {
+  const d = new Date(`${dateStr}T12:00:00Z`)
+  return d.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' })
+}
+
+function StaffingWidget() {
+  const { data: restaurantes = [] } = useQuery({
+    queryKey: ['restaurantes'],
+    queryFn: () => api.restaurantes.list(),
+    staleTime: 300_000,
+  })
+
+  const hoy = new Date()
+  const desde = hoy.toISOString().slice(0, 10)
+  const hastaDate = new Date(hoy.getTime() + 6 * 24 * 60 * 60 * 1000)
+  const hasta = hastaDate.toISOString().slice(0, 10)
+
+  const forecasts = useQuery({
+    queryKey: ['staffing-forecast-all', desde, hasta],
+    queryFn: async () => {
+      if (restaurantes.length === 0) return {} as Record<number, StaffingForecastDay[]>
+      const results = await Promise.all(
+        restaurantes.map(r =>
+          api.staffing.getForecast(r.id, desde, hasta).then(days => ({ id: r.id, days }))
+        )
+      )
+      const map: Record<number, StaffingForecastDay[]> = {}
+      results.forEach(({ id, days }) => { map[id] = days })
+      return map
+    },
+    enabled: restaurantes.length > 0,
+    refetchInterval: 300_000,
+  })
+
+  const forecastMap = forecasts.data ?? {}
+
+  // Merge all restaurants per day
+  type DayAlert = { restaurante: string; rol: string; tipo: 'falta' | 'exceso' | 'ok'; mensaje: string }
+  type DaySummary = { fecha: string; totalPax: number; alertas: DayAlert[] }
+
+  const days: DaySummary[] = []
+  const cursor = new Date(`${desde}T00:00:00Z`)
+  for (let i = 0; i < 7; i++) {
+    const dia = cursor.toISOString().slice(0, 10)
+    let totalPax = 0
+    const alertas: DayAlert[] = []
+    restaurantes.forEach(r => {
+      const dayData = (forecastMap[r.id] ?? []).find(d => d.fecha === dia)
+      if (dayData) {
+        totalPax += dayData.totalPax
+        dayData.alertas.forEach(a => {
+          if (a.tipo !== 'ok') {
+            alertas.push({ restaurante: r.nombre, ...a })
+          }
+        })
+      }
+    })
+    if (totalPax > 0 || alertas.length > 0) {
+      days.push({ fecha: dia, totalPax, alertas })
+    }
+    cursor.setUTCDate(cursor.getUTCDate() + 1)
+  }
+
+  const hayFaltas = days.some(d => d.alertas.some(a => a.tipo === 'falta'))
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className={`w-2 h-2 rounded-full ${hayFaltas ? 'bg-red-400 animate-pulse' : 'bg-emerald-400'}`} />
+          <h2 className="font-bold text-gray-800 text-sm">Personal (7 días)</h2>
+        </div>
+        <Link to="/admin/staffing" className="text-xs text-cyan-500 hover:text-cyan-700">Ver detalle →</Link>
+      </div>
+
+      {forecasts.isLoading ? (
+        <div className="px-5 py-8 text-center text-gray-300 text-sm">Cargando…</div>
+      ) : days.length === 0 ? (
+        <div className="px-5 py-6 text-center text-gray-400 text-sm">Sin reservas en los próximos 7 días</div>
+      ) : (
+        <div className="divide-y divide-gray-50">
+          {days.map(d => (
+            <div key={d.fecha} className="px-5 py-3">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-semibold text-gray-700 capitalize">{fmtDiaCorto(d.fecha)}</span>
+                <span className="text-xs text-gray-400">{d.totalPax} pax</span>
+              </div>
+              {d.alertas.length === 0 ? (
+                <span className="inline-flex items-center gap-1 text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+                  ✓ Personal ok
+                </span>
+              ) : (
+                <div className="flex flex-wrap gap-1">
+                  {d.alertas.map((a, i) => (
+                    <span
+                      key={i}
+                      className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${
+                        a.tipo === 'falta'
+                          ? 'bg-red-100 text-red-700'
+                          : 'bg-amber-100 text-amber-700'
+                      }`}
+                    >
+                      {a.tipo === 'falta' ? '⚠' : '↑'} {a.mensaje}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Widget: Facturación del día ────────────────────────────────────────────────
 function fmt(n: number) {
   return n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR', minimumFractionDigits: 0, maximumFractionDigits: 0 })
@@ -305,6 +638,7 @@ function FacturacionWidget() {
 
 // ── Hero ───────────────────────────────────────────────────────────────────────
 export default function AdminHomePage() {
+  useAdminEvents()
   const [heroIn,    setHeroIn]    = useState(false)
   const [heroOut,   setHeroOut]   = useState(false)
   const [accentIn,  setAccentIn]  = useState(false)
@@ -352,11 +686,11 @@ export default function AdminHomePage() {
             transition: 'opacity 0.5s ease, transform 0.5s ease',
           }}>
             <div style={{ display: 'flex', alignItems: 'flex-end', ...FONT }}>
-              <span style={{ color: '#0f172a' }}>O</span>
+              <span style={{ color: '#0f172a' }}>o</span>
               <span style={{ position: 'relative', display: 'inline-block' }}>
                 <span style={{ color: '#0f172a' }}>ı</span>
                 <span style={{
-                  position: 'absolute', left: '50%', bottom: '88%',
+                  position: 'absolute', left: '50%', bottom: '67%',
                   transform: `translateX(-50%) scale(${accentIn ? 1 : 0.2})`,
                   opacity: accentIn ? 1 : 0,
                   transition: 'transform 0.5s cubic-bezier(0.34,1.56,0.64,1), opacity 0.3s ease',
@@ -398,8 +732,10 @@ export default function AdminHomePage() {
             transition: 'opacity 0.6s ease, transform 0.6s ease',
           }}
         >
+          <GruposHoyWidget />
           <TurnosWidget />
           <ReviewsWidget />
+          <StaffingWidget />
           <FacturacionWidget />
         </div>
 

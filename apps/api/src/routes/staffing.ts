@@ -1,0 +1,594 @@
+import { FastifyInstance } from 'fastify'
+import { z } from 'zod'
+import { prisma } from '../server'
+
+export async function staffingRoutes(app: FastifyInstance) {
+
+  // GET /staffing/config?restaurantId=X
+  app.get('/staffing/config', async (req, reply) => {
+    const { restaurantId } = req.query as { restaurantId?: string }
+    if (!restaurantId) return reply.status(400).send({ error: 'restaurantId requerido' })
+
+    const id = Number(restaurantId)
+    const config = await prisma.staffingConfig.findUnique({ where: { restaurantId: id } })
+
+    if (!config) {
+      return { id: undefined, restaurantId: id, ratioSalaXPax: 20, ratioCocinaXPax: 30 }
+    }
+    return config
+  })
+
+  // PATCH /staffing/config
+  app.patch('/staffing/config', async (req, reply) => {
+    const schema = z.object({
+      restaurantId:    z.number().int(),
+      ratioSalaXPax:   z.number().int().min(1).optional(),
+      ratioCocinaXPax: z.number().int().min(1).optional(),
+    })
+    const result = schema.safeParse(req.body)
+    if (!result.success) return reply.status(400).send({ error: result.error.flatten() })
+
+    const { restaurantId, ...data } = result.data
+    const config = await prisma.staffingConfig.upsert({
+      where:  { restaurantId },
+      create: { restaurantId, ...data },
+      update: data,
+    })
+    return config
+  })
+
+  // ── Tipos de turno ───────────────────────────────────────────────────────────
+
+  const tipoSchema = z.object({
+    restaurantId: z.number().int().nullable().optional(), // null = global
+    nombre:       z.string().min(1),
+    horaInicio:   z.string().regex(/^\d{2}:\d{2}$/),
+    horaFin:      z.string().regex(/^\d{2}:\d{2}$/),
+    horas:        z.number().min(0),
+    color:        z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#6366f1'),
+    tipoEmpleado: z.enum(['cocina', 'sala']).nullable().optional(),
+  })
+
+  // GET /staffing/tipos?restaurantId=X  — devuelve globales + específicos del restaurante
+  app.get('/staffing/tipos', async (req, reply) => {
+    const { restaurantId } = req.query as { restaurantId?: string }
+    if (!restaurantId) return reply.status(400).send({ error: 'restaurantId requerido' })
+    return prisma.turnoTipo.findMany({
+      where: {
+        activo: true,
+        OR: [
+          { restaurantId: null },
+          { restaurantId: Number(restaurantId) },
+        ],
+      },
+      orderBy: [{ restaurantId: 'asc' }, { horaInicio: 'asc' }],
+    })
+  })
+
+  // POST /staffing/tipos
+  app.post('/staffing/tipos', async (req, reply) => {
+    const result = tipoSchema.safeParse(req.body)
+    if (!result.success) return reply.status(400).send({ error: result.error.flatten() })
+    const tipo = await prisma.turnoTipo.create({ data: result.data })
+    return reply.status(201).send(tipo)
+  })
+
+  // PUT /staffing/tipos/:id
+  app.put('/staffing/tipos/:id', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    const result = tipoSchema.partial().safeParse(req.body)
+    if (!result.success) return reply.status(400).send({ error: result.error.flatten() })
+    const tipo = await prisma.turnoTipo.update({ where: { id }, data: result.data })
+    return tipo
+  })
+
+  // DELETE /staffing/tipos/:id
+  app.delete('/staffing/tipos/:id', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    await prisma.turnoTipo.update({ where: { id }, data: { activo: false } })
+    return reply.status(204).send()
+  })
+
+  // ── Turnos empleados ─────────────────────────────────────────────────────────
+
+  // GET /staffing/turnos?restaurantId=X&fecha=YYYY-MM-DD
+  app.get('/staffing/turnos', async (req, reply) => {
+    const { restaurantId, fecha } = req.query as { restaurantId?: string; fecha?: string }
+    if (!restaurantId || !fecha) return reply.status(400).send({ error: 'restaurantId y fecha requeridos' })
+
+    const id = Number(restaurantId)
+    const dateStart = new Date(`${fecha}T00:00:00.000Z`)
+    const dateEnd   = new Date(`${fecha}T23:59:59.999Z`)
+
+    const turnos = await prisma.turnoEmpleado.findMany({
+      where: {
+        restaurantId: id,
+        fecha: { gte: dateStart, lte: dateEnd },
+      },
+      include: { empleado: true, tipo: true },
+      orderBy: [{ horaInicio: 'asc' }],
+    })
+    return turnos
+  })
+
+  // GET /staffing/turnos/semana?restaurantId=X&desde=YYYY-MM-DD
+  app.get('/staffing/turnos/semana', async (req, reply) => {
+    const { restaurantId, desde } = req.query as { restaurantId?: string; desde?: string }
+    if (!restaurantId || !desde) return reply.status(400).send({ error: 'restaurantId y desde requeridos' })
+
+    const id = Number(restaurantId)
+    const dateStart = new Date(`${desde}T00:00:00.000Z`)
+    const dateEnd   = new Date(dateStart.getTime() + 7 * 24 * 60 * 60 * 1000 - 1)
+
+    const turnos = await prisma.turnoEmpleado.findMany({
+      where: {
+        restaurantId: id,
+        fecha: { gte: dateStart, lte: dateEnd },
+      },
+      include: { empleado: true, tipo: true },
+      orderBy: [{ fecha: 'asc' }, { horaInicio: 'asc' }],
+    })
+    return turnos
+  })
+
+  // DELETE /staffing/turnos/semana?restaurantId=X&desde=YYYY-MM-DD
+  app.delete('/staffing/turnos/semana', async (req, reply) => {
+    const { restaurantId, desde } = req.query as { restaurantId?: string; desde?: string }
+    if (!restaurantId || !desde) return reply.status(400).send({ error: 'restaurantId y desde requeridos' })
+
+    const id        = Number(restaurantId)
+    const dateStart = new Date(`${desde}T00:00:00.000Z`)
+    const dateEnd   = new Date(dateStart.getTime() + 7 * 24 * 60 * 60 * 1000 - 1)
+
+    const { count } = await prisma.turnoEmpleado.deleteMany({
+      where: {
+        restaurantId: id,
+        fecha: { gte: dateStart, lte: dateEnd },
+      },
+    })
+
+    return { deleted: count }
+  })
+
+  // POST /staffing/turnos
+  app.post('/staffing/turnos', async (req, reply) => {
+    const schema = z.object({
+      restaurantId: z.number().int(),
+      empleadoId:   z.number().int(),
+      tipoId:       z.number().int().optional().nullable(),
+      fecha:        z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      horaInicio:   z.string().regex(/^\d{2}:\d{2}$/),
+      horaFin:      z.string().regex(/^\d{2}:\d{2}$/),
+    })
+    const result = schema.safeParse(req.body)
+    if (!result.success) return reply.status(400).send({ error: result.error.flatten() })
+
+    const { fecha, ...rest } = result.data
+    const fechaDate = new Date(`${fecha}T00:00:00.000Z`)
+
+    const turno = await prisma.turnoEmpleado.create({
+      data: { ...rest, fecha: fechaDate },
+      include: { empleado: true, tipo: true },
+    })
+    return reply.status(201).send(turno)
+  })
+
+  // PATCH /staffing/turnos/:id
+  app.patch('/staffing/turnos/:id', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    const schema = z.object({
+      estado:     z.string().optional(),
+      tipoId:     z.number().int().optional().nullable(),
+      horaInicio: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+      horaFin:    z.string().regex(/^\d{2}:\d{2}$/).optional(),
+      fecha:      z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      empleadoId: z.number().int().optional(),
+    })
+    const result = schema.safeParse(req.body)
+    if (!result.success) return reply.status(400).send({ error: result.error.flatten() })
+
+    const { fecha, ...rest } = result.data
+    const turno = await prisma.turnoEmpleado.update({
+      where: { id },
+      data:  { ...rest, ...(fecha ? { fecha: new Date(`${fecha}T00:00:00.000Z`) } : {}) },
+      include: { empleado: true, tipo: true },
+    })
+    return turno
+  })
+
+  // DELETE /staffing/turnos/:id
+  app.delete('/staffing/turnos/:id', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    await prisma.turnoEmpleado.delete({ where: { id } })
+    return reply.status(204).send()
+  })
+
+  // GET /staffing/forecast?restaurantId=X&desde=YYYY-MM-DD&hasta=YYYY-MM-DD
+  app.get('/staffing/forecast', async (req, reply) => {
+    const { restaurantId, desde, hasta } = req.query as { restaurantId?: string; desde?: string; hasta?: string }
+    if (!restaurantId || !desde || !hasta) {
+      return reply.status(400).send({ error: 'restaurantId, desde y hasta requeridos' })
+    }
+
+    const rid = Number(restaurantId)
+    const dateStart = new Date(`${desde}T00:00:00.000Z`)
+    const dateEnd   = new Date(`${hasta}T23:59:59.999Z`)
+
+    const [config, reservas, turnos] = await Promise.all([
+      prisma.staffingConfig.findUnique({ where: { restaurantId: rid } }),
+      prisma.reserva.findMany({
+        where: {
+          restaurantId: rid,
+          fecha: { gte: dateStart, lte: dateEnd },
+          estado: { not: 'cancelada' },
+        },
+      }),
+      prisma.turnoEmpleado.findMany({
+        where: {
+          restaurantId: rid,
+          fecha: { gte: dateStart, lte: dateEnd },
+        },
+        include: { empleado: true },
+      }),
+    ])
+
+    const ratioSala   = config?.ratioSalaXPax   ?? 20
+    const ratioCocina = config?.ratioCocinaXPax  ?? 30
+
+    // Build day range
+    const days: string[] = []
+    const cursor = new Date(dateStart)
+    while (cursor <= dateEnd) {
+      days.push(cursor.toISOString().slice(0, 10))
+      cursor.setUTCDate(cursor.getUTCDate() + 1)
+    }
+
+    const result = days.map(dia => {
+      const diaStart = new Date(`${dia}T00:00:00.000Z`)
+      const diaEnd   = new Date(`${dia}T23:59:59.999Z`)
+
+      const reservasDia = reservas.filter(r => {
+        const f = new Date(r.fecha)
+        return f >= diaStart && f <= diaEnd
+      })
+      const totalPax = reservasDia.reduce((s, r) => s + r.pax, 0)
+
+      const turnosDia = turnos.filter(t => {
+        const f = new Date(t.fecha)
+        return f >= diaStart && f <= diaEnd
+      })
+
+      const asignado = {
+        sala:      turnosDia.filter(t => t.empleado.tipo === 'sala').length,
+        cocina:    turnosDia.filter(t => t.empleado.tipo === 'cocina').length,
+        encargado: turnosDia.filter(t => t.empleado.tipo === 'encargado').length,
+      }
+
+      const necesario = {
+        sala:   totalPax > 0 ? Math.ceil(totalPax / ratioSala)   : 0,
+        cocina: totalPax > 0 ? Math.ceil(totalPax / ratioCocina) : 0,
+      }
+
+      const diferencia = {
+        sala:   asignado.sala   - necesario.sala,
+        cocina: asignado.cocina - necesario.cocina,
+      }
+
+      const alertas: Array<{ rol: string; tipo: 'falta' | 'exceso' | 'ok'; mensaje: string }> = []
+
+      for (const rol of ['sala', 'cocina'] as const) {
+        const diff = diferencia[rol]
+        if (diff <= -2) {
+          alertas.push({ rol, tipo: 'falta', mensaje: `Faltan ${Math.abs(diff)} ${rol} (${asignado[rol]}/${necesario[rol]})` })
+        } else if (diff >= 2) {
+          alertas.push({ rol, tipo: 'exceso', mensaje: `Exceso ${rol}: ${asignado[rol]}/${necesario[rol]}` })
+        } else {
+          alertas.push({ rol, tipo: 'ok', mensaje: `${rol.charAt(0).toUpperCase() + rol.slice(1)} ok (${asignado[rol]}/${necesario[rol]})` })
+        }
+      }
+
+      return { fecha: dia, totalPax, necesario, asignado, diferencia, alertas }
+    })
+
+    return result
+  })
+
+  // PATCH /staffing/empleados/:id
+  app.patch('/staffing/empleados/:id', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    const schema = z.object({
+      horasSemanales: z.number().int().min(0).optional(),
+    })
+    const result = schema.safeParse(req.body)
+    if (!result.success) return reply.status(400).send({ error: result.error.flatten() })
+
+    const empleado = await prisma.empleado.update({
+      where: { id },
+      data:  result.data,
+    })
+    return empleado
+  })
+
+  // ── Necesidades por día de semana ────────────────────────────────────────────
+
+  const necesidadFields = z.object({
+    jefeCocina:   z.number().int().min(0),
+    cocineros:    z.number().int().min(0),
+    friegaplatos: z.number().int().min(0),
+    produccion:   z.number().int().min(0),
+    camareros:    z.number().int().min(0),
+    encargados:   z.number().int().min(0),
+  })
+
+  // GET /staffing/necesidades?restaurantId=X  — devuelve 7 registros (uno por día)
+  app.get('/staffing/necesidades', async (req, reply) => {
+    const { restaurantId } = req.query as { restaurantId?: string }
+    if (!restaurantId) return reply.status(400).send({ error: 'restaurantId requerido' })
+    const rid = Number(restaurantId)
+
+    const existing = await prisma.staffingNecesidadDia.findMany({
+      where: { restaurantId: rid },
+      orderBy: { diaSemana: 'asc' },
+    })
+
+    const blank = { jefeCocina: 0, cocineros: 0, friegaplatos: 0, produccion: 0, camareros: 0, encargados: 0 }
+    return Array.from({ length: 7 }, (_, i) =>
+      existing.find(n => n.diaSemana === i) ?? { id: null, restaurantId: rid, diaSemana: i, ...blank }
+    )
+  })
+
+  // PUT /staffing/necesidades  — guarda los 7 días de golpe
+  app.put('/staffing/necesidades', async (req, reply) => {
+    const schema = z.object({
+      restaurantId: z.number().int(),
+      dias: z.array(z.object({ diaSemana: z.number().int().min(0).max(6), ...necesidadFields.shape })).length(7),
+    })
+    const result = schema.safeParse(req.body)
+    if (!result.success) return reply.status(400).send({ error: result.error.flatten() })
+    const { restaurantId, dias } = result.data
+
+    await Promise.all(dias.map(d =>
+      prisma.staffingNecesidadDia.upsert({
+        where:  { restaurantId_diaSemana: { restaurantId, diaSemana: d.diaSemana } },
+        create: { restaurantId, ...d },
+        update: d,
+      })
+    ))
+    return { ok: true }
+  })
+
+  // ── Extras por fecha concreta ─────────────────────────────────────────────────
+
+  // GET /staffing/necesidades/fecha?restaurantId=X&desde=Y&hasta=Z
+  app.get('/staffing/necesidades/fecha', async (req, reply) => {
+    const { restaurantId, desde, hasta } = req.query as { restaurantId?: string; desde?: string; hasta?: string }
+    if (!restaurantId || !desde || !hasta) return reply.status(400).send({ error: 'restaurantId, desde y hasta requeridos' })
+
+    return prisma.staffingNecesidadFecha.findMany({
+      where: {
+        restaurantId: Number(restaurantId),
+        fecha: {
+          gte: new Date(`${desde}T00:00:00.000Z`),
+          lte: new Date(`${hasta}T23:59:59.999Z`),
+        },
+      },
+      orderBy: { fecha: 'asc' },
+    })
+  })
+
+  // PUT /staffing/necesidades/fecha  — upsert un día concreto
+  app.put('/staffing/necesidades/fecha', async (req, reply) => {
+    const schema = z.object({
+      restaurantId: z.number().int(),
+      fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      notas: z.string().optional().nullable(),
+      ...necesidadFields.shape,
+    })
+    const result = schema.safeParse(req.body)
+    if (!result.success) return reply.status(400).send({ error: result.error.flatten() })
+    const { restaurantId, fecha, ...data } = result.data
+    const fechaDate = new Date(`${fecha}T00:00:00.000Z`)
+
+    const record = await prisma.staffingNecesidadFecha.upsert({
+      where:  { restaurantId_fecha: { restaurantId, fecha: fechaDate } },
+      create: { restaurantId, fecha: fechaDate, ...data },
+      update: data,
+    })
+    return record
+  })
+
+  // DELETE /staffing/necesidades/fecha/:id
+  app.delete('/staffing/necesidades/fecha/:id', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    await prisma.staffingNecesidadFecha.delete({ where: { id } })
+    return reply.status(204).send()
+  })
+
+  // POST /staffing/auto-planning
+  app.post('/staffing/auto-planning', async (req, reply) => {
+    const schema = z.object({
+      restaurantId: z.number().int(),
+      weekStart:    z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      preview:      z.boolean().optional().default(false),
+    })
+    const result = schema.safeParse(req.body)
+    if (!result.success) return reply.status(400).send({ error: result.error.flatten() })
+
+    const { restaurantId, weekStart, preview } = result.data
+
+    const dateStart = new Date(`${weekStart}T00:00:00.000Z`)
+    const dateEnd   = new Date(dateStart.getTime() + 7 * 24 * 60 * 60 * 1000 - 1)
+
+    // 7 day strings for the week (index 0=Mon ... 6=Sun)
+    const days: string[] = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(dateStart)
+      d.setUTCDate(d.getUTCDate() + i)
+      return d.toISOString().slice(0, 10)
+    })
+
+    const [empleados, tipos, existingShifts, necesidadesDia, necesidadesFecha] = await Promise.all([
+      prisma.empleado.findMany({
+        where: { activo: true, OR: [{ restaurantId }, { restaurantId: null }] },
+        orderBy: { nombre: 'asc' },
+      }),
+      prisma.turnoTipo.findMany({
+        where: { activo: true, OR: [{ restaurantId: null }, { restaurantId }] },
+      }),
+      prisma.turnoEmpleado.findMany({
+        where: { restaurantId, fecha: { gte: dateStart, lte: dateEnd } },
+      }),
+      prisma.staffingNecesidadDia.findMany({ where: { restaurantId } }),
+      prisma.staffingNecesidadFecha.findMany({
+        where: { restaurantId, fecha: { gte: dateStart, lte: dateEnd } },
+      }),
+    ])
+
+    // Build needs per day (base + extras)
+    type Slots = { jefeCocina: number; cocineros: number; friegaplatos: number; produccion: number; camareros: number; encargados: number }
+    const blank: Slots = { jefeCocina: 0, cocineros: 0, friegaplatos: 0, produccion: 0, camareros: 0, encargados: 0 }
+
+    const needsPerDay: Slots[] = days.map((dayStr, dayIdx) => {
+      const base  = necesidadesDia.find(n => n.diaSemana === dayIdx) ?? blank
+      const extra = necesidadesFecha.find(f => f.fecha.toISOString().slice(0, 10) === dayStr)
+      return {
+        jefeCocina:   base.jefeCocina   + (extra?.jefeCocina   ?? 0),
+        cocineros:    base.cocineros    + (extra?.cocineros    ?? 0),
+        friegaplatos: base.friegaplatos + (extra?.friegaplatos ?? 0),
+        produccion:   base.produccion   + (extra?.produccion   ?? 0),
+        camareros:    base.camareros    + (extra?.camareros    ?? 0),
+        encargados:   base.encargados   + (extra?.encargados   ?? 0),
+      }
+    })
+
+    // Check if there are any needs configured at all
+    const hasNeeds = needsPerDay.some(n => Object.values(n).some(v => v > 0))
+
+    function calcMins(ini: string, fin: string): number {
+      const [hI, mI] = ini.split(':').map(Number)
+      const [hF, mF] = fin.split(':').map(Number)
+      let mins = (hF * 60 + mF) - (hI * 60 + mI)
+      if (mins <= 0) mins += 24 * 60
+      return mins
+    }
+
+    function bestTipoForEmp(emp: typeof empleados[0], targetMins: number) {
+      const filtrados = tipos.filter(t => !t.tipoEmpleado || t.tipoEmpleado === emp.tipo)
+      if (!filtrados.length) return null
+      return filtrados.reduce((best, t) =>
+        Math.abs(calcMins(t.horaInicio, t.horaFin) - targetMins) <
+        Math.abs(calcMins(best.horaInicio, best.horaFin) - targetMins) ? t : best
+      )
+    }
+
+    function defaultSchedule(targetMins: number): { horaInicio: string; horaFin: string } {
+      const totalEndMins = 9 * 60 + targetMins
+      const endH = Math.floor(totalEndMins / 60) % 24
+      const endM = totalEndMins % 60
+      return { horaInicio: '09:00', horaFin: `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}` }
+    }
+
+    const plan: Array<{
+      empleadoId: number; empleadoNombre: string; fecha: string
+      horaInicio: string; horaFin: string; tipoId: number | null; tipoNombre: string | null
+    }> = []
+
+    const existingSet = new Set(existingShifts.map(s => `${s.empleadoId}-${s.fecha.toISOString().slice(0, 10)}`))
+    const plannedSet  = new Set<string>()
+    const daysWorked  = new Map<number, number>()
+
+    if (hasNeeds) {
+      // ── Mode: needs-based ── assign employees to fill each day's role slots ─
+      // Group active employees by rol (and tipo as fallback for rol=null)
+      const byRol: Record<string, typeof empleados> = {}
+      for (const emp of empleados) {
+        const key = emp.rol ?? (emp.tipo === 'cocina' ? '_cocina' : '_sala')
+        if (!byRol[key]) byRol[key] = []
+        byRol[key].push(emp)
+      }
+
+      const ROLE_KEYS: (keyof Slots)[] = ['jefeCocina', 'cocineros', 'friegaplatos', 'produccion', 'camareros', 'encargados']
+      const ROL_MAP: Record<keyof Slots, string[]> = {
+        jefeCocina:   ['jefe_cocina'],
+        cocineros:    ['cocinero', '_cocina'],
+        friegaplatos: ['friegaplatos'],
+        produccion:   ['produccion'],
+        camareros:    ['camarero', '_sala'],
+        encargados:   ['encargado'],
+      }
+
+      for (const [dayIdx, dayStr] of days.entries()) {
+        const needs = needsPerDay[dayIdx]
+        const totalNeedsMins = 8 * 60  // assume 8h default for needs-based
+
+        for (const roleKey of ROLE_KEYS) {
+          const count = needs[roleKey]
+          if (count === 0) continue
+
+          // Collect candidates: primary rol match, then fallback keys
+          const candidates: typeof empleados = []
+          for (const key of ROL_MAP[roleKey]) {
+            for (const emp of (byRol[key] ?? [])) {
+              if (!candidates.find(c => c.id === emp.id)) candidates.push(emp)
+            }
+          }
+
+          // Sort by days worked (fewest first for even distribution)
+          candidates.sort((a, b) => (daysWorked.get(a.id) ?? 0) - (daysWorked.get(b.id) ?? 0))
+
+          let assigned = 0
+          for (const emp of candidates) {
+            if (assigned >= count) break
+            const maxDays = (emp.horasSemanales ?? 40) < 30 ? 4 : 5
+            if ((daysWorked.get(emp.id) ?? 0) >= maxDays) continue
+            const key = `${emp.id}-${dayStr}`
+            if (existingSet.has(key) || plannedSet.has(key)) continue
+
+            const tipo = bestTipoForEmp(emp, totalNeedsMins)
+            const sched = tipo ? { horaInicio: tipo.horaInicio, horaFin: tipo.horaFin } : defaultSchedule(totalNeedsMins)
+            plan.push({ empleadoId: emp.id, empleadoNombre: emp.nombre, fecha: dayStr, ...sched, tipoId: tipo?.id ?? null, tipoNombre: tipo?.nombre ?? null })
+            plannedSet.add(key)
+            daysWorked.set(emp.id, (daysWorked.get(emp.id) ?? 0) + 1)
+            assigned++
+          }
+        }
+      }
+    } else {
+      // ── Fallback mode: distribute all employees with rotating days off ────────
+      const empleadosConTurnos = new Set(existingShifts.map(s => s.empleadoId))
+      let empIndex = 0
+      for (const emp of empleados) {
+        if (empleadosConTurnos.has(emp.id)) { empIndex++; continue }
+        const horasSemanales   = emp.horasSemanales ?? 40
+        const numWorkDays      = horasSemanales < 30 ? 4 : 5
+        const targetMinsPerDay = Math.round((horasSemanales * 60) / numWorkDays)
+        const tipo = bestTipoForEmp(emp, targetMinsPerDay)
+        const sched = tipo ? { horaInicio: tipo.horaInicio, horaFin: tipo.horaFin } : defaultSchedule(targetMinsPerDay)
+        const daysOffSet = new Set(Array.from({ length: 7 - numWorkDays }, (_, i) => ((empIndex * (7 - numWorkDays)) + i) % 7))
+        for (const dayIdx of [0,1,2,3,4,5,6].filter(i => !daysOffSet.has(i))) {
+          plan.push({ empleadoId: emp.id, empleadoNombre: emp.nombre, fecha: days[dayIdx], ...sched, tipoId: tipo?.id ?? null, tipoNombre: tipo?.nombre ?? null })
+        }
+        empIndex++
+      }
+    }
+
+    const empleadosConTurnosFinal = [...new Set(existingShifts.map(s => s.empleadoId))]
+
+    if (preview) {
+      return { plan, empleadosConTurnos: empleadosConTurnosFinal, hasNeeds }
+    }
+
+    await Promise.all(
+      plan.map(p =>
+        prisma.turnoEmpleado.create({
+          data: {
+            restaurantId, empleadoId: p.empleadoId, tipoId: p.tipoId,
+            fecha: new Date(`${p.fecha}T00:00:00.000Z`),
+            horaInicio: p.horaInicio, horaFin: p.horaFin,
+          },
+        })
+      )
+    )
+
+    return reply.status(201).send({ created: plan.length, plan })
+  })
+}

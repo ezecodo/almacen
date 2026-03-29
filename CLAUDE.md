@@ -89,9 +89,19 @@ cd apps/api && npx tsx prisma/seed.ts
 **GitHub Actions se encarga del deploy automático al VPS.**
 Basta con hacer `git push` desde local — el workflow actualiza el VPS automáticamente (git pull + build frontend + migraciones + restart PM2).
 
-- VPS: Ubuntu, directorio `/root/almacen`
+- VPS: Ubuntu `82.165.93.34`, directorio `/root/almacen`
 - Proceso PM2: `almacen-api` (el frontend lo sirve Nginx como estáticos)
 - Para ver estado en VPS: `pm2 status` / `pm2 logs --lines 50`
+
+### Archivos secretos (NO van en git)
+
+El archivo de credenciales de Google Sheets **no está en git** (cubierto por `.gitignore`: `apps/api/oidoops-*.json`). Debe subirse manualmente al VPS la primera vez, y cada vez que se renueve:
+
+```bash
+scp apps/api/oidoops-c9b6d1f8f3da.json root@82.165.93.34:/root/almacen/apps/api/
+```
+
+El archivo vive en `/root/almacen/apps/api/` en el servidor — solo accesible por el proceso Node, no expuesto públicamente por Nginx.
 
 ---
 
@@ -151,6 +161,15 @@ Una merma se puede restituir (eliminar) desde el panel de detalle de comanda.
 
 Sistema de reparto de propinas por turno. Registro de efectivo + tarjeta del día, con horas trabajadas por empleado. El reparto es proporcional a las horas.
 
+**Google Sheets (`apps/api/src/sheets.ts`)**: al guardar una propina se escribe en una hoja mensual (período 25→24). Estructura:
+- **2 filas por empleado**: row1 = nombre + datos restaurante 1, row2 = datos restaurante 2 (si trabajó en dos sitios el mismo día)
+- **Col A mergeada** entre ambas filas con el nombre del empleado (font 12 bold, centrado verticalmente)
+- **Orden alfabético**: los empleados nuevos se insertan en su posición alfabética correcta usando `insertDimension` (no al final). Se procesan en orden alfabético para que los índices sean siempre correctos
+- **Bordes**: `SOLID_MEDIUM` en la parte superior de cada bloque de empleado (separa grupos), línea `DASHED` entre row1 y row2 (separa los dos restaurantes)
+- **Totales**: fórmulas que suman row1 + row2 de cada empleado para horas y propinas
+- **Padding fix**: la API de Sheets omite filas vacías al final — se padea `nameRows` a longitud par para evitar que el row2 placeholder del último empleado se pierda
+- `clearRemovedTurnosFromSheet`: al modificar una propina, borra solo la fila del restaurante correspondiente (no ambas filas del empleado)
+
 ### Google Reviews
 
 Widget en el dashboard admin (`AdminHomePage`) que muestra por restaurante:
@@ -194,6 +213,22 @@ Página de inicio tras el login. Animación de entrada: viñeta grande aparece c
 **ReviewsWidget** — rating + total + diferencial diario por restaurante. Alerta ⚠️ si rating bajó. Barra de progreso mensual si hay tasa configurada. Ruedita ⚙️ abre modal para configurar `1 review cada X pax` por restaurante. Polling 60s.
 
 **FacturacionWidget** — facturación en vivo del día por restaurante (ocupa 2 columnas). Muestra total global en el header. Por restaurante: total €, desglose efectivo/tarjeta, nº comandas. Restaurantes sin turno activo aparecen en gris. Polling 30s.
+
+---
+
+## Módulo: Menú
+
+Gestionado desde `/admin/menu`. Selector de restaurante en la parte superior.
+
+### Categorías
+- **Orden**: cada categoría tiene campo `orden`. Botones ▲▼ en la card para reordenar dentro del mismo `grupo` (intercambia valores `orden` con la categoría adyacente via dos `PUT /menu/categorias/:id`).
+- **Copiar categoría** (`POST /menu/categorias/:id/copiar`): copia una categoría (con o sin sus items) a uno o varios restaurantes. Omite items duplicados por nombre.
+- **Eliminar**: borrado en cascada — elimina todos los items de la categoría primero, luego la categoría. El frontend pide confirmación indicando cuántos items se eliminarán.
+
+### Items
+- **Copiar item** (`POST /menu/items/:id/copiar`): copia un item a un restaurante + categoría destino. Si la categoría destino no existe, la crea. Devuelve 409 si el item ya existe en ese destino.
+- **Toggle activo** (`PATCH /menu/:id/toggle`): activa/desactiva un item.
+- **Toggle autoPorPax** (`PATCH /menu/:id/toggleAutoPorPax`): marca si el item se cobra automáticamente por comensal.
 
 ---
 

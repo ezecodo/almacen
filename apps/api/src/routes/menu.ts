@@ -23,6 +23,7 @@ const itemSchema = z.object({
   descripcion:  z.string().default(''),
   precio:       z.number().min(0),
   orden:        z.number().int().default(0),
+  alergenos:    z.number().int().min(0).default(0),
 })
 
 const updateSchema = itemSchema.partial().omit({ restaurantId: true })

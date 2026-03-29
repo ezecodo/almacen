@@ -29,6 +29,8 @@ import InventarioPage from './pages/InventarioPage'
 import ReservasAdminPage from './pages/ReservasAdminPage'
 import ReservaPublicaPage from './pages/ReservaPublicaPage'
 import AdminHomePage from './pages/AdminHomePage'
+import LogoLabPage from './pages/LogoLabPage'
+import StaffingPage from './pages/StaffingPage'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -43,6 +45,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<LandingPage />} />
+          <Route path="/logo-lab" element={<LogoLabPage />} />
           <Route path="/sala/setup" element={<SetupPage />} />
           <Route path="/sala" element={<SalaLoginPage />} />
           <Route path="/sala/mesas" element={<SalaMesasPage />} />
@@ -69,6 +72,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               <Route path="/admin/turnos/:id" element={<TurnoDetallePage />} />
               <Route path="/admin/inventario" element={<InventarioPage />} />
               <Route path="/admin/reservas" element={<ReservasAdminPage />} />
+              <Route path="/admin/staffing" element={<StaffingPage />} />
             </Route>
           </Route>
         </Routes>

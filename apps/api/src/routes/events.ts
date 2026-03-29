@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify'
-import { subscribe, unsubscribe } from '../sse'
+import { subscribe, unsubscribe, subscribeGlobal, unsubscribeGlobal } from '../sse'
 
 export async function eventRoutes(app: FastifyInstance) {
   app.get('/events', (req, reply) => {
@@ -35,6 +35,35 @@ export async function eventRoutes(app: FastifyInstance) {
     })
 
     // Confirmar conexión
+    reply.raw.write('data: {"type":"connected"}\n\n')
+  })
+
+  // Endpoint global para admin — recibe eventos de todos los restaurantes
+  app.get('/events/global', (req, reply) => {
+    reply.hijack()
+
+    reply.raw.writeHead(200, {
+      'Content-Type':      'text/event-stream',
+      'Cache-Control':     'no-cache',
+      'Connection':        'keep-alive',
+      'X-Accel-Buffering': 'no',
+    })
+
+    const send = (data: string) => {
+      try { reply.raw.write(data) } catch { unsubscribeGlobal(send) }
+    }
+
+    subscribeGlobal(send)
+
+    const ping = setInterval(() => {
+      try { reply.raw.write(': ping\n\n') } catch { clearInterval(ping); unsubscribeGlobal(send) }
+    }, 25_000)
+
+    req.raw.on('close', () => {
+      clearInterval(ping)
+      unsubscribeGlobal(send)
+    })
+
     reply.raw.write('data: {"type":"connected"}\n\n')
   })
 }

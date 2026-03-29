@@ -43,6 +43,11 @@ export interface Empleado {
   tipo: 'cocina' | 'sala'
   pin?: string | null
   telefono?: string | null
+  email?: string | null
+  horasSemanales: number
+  rol?: string | null
+  restaurantId?: number | null
+  restaurant?: { id: number; nombre: string } | null
   activo: boolean
 }
 
@@ -195,6 +200,7 @@ export interface MenuItem {
   activo: boolean
   autoPorPax: boolean
   orden: number
+  alergenos: number
 }
 
 export interface Mesa {
@@ -280,12 +286,15 @@ export interface MermasResponse {
 }
 
 export interface GrupoMenuNivel {
-  nivel:       number
-  plato:       string
-  vegetariano: string | null
-  sinCerdo:    string | null
-  sinGluten:   string | null
-  esPostre:    boolean
+  nivel:    number
+  nombre:   string    // nombre del curso, ej: "Tapas", "Pescados", "Carnes"
+  platos:   string[]  // lista de platos del curso
+  esPostre: boolean
+  // Legacy fields (backward compat con plantillas antiguas)
+  plato?:       string
+  vegetariano?: string | null
+  sinCerdo?:    string | null
+  sinGluten?:   string | null
 }
 
 export interface GrupoMenuTemplate {
@@ -303,6 +312,20 @@ export interface GrupoMenuRestricciones {
   vegetarianos: number
   sinCerdo:     number
   sinGluten:    number
+}
+
+export interface GrupoAgendado {
+  id:            number
+  restaurantId:  number
+  templateId:    number
+  template:      GrupoMenuTemplate
+  fecha:         string
+  pax:           number
+  restricciones: GrupoMenuRestricciones
+  notas?:        string | null
+  estado:        'pendiente' | 'asignado' | 'cancelado'
+  comandaId?:    number | null
+  createdAt:     string
 }
 
 export interface InventarioCategoria {
@@ -407,6 +430,73 @@ export interface SlotDisponible {
   disponibles: number
 }
 
+export interface TurnoTipo {
+  id: number
+  restaurantId: number | null
+  nombre: string
+  horaInicio: string
+  horaFin: string
+  horas: number
+  color: string
+  tipoEmpleado: 'cocina' | 'sala' | null
+  activo: boolean
+}
+
+export interface TurnoEmpleadoType {
+  id: number
+  restaurantId: number
+  empleadoId: number
+  tipoId?: number | null
+  tipo?: TurnoTipo | null
+  empleado: { id: number; nombre: string; tipo: string; horasSemanales: number }
+  fecha: string
+  horaInicio: string
+  horaFin: string
+  estado: string
+  createdAt: string
+}
+
+export interface NecesidadSlots {
+  jefeCocina: number
+  cocineros: number
+  friegaplatos: number
+  produccion: number
+  camareros: number
+  encargados: number
+}
+
+export interface NecesidadDia extends NecesidadSlots {
+  id: number | null
+  restaurantId: number
+  diaSemana: number  // 0=Lun … 6=Dom
+}
+
+export interface NecesidadFecha extends NecesidadSlots {
+  id: number
+  restaurantId: number
+  fecha: string
+  notas: string | null
+}
+
+export interface AutoPlanItem {
+  empleadoId:    number
+  empleadoNombre: string
+  fecha:         string
+  horaInicio:    string
+  horaFin:       string
+  tipoId:        number | null
+  tipoNombre:    string | null
+}
+
+export interface StaffingForecastDay {
+  fecha: string
+  totalPax: number
+  necesario: { sala: number; cocina: number }
+  asignado: { sala: number; cocina: number; encargado: number }
+  diferencia: { sala: number; cocina: number }
+  alertas: Array<{ rol: string; tipo: 'falta' | 'exceso' | 'ok'; mensaje: string }>
+}
+
 export const api = {
   restaurantes: {
     list: () => get<Restaurante[]>('/restaurantes'),
@@ -414,8 +504,8 @@ export const api = {
   empleados: {
     list:   (tipo?: 'cocina' | 'sala') => get<Empleado[]>(`/empleados${tipo ? `?tipo=${tipo}` : ''}`),
     auth:   (pin: string) => post<Empleado>('/empleados/auth', { pin }),
-    create: (body: { nombre: string; tipo: 'cocina' | 'sala'; pin?: string }) => post<Empleado>('/empleados', body),
-    update: (id: number, body: { nombre?: string; tipo?: string; pin?: string; telefono?: string | null; activo?: boolean }) =>
+    create: (body: { nombre: string; tipo: 'cocina' | 'sala'; pin?: string; telefono?: string; email?: string; horasSemanales?: number; rol?: string; restaurantId?: number | null }) => post<Empleado>('/empleados', body),
+    update: (id: number, body: { nombre?: string; tipo?: string; pin?: string; telefono?: string | null; email?: string | null; horasSemanales?: number; rol?: string | null; restaurantId?: number | null; activo?: boolean }) =>
       put<Empleado>(`/empleados/${id}`, body),
     desactivar: (id: number) => patch<Empleado>(`/empleados/${id}/desactivar`, {}),
     delete: (id: number) => del(`/empleados/${id}`),
@@ -583,10 +673,23 @@ export const api = {
     delete: (id: number) => del(`/grupo-menu/${id}`),
     generar: (id: number, body: {
       mesaId: number
+      pax: number
+      platosSeleccionados: Array<{ nombre: string; nivel: number; cantidad: number }>
       camareroNombre?: string
-      incluyePostre: boolean
-      restricciones: GrupoMenuRestricciones
     }) => post<Comanda>(`/grupo-menu/${id}/generar`, body),
+    agendados: {
+      list:   (restaurantId: number, fecha?: string) =>
+        get<GrupoAgendado[]>(`/grupo-menu/agendados?restaurantId=${restaurantId}${fecha ? `&fecha=${fecha}` : ''}`),
+      pendientesHoy: () =>
+        get<(GrupoAgendado & { restaurant: { id: number; nombre: string } })[]>('/grupo-menu/agendados/pendientes-hoy'),
+      create: (body: { restaurantId: number; templateId: number; fecha: string; pax: number; restricciones: GrupoMenuRestricciones; notas?: string }) =>
+        post<GrupoAgendado>('/grupo-menu/agendados', body),
+      update: (id: number, body: Partial<{ fecha: string; pax: number; restricciones: GrupoMenuRestricciones; notas: string; estado: string }>) =>
+        patch<GrupoAgendado>(`/grupo-menu/agendados/${id}`, body),
+      delete: (id: number) => del(`/grupo-menu/agendados/${id}`),
+      asignar: (id: number, body: { mesaId: number; camareroNombre?: string; incluyePostre?: boolean }) =>
+        post<Comanda>(`/grupo-menu/agendados/${id}/asignar`, body),
+    },
   },
   turnos: {
     getActivo:  (restaurantId: number) => get<Turno | null>(`/turnos/activo?restaurantId=${restaurantId}`),
@@ -612,6 +715,33 @@ export const api = {
     getPublicConfig: (slug: string) => get<{ restaurantNombre: string; slug: string; activo: boolean; maxPaxPorSlot: number; duracionMin: number; diasAntelacion: number; horarios: ReservaHorario[] }>(`/reservas/publica/config?slug=${slug}`),
     getSlots: (slug: string, fecha: string, pax: number) => get<SlotDisponible[]>(`/reservas/publica/slots?slug=${slug}&fecha=${fecha}&pax=${pax}`),
     createPublica: (body: { slug: string; fecha: string; hora: string; pax: number; nombre: string; telefono: string; email?: string; notas?: string }) => post<Reserva>('/reservas/publica', body),
+  },
+  staffing: {
+    getConfig: (restaurantId: number) => get<{ id?: number; restaurantId: number; ratioSalaXPax: number; ratioCocinaXPax: number }>(`/staffing/config?restaurantId=${restaurantId}`),
+    setConfig: (body: { restaurantId: number; ratioSalaXPax?: number; ratioCocinaXPax?: number }) => patch<{ ratioSalaXPax: number; ratioCocinaXPax: number }>('/staffing/config', body),
+    getTipos: (restaurantId: number) => get<TurnoTipo[]>(`/staffing/tipos?restaurantId=${restaurantId}`),
+    createTipo: (body: { restaurantId: number | null; nombre: string; horaInicio: string; horaFin: string; horas: number; color: string; tipoEmpleado: 'cocina' | 'sala' | null }) => post<TurnoTipo>('/staffing/tipos', body),
+    updateTipo: (id: number, body: Partial<{ restaurantId: number | null; nombre: string; horaInicio: string; horaFin: string; horas: number; color: string; tipoEmpleado: 'cocina' | 'sala' | null }>) => put<TurnoTipo>(`/staffing/tipos/${id}`, body),
+    deleteTipo: (id: number) => del(`/staffing/tipos/${id}`),
+    getTurnos: (restaurantId: number, fecha: string) => get<TurnoEmpleadoType[]>(`/staffing/turnos?restaurantId=${restaurantId}&fecha=${fecha}`),
+    getSemana: (restaurantId: number, desde: string) => get<TurnoEmpleadoType[]>(`/staffing/turnos/semana?restaurantId=${restaurantId}&desde=${desde}`),
+    createTurno: (body: { restaurantId: number; empleadoId: number; tipoId?: number | null; fecha: string; horaInicio: string; horaFin: string }) => post<TurnoEmpleadoType>('/staffing/turnos', body),
+    updateTurno: (id: number, body: { estado?: string; tipoId?: number | null; horaInicio?: string; horaFin?: string; fecha?: string; empleadoId?: number }) => patch<TurnoEmpleadoType>(`/staffing/turnos/${id}`, body),
+    deleteTurno: (id: number) => del(`/staffing/turnos/${id}`),
+    deleteSemana: (restaurantId: number, desde: string) =>
+      del(`/staffing/turnos/semana?restaurantId=${restaurantId}&desde=${desde}`),
+    getForecast: (restaurantId: number, desde: string, hasta: string) => get<StaffingForecastDay[]>(`/staffing/forecast?restaurantId=${restaurantId}&desde=${desde}&hasta=${hasta}`),
+    updateEmpleado: (id: number, body: { horasSemanales?: number }) => patch<{ id: number; horasSemanales: number }>(`/staffing/empleados/${id}`, body),
+    getNecesidades: (restaurantId: number) => get<NecesidadDia[]>(`/staffing/necesidades?restaurantId=${restaurantId}`),
+    setNecesidades: (restaurantId: number, dias: (NecesidadSlots & { diaSemana: number })[]) =>
+      put<{ ok: boolean }>('/staffing/necesidades', { restaurantId, dias }),
+    getNecesidadesFecha: (restaurantId: number, desde: string, hasta: string) =>
+      get<NecesidadFecha[]>(`/staffing/necesidades/fecha?restaurantId=${restaurantId}&desde=${desde}&hasta=${hasta}`),
+    setNecesidadFecha: (body: { restaurantId: number; fecha: string; notas?: string | null } & NecesidadSlots) =>
+      put<NecesidadFecha>('/staffing/necesidades/fecha', body),
+    deleteNecesidadFecha: (id: number) => del(`/staffing/necesidades/fecha/${id}`),
+    autoPlanning: (body: { restaurantId: number; weekStart: string; preview?: boolean }) =>
+      post<{ plan: AutoPlanItem[]; empleadosConTurnos?: number[]; hasNeeds?: boolean; created?: number }>('/staffing/auto-planning', body),
   },
   stats: {
     retirosPorDia: (dias = 30) => get<{ fecha: string; total: number }[]>(`/stats/retiros-por-dia?dias=${dias}`),

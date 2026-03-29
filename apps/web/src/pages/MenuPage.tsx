@@ -8,6 +8,70 @@ function formatEur(n: number) {
 
 const inputCls = 'w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyan-400'
 
+// ── Alérgenos (14 obligatorios UE — Reglamento 1169/2011) ─────────────────────
+const ALERGENOS = [
+  { bit: 0,  emoji: '🌾', nombre: 'Gluten' },
+  { bit: 1,  emoji: '🦐', nombre: 'Crustáceos' },
+  { bit: 2,  emoji: '🥚', nombre: 'Huevos' },
+  { bit: 3,  emoji: '🐟', nombre: 'Pescado' },
+  { bit: 4,  emoji: '🥜', nombre: 'Cacahuetes' },
+  { bit: 5,  emoji: '🫘', nombre: 'Soja' },
+  { bit: 6,  emoji: '🥛', nombre: 'Lácteos' },
+  { bit: 7,  emoji: '🌰', nombre: 'Frutos secos' },
+  { bit: 8,  emoji: '🌿', nombre: 'Apio' },
+  { bit: 9,  emoji: '🌻', nombre: 'Mostaza' },
+  { bit: 10, emoji: '⚪', nombre: 'Sésamo' },
+  { bit: 11, emoji: '🍷', nombre: 'Sulfitos' },
+  { bit: 12, emoji: '🌼', nombre: 'Altramuces' },
+  { bit: 13, emoji: '🦑', nombre: 'Moluscos' },
+]
+
+function hasAlergeno(mask: number, bit: number) { return (mask & (1 << bit)) !== 0 }
+function toggleAlergeno(mask: number, bit: number) { return mask ^ (1 << bit) }
+
+function AlergenosPicker({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  return (
+    <div>
+      <label className="block text-xs font-medium text-gray-500 mb-1.5">Alérgenos</label>
+      <div className="flex flex-wrap gap-1.5">
+        {ALERGENOS.map(a => {
+          const active = hasAlergeno(value, a.bit)
+          return (
+            <button
+              key={a.bit}
+              type="button"
+              onClick={() => onChange(toggleAlergeno(value, a.bit))}
+              title={a.nombre}
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium border transition-all ${
+                active
+                  ? 'bg-amber-100 border-amber-300 text-amber-800'
+                  : 'bg-gray-50 border-gray-200 text-gray-400 hover:border-gray-300'
+              }`}
+            >
+              <span>{a.emoji}</span>
+              <span className="hidden sm:inline">{a.nombre}</span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function AlergenosBadges({ mask }: { mask: number }) {
+  const activos = ALERGENOS.filter(a => hasAlergeno(mask, a.bit))
+  if (!activos.length) return null
+  return (
+    <div className="flex flex-wrap gap-1 mt-1">
+      {activos.map(a => (
+        <span key={a.bit} title={a.nombre} className="text-xs bg-amber-50 border border-amber-200 text-amber-700 px-1.5 py-0.5 rounded">
+          {a.emoji} {a.nombre}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 // ── Formulario de categoría ───────────────────────────────────────────────────
 function CategoriaForm({
   restaurantId,
@@ -82,14 +146,15 @@ function ItemForm({
   onDone: () => void
 }) {
   const qc = useQueryClient()
-  const [nombre, setNombre]    = useState(initial?.nombre ?? '')
-  const [descripcion, setDesc] = useState(initial?.descripcion ?? '')
-  const [precio, setPrecio]    = useState(initial?.precio?.toString() ?? '')
+  const [nombre, setNombre]       = useState(initial?.nombre ?? '')
+  const [descripcion, setDesc]    = useState(initial?.descripcion ?? '')
+  const [precio, setPrecio]       = useState(initial?.precio?.toString() ?? '')
+  const [alergenos, setAlergenos] = useState(initial?.alergenos ?? 0)
 
   const save = useMutation({
     mutationFn: () => initial
-      ? api.menu.update(initial.id, { nombre, descripcion, precio: parseFloat(precio) })
-      : api.menu.create({ restaurantId, categoria, nombre, descripcion, precio: parseFloat(precio), orden: 0 }),
+      ? api.menu.update(initial.id, { nombre, descripcion, precio: parseFloat(precio), alergenos })
+      : api.menu.create({ restaurantId, categoria, nombre, descripcion, precio: parseFloat(precio), orden: 0, alergenos }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['menu-items', restaurantId, categoria] })
       qc.invalidateQueries({ queryKey: ['menu-cats', restaurantId] })
@@ -111,6 +176,7 @@ function ItemForm({
       </div>
       <input value={descripcion} onChange={e => setDesc(e.target.value)}
         className={inputCls} placeholder="Descripción / ingredientes (opcional)" />
+      <AlergenosPicker value={alergenos} onChange={setAlergenos} />
       <div className="flex justify-end gap-3">
         <button onClick={onDone} className="text-sm text-gray-400 hover:text-gray-600">Cancelar</button>
         <button
@@ -207,6 +273,7 @@ function CategoriaPanel({
                     )}
                   </div>
                   {item.descripcion && <p className="text-xs text-gray-400 mt-0.5">{item.descripcion}</p>}
+                  {!!item.alergenos && <AlergenosBadges mask={item.alergenos} />}
                 </div>
                 <span className="text-sm font-bold text-cyan-600 shrink-0">{formatEur(item.precio)}</span>
                 <div className="flex items-center gap-2 shrink-0">
