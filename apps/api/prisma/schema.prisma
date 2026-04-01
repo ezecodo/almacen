@@ -85,21 +85,25 @@ model ReviewSnapshot {
 }
 
 model Empleado {
-  id              Int              @id @default(autoincrement())
-  nombre          String
-  tipo            String           @default("cocina")
-  pin             String?          @unique
-  telefono        String?
-  email           String?
-  rol             String?          // cocina: 'friegaplatos'|'cocinero'|'produccion' / sala: 'camarero'|'encargado'
-  restaurantId    Int?             // restaurante habitual (null = rotativo)
-  restaurant      Restaurant?      @relation(fields: [restaurantId], references: [id])
-  retiros         Retiro[]
-  turnos          PropinaTurno[]
-  activo          Boolean          @default(true)
-  horasSemanales  Int              @default(40)
-  turnosAsignados TurnoEmpleado[]
-  createdAt       DateTime         @default(now())
+  id               Int              @id @default(autoincrement())
+  nombre           String
+  tipo             String           @default("cocina")
+  pin              String?          @unique
+  telefono         String?
+  email            String?
+  rol              String?          // cocina: 'friegaplatos'|'cocinero'|'produccion' / sala: 'camarero'|'encargado'
+  puedeEncargado   Boolean          @default(false) // camarero que puede cubrir turno de encargado
+  puedeJefeCocina  Boolean          @default(false) // cocinero que puede cubrir turno de jefe de cocina
+  excluirPlanning  Boolean          @default(false) // no incluir en auto-planning
+  restaurantId     Int?             // restaurante habitual (null = rotativo)
+  restaurant       Restaurant?      @relation(fields: [restaurantId], references: [id])
+  retiros          Retiro[]
+  turnos           PropinaTurno[]
+  activo           Boolean          @default(true)
+  horasSemanales   Int              @default(40)
+  diasLibresFijos  Int[]            @default([]) // días fijos de libranza: 0=Lun … 6=Dom
+  turnosAsignados  TurnoEmpleado[]
+  createdAt        DateTime         @default(now())
 }
 
 model PropinaDia {
@@ -129,9 +133,10 @@ model PropinaTurno {
 model Retiro {
   id             Int          @id @default(autoincrement())
   createdAt      DateTime     @default(now())
-  empleadoId     Int
+  empleadoId     Int?         // null si el empleado fue eliminado
+  empleadoNombre String?      // nombre guardado al crear (persiste aunque se elimine el empleado)
   restaurantId   Int
-  empleado       Empleado     @relation(fields: [empleadoId], references: [id])
+  empleado       Empleado?    @relation(fields: [empleadoId], references: [id])
   restaurant     Restaurant   @relation(fields: [restaurantId], references: [id])
   items          RetiroItem[]
   confirmadoAt   DateTime?
@@ -363,18 +368,20 @@ model GrupoAgendado {
 }
 
 model TurnoTipo {
-  id           Int             @id @default(autoincrement())
-  restaurantId Int?            // null = global (compartido entre todos los restaurantes)
-  restaurant   Restaurant?     @relation(fields: [restaurantId], references: [id])
-  nombre       String
-  horaInicio   String
-  horaFin      String
-  horas        Float
-  color        String          @default("#6366f1")
-  tipoEmpleado String?         // 'cocina' | 'sala' | null (= ambos)
-  activo       Boolean         @default(true)
-  turnos       TurnoEmpleado[]
-  createdAt    DateTime        @default(now())
+  id                   Int             @id @default(autoincrement())
+  restaurantId         Int?            // null = global (compartido entre todos los restaurantes)
+  restaurant           Restaurant?     @relation(fields: [restaurantId], references: [id])
+  nombre               String
+  horaInicio           String
+  horaFin              String
+  horas                Float
+  color                String          @default("#6366f1")
+  tipoEmpleado         String?         // 'cocina' | 'sala' | null (= ambos)
+  rolEmpleado          String?         // rol específico: 'jefe_cocina' | 'cocinero' | etc. | null (= todos los roles)
+  excluirAutoPlanning  Boolean         @default(false)
+  activo               Boolean         @default(true)
+  turnos               TurnoEmpleado[]
+  createdAt            DateTime        @default(now())
 }
 
 model TurnoEmpleado {

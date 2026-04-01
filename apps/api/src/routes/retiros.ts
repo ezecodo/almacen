@@ -32,9 +32,12 @@ export async function retiroRoutes(app: FastifyInstance) {
 
     const { empleadoId, restaurantId, items } = result.data
 
+    const empleado = await prisma.empleado.findUnique({ where: { id: empleadoId } })
+
     const retiro = await prisma.retiro.create({
       data: {
         empleadoId,
+        empleadoNombre: empleado?.nombre ?? null,
         restaurantId,
         items: { create: items }
       },

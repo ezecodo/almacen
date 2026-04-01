@@ -46,9 +46,13 @@ export interface Empleado {
   email?: string | null
   horasSemanales: number
   rol?: string | null
+  puedeEncargado?: boolean
+  puedeJefeCocina?: boolean
+  excluirPlanning?: boolean
   restaurantId?: number | null
   restaurant?: { id: number; nombre: string } | null
   activo: boolean
+  diasLibresFijos: number[]  // 0=Lun … 6=Dom
 }
 
 export interface PropinaTurno {
@@ -132,11 +136,16 @@ export interface RetiroFiltros {
 export interface RetiroResumen {
   id: number
   createdAt: string
-  empleado: { id: number; nombre: string }
+  empleadoNombre: string | null
+  empleado: { id: number; nombre: string } | null
   restaurant: { id: number; nombre: string }
   items: RetiroItem[]
   confirmadoAt?: string | null
   confirmadoPor?: string | null
+}
+
+export function retiroNombreEmpleado(r: Pick<RetiroResumen, 'empleado' | 'empleadoNombre'>): string {
+  return r.empleado?.nombre ?? r.empleadoNombre ?? '(eliminado)'
 }
 
 export interface RetirosResponse {
@@ -439,6 +448,8 @@ export interface TurnoTipo {
   horas: number
   color: string
   tipoEmpleado: 'cocina' | 'sala' | null
+  rolEmpleado: string | null
+  excluirAutoPlanning: boolean
   activo: boolean
 }
 
@@ -448,7 +459,7 @@ export interface TurnoEmpleadoType {
   empleadoId: number
   tipoId?: number | null
   tipo?: TurnoTipo | null
-  empleado: { id: number; nombre: string; tipo: string; horasSemanales: number }
+  empleado: { id: number; nombre: string; tipo: string; horasSemanales: number; rol?: string | null }
   fecha: string
   horaInicio: string
   horaFin: string
@@ -504,8 +515,8 @@ export const api = {
   empleados: {
     list:   (tipo?: 'cocina' | 'sala') => get<Empleado[]>(`/empleados${tipo ? `?tipo=${tipo}` : ''}`),
     auth:   (pin: string) => post<Empleado>('/empleados/auth', { pin }),
-    create: (body: { nombre: string; tipo: 'cocina' | 'sala'; pin?: string; telefono?: string; email?: string; horasSemanales?: number; rol?: string; restaurantId?: number | null }) => post<Empleado>('/empleados', body),
-    update: (id: number, body: { nombre?: string; tipo?: string; pin?: string; telefono?: string | null; email?: string | null; horasSemanales?: number; rol?: string | null; restaurantId?: number | null; activo?: boolean }) =>
+    create: (body: { nombre: string; tipo: 'cocina' | 'sala'; pin?: string; telefono?: string; email?: string; horasSemanales?: number; rol?: string; puedeEncargado?: boolean; puedeJefeCocina?: boolean; excluirPlanning?: boolean; diasLibresFijos?: number[]; restaurantId?: number | null }) => post<Empleado>('/empleados', body),
+    update: (id: number, body: { nombre?: string; tipo?: string; pin?: string; telefono?: string | null; email?: string | null; horasSemanales?: number; rol?: string | null; puedeEncargado?: boolean; puedeJefeCocina?: boolean; excluirPlanning?: boolean; diasLibresFijos?: number[]; restaurantId?: number | null; activo?: boolean }) =>
       put<Empleado>(`/empleados/${id}`, body),
     desactivar: (id: number) => patch<Empleado>(`/empleados/${id}/desactivar`, {}),
     delete: (id: number) => del(`/empleados/${id}`),
@@ -720,8 +731,8 @@ export const api = {
     getConfig: (restaurantId: number) => get<{ id?: number; restaurantId: number; ratioSalaXPax: number; ratioCocinaXPax: number }>(`/staffing/config?restaurantId=${restaurantId}`),
     setConfig: (body: { restaurantId: number; ratioSalaXPax?: number; ratioCocinaXPax?: number }) => patch<{ ratioSalaXPax: number; ratioCocinaXPax: number }>('/staffing/config', body),
     getTipos: (restaurantId: number) => get<TurnoTipo[]>(`/staffing/tipos?restaurantId=${restaurantId}`),
-    createTipo: (body: { restaurantId: number | null; nombre: string; horaInicio: string; horaFin: string; horas: number; color: string; tipoEmpleado: 'cocina' | 'sala' | null }) => post<TurnoTipo>('/staffing/tipos', body),
-    updateTipo: (id: number, body: Partial<{ restaurantId: number | null; nombre: string; horaInicio: string; horaFin: string; horas: number; color: string; tipoEmpleado: 'cocina' | 'sala' | null }>) => put<TurnoTipo>(`/staffing/tipos/${id}`, body),
+    createTipo: (body: { restaurantId: number | null; nombre: string; horaInicio: string; horaFin: string; horas: number; color: string; tipoEmpleado: 'cocina' | 'sala' | null; rolEmpleado?: string | null; excluirAutoPlanning?: boolean }) => post<TurnoTipo>('/staffing/tipos', body),
+    updateTipo: (id: number, body: Partial<{ restaurantId: number | null; nombre: string; horaInicio: string; horaFin: string; horas: number; color: string; tipoEmpleado: 'cocina' | 'sala' | null; rolEmpleado: string | null; excluirAutoPlanning: boolean }>) => put<TurnoTipo>(`/staffing/tipos/${id}`, body),
     deleteTipo: (id: number) => del(`/staffing/tipos/${id}`),
     getTurnos: (restaurantId: number, fecha: string) => get<TurnoEmpleadoType[]>(`/staffing/turnos?restaurantId=${restaurantId}&fecha=${fecha}`),
     getSemana: (restaurantId: number, desde: string) => get<TurnoEmpleadoType[]>(`/staffing/turnos/semana?restaurantId=${restaurantId}&desde=${desde}`),
@@ -741,7 +752,7 @@ export const api = {
       put<NecesidadFecha>('/staffing/necesidades/fecha', body),
     deleteNecesidadFecha: (id: number) => del(`/staffing/necesidades/fecha/${id}`),
     autoPlanning: (body: { restaurantId: number; weekStart: string; preview?: boolean }) =>
-      post<{ plan: AutoPlanItem[]; empleadosConTurnos?: number[]; hasNeeds?: boolean; created?: number }>('/staffing/auto-planning', body),
+      post<{ plan: AutoPlanItem[]; empleadosConTurnos?: number[]; hasNeeds?: boolean; created?: number; coverage?: Array<{ fecha: string; needed: NecesidadSlots; covered: NecesidadSlots; ok: boolean; partial: boolean }> }>('/staffing/auto-planning', body),
   },
   stats: {
     retirosPorDia: (dias = 30) => get<{ fecha: string; total: number }[]>(`/stats/retiros-por-dia?dias=${dias}`),

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import * as XLSX from 'xlsx'
-import { api, RetiroFiltros } from '../api'
+import { api, RetiroFiltros, retiroNombreEmpleado } from '../api'
 
 const LOGO_MAP: Record<string, string> = {
   'sensi tapas': 'tapas.png',
@@ -64,7 +64,7 @@ function AdminPanel() {
         retiro.items.map((item) => ({
           'Fecha': new Date(retiro.createdAt).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
           'Restaurante': retiro.restaurant.nombre,
-          'Empleado': retiro.empleado.nombre,
+          'Empleado': retiroNombreEmpleado(retiro),
           'Producto': item.nombre,
           'Código de barras': item.barcode,
           'Cantidad': item.cantidad,
@@ -237,7 +237,7 @@ function AdminPanel() {
                           hour: '2-digit', minute: '2-digit',
                         })}
                       </td>
-                      <td className="px-5 py-4 font-medium text-gray-900">{retiro.empleado.nombre}</td>
+                      <td className="px-5 py-4 font-medium text-gray-900">{retiroNombreEmpleado(retiro)}</td>
                       <td className="px-5 py-4 text-gray-600">{retiro.restaurant.nombre}</td>
                       <td className="px-5 py-4 text-right text-gray-500">{retiro.items.length}</td>
                       <td className="px-5 py-4 text-center">
@@ -270,7 +270,7 @@ function AdminPanel() {
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="font-semibold text-gray-900 truncate">{retiro.empleado.nombre}</p>
+                        <p className="font-semibold text-gray-900 truncate">{retiroNombreEmpleado(retiro)}</p>
                         <p className="text-sm text-gray-500 truncate">{retiro.restaurant.nombre}</p>
                         <p className="text-xs text-gray-400 mt-0.5">
                           {new Date(retiro.createdAt).toLocaleString('es-ES', {
@@ -331,7 +331,7 @@ function AdminPanel() {
                         <p className="text-xs text-gray-500 mb-1">
                           {new Date(detalle.createdAt).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                         </p>
-                        <h3 className="text-lg font-bold text-white">{detalle.empleado.nombre}</h3>
+                        <h3 className="text-lg font-bold text-white">{retiroNombreEmpleado(detalle)}</h3>
                         <p className="text-sm text-gray-400">{detalle.restaurant.nombre}</p>
                       </div>
                       <button onClick={() => setSelectedId(null)} className="text-gray-500 hover:text-white text-2xl leading-none mt-1 transition-colors">×</button>

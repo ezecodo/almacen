@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, AutoPlanItem, Empleado, NecesidadSlots, NecesidadFecha, TurnoEmpleadoType, TurnoTipo, StaffingForecastDay } from '../api'
+import { api, AutoPlanItem, Empleado, NecesidadSlots, NecesidadDia, NecesidadFecha, TurnoEmpleadoType, TurnoTipo, StaffingForecastDay, Restaurante } from '../api'
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function isoWeekStart(date: Date): Date {
@@ -234,8 +234,10 @@ function TipoModal({
   const [horaInicio, setHoraIni]  = useState(initial?.horaInicio ?? '09:00')
   const [horaFin, setHoraFin]     = useState(initial?.horaFin ?? '17:00')
   const [color, setColor]         = useState(initial?.color ?? '#6366f1')
-  const [global, setGlobal]         = useState(initial ? initial.restaurantId === null : false)
-  const [tipoEmpleado, setTipoEmp]  = useState<'cocina' | 'sala' | null>(initial?.tipoEmpleado ?? null)
+  const [global, setGlobal]           = useState(initial ? initial.restaurantId === null : false)
+  const [tipoEmpleado, setTipoEmp]    = useState<'cocina' | 'sala' | null>(initial?.tipoEmpleado ?? null)
+  const [rolEmpleado,  setRolEmp]     = useState<string | null>(initial?.rolEmpleado ?? null)
+  const [excluirPlan,  setExcluirPlan] = useState(initial?.excluirAutoPlanning ?? false)
 
   const horas = calcHoras(horaInicio, horaFin)
 
@@ -243,13 +245,13 @@ function TipoModal({
   const invalidate = () => qc.invalidateQueries({ queryKey: ['staffing-tipos', restaurantId] })
 
   const crear = useMutation({
-    mutationFn: () => api.staffing.createTipo({ restaurantId: global ? null : restaurantId, nombre, horaInicio, horaFin, horas, color, tipoEmpleado }),
+    mutationFn: () => api.staffing.createTipo({ restaurantId: global ? null : restaurantId, nombre, horaInicio, horaFin, horas, color, tipoEmpleado, rolEmpleado, excluirAutoPlanning: excluirPlan }),
     onSuccess: () => { invalidate(); onClose() },
     onError: (e: Error) => setError(e.message),
   })
 
   const actualizar = useMutation({
-    mutationFn: () => api.staffing.updateTipo(initial!.id, { restaurantId: global ? null : restaurantId, nombre, horaInicio, horaFin, horas, color, tipoEmpleado }),
+    mutationFn: () => api.staffing.updateTipo(initial!.id, { restaurantId: global ? null : restaurantId, nombre, horaInicio, horaFin, horas, color, tipoEmpleado, rolEmpleado, excluirAutoPlanning: excluirPlan }),
     onSuccess: () => { invalidate(); onClose() },
     onError: (e: Error) => setError(e.message),
   })
@@ -311,7 +313,7 @@ function TipoModal({
                 <button
                   key={String(v)}
                   type="button"
-                  onClick={() => setTipoEmp(v)}
+                  onClick={() => { setTipoEmp(v); if (!v) setRolEmp(null) }}
                   className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
                     tipoEmpleado === v
                       ? v === 'cocina' ? 'bg-orange-500 text-white shadow-sm'
@@ -325,6 +327,37 @@ function TipoModal({
               ))}
             </div>
           </div>
+
+          {/* Rol específico (opcional, sólo si tipoEmpleado está seleccionado) */}
+          {tipoEmpleado && (() => {
+            const rolesOpts = tipoEmpleado === 'cocina'
+              ? [{ value: 'jefe_cocina', label: 'Jefe/a Cocina' }, { value: 'cocinero', label: 'Cocinero' }, { value: 'produccion', label: 'Producción' }, { value: 'friegaplatos', label: 'Friegaplatos' }]
+              : [{ value: 'camarero', label: 'Camarero' }, { value: 'encargado', label: 'Encargado' }]
+            return (
+              <div className="flex items-center gap-3 bg-gray-50 rounded-xl px-4 py-3">
+                <span className="text-xs text-gray-500 flex-1">Rol</span>
+                <div className="flex gap-1 flex-wrap justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setRolEmp(null)}
+                    className={`px-2.5 py-1.5 rounded-md text-xs font-semibold transition-all ${rolEmpleado === null ? 'bg-gray-600 text-white shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
+                  >Todos</button>
+                  {rolesOpts.map(r => (
+                    <button
+                      key={r.value}
+                      type="button"
+                      onClick={() => setRolEmp(rolEmpleado === r.value ? null : r.value)}
+                      className={`px-2.5 py-1.5 rounded-md text-xs font-semibold transition-all ${
+                        rolEmpleado === r.value
+                          ? tipoEmpleado === 'cocina' ? 'bg-orange-500 text-white shadow-sm' : 'bg-cyan-500 text-white shadow-sm'
+                          : 'text-gray-400 hover:text-gray-600'
+                      }`}
+                    >{r.label}</button>
+                  ))}
+                </div>
+              </div>
+            )
+          })()}
 
           <div>
             <label className="text-xs font-medium text-gray-600 block mb-1">
@@ -345,6 +378,25 @@ function TipoModal({
               />
             </div>
           </div>
+          {/* Excluir del auto-planning */}
+          <button
+            type="button"
+            onClick={() => setExcluirPlan(v => !v)}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border transition-colors ${
+              excluirPlan ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-100 hover:border-gray-200'
+            }`}
+          >
+            <div className={`w-9 h-5 rounded-full transition-colors relative shrink-0 ${excluirPlan ? 'bg-red-400' : 'bg-gray-300'}`}>
+              <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${excluirPlan ? 'translate-x-4' : 'translate-x-0.5'}`} />
+            </div>
+            <div className="text-left">
+              <div className={`text-xs font-semibold ${excluirPlan ? 'text-red-600' : 'text-gray-500'}`}>
+                Excluir del auto-planning
+              </div>
+              <div className="text-[10px] text-gray-400">Los empleados con este tipo no se incluirán en la planificación automática</div>
+            </div>
+          </button>
+
           <div>
             <label className="text-xs font-medium text-gray-600 block mb-2">Color</label>
             <div className="flex gap-2 flex-wrap">
@@ -464,6 +516,11 @@ function TabTipos({ restaurantId }: { restaurantId: number }) {
                               Global
                             </span>
                           )}
+                          {t.excluirAutoPlanning && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-50 text-red-400 border border-red-100">
+                              Sin planning
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="px-4 py-3.5 text-gray-600 font-mono text-xs">{t.horaInicio}</td>
@@ -565,6 +622,23 @@ function ConfigModal({ restaurantId, ratioSala, ratioCocina, onClose }: {
 }
 
 const DIAS_SEMANA = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+const ROL_SHORT: Record<string, string> = {
+  jefe_cocina:  'Jefe',
+  cocinero:     'Cocin',
+  friegaplatos: 'Frieg',
+  produccion:   'Prod',
+  camarero:     'Cama',
+  encargado:    'Enc',
+}
+// Color de fondo por rol cuando el TurnoTipo asignado no coincide con el rol del empleado
+const ROL_COLOR: Record<string, string> = {
+  jefe_cocina:  '#f97316', // naranja oscuro
+  cocinero:     '#fb923c', // naranja
+  friegaplatos: '#94a3b8', // gris
+  produccion:   '#a78bfa', // violeta
+  camarero:     '#22d3ee', // cyan
+  encargado:    '#2563eb', // azul
+}
 const ROL_DEFS: { key: keyof NecesidadSlots; label: string; cocina: boolean }[] = [
   { key: 'jefeCocina',   label: 'Jefe/a Cocina', cocina: true },
   { key: 'cocineros',    label: 'Cocineros',      cocina: true },
@@ -574,6 +648,54 @@ const ROL_DEFS: { key: keyof NecesidadSlots; label: string; cocina: boolean }[] 
   { key: 'encargados',   label: 'Encargados',     cocina: false },
 ]
 const BLANK_SLOTS: NecesidadSlots = { jefeCocina: 0, cocineros: 0, friegaplatos: 0, produccion: 0, camareros: 0, encargados: 0 }
+const ROLE_KEYS_FE = Object.keys(BLANK_SLOTS) as (keyof NecesidadSlots)[]
+const ROL_MAP_FE: Record<keyof NecesidadSlots, string[]> = {
+  jefeCocina:   ['jefe_cocina'],
+  cocineros:    ['cocinero'],
+  friegaplatos: ['friegaplatos'],
+  produccion:   ['produccion'],
+  camareros:    ['camarero'],
+  encargados:   ['encargado'],
+}
+function empMatchesRoleFE(emp: Empleado, roleKey: keyof NecesidadSlots): boolean {
+  const rol = emp.rol
+  if (!rol) {
+    if (['jefeCocina','cocineros','friegaplatos','produccion'].includes(roleKey)) return emp.tipo === 'cocina'
+    return emp.tipo === 'sala'
+  }
+  if (ROL_MAP_FE[roleKey].includes(rol)) return true
+  if (roleKey === 'encargados' && rol === 'camarero' && emp.puedeEncargado) return true
+  if (roleKey === 'jefeCocina'  && rol === 'cocinero' && emp.puedeJefeCocina) return true
+  return false
+}
+
+// Calcula cobertura vs necesidades para una semana dada
+function computeDayCoverage(
+  dayStr: string,
+  dayIdx: number,
+  turnosSemana: TurnoEmpleadoType[],
+  empleados: Empleado[],
+  needsPerDay: NecesidadSlots[],
+) {
+  const needed  = needsPerDay[dayIdx] ?? BLANK_SLOTS
+  const covered = { ...BLANK_SLOTS }
+  for (const rk of ROLE_KEYS_FE) {
+    covered[rk] = turnosSemana.filter(t => {
+      if (!t.fecha.startsWith(dayStr)) return false
+      const emp = empleados.find(e => e.id === t.empleadoId)
+      return emp && empMatchesRoleFE(emp, rk)
+    }).length
+  }
+  const roles   = ROLE_KEYS_FE.filter(rk => needed[rk] > 0)
+  const ok      = roles.every(rk => covered[rk] >= needed[rk])
+  const partial = !ok && roles.some(rk => covered[rk] > 0)
+  return { needed, covered, ok, partial, hasNeeds: roles.length > 0 }
+}
+
+const ROL_LABEL_SHORT: Record<string, string> = {
+  jefeCocina: 'Jefe', cocineros: 'Cocin', friegaplatos: 'Frieg',
+  produccion: 'Prod',  camareros: 'Cama',  encargados:   'Enc',
+}
 
 // ── Tab: Necesidades ──────────────────────────────────────────────────────────
 function TabNecesidades({ restaurantId }: { restaurantId: number }) {
@@ -839,6 +961,90 @@ function ExtrasModal({
   )
 }
 
+// ── Modal: Añadir empleado a un día (horas pendientes) ────────────────────────
+function FillDayModal({ restaurantId, fecha, empleados, tipos, turnosSemana, onClose }: {
+  restaurantId: number
+  fecha: string
+  empleados: Empleado[]
+  tipos: TurnoTipo[]
+  turnosSemana: TurnoEmpleadoType[]
+  onClose: () => void
+}) {
+  const [assignEmp, setAssignEmp] = useState<number | null>(null)
+
+  const d = new Date(`${fecha}T12:00:00Z`)
+  const fechaLabel = d.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })
+
+  const candidatos = empleados
+    .filter(e => !e.excluirPlanning)
+    .map(emp => {
+      const turnosEmp  = turnosSemana.filter(t => t.empleadoId === emp.id)
+      const horasAsig  = turnosEmp.reduce((s, t) => s + horasEnTurno(t.horaInicio, t.horaFin), 0)
+      const horasContr = emp.horasSemanales ?? 40
+      const remaining  = horasContr - horasAsig
+      const tieneHoy   = turnosSemana.some(t => t.empleadoId === emp.id && t.fecha.startsWith(fecha))
+      return { emp, horasAsig, horasContr, remaining, tieneHoy }
+    })
+    .filter(c => c.remaining > 0 && !c.tieneHoy)
+    .sort((a, b) => b.remaining - a.remaining)
+
+  if (assignEmp !== null) {
+    return (
+      <AssignShiftModal
+        restaurantId={restaurantId}
+        empleados={empleados}
+        tipos={tipos}
+        fecha={fecha}
+        empleadoPreset={assignEmp}
+        onClose={onClose}
+      />
+    )
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm max-h-[80vh] flex flex-col">
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <div>
+            <h3 className="font-bold text-gray-800 text-sm">Añadir al planning</h3>
+            <p className="text-xs text-gray-400 mt-0.5 capitalize">{fechaLabel}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          {candidatos.length === 0 ? (
+            <p className="text-center py-10 text-gray-300 text-sm">Todos los empleados tienen sus horas cubiertas.</p>
+          ) : (
+            <div className="divide-y divide-gray-50">
+              {candidatos.map(({ emp, horasAsig, horasContr, remaining }) => (
+                <button
+                  key={emp.id}
+                  onClick={() => setAssignEmp(emp.id)}
+                  className="w-full flex items-center gap-3 px-5 py-3.5 hover:bg-gray-50 text-left transition-colors"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-gray-800 text-sm truncate">{emp.nombre}</div>
+                    <div className="text-xs text-gray-400">{emp.rol ?? emp.tipo}</div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="text-xs font-semibold text-indigo-600">
+                      −{Math.round(remaining * 10) / 10}h
+                    </div>
+                    <div className="text-[10px] text-gray-300">
+                      {Math.round(horasAsig * 10) / 10}/{horasContr}h
+                    </div>
+                  </div>
+                  <span className="text-gray-300 text-sm">›</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Modal: Auto-planning ──────────────────────────────────────────────────────
 function AutoPlanningModal({
   restaurantId, weekStart, empleados, tipos, onClose,
@@ -899,13 +1105,30 @@ function AutoPlanningModal({
           ) : (
             <div className="space-y-2">
               {/* Day header */}
-              <div className="flex gap-1 items-center">
+              <div className="flex gap-1 items-end">
                 <div className="w-[160px] shrink-0" />
-                {days.map(d => (
-                  <div key={d} className="w-10 shrink-0 text-center text-[10px] text-gray-400 font-medium capitalize">
-                    {fmtDia(d)}
-                  </div>
-                ))}
+                {days.map((d, dayIdx) => {
+                  const cov = preview?.coverage?.[dayIdx]
+                  const hasNeedsDay = cov && Object.values(cov.needed).some(v => v > 0)
+                  const dot = !hasNeedsDay ? null : cov.ok ? 'bg-emerald-400' : cov.partial ? 'bg-amber-400' : 'bg-red-400'
+                  // Tooltip: rol deficit list
+                  const ROL_LABELS: Record<string, string> = { jefeCocina: 'Jefe', cocineros: 'Cocin', friegaplatos: 'Frieg', produccion: 'Prod', camareros: 'Cama', encargados: 'Enc' }
+                  const deficits = cov ? (Object.keys(cov.needed) as (keyof NecesidadSlots)[])
+                    .filter(rk => cov.needed[rk] > 0 && cov.covered[rk] < cov.needed[rk])
+                    .map(rk => `${ROL_LABELS[rk]} ${cov.covered[rk]}/${cov.needed[rk]}`)
+                    : []
+                  const surpluses = cov ? (Object.keys(cov.needed) as (keyof NecesidadSlots)[])
+                    .filter(rk => cov.needed[rk] > 0 && cov.covered[rk] >= cov.needed[rk])
+                    .map(rk => `${ROL_LABELS[rk]} ✓`)
+                    : []
+                  const tooltip = [...deficits, ...surpluses].join(' · ')
+                  return (
+                    <div key={d} className="w-10 shrink-0 text-center" title={tooltip || undefined}>
+                      <div className="text-[10px] text-gray-400 font-medium capitalize">{fmtDia(d)}</div>
+                      {dot && <div className={`mx-auto mt-1 w-2 h-2 rounded-full ${dot}`} />}
+                    </div>
+                  )
+                })}
                 <div className="w-12 shrink-0" />
               </div>
 
@@ -931,7 +1154,7 @@ function AutoPlanningModal({
                               style={{ backgroundColor: tipo?.color ?? '#94a3b8' }}
                               title={`${shift.horaInicio}–${shift.horaFin}`}
                             >
-                              <span>{tipo ? tipo.nombre.slice(0, 5) : shift.horaInicio}</span>
+                              <span>{emp?.rol ? ROL_SHORT[emp.rol] ?? tipo?.nombre.slice(0, 5) : tipo ? tipo.nombre.slice(0, 5) : shift.horaInicio}</span>
                               <span className="opacity-75">{Math.round(horasEnTurno(shift.horaInicio, shift.horaFin) * 10) / 10}h</span>
                             </div>
                           ) : (
@@ -1108,7 +1331,8 @@ function TabTurnos({ restaurantId, weekStart }: { restaurantId: number; weekStar
   const qc = useQueryClient()
   const [editModal, setEditModal]         = useState<{ fecha: string; turno?: TurnoEmpleadoType; empleadoId?: number } | null>(null)
   const [autoPlanModal, setAutoPlanModal] = useState(false)
-  const [extrasModal, setExtrasModal]     = useState<string | null>(null) // fecha string
+  const [extrasModal, setExtrasModal]     = useState<string | null>(null)
+  const [fillDayModal, setFillDayModal]   = useState<string | null>(null) // fecha string
 
   const desde = toISO(weekStart)
   const hasta = toISO(addDays(weekStart, 6))
@@ -1118,6 +1342,20 @@ function TabTurnos({ restaurantId, weekStart }: { restaurantId: number; weekStar
   const { data: tipos = [] }        = useQuery({ queryKey: ['staffing-tipos', restaurantId], queryFn: () => api.staffing.getTipos(restaurantId), enabled: !!restaurantId })
   const { data: turnosSemana = [], isLoading } = useQuery({ queryKey: ['staffing-semana', restaurantId, desde], queryFn: () => api.staffing.getSemana(restaurantId, desde), enabled: !!restaurantId })
   const { data: extras = [] }       = useQuery({ queryKey: ['staffing-extras', restaurantId, desde], queryFn: () => api.staffing.getNecesidadesFecha(restaurantId, desde, hasta), enabled: !!restaurantId })
+  const { data: necesidades = [] }  = useQuery({ queryKey: ['staffing-necesidades', restaurantId], queryFn: () => api.staffing.getNecesidades(restaurantId), enabled: !!restaurantId })
+
+  const needsPerDay: NecesidadSlots[] = days.map((dayStr, dayIdx) => {
+    const base  = necesidades.find((n: NecesidadDia) => n.diaSemana === dayIdx) ?? BLANK_SLOTS
+    const extra = (extras as NecesidadFecha[]).find(f => f.fecha.startsWith(dayStr))
+    return {
+      jefeCocina:   (base.jefeCocina   ?? 0) + (extra?.jefeCocina   ?? 0),
+      cocineros:    (base.cocineros    ?? 0) + (extra?.cocineros    ?? 0),
+      friegaplatos: (base.friegaplatos ?? 0) + (extra?.friegaplatos ?? 0),
+      produccion:   (base.produccion   ?? 0) + (extra?.produccion   ?? 0),
+      camareros:    (base.camareros    ?? 0) + (extra?.camareros    ?? 0),
+      encargados:   (base.encargados   ?? 0) + (extra?.encargados   ?? 0),
+    }
+  })
 
   const deshacerMutation = useMutation({
     mutationFn: () => api.staffing.deleteSemana(restaurantId, desde),
@@ -1159,7 +1397,8 @@ function TabTurnos({ restaurantId, weekStart }: { restaurantId: number; weekStar
     setDraggingId(null)
   }
 
-  const empleadosActivos = (empleados as Empleado[]).filter(e => e.activo)
+  const empleadosActivos  = (empleados as Empleado[]).filter(e => e.activo)
+  const empleadosEnGrid   = empleadosActivos.filter(emp => turnosSemana.some(t => t.empleadoId === emp.id))
 
   return (
     <>
@@ -1190,13 +1429,31 @@ function TabTurnos({ restaurantId, weekStart }: { restaurantId: number; weekStar
           <thead>
             <tr>
               <th className="text-left text-gray-500 font-medium py-2 pr-3 min-w-[130px]">Empleado</th>
-              {days.map(d => {
-                const extra = extras.find((e: NecesidadFecha) => e.fecha.startsWith(d))
-                const extraTotal = extra ? Object.entries(extra).filter(([k]) => ['jefeCocina','cocineros','friegaplatos','produccion','camareros','encargados'].includes(k)).reduce((s, [,v]) => s + (v as number), 0) : 0
+              {days.map((d, dayIdx) => {
+                const extra = (extras as NecesidadFecha[]).find(e => e.fecha.startsWith(d))
+                const extraTotal = extra ? Object.entries(extra).filter(([k]) => ROLE_KEYS_FE.includes(k as keyof NecesidadSlots)).reduce((s, [,v]) => s + (v as number), 0) : 0
+                const cov = computeDayCoverage(d, dayIdx, turnosSemana as TurnoEmpleadoType[], empleados as Empleado[], needsPerDay)
+                const dot = !cov.hasNeeds ? null : cov.ok ? 'bg-emerald-400' : cov.partial ? 'bg-amber-400' : 'bg-red-400'
+                const deficits = cov.hasNeeds ? ROLE_KEYS_FE
+                  .filter(rk => cov.needed[rk] > 0 && cov.covered[rk] < cov.needed[rk])
+                  .map(rk => `${ROL_LABEL_SHORT[rk]} ${cov.covered[rk]}/${cov.needed[rk]}`)
+                  : []
+                const oks = cov.hasNeeds ? ROLE_KEYS_FE
+                  .filter(rk => cov.needed[rk] > 0 && cov.covered[rk] >= cov.needed[rk])
+                  .map(rk => `${ROL_LABEL_SHORT[rk]} ✓`)
+                  : []
+                const tooltip = [...deficits, ...oks].join(' · ')
                 return (
                   <th key={d} className="py-1.5 px-1 min-w-[90px]">
                     <div className="flex flex-col items-center gap-0.5">
-                      <span className="text-gray-500 font-medium text-xs capitalize">{fmtDia(d)}</span>
+                      <button
+                        onClick={() => setFillDayModal(d)}
+                        className="flex items-center gap-1 hover:text-indigo-500 transition-colors group"
+                        title="Añadir empleado a este día"
+                      >
+                        <span className="text-gray-500 font-medium text-xs capitalize group-hover:text-indigo-500">{fmtDia(d)}</span>
+                        {dot && <div className={`w-2 h-2 rounded-full ${dot} shrink-0`} title={tooltip || undefined} />}
+                      </button>
                       <button
                         onClick={() => setExtrasModal(d)}
                         className={`text-[9px] px-1.5 py-0.5 rounded-md transition-colors leading-tight ${
@@ -1217,7 +1474,14 @@ function TabTurnos({ restaurantId, weekStart }: { restaurantId: number; weekStar
           <tbody className="divide-y divide-gray-50">
             {isLoading ? (
               <tr><td colSpan={9} className="text-center py-8 text-gray-300">Cargando…</td></tr>
-            ) : empleadosActivos.map(emp => {
+            ) : empleadosEnGrid.length === 0 ? (
+              <tr>
+                <td colSpan={9} className="text-center py-12 text-gray-300 text-sm">
+                  Sin planning esta semana.<br />
+                  <span className="text-xs">Usa ✨ Auto-planning o haz click en un día para añadir turnos.</span>
+                </td>
+              </tr>
+            ) : empleadosEnGrid.map(emp => {
               const turnosEmp    = turnosSemana.filter(t => t.empleadoId === emp.id)
               const horasAsig    = turnosEmp.reduce((s, t) => s + horasEnTurno(t.horaInicio, t.horaFin), 0)
               const horasContrato = emp.horasSemanales ?? 40
@@ -1226,7 +1490,7 @@ function TabTurnos({ restaurantId, weekStart }: { restaurantId: number; weekStar
                 <tr key={emp.id} className="hover:bg-gray-50">
                   <td className="py-2 pr-3">
                     <div className="font-medium text-gray-800 truncate max-w-[120px]">{emp.nombre}</div>
-                    <div className="text-gray-400 text-[10px]">{emp.tipo}</div>
+                    <div className="text-gray-400 text-[10px]">{emp.rol ?? emp.tipo}</div>
                   </td>
                   {days.map(dia => {
                     const turno  = turnosSemana.find(t => t.empleadoId === emp.id && t.fecha.startsWith(dia))
@@ -1246,15 +1510,19 @@ function TabTurnos({ restaurantId, weekStart }: { restaurantId: number; weekStar
                             onClick={() => !isDragging && setEditModal({ fecha: dia, turno })}
                             className="text-[10px] px-1.5 py-1 rounded-lg font-semibold leading-tight text-white w-full transition-opacity"
                             style={{
-                              backgroundColor: turno.tipo?.color ??
-                                (turno.estado === 'ausente' ? '#ef4444' : turno.estado === 'confirmado' ? '#10b981' : '#94a3b8'),
+                              backgroundColor:
+                                turno.estado === 'ausente'   ? '#ef4444' :
+                                turno.estado === 'confirmado'? '#10b981' :
+                                (emp.rol && turno.tipo?.rolEmpleado && turno.tipo.rolEmpleado !== emp.rol)
+                                  ? (ROL_COLOR[emp.rol] ?? '#94a3b8')
+                                  : (turno.tipo?.color ?? (emp.rol ? ROL_COLOR[emp.rol] : '#94a3b8')),
                               opacity: isDragging ? 0.35 : turno.estado === 'ausente' ? 0.6 : 1,
                               cursor: isDragging ? 'grabbing' : 'grab',
                               outline: isOver && draggingId !== turno.id ? '2px solid #6366f1' : undefined,
                               outlineOffset: '2px',
                             }}
                           >
-                            {turno.tipo?.nombre ?? `${turno.horaInicio}`}<br />
+                            {emp.rol ? (ROL_SHORT[emp.rol] ?? turno.tipo?.nombre ?? turno.horaInicio) : (turno.tipo?.nombre ?? turno.horaInicio)}<br />
                             <span className="opacity-80">{horasEnTurno(turno.horaInicio, turno.horaFin)}h</span>
                           </button>
                         ) : (
@@ -1275,11 +1543,32 @@ function TabTurnos({ restaurantId, weekStart }: { restaurantId: number; weekStar
                       </td>
                     )
                   })}
-                  <td className="py-2 pl-3 text-right">
-                    <span className={`font-semibold ${horasAsig > horasContrato ? 'text-amber-600' : 'text-gray-700'}`}>
-                      {Math.round(horasAsig * 10) / 10}h
-                    </span>
-                    <span className="text-gray-300 text-[10px] block">/{horasContrato}h</span>
+                  <td className="py-2 pl-3">
+                    <div className="min-w-[72px]">
+                      <div className="flex items-baseline justify-end gap-0.5">
+                        <span className={`text-sm font-bold ${
+                          horasAsig >= horasContrato ? 'text-emerald-600' :
+                          horasAsig >= horasContrato * 0.5 ? 'text-amber-500' : 'text-red-500'
+                        }`}>{Math.round(horasAsig * 10) / 10}</span>
+                        <span className="text-[10px] text-gray-400">/{horasContrato}h</span>
+                      </div>
+                      <div className="mt-1 h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${
+                            horasAsig >= horasContrato ? 'bg-emerald-400' :
+                            horasAsig >= horasContrato * 0.5 ? 'bg-amber-400' : 'bg-red-400'
+                          }`}
+                          style={{ width: `${Math.min(100, Math.round((horasAsig / horasContrato) * 100))}%` }}
+                        />
+                      </div>
+                      {horasAsig < horasContrato && (
+                        <div className={`text-[9px] font-semibold text-right mt-0.5 ${
+                          horasAsig >= horasContrato * 0.5 ? 'text-amber-400' : 'text-red-400'
+                        }`}>
+                          −{Math.round((horasContrato - horasAsig) * 10) / 10}h
+                        </div>
+                      )}
+                    </div>
                   </td>
                 </tr>
               )
@@ -1318,15 +1607,181 @@ function TabTurnos({ restaurantId, weekStart }: { restaurantId: number; weekStar
           onClose={() => setExtrasModal(null)}
         />
       )}
+
+      {fillDayModal && (
+        <FillDayModal
+          restaurantId={restaurantId}
+          fecha={fillDayModal}
+          empleados={empleadosActivos}
+          tipos={tipos}
+          turnosSemana={turnosSemana as TurnoEmpleadoType[]}
+          onClose={() => setFillDayModal(null)}
+        />
+      )}
     </>
+  )
+}
+
+// ── Modal: Planning global (multi-restaurante) ────────────────────────────────
+function GlobalPlanningModal({ weekStart, restaurantes, onClose }: {
+  weekStart: Date
+  restaurantes: Restaurante[]
+  onClose: () => void
+}) {
+  const qc     = useQueryClient()
+  const desde  = toISO(weekStart)
+  const wEnd   = addDays(weekStart, 6)
+  const wLabel = `${weekStart.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })} – ${wEnd.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}`
+
+  const [selected,    setSelected]    = useState<Set<number>>(() => new Set(restaurantes.map(r => r.id)))
+  const [status,      setStatus]      = useState<'select' | 'running' | 'done'>('select')
+  const [results,     setResults]     = useState<{ id: number; nombre: string; created: number; error?: string }[]>([])
+  const [currentIdx,  setCurrentIdx]  = useState(-1)
+
+  const toggle = (id: number) => setSelected(s => {
+    const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n
+  })
+
+  const selectedList = restaurantes.filter(r => selected.has(r.id))
+
+  const generar = async () => {
+    setStatus('running')
+    const res: typeof results = []
+    for (let i = 0; i < selectedList.length; i++) {
+      setCurrentIdx(i)
+      const r = selectedList[i]
+      try {
+        const data = await api.staffing.autoPlanning({ restaurantId: r.id, weekStart: desde })
+        res.push({ id: r.id, nombre: r.nombre, created: data.created ?? 0 })
+      } catch {
+        res.push({ id: r.id, nombre: r.nombre, created: 0, error: 'Error al generar' })
+      }
+      setResults([...res])
+    }
+    setCurrentIdx(-1)
+    setStatus('done')
+    qc.invalidateQueries({ queryKey: ['staffing-semana'] })
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm">
+
+        {/* Header */}
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <div>
+            <h3 className="font-bold text-gray-800">✨ Planning global</h3>
+            <p className="text-xs text-gray-400 mt-0.5">Semana del {wLabel}</p>
+          </div>
+          {status !== 'running' && (
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+          )}
+        </div>
+
+        {/* Fase 1: selección */}
+        {status === 'select' && (
+          <>
+            <div className="px-5 py-4 space-y-2">
+              <p className="text-xs text-gray-400 mb-3">
+                Los restaurantes se planifican en orden. Cada uno tiene en cuenta las horas ya asignadas en los anteriores.
+              </p>
+              {restaurantes.map(r => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => toggle(r.id)}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all text-left ${
+                    selected.has(r.id) ? 'border-indigo-300 bg-indigo-50' : 'border-gray-100 hover:border-gray-200'
+                  }`}
+                >
+                  <span className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${
+                    selected.has(r.id) ? 'bg-indigo-500 border-indigo-500' : 'border-gray-300'
+                  }`}>
+                    {selected.has(r.id) && <span className="text-white text-xs font-bold">✓</span>}
+                  </span>
+                  <span className="text-sm font-medium text-gray-800">{r.nombre}</span>
+                </button>
+              ))}
+            </div>
+            <div className="px-5 py-4 border-t border-gray-100 flex justify-end gap-2">
+              <button onClick={onClose} className="text-sm text-gray-400 hover:text-gray-600 px-3 py-1.5">Cancelar</button>
+              <button
+                onClick={generar}
+                disabled={selected.size === 0}
+                className="text-sm bg-indigo-500 text-white px-4 py-1.5 rounded-lg hover:bg-indigo-600 disabled:opacity-40"
+              >
+                Generar {selected.size > 0 ? `(${selected.size})` : ''}
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* Fase 2: ejecutando */}
+        {status === 'running' && (
+          <div className="px-5 py-6 space-y-3">
+            <p className="text-xs text-gray-400 text-center mb-1">Generando planning…</p>
+            {selectedList.map((r, i) => {
+              const done   = results.some(x => x.id === r.id)
+              const active = i === currentIdx
+              return (
+                <div key={r.id} className="flex items-center gap-3">
+                  <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 text-xs transition-colors ${
+                    done   ? 'bg-emerald-400 text-white' :
+                    active ? 'bg-indigo-400 animate-pulse' : 'bg-gray-100'
+                  }`}>
+                    {done ? '✓' : null}
+                  </div>
+                  <span className={`text-sm flex-1 ${
+                    active ? 'font-semibold text-gray-800' : done ? 'text-gray-500' : 'text-gray-300'
+                  }`}>
+                    {r.nombre}
+                  </span>
+                  {done && (
+                    <span className="text-xs text-gray-400">
+                      {results.find(x => x.id === r.id)?.created ?? 0} turnos
+                    </span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Fase 3: resultados */}
+        {status === 'done' && (
+          <>
+            <div className="px-5 py-4 space-y-2">
+              {results.map(r => (
+                <div key={r.id} className={`flex items-center gap-3 px-4 py-3 rounded-xl ${r.error ? 'bg-red-50' : 'bg-emerald-50'}`}>
+                  <span className="text-base">{r.error ? '⚠️' : '✅'}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-gray-800 truncate">{r.nombre}</div>
+                    <div className={`text-xs ${r.error ? 'text-red-400' : 'text-emerald-600'}`}>
+                      {r.error ?? `${r.created} turno${r.created !== 1 ? 's' : ''} creado${r.created !== 1 ? 's' : ''}`}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="px-5 py-4 border-t border-gray-100 flex justify-end">
+              <button onClick={onClose} className="text-sm bg-gray-800 text-white px-4 py-1.5 rounded-lg hover:bg-gray-700">
+                Cerrar
+              </button>
+            </div>
+          </>
+        )}
+
+      </div>
+    </div>
   )
 }
 
 // ── Main page ──────────────────────────────────────────────────────────────────
 export default function StaffingPage() {
-  const [restaurantId, setRestaurantId] = useState(0)
-  const [tab, setTab]                   = useState<'prevision' | 'turnos' | 'tipos' | 'necesidades'>('tipos')
-  const [weekStart, setWeekStart]       = useState<Date>(() => isoWeekStart(new Date()))
+  const [restaurantId,    setRestaurantId]    = useState(0)
+  const [tab,             setTab]             = useState<'prevision' | 'turnos' | 'tipos' | 'necesidades'>('tipos')
+  const [weekStart,       setWeekStart]       = useState<Date>(() => isoWeekStart(new Date()))
+  const [globalPlanModal, setGlobalPlanModal] = useState(false)
 
   const { data: restaurantes = [] } = useQuery({
     queryKey: ['restaurantes'],
@@ -1355,15 +1810,23 @@ export default function StaffingPage() {
             <h1 className="text-2xl font-bold text-gray-900">Gestión de personal</h1>
             <p className="text-gray-400 text-sm mt-1">Tipos de turno, planning semanal y previsión</p>
           </div>
-          <select
-            value={selectedRestaurantId}
-            onChange={e => setRestaurantId(Number(e.target.value))}
-            className="border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-cyan-300"
-          >
-            {restaurantes.map(r => (
-              <option key={r.id} value={r.id}>{r.nombre}</option>
-            ))}
-          </select>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setGlobalPlanModal(true)}
+              className="flex items-center gap-1.5 px-3 py-2 bg-indigo-500 text-white text-sm font-semibold rounded-xl hover:bg-indigo-400 transition-colors"
+            >
+              ✨ Plan global
+            </button>
+            <select
+              value={selectedRestaurantId}
+              onChange={e => setRestaurantId(Number(e.target.value))}
+              className="border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-cyan-300"
+            >
+              {restaurantes.map(r => (
+                <option key={r.id} value={r.id}>{r.nombre}</option>
+              ))}
+            </select>
+          </div>
         </div>
 
         {/* Tabs */}
@@ -1397,6 +1860,14 @@ export default function StaffingPage() {
           tab === 'necesidades'  ? <TabNecesidades  restaurantId={selectedRestaurantId} /> :
           tab === 'prevision'    ? <TabPrevision    restaurantId={selectedRestaurantId} weekStart={weekStart} /> :
                                    <TabTurnos       restaurantId={selectedRestaurantId} weekStart={weekStart} />
+        )}
+
+        {globalPlanModal && (
+          <GlobalPlanningModal
+            weekStart={weekStart}
+            restaurantes={restaurantes as Restaurante[]}
+            onClose={() => setGlobalPlanModal(false)}
+          />
         )}
       </div>
     </div>

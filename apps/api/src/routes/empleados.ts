@@ -2,27 +2,37 @@ import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../server'
 
+const diasLibresSchema = z.array(z.number().int().min(0).max(6)).optional()
+
 const createSchema = z.object({
-  nombre:         z.string().min(1),
-  tipo:           z.enum(['cocina', 'sala']).default('cocina'),
-  pin:            z.string().length(4).regex(/^\d{4}$/),
-  telefono:       z.string().optional(),
-  email:          z.string().email().optional(),
-  horasSemanales: z.number().int().refine(v => [20, 30, 35, 40].includes(v), { message: 'Debe ser 20, 30, 35 o 40' }).default(40),
-  rol:            z.enum(['friegaplatos', 'cocinero', 'jefe_cocina', 'produccion', 'camarero', 'encargado']).optional(),
-  restaurantId:   z.number().int().positive().optional().nullable(),
+  nombre:          z.string().min(1),
+  tipo:            z.enum(['cocina', 'sala']).default('cocina'),
+  pin:             z.string().length(4).regex(/^\d{4}$/),
+  telefono:        z.string().optional(),
+  email:           z.string().email().optional(),
+  horasSemanales:  z.number().int().refine(v => [20, 25, 30, 35, 40].includes(v), { message: 'Debe ser 20, 25, 30, 35 o 40' }).default(40),
+  rol:             z.enum(['friegaplatos', 'cocinero', 'jefe_cocina', 'produccion', 'camarero', 'encargado']).optional(),
+  puedeEncargado:  z.boolean().optional(),
+  puedeJefeCocina: z.boolean().optional(),
+  excluirPlanning: z.boolean().optional(),
+  restaurantId:    z.number().int().positive().optional().nullable(),
+  diasLibresFijos: diasLibresSchema,
 })
 
 const updateSchema = z.object({
-  nombre:         z.string().min(1).optional(),
-  tipo:           z.enum(['cocina', 'sala']).optional(),
-  pin:            z.string().length(4).regex(/^\d{4}$/).optional(),
-  telefono:       z.string().optional().nullable(),
-  email:          z.string().email().optional().nullable(),
-  horasSemanales: z.number().int().refine(v => [20, 30, 35, 40].includes(v), { message: 'Debe ser 20, 30, 35 o 40' }).optional(),
-  rol:            z.enum(['friegaplatos', 'cocinero', 'jefe_cocina', 'produccion', 'camarero', 'encargado']).optional().nullable(),
-  restaurantId:   z.number().int().positive().optional().nullable(),
-  activo:         z.boolean().optional(),
+  nombre:          z.string().min(1).optional(),
+  tipo:            z.enum(['cocina', 'sala']).optional(),
+  pin:             z.string().length(4).regex(/^\d{4}$/).optional(),
+  telefono:        z.string().optional().nullable(),
+  email:           z.string().email().optional().nullable(),
+  horasSemanales:  z.number().int().refine(v => [20, 25, 30, 35, 40].includes(v), { message: 'Debe ser 20, 25, 30, 35 o 40' }).optional(),
+  rol:             z.enum(['friegaplatos', 'cocinero', 'jefe_cocina', 'produccion', 'camarero', 'encargado']).optional().nullable(),
+  puedeEncargado:  z.boolean().optional(),
+  puedeJefeCocina: z.boolean().optional(),
+  excluirPlanning: z.boolean().optional(),
+  restaurantId:    z.number().int().positive().optional().nullable(),
+  activo:          z.boolean().optional(),
+  diasLibresFijos: diasLibresSchema,
 })
 
 export async function empleadoRoutes(app: FastifyInstance) {
@@ -88,19 +98,22 @@ export async function empleadoRoutes(app: FastifyInstance) {
     return empleado
   })
 
-  // Eliminar empleado (hard delete — falla si tiene retiros)
+  // Eliminar empleado (hard delete — anonimiza retiros si los tiene)
   app.delete('/empleados/:id', async (req, reply) => {
     const id = Number((req.params as { id: string }).id)
 
-    const tieneRetiros = await prisma.retiro.count({ where: { empleadoId: id } })
-    if (tieneRetiros > 0) {
-      return reply.status(409).send({
-        error: 'Este empleado tiene retiros registrados. Usa "Desactivar" en su lugar.',
-      })
-    }
+    const empleado = await prisma.empleado.findUnique({ where: { id } })
+    if (!empleado) return reply.status(404).send({ error: 'Empleado no encontrado' })
+
+    // Anonimizar retiros: guardar nombre, desligar FK
+    await prisma.retiro.updateMany({
+      where: { empleadoId: id },
+      data:  { empleadoId: { set: null }, empleadoNombre: empleado.nombre },
+    })
 
     // Borrar turnos de propinas y luego el empleado
     await prisma.propinaTurno.deleteMany({ where: { empleadoId: id } })
+    await prisma.turnoEmpleado.deleteMany({ where: { empleadoId: id } })
     await prisma.empleado.delete({ where: { id } })
     return reply.status(204).send()
   })

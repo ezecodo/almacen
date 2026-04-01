@@ -7,7 +7,7 @@ function generarPin() {
 }
 
 type Tipo = 'cocina' | 'sala'
-const HORAS_CONTRATO = [20, 30, 35, 40]
+const HORAS_CONTRATO = [20, 25, 30, 35, 40]
 
 const TIPO_LABEL: Record<Tipo, string> = { cocina: 'Cocina', sala: 'Sala' }
 const TIPO_COLOR: Record<Tipo, string> = {
@@ -16,6 +16,7 @@ const TIPO_COLOR: Record<Tipo, string> = {
 }
 const HORAS_COLOR: Record<number, string> = {
   20: 'bg-gray-100 text-gray-500',
+  25: 'bg-teal-50 text-teal-500',
   30: 'bg-blue-50 text-blue-500',
   35: 'bg-indigo-50 text-indigo-500',
   40: 'bg-purple-50 text-purple-600',
@@ -42,8 +43,11 @@ const ROL_COLOR: Record<string, string> = {
   encargado:    'bg-indigo-50 text-indigo-600',
 }
 
+const DIAS_LABEL = ['L', 'M', 'X', 'J', 'V', 'S', 'D']
+const DIAS_NOMBRE = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
+
 const BLANK: Omit<Empleado, 'id' | 'activo'> = {
-  nombre: '', tipo: 'cocina', pin: generarPin(), telefono: '', email: '', horasSemanales: 40, rol: null, restaurantId: null,
+  nombre: '', tipo: 'cocina', pin: generarPin(), telefono: '', email: '', horasSemanales: 40, rol: null, puedeEncargado: false, puedeJefeCocina: false, excluirPlanning: false, restaurantId: null, diasLibresFijos: [],
 }
 
 function EmpleadoModal({
@@ -65,7 +69,7 @@ function EmpleadoModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <h2 className="font-semibold text-gray-800">
@@ -74,7 +78,7 @@ function EmpleadoModal({
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
         </div>
 
-        <div className="px-6 py-5 space-y-4">
+        <div className="px-6 py-5 space-y-4 overflow-y-auto flex-1">
           {/* Tipo */}
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1.5">Tipo</label>
@@ -118,6 +122,67 @@ function EmpleadoModal({
               ))}
             </div>
           </div>
+
+          {/* Puede hacer de encargado (solo camareros) */}
+          {form.rol === 'camarero' && (
+            <button
+              type="button"
+              onClick={() => set('puedeEncargado', !form.puedeEncargado)}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all text-left ${
+                form.puedeEncargado ? 'border-indigo-400 bg-indigo-50' : 'border-gray-200 bg-white hover:border-gray-300'
+              }`}
+            >
+              <span className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${
+                form.puedeEncargado ? 'bg-indigo-500 border-indigo-500' : 'border-gray-300'
+              }`}>
+                {form.puedeEncargado && <span className="text-white text-xs font-bold">✓</span>}
+              </span>
+              <div>
+                <p className="text-sm font-semibold text-gray-700">Puede hacer de encargado/a</p>
+                <p className="text-xs text-gray-400">El planning lo usará como encargado si hay déficit</p>
+              </div>
+            </button>
+          )}
+
+          {/* Puede hacer de jefe de cocina (solo cocineros) */}
+          {form.rol === 'cocinero' && (
+            <button
+              type="button"
+              onClick={() => set('puedeJefeCocina', !form.puedeJefeCocina)}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all text-left ${
+                form.puedeJefeCocina ? 'border-orange-400 bg-orange-50' : 'border-gray-200 bg-white hover:border-gray-300'
+              }`}
+            >
+              <span className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${
+                form.puedeJefeCocina ? 'bg-orange-500 border-orange-500' : 'border-gray-300'
+              }`}>
+                {form.puedeJefeCocina && <span className="text-white text-xs font-bold">✓</span>}
+              </span>
+              <div>
+                <p className="text-sm font-semibold text-gray-700">Puede hacer de jefe/a de cocina</p>
+                <p className="text-xs text-gray-400">El planning lo usará como jefe si hay déficit</p>
+              </div>
+            </button>
+          )}
+
+          {/* Excluir del auto-planning */}
+          <button
+            type="button"
+            onClick={() => set('excluirPlanning', !form.excluirPlanning)}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all text-left ${
+              form.excluirPlanning ? 'border-red-300 bg-red-50' : 'border-gray-200 bg-white hover:border-gray-300'
+            }`}
+          >
+            <span className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${
+              form.excluirPlanning ? 'bg-red-500 border-red-500' : 'border-gray-300'
+            }`}>
+              {form.excluirPlanning && <span className="text-white text-xs font-bold">✓</span>}
+            </span>
+            <div>
+              <p className="text-sm font-semibold text-gray-700">Excluir del auto-planning</p>
+              <p className="text-xs text-gray-400">No aparecerá en la planificación automática de turnos</p>
+            </div>
+          </button>
 
           {/* Nombre */}
           <div>
@@ -231,6 +296,42 @@ function EmpleadoModal({
               />
             </div>
           </div>
+
+          {/* Días libres fijos */}
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1.5">
+              Días libres fijos
+              <span className="ml-1 font-normal text-gray-400">(por motivos personales)</span>
+            </label>
+            <div className="flex gap-1.5">
+              {DIAS_LABEL.map((dia, i) => {
+                const active = (form.diasLibresFijos ?? []).includes(i)
+                return (
+                  <button
+                    key={i}
+                    type="button"
+                    title={DIAS_NOMBRE[i]}
+                    onClick={() => {
+                      const current = form.diasLibresFijos ?? []
+                      set('diasLibresFijos', active ? current.filter(d => d !== i) : [...current, i].sort())
+                    }}
+                    className={`flex-1 py-2 rounded-xl text-xs font-bold border-2 transition-all ${
+                      active
+                        ? 'bg-rose-500 border-rose-500 text-white'
+                        : 'bg-white border-gray-200 text-gray-400 hover:border-rose-300 hover:text-rose-400'
+                    }`}
+                  >
+                    {dia}
+                  </button>
+                )
+              })}
+            </div>
+            {(form.diasLibresFijos ?? []).length > 0 && (
+              <p className="mt-1.5 text-xs text-rose-400">
+                Libra siempre: {(form.diasLibresFijos ?? []).map(d => DIAS_NOMBRE[d]).join(', ')}
+              </p>
+            )}
+          </div>
         </div>
 
         {/* Footer */}
@@ -275,9 +376,13 @@ export default function EmpleadosPage() {
       tipo: data.tipo,
       pin: data.pin ?? '',
       horasSemanales: data.horasSemanales,
-      ...(data.telefono ? { telefono: data.telefono } : {}),
-      ...(data.email    ? { email:    data.email    } : {}),
-      ...(data.rol      ? { rol:      data.rol      } : {}),
+      ...(data.telefono       ? { telefono:       data.telefono       } : {}),
+      ...(data.email          ? { email:          data.email          } : {}),
+      ...(data.rol            ? { rol:            data.rol            } : {}),
+      puedeEncargado:  data.puedeEncargado  ?? false,
+      puedeJefeCocina: data.puedeJefeCocina ?? false,
+      excluirPlanning: data.excluirPlanning  ?? false,
+      diasLibresFijos: data.diasLibresFijos ?? [],
       restaurantId: data.restaurantId ?? null,
     }),
     onSuccess: () => {
@@ -297,7 +402,11 @@ export default function EmpleadosPage() {
         email:          data.email    || null,
         horasSemanales: data.horasSemanales,
         rol:            data.rol      || null,
-        restaurantId:   data.restaurantId ?? null,
+        puedeEncargado:  data.puedeEncargado  ?? false,
+        puedeJefeCocina: data.puedeJefeCocina ?? false,
+        excluirPlanning: data.excluirPlanning  ?? false,
+        diasLibresFijos: data.diasLibresFijos ?? [],
+        restaurantId:    data.restaurantId ?? null,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['empleados'] })
@@ -384,6 +493,7 @@ export default function EmpleadosPage() {
                     <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">Restaurante</th>
                     <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">Teléfono</th>
                     <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">Email</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">Libra</th>
                     <th className="px-4 py-2.5" />
                   </tr>
                 </thead>
@@ -397,13 +507,30 @@ export default function EmpleadosPage() {
 
                         {/* Rol */}
                         <td className="px-4 py-3.5">
-                          {emp.rol ? (
-                            <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold ${ROL_COLOR[emp.rol] ?? 'bg-gray-100 text-gray-500'}`}>
-                              {ROLES[emp.tipo as Tipo]?.find(r => r.value === emp.rol)?.label ?? emp.rol}
-                            </span>
-                          ) : (
-                            <span className="text-gray-300 text-xs">—</span>
-                          )}
+                          <div className="flex items-center gap-1.5">
+                            {emp.rol ? (
+                              <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold ${ROL_COLOR[emp.rol] ?? 'bg-gray-100 text-gray-500'}`}>
+                                {ROLES[emp.tipo as Tipo]?.find(r => r.value === emp.rol)?.label ?? emp.rol}
+                              </span>
+                            ) : (
+                              <span className="text-gray-300 text-xs">—</span>
+                            )}
+                            {emp.puedeEncargado && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-100 text-indigo-600" title="Puede hacer de encargado">
+                                +ENC
+                              </span>
+                            )}
+                            {emp.puedeJefeCocina && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-orange-100 text-orange-600" title="Puede hacer de jefe de cocina">
+                                +JEFE
+                              </span>
+                            )}
+                            {emp.excluirPlanning && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-red-100 text-red-500" title="Excluido del auto-planning">
+                                Sin planning
+                              </span>
+                            )}
+                          </div>
                         </td>
 
                         {/* Contrato */}
@@ -462,6 +589,21 @@ export default function EmpleadosPage() {
                             >
                               {emp.email}
                             </a>
+                          ) : (
+                            <span className="text-gray-300 text-xs">—</span>
+                          )}
+                        </td>
+
+                        {/* Días libres fijos */}
+                        <td className="px-4 py-3.5">
+                          {(emp.diasLibresFijos ?? []).length > 0 ? (
+                            <div className="flex gap-0.5">
+                              {(emp.diasLibresFijos ?? []).map(d => (
+                                <span key={d} className="w-5 h-5 rounded-md bg-rose-100 text-rose-500 text-[10px] font-bold flex items-center justify-center">
+                                  {DIAS_LABEL[d]}
+                                </span>
+                              ))}
+                            </div>
                           ) : (
                             <span className="text-gray-300 text-xs">—</span>
                           )}
@@ -544,7 +686,7 @@ export default function EmpleadosPage() {
         <EmpleadoModal
           initial={
             modal.mode === 'edit'
-              ? { nombre: modal.emp.nombre, tipo: modal.emp.tipo, pin: modal.emp.pin ?? generarPin(), telefono: modal.emp.telefono ?? '', email: modal.emp.email ?? '', horasSemanales: modal.emp.horasSemanales, rol: modal.emp.rol ?? null, restaurantId: modal.emp.restaurantId ?? null }
+              ? { nombre: modal.emp.nombre, tipo: modal.emp.tipo, pin: modal.emp.pin ?? generarPin(), telefono: modal.emp.telefono ?? '', email: modal.emp.email ?? '', horasSemanales: modal.emp.horasSemanales, rol: modal.emp.rol ?? null, puedeEncargado: modal.emp.puedeEncargado ?? false, puedeJefeCocina: modal.emp.puedeJefeCocina ?? false, excluirPlanning: modal.emp.excluirPlanning ?? false, restaurantId: modal.emp.restaurantId ?? null, diasLibresFijos: modal.emp.diasLibresFijos ?? [] }
               : { ...BLANK, pin: generarPin() }
           }
           restaurantes={restaurantes}

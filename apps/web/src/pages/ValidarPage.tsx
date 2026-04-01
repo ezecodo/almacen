@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Html5QrcodeScanner } from 'html5-qrcode'
-import { api, RetiroResumen } from '../api'
+import { api, RetiroResumen, retiroNombreEmpleado } from '../api'
 
 type Estado = 'escaneando' | 'cargando' | 'visto' | 'error'
 
@@ -183,7 +183,7 @@ export default function ValidarPage() {
                 <div className="flex gap-3 mb-4 text-sm">
                   <div className="flex-1 bg-gray-50 rounded-xl p-3">
                     <p className="text-gray-400 text-xs mb-0.5">Empleado</p>
-                    <p className="font-semibold text-gray-800">{retiro.empleado.nombre}</p>
+                    <p className="font-semibold text-gray-800">{retiroNombreEmpleado(retiro)}</p>
                   </div>
                   <div className="flex-1 bg-gray-50 rounded-xl p-3">
                     <p className="text-gray-400 text-xs mb-0.5">Restaurante</p>

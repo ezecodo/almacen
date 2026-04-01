@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '../api'
+import { api, retiroNombreEmpleado } from '../api'
 
 export default function VerificarPage() {
   const { id } = useParams<{ id: string }>()
@@ -84,7 +84,7 @@ export default function VerificarPage() {
         <div className="flex gap-4 mb-5 text-sm">
           <div className="flex-1 bg-gray-50 rounded-2xl p-3">
             <p className="text-gray-400 text-xs mb-0.5">Empleado</p>
-            <p className="font-semibold text-gray-800">{retiro.empleado.nombre}</p>
+            <p className="font-semibold text-gray-800">{retiroNombreEmpleado(retiro)}</p>
           </div>
           <div className="flex-1 bg-gray-50 rounded-2xl p-3">
             <p className="text-gray-400 text-xs mb-0.5">Restaurante</p>

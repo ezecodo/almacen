@@ -60,7 +60,7 @@ Total estimado por restaurante: ~120€
 - Integración con impresoras térmicas directamente desde el navegador (WebUSB / WebBluetooth)
 - QR en mesa para que clientes vean la carta
 - Sistema de reservas integrado
-- Notificaciones push (encargado recibe alerta cuando rating de Google baja)
+- Notificaciones push (encargado recisbe alerta cuando rating de Google baja)
 
 ---
 
