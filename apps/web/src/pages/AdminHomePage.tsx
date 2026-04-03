@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, Comanda, ComandaItem, FloorPlan, GrupoAgendado, GrupoMenuRestricciones, StaffingForecastDay } from '../api'
+import { api, Comanda, ComandaItem, FloorPlan, GrupoAgendado, GrupoMenuRestricciones } from '../api'
 import { useAdminEvents } from '../hooks/useAdminEvents'
 
 const now = new Date()
@@ -460,122 +459,6 @@ function GruposHoyWidget() {
   )
 }
 
-// ── Widget: Staffing ──────────────────────────────────────────────────────────
-function fmtDiaCorto(dateStr: string) {
-  const d = new Date(`${dateStr}T12:00:00Z`)
-  return d.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' })
-}
-
-function StaffingWidget() {
-  const { data: restaurantes = [] } = useQuery({
-    queryKey: ['restaurantes'],
-    queryFn: () => api.restaurantes.list(),
-    staleTime: 300_000,
-  })
-
-  const hoy = new Date()
-  const desde = hoy.toISOString().slice(0, 10)
-  const hastaDate = new Date(hoy.getTime() + 6 * 24 * 60 * 60 * 1000)
-  const hasta = hastaDate.toISOString().slice(0, 10)
-
-  const forecasts = useQuery({
-    queryKey: ['staffing-forecast-all', desde, hasta],
-    queryFn: async () => {
-      if (restaurantes.length === 0) return {} as Record<number, StaffingForecastDay[]>
-      const results = await Promise.all(
-        restaurantes.map(r =>
-          api.staffing.getForecast(r.id, desde, hasta).then(days => ({ id: r.id, days }))
-        )
-      )
-      const map: Record<number, StaffingForecastDay[]> = {}
-      results.forEach(({ id, days }) => { map[id] = days })
-      return map
-    },
-    enabled: restaurantes.length > 0,
-    refetchInterval: 300_000,
-  })
-
-  const forecastMap = forecasts.data ?? {}
-
-  // Merge all restaurants per day
-  type DayAlert = { restaurante: string; rol: string; tipo: 'falta' | 'exceso' | 'ok'; mensaje: string }
-  type DaySummary = { fecha: string; totalPax: number; alertas: DayAlert[] }
-
-  const days: DaySummary[] = []
-  const cursor = new Date(`${desde}T00:00:00Z`)
-  for (let i = 0; i < 7; i++) {
-    const dia = cursor.toISOString().slice(0, 10)
-    let totalPax = 0
-    const alertas: DayAlert[] = []
-    restaurantes.forEach(r => {
-      const dayData = (forecastMap[r.id] ?? []).find(d => d.fecha === dia)
-      if (dayData) {
-        totalPax += dayData.totalPax
-        dayData.alertas.forEach(a => {
-          if (a.tipo !== 'ok') {
-            alertas.push({ restaurante: r.nombre, ...a })
-          }
-        })
-      }
-    })
-    if (totalPax > 0 || alertas.length > 0) {
-      days.push({ fecha: dia, totalPax, alertas })
-    }
-    cursor.setUTCDate(cursor.getUTCDate() + 1)
-  }
-
-  const hayFaltas = days.some(d => d.alertas.some(a => a.tipo === 'falta'))
-
-  return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-      <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className={`w-2 h-2 rounded-full ${hayFaltas ? 'bg-red-400 animate-pulse' : 'bg-emerald-400'}`} />
-          <h2 className="font-bold text-gray-800 text-sm">Personal (7 días)</h2>
-        </div>
-        <Link to="/admin/staffing" className="text-xs text-cyan-500 hover:text-cyan-700">Ver detalle →</Link>
-      </div>
-
-      {forecasts.isLoading ? (
-        <div className="px-5 py-8 text-center text-gray-300 text-sm">Cargando…</div>
-      ) : days.length === 0 ? (
-        <div className="px-5 py-6 text-center text-gray-400 text-sm">Sin reservas en los próximos 7 días</div>
-      ) : (
-        <div className="divide-y divide-gray-50">
-          {days.map(d => (
-            <div key={d.fecha} className="px-5 py-3">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-xs font-semibold text-gray-700 capitalize">{fmtDiaCorto(d.fecha)}</span>
-                <span className="text-xs text-gray-400">{d.totalPax} pax</span>
-              </div>
-              {d.alertas.length === 0 ? (
-                <span className="inline-flex items-center gap-1 text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-                  ✓ Personal ok
-                </span>
-              ) : (
-                <div className="flex flex-wrap gap-1">
-                  {d.alertas.map((a, i) => (
-                    <span
-                      key={i}
-                      className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${
-                        a.tipo === 'falta'
-                          ? 'bg-red-100 text-red-700'
-                          : 'bg-amber-100 text-amber-700'
-                      }`}
-                    >
-                      {a.tipo === 'falta' ? '⚠' : '↑'} {a.mensaje}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ── Widget: Facturación del día ────────────────────────────────────────────────
 function fmt(n: number) {
   return n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR', minimumFractionDigits: 0, maximumFractionDigits: 0 })
@@ -735,7 +618,6 @@ export default function AdminHomePage() {
           <GruposHoyWidget />
           <TurnosWidget />
           <ReviewsWidget />
-          <StaffingWidget />
           <FacturacionWidget />
         </div>
 

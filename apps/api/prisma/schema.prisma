@@ -100,9 +100,10 @@ model Empleado {
   retiros          Retiro[]
   turnos           PropinaTurno[]
   activo           Boolean          @default(true)
-  horasSemanales   Int              @default(40)
-  diasLibresFijos  Int[]            @default([]) // días fijos de libranza: 0=Lun … 6=Dom
-  turnosAsignados  TurnoEmpleado[]
+  horasSemanales      Int              @default(40)
+  diasLibresFijos     Int[]            @default([]) // días fijos de libranza: 0=Lun … 6=Dom
+  faseLibreRotacion   Int              @default(0)  // 0-3: fase actual en rotación de días libres
+  turnosAsignados     TurnoEmpleado[]
   createdAt        DateTime         @default(now())
 }
 

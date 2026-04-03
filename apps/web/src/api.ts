@@ -52,7 +52,8 @@ export interface Empleado {
   restaurantId?: number | null
   restaurant?: { id: number; nombre: string } | null
   activo: boolean
-  diasLibresFijos: number[]  // 0=Lun … 6=Dom
+  diasLibresFijos: number[]      // 0=Lun … 6=Dom
+  faseLibreRotacion: number      // 0-3: fase actual de rotación de días libres
 }
 
 export interface PropinaTurno {
@@ -499,14 +500,17 @@ export interface AutoPlanItem {
   tipoNombre:    string | null
 }
 
-export interface StaffingForecastDay {
-  fecha: string
-  totalPax: number
-  necesario: { sala: number; cocina: number }
-  asignado: { sala: number; cocina: number; encargado: number }
-  diferencia: { sala: number; cocina: number }
-  alertas: Array<{ rol: string; tipo: 'falta' | 'exceso' | 'ok'; mensaje: string }>
+export interface EmpleadoDisponible {
+  id: number
+  nombre: string
+  rol: string | null
+  tipo: string
+  horasSemanales: number
+  restaurantId: number | null
+  restaurantNombre: string | null
+  esSuplente: boolean
 }
+
 
 export const api = {
   restaurantes: {
@@ -728,21 +732,21 @@ export const api = {
     createPublica: (body: { slug: string; fecha: string; hora: string; pax: number; nombre: string; telefono: string; email?: string; notas?: string }) => post<Reserva>('/reservas/publica', body),
   },
   staffing: {
-    getConfig: (restaurantId: number) => get<{ id?: number; restaurantId: number; ratioSalaXPax: number; ratioCocinaXPax: number }>(`/staffing/config?restaurantId=${restaurantId}`),
-    setConfig: (body: { restaurantId: number; ratioSalaXPax?: number; ratioCocinaXPax?: number }) => patch<{ ratioSalaXPax: number; ratioCocinaXPax: number }>('/staffing/config', body),
     getTipos: (restaurantId: number) => get<TurnoTipo[]>(`/staffing/tipos?restaurantId=${restaurantId}`),
     createTipo: (body: { restaurantId: number | null; nombre: string; horaInicio: string; horaFin: string; horas: number; color: string; tipoEmpleado: 'cocina' | 'sala' | null; rolEmpleado?: string | null; excluirAutoPlanning?: boolean }) => post<TurnoTipo>('/staffing/tipos', body),
     updateTipo: (id: number, body: Partial<{ restaurantId: number | null; nombre: string; horaInicio: string; horaFin: string; horas: number; color: string; tipoEmpleado: 'cocina' | 'sala' | null; rolEmpleado: string | null; excluirAutoPlanning: boolean }>) => put<TurnoTipo>(`/staffing/tipos/${id}`, body),
     deleteTipo: (id: number) => del(`/staffing/tipos/${id}`),
     getTurnos: (restaurantId: number, fecha: string) => get<TurnoEmpleadoType[]>(`/staffing/turnos?restaurantId=${restaurantId}&fecha=${fecha}`),
     getSemana: (restaurantId: number, desde: string) => get<TurnoEmpleadoType[]>(`/staffing/turnos/semana?restaurantId=${restaurantId}&desde=${desde}`),
+    getSemanaGlobal: (restaurantId: number, desde: string) => get<Array<{ empleadoId: number; horaInicio: string; horaFin: string; restaurantId: number }>>(`/staffing/turnos/semana-global?restaurantId=${restaurantId}&desde=${desde}`),
     createTurno: (body: { restaurantId: number; empleadoId: number; tipoId?: number | null; fecha: string; horaInicio: string; horaFin: string }) => post<TurnoEmpleadoType>('/staffing/turnos', body),
     updateTurno: (id: number, body: { estado?: string; tipoId?: number | null; horaInicio?: string; horaFin?: string; fecha?: string; empleadoId?: number }) => patch<TurnoEmpleadoType>(`/staffing/turnos/${id}`, body),
     deleteTurno: (id: number) => del(`/staffing/turnos/${id}`),
     deleteSemana: (restaurantId: number, desde: string) =>
       del(`/staffing/turnos/semana?restaurantId=${restaurantId}&desde=${desde}`),
-    getForecast: (restaurantId: number, desde: string, hasta: string) => get<StaffingForecastDay[]>(`/staffing/forecast?restaurantId=${restaurantId}&desde=${desde}&hasta=${hasta}`),
-    updateEmpleado: (id: number, body: { horasSemanales?: number }) => patch<{ id: number; horasSemanales: number }>(`/staffing/empleados/${id}`, body),
+    updateEmpleado: (id: number, body: { horasSemanales?: number; faseLibreRotacion?: number }) => patch<{ id: number; horasSemanales: number; faseLibreRotacion: number }>(`/staffing/empleados/${id}`, body),
+    getDisponibles: (restaurantId: number, fecha: string, rol: string) => get<EmpleadoDisponible[]>(`/staffing/disponibles?restaurantId=${restaurantId}&fecha=${fecha}&rol=${rol}`),
+    getEmpleadoSemana: (empId: number, desde: string) => get<Array<{ id: number; fecha: string; horaInicio: string; horaFin: string; estado: string; tipo: TurnoTipo | null; restaurant: { id: number; nombre: string } }>>(`/staffing/empleado/${empId}/semana?desde=${desde}`),
     getNecesidades: (restaurantId: number) => get<NecesidadDia[]>(`/staffing/necesidades?restaurantId=${restaurantId}`),
     setNecesidades: (restaurantId: number, dias: (NecesidadSlots & { diaSemana: number })[]) =>
       put<{ ok: boolean }>('/staffing/necesidades', { restaurantId, dias }),

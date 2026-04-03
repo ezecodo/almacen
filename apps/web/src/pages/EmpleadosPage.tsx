@@ -47,7 +47,7 @@ const DIAS_LABEL = ['L', 'M', 'X', 'J', 'V', 'S', 'D']
 const DIAS_NOMBRE = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
 
 const BLANK: Omit<Empleado, 'id' | 'activo'> = {
-  nombre: '', tipo: 'cocina', pin: generarPin(), telefono: '', email: '', horasSemanales: 40, rol: null, puedeEncargado: false, puedeJefeCocina: false, excluirPlanning: false, restaurantId: null, diasLibresFijos: [],
+  nombre: '', tipo: 'cocina', pin: generarPin(), telefono: '', email: '', horasSemanales: 40, rol: null, puedeEncargado: false, puedeJefeCocina: false, excluirPlanning: false, restaurantId: null, diasLibresFijos: [], faseLibreRotacion: 0,
 }
 
 function EmpleadoModal({
@@ -686,7 +686,7 @@ export default function EmpleadosPage() {
         <EmpleadoModal
           initial={
             modal.mode === 'edit'
-              ? { nombre: modal.emp.nombre, tipo: modal.emp.tipo, pin: modal.emp.pin ?? generarPin(), telefono: modal.emp.telefono ?? '', email: modal.emp.email ?? '', horasSemanales: modal.emp.horasSemanales, rol: modal.emp.rol ?? null, puedeEncargado: modal.emp.puedeEncargado ?? false, puedeJefeCocina: modal.emp.puedeJefeCocina ?? false, excluirPlanning: modal.emp.excluirPlanning ?? false, restaurantId: modal.emp.restaurantId ?? null, diasLibresFijos: modal.emp.diasLibresFijos ?? [] }
+              ? { nombre: modal.emp.nombre, tipo: modal.emp.tipo, pin: modal.emp.pin ?? generarPin(), telefono: modal.emp.telefono ?? '', email: modal.emp.email ?? '', horasSemanales: modal.emp.horasSemanales, rol: modal.emp.rol ?? null, puedeEncargado: modal.emp.puedeEncargado ?? false, puedeJefeCocina: modal.emp.puedeJefeCocina ?? false, excluirPlanning: modal.emp.excluirPlanning ?? false, restaurantId: modal.emp.restaurantId ?? null, diasLibresFijos: modal.emp.diasLibresFijos ?? [], faseLibreRotacion: modal.emp.faseLibreRotacion ?? 0 }
               : { ...BLANK, pin: generarPin() }
           }
           restaurantes={restaurantes}
