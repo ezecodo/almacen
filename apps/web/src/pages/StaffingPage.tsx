@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, AutoPlanItem, Empleado, EmpleadoDisponible, NecesidadSlots, NecesidadDia, NecesidadFecha, TurnoEmpleadoType, TurnoTipo, Restaurante } from '../api'
+import { api, AutoPlanItem, CoberturaEmpleado, Empleado, EmpleadoDisponible, ExtraCandidato, NecesidadSlots, NecesidadDia, NecesidadFecha, TurnoEmpleadoType, TurnoTipo, Restaurante } from '../api'
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function isoWeekStart(date: Date): Date {
@@ -49,7 +49,7 @@ const PALETTE = [
 
 // ── Modal: Asignar / editar turno ──────────────────────────────────────────────
 function AssignShiftModal({
-  restaurantId, empleados, tipos, fecha, turnoExistente, empleadoPreset, onClose,
+  restaurantId, empleados, tipos, fecha, turnoExistente, empleadoPreset, esExtraPreset, onClose,
 }: {
   restaurantId: number
   empleados: Empleado[]
@@ -57,6 +57,7 @@ function AssignShiftModal({
   fecha: string
   turnoExistente?: TurnoEmpleadoType
   empleadoPreset?: number
+  esExtraPreset?: boolean
   onClose: () => void
 }) {
   const qc = useQueryClient()
@@ -80,7 +81,7 @@ function AssignShiftModal({
   }
 
   const crear = useMutation({
-    mutationFn: () => api.staffing.createTurno({ restaurantId, empleadoId, tipoId, fecha, horaInicio, horaFin }),
+    mutationFn: () => api.staffing.createTurno({ restaurantId, empleadoId, tipoId, fecha, horaInicio, horaFin, esExtra: esExtraPreset }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['staffing-semana'] }); qc.invalidateQueries({ queryKey: ['staffing-emp-semana'] }); qc.invalidateQueries({ queryKey: ['staffing-semana-global'] }); onClose() },
   })
 
@@ -102,7 +103,12 @@ function AssignShiftModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm">
         <div className="px-5 py-4 border-b border-gray-100">
-          <h3 className="font-bold text-gray-800">{isEdit ? 'Editar turno' : 'Asignar turno'}</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="font-bold text-gray-800">{isEdit ? 'Editar turno' : 'Asignar turno'}</h3>
+            {esExtraPreset && !isEdit && (
+              <span className="text-[10px] font-bold bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full uppercase tracking-wide">Extra</span>
+            )}
+          </div>
           <p className="text-xs text-gray-400 mt-0.5 capitalize">{fmtDia(fecha, 'long')}</p>
         </div>
 
@@ -1010,14 +1016,16 @@ function FillDayModal({ restaurantId, fecha, empleados, tipos, turnosSemana, onC
 }
 
 // ── Helpers rotación días libres (wizard preview) ─────────────────────────────
-const OFF_PATTERNS_2 = [[2,3],[4,5],[6,0],[0,1]]
+// Mismos patrones que el backend. Todos consecutivos. "Día doble" = Lunes (día tranquilo).
+//   Phase 0: Lun+Mar  Phase 1: Mié+Jue  Phase 2: Vie+Sáb  Phase 3: Dom+Lun
+const OFF_PATTERNS_2 = [[0,1],[2,3],[4,5],[6,0]]
 const DIA_LABELS     = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom']
 
-function getOffDaysFE(emp: Empleado): number[] {
-  const daysOffCount = 2 // siempre 2 días libres, independientemente de las horas contratadas
+// empIdxInGroup: posición del empleado en su grupo de tipo (cocina/sala), igual que el backend
+function getOffDaysFE(emp: Empleado, empIdxInGroup: number): number[] {
   const fixed = emp.diasLibresFijos ?? []
   const off = new Set(fixed)
-  const extra = daysOffCount - fixed.length
+  const extra = 2 - fixed.length
   if (extra > 0) {
     if (fixed.length > 0) {
       const anchor = [...fixed].sort((a, b) => a - b).at(-1)!
@@ -1027,17 +1035,16 @@ function getOffDaysFE(emp: Empleado): number[] {
         if (!off.has(c)) { off.add(c); added++ }
       }
     } else {
-      const patterns = OFF_PATTERNS_2
-      const phase = ((emp.id % 4) + (emp.faseLibreRotacion ?? 0) + 4) % 4
-      patterns[phase].forEach((d: number) => off.add(d))
+      const phase = (empIdxInGroup + (emp.faseLibreRotacion ?? 0)) % 4
+      OFF_PATTERNS_2[phase].forEach((d: number) => off.add(d))
     }
   }
   return [...off].sort((a, b) => a - b)
 }
 
-function getNextOffDaysFE(emp: Empleado): number[] {
-  if ((emp.diasLibresFijos ?? []).length > 0) return [] // días fijos no rotan
-  const nextPhase = ((emp.id % 4) + (emp.faseLibreRotacion ?? 0) + 1 + 4) % 4
+function getNextOffDaysFE(emp: Empleado, empIdxInGroup: number): number[] {
+  if ((emp.diasLibresFijos ?? []).length > 0) return []
+  const nextPhase = (empIdxInGroup + (emp.faseLibreRotacion ?? 0) + 1) % 4
   return OFF_PATTERNS_2[nextPhase]
 }
 
@@ -1128,11 +1135,18 @@ function AutoPlanningModal({
                 <div className="w-12 shrink-0" />
               </div>
 
-              {Object.entries(byEmployee).map(([empIdStr, { nombre, shifts }]) => {
+              {(() => {
+                // Índice posicional dentro del grupo tipo — igual que el backend
+                const cocinaGroup = empleados.filter(e => e.tipo === 'cocina' && !(e.diasLibresFijos ?? []).length)
+                const salaGroup   = empleados.filter(e => e.tipo === 'sala'   && !(e.diasLibresFijos ?? []).length)
+                const idxInGroup = (emp: Empleado) =>
+                  (emp.tipo === 'cocina' ? cocinaGroup : salaGroup).findIndex(e => e.id === emp.id)
+                return Object.entries(byEmployee).map(([empIdStr, { nombre, shifts }]) => {
                 const emp        = empleados.find(e => e.id === Number(empIdStr))
                 const totalHoras = shifts.reduce((s, sh) => s + horasEnTurno(sh.horaInicio, sh.horaFin), 0)
-                const offDays    = emp ? getOffDaysFE(emp) : []
-                const nextOff    = emp ? getNextOffDaysFE(emp) : []
+                const empIdx     = emp ? idxInGroup(emp) : 0
+                const offDays    = emp ? getOffDaysFE(emp, empIdx) : []
+                const nextOff    = emp ? getNextOffDaysFE(emp, empIdx) : []
                 const hasFijos   = (emp?.diasLibresFijos ?? []).length > 0
                 const offLabel   = offDays.map(d => DIA_LABELS[d]).join('+')
                 const nextLabel  = nextOff.map(d => DIA_LABELS[d]).join('+')
@@ -1181,7 +1195,7 @@ function AutoPlanningModal({
                     })}
                   </div>
                 )
-              })}
+              })})()}
 
               {skipped.length > 0 && (
                 <div className="mt-3 pt-3 border-t border-gray-100">
@@ -1233,11 +1247,32 @@ function DisponiblesModal({
   tipos: TurnoTipo[]
   onClose: () => void
 }) {
-  const [asignando, setAsignando] = useState<EmpleadoDisponible | null>(null)
+  const qc = useQueryClient()
+  const [asignando, setAsignando] = useState<{ emp: EmpleadoDisponible | ExtraCandidato; esExtra: boolean } | null>(null)
 
   const { data: disponibles = [], isLoading } = useQuery({
     queryKey: ['staffing-disponibles', restaurantId, fecha, rol],
     queryFn:  () => api.staffing.getDisponibles(restaurantId, fecha, rol),
+  })
+
+  const { data: exceso = [], isLoading: loadingExceso } = useQuery({
+    queryKey: ['staffing-exceso', rol, fecha, restaurantId],
+    queryFn:  () => api.staffing.getExcesoPersonal(rol, fecha, restaurantId),
+  })
+
+  const { data: extras = [], isLoading: loadingExtras } = useQuery({
+    queryKey: ['staffing-extras', restaurantId, fecha, rol],
+    queryFn:  () => api.staffing.getExtrasCandidatos(restaurantId, fecha, rol),
+  })
+
+  const traer = useMutation({
+    mutationFn: (turnoId: number) => api.staffing.updateTurno(turnoId, { restaurantId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['staffing-semana'] })
+      qc.invalidateQueries({ queryKey: ['staffing-emp-semana'] })
+      qc.invalidateQueries({ queryKey: ['staffing-semana-global'] })
+      onClose()
+    },
   })
 
   const diaNombre = new Date(`${fecha}T12:00:00Z`).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'short' })
@@ -1253,10 +1288,11 @@ function DisponiblesModal({
     return (
       <AssignShiftModal
         restaurantId={restaurantId}
-        empleados={[{ ...asignando, activo: true, diasLibresFijos: [], faseLibreRotacion: 0, puedeEncargado: false, puedeJefeCocina: false, excluirPlanning: false } as Empleado]}
+        empleados={[{ ...asignando.emp, activo: true, diasLibresFijos: [], faseLibreRotacion: 0, puedeEncargado: false, puedeJefeCocina: false, excluirPlanning: false } as Empleado]}
         tipos={tipos}
         fecha={fecha}
-        empleadoPreset={asignando.id}
+        empleadoPreset={asignando.emp.id}
+        esExtraPreset={asignando.esExtra}
         onClose={onClose}
       />
     )
@@ -1274,11 +1310,12 @@ function DisponiblesModal({
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4">
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          {/* Disponibles normales */}
           {isLoading ? (
             <p className="text-center text-gray-300 py-8 text-sm">Buscando disponibles…</p>
           ) : disponibles.length === 0 ? (
-            <p className="text-center text-gray-400 py-8 text-sm">No hay empleados disponibles para este rol ese día.</p>
+            <p className="text-center text-gray-400 py-4 text-sm">No hay empleados disponibles para este rol ese día.</p>
           ) : (
             <div className="space-y-2">
               {disponibles.map(emp => {
@@ -1297,6 +1334,7 @@ function DisponiblesModal({
                         ) : (
                           <span className="ml-1 text-gray-300">· Rotativo</span>
                         )}
+                        <span className="ml-1 text-cyan-500 font-medium">· {emp.horasRestantes}h libres</span>
                       </div>
                       {tipoDefault && (
                         <div className="text-[10px] text-gray-300 mt-0.5">
@@ -1305,7 +1343,7 @@ function DisponiblesModal({
                       )}
                     </div>
                     <button
-                      onClick={() => setAsignando(emp)}
+                      onClick={() => setAsignando({ emp, esExtra: false })}
                       className="shrink-0 text-xs bg-indigo-500 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-600 font-semibold transition-colors"
                     >
                       Asignar
@@ -1315,7 +1353,92 @@ function DisponiblesModal({
               })}
             </div>
           )}
+
+          {/* Extras */}
+          {(loadingExtras || extras.length > 0) && (
+            <div className="rounded-xl border border-orange-100 bg-orange-50/40 overflow-hidden">
+              <div className="px-3 py-2 border-b border-orange-100">
+                <span className="text-xs font-semibold text-orange-700 uppercase tracking-wide">Turno extra</span>
+                <p className="text-[11px] text-orange-400 mt-0.5">Empleados con horas de contrato ya completadas o fijos de este restaurante</p>
+              </div>
+              {loadingExtras ? (
+                <p className="text-xs text-gray-300 text-center py-3">Buscando…</p>
+              ) : (
+                <div className="divide-y divide-orange-50">
+                  {extras.map(emp => {
+                    const tipoDefault = getTipoDefault(emp as unknown as EmpleadoDisponible)
+                    return (
+                      <div key={emp.id} className="flex items-center justify-between gap-3 px-3 py-2.5 bg-white">
+                        <div className="min-w-0">
+                          <div className="font-medium text-gray-800 text-sm truncate">{emp.nombre}</div>
+                          <div className="text-[11px] text-gray-400 mt-0.5">
+                            {emp.esSuplente ? <span className="text-amber-500 font-medium">Suplente · </span> : null}
+                            {emp.rol ?? emp.tipo}
+                            {emp.restaurantNombre ? (
+                              <span className="ml-1 text-gray-300">· {emp.restaurantNombre}</span>
+                            ) : (
+                              <span className="ml-1 text-gray-300">· Rotativo</span>
+                            )}
+                            <span className="ml-1 text-orange-500 font-medium">· {emp.horasAsignadas}h / {emp.horasSemanales}h</span>
+                          </div>
+                          {tipoDefault && (
+                            <div className="text-[10px] text-gray-300 mt-0.5">
+                              Turno habitual: {tipoDefault.nombre} ({tipoDefault.horaInicio}–{tipoDefault.horaFin})
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => setAsignando({ emp, esExtra: true })}
+                          className="shrink-0 text-xs bg-orange-500 text-white px-3 py-1.5 rounded-lg hover:bg-orange-600 font-semibold transition-colors"
+                        >
+                          + Extra
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
+
+        {/* Sección: traer de restaurante con exceso */}
+        {(loadingExceso || exceso.length > 0) && (
+          <div className="border-t border-gray-100 px-5 py-4">
+            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+              Traer de restaurante con exceso
+            </div>
+            {loadingExceso ? (
+              <p className="text-xs text-gray-300 text-center py-2">Buscando…</p>
+            ) : (
+              <div className="space-y-2">
+                {exceso.map(r => (
+                  <div key={r.restaurantId} className="rounded-xl border border-amber-100 bg-amber-50/40 overflow-hidden">
+                    <div className="px-3 py-2 flex items-center justify-between">
+                      <span className="text-xs font-semibold text-amber-700">{r.nombre}</span>
+                      <span className="text-[10px] text-amber-500">{r.covered}/{r.needed} · sobran {r.exceso}</span>
+                    </div>
+                    {r.empleados.map(emp => (
+                      <div key={emp.turnoId} className="flex items-center justify-between px-3 py-2 bg-white border-t border-amber-100">
+                        <div>
+                          <div className="text-sm font-medium text-gray-800">{emp.nombre}</div>
+                          <div className="text-[11px] text-gray-400">{emp.rol ?? '—'} · {emp.horaInicio}–{emp.horaFin}</div>
+                        </div>
+                        <button
+                          onClick={() => traer.mutate(emp.turnoId)}
+                          disabled={traer.isPending}
+                          className="text-xs bg-amber-500 text-white px-3 py-1.5 rounded-lg hover:bg-amber-600 font-semibold transition-colors disabled:opacity-40 shrink-0"
+                        >
+                          {traer.isPending ? '…' : '← Traer'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="px-5 py-3 border-t border-gray-100">
           <button onClick={onClose} className="text-sm text-gray-400 hover:text-gray-600">Cancelar</button>
@@ -1325,10 +1448,138 @@ function DisponiblesModal({
   )
 }
 
+// ── Modal: Acciones de un turno (eliminar / transferir) ───────────────────────
+function TurnoAccionesModal({ turno, origenRestaurantId, onClose, onEdit }: {
+  turno: TurnoEmpleadoType
+  origenRestaurantId: number
+  onClose: () => void
+  onEdit: () => void
+}) {
+  const qc   = useQueryClient()
+  const emp  = turno.empleado
+  const fecha = turno.fecha.slice(0, 10)
+  const horas = horasEnTurno(turno.horaInicio, turno.horaFin)
+  const diaNombre = new Date(`${fecha}T12:00:00Z`).toLocaleDateString('es-ES', {
+    weekday: 'long', day: 'numeric', month: 'short',
+  })
+
+  const { data: destinos = [], isLoading: loadingDestinos } = useQuery({
+    queryKey: ['transferir-destinos', emp.id, fecha, origenRestaurantId],
+    queryFn:  () => api.staffing.getTransferirDestinos(emp.id, fecha, origenRestaurantId),
+  })
+
+  const invalidar = () => {
+    qc.invalidateQueries({ queryKey: ['staffing-semana'] })
+    qc.invalidateQueries({ queryKey: ['staffing-emp-semana'] })
+    qc.invalidateQueries({ queryKey: ['staffing-semana-global'] })
+  }
+
+  const eliminar = useMutation({
+    mutationFn: () => api.staffing.deleteTurno(turno.id),
+    onSuccess: () => { invalidar(); onClose() },
+  })
+
+  const transferir = useMutation({
+    mutationFn: (targetRestaurantId: number) =>
+      api.staffing.updateTurno(turno.id, { restaurantId: targetRestaurantId }),
+    onSuccess: () => { invalidar(); onClose() },
+  })
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm">
+
+        {/* Header */}
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-gray-800">{emp.nombre}</span>
+              {turno.esExtra && <span className="text-[10px] font-bold bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full uppercase tracking-wide">Extra</span>}
+            </div>
+            <div className="text-xs text-gray-400 mt-0.5 capitalize">
+              {emp.rol ?? emp.tipo} · {diaNombre}
+            </div>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+        </div>
+
+        {/* Info turno */}
+        <div className="px-5 py-3 flex items-center gap-3 bg-gray-50">
+          <div
+            className="w-10 h-10 rounded-xl flex flex-col items-center justify-center text-white text-[10px] font-semibold shrink-0"
+            style={{ backgroundColor: turno.tipo?.color ?? '#94a3b8' }}
+          >
+            <span>{turno.tipo?.nombre?.slice(0, 5) ?? turno.horaInicio}</span>
+            <span className="opacity-80">{horas}h</span>
+          </div>
+          <div className="text-sm text-gray-700">
+            <span className="font-medium">{turno.horaInicio} – {turno.horaFin}</span>
+            {turno.tipo && <span className="text-gray-400 ml-2">· {turno.tipo.nombre}</span>}
+          </div>
+        </div>
+
+        {/* Acciones rápidas */}
+        <div className="px-5 py-3 flex gap-2 border-b border-gray-100">
+          <button
+            onClick={onEdit}
+            className="flex-1 text-sm py-2 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 font-medium transition-colors"
+          >
+            ✏️ Editar
+          </button>
+          <button
+            onClick={() => eliminar.mutate()}
+            disabled={eliminar.isPending}
+            className="flex-1 text-sm py-2 rounded-xl border border-red-200 text-red-500 hover:bg-red-50 font-medium transition-colors disabled:opacity-40"
+          >
+            {eliminar.isPending ? 'Eliminando…' : '🗑 Eliminar'}
+          </button>
+        </div>
+
+        {/* Sección transferir */}
+        <div className="px-5 py-4">
+          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+            Transferir a otro restaurante
+          </div>
+          {loadingDestinos ? (
+            <div className="text-xs text-gray-300 text-center py-3">Buscando destinos…</div>
+          ) : destinos.length === 0 ? (
+            <div className="text-xs text-gray-400 text-center py-3 bg-gray-50 rounded-xl">
+              No hay restaurantes con déficit de este rol hoy
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {destinos.map(d => (
+                <button
+                  key={d.restaurantId}
+                  onClick={() => transferir.mutate(d.restaurantId)}
+                  disabled={transferir.isPending}
+                  className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-gray-100 hover:border-indigo-300 hover:bg-indigo-50 transition-all text-left disabled:opacity-40"
+                >
+                  <div>
+                    <div className="text-sm font-medium text-gray-800">{d.nombre}</div>
+                    <div className="text-xs text-gray-400 mt-0.5">
+                      {d.covered}/{d.needed} cubiertos · necesita {d.deficit} más
+                    </div>
+                  </div>
+                  <span className="text-indigo-500 text-sm font-semibold shrink-0 ml-3">
+                    {transferir.isPending ? '…' : 'Transferir →'}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+      </div>
+    </div>
+  )
+}
+
 // ── Tab: Turnos (grid semanal) ─────────────────────────────────────────────────
 function TabTurnos({ restaurantId, weekStart }: { restaurantId: number; weekStart: Date }) {
   const qc = useQueryClient()
   const [editModal, setEditModal]             = useState<{ fecha: string; turno?: TurnoEmpleadoType; empleadoId?: number } | null>(null)
+  const [accionesModal, setAccionesModal]     = useState<TurnoEmpleadoType | null>(null)
   const [autoPlanModal, setAutoPlanModal]     = useState(false)
   const [extrasModal, setExtrasModal]         = useState<string | null>(null)
   const [fillDayModal, setFillDayModal]       = useState<string | null>(null)
@@ -1514,7 +1765,7 @@ function TabTurnos({ restaurantId, weekStart }: { restaurantId: number; weekStar
                         onDragOver={e => { e.preventDefault(); setDragOverKey(cellKey) }}
                         onDragLeave={() => setDragOverKey(null)}
                         onDrop={e => { e.preventDefault(); handleDrop(emp.id, dia) }}
-                        onClick={() => !isDragging && setEditModal({ fecha: dia, turno })}
+                        onClick={() => !isDragging && setAccionesModal(turno)}
                         className="text-[10px] px-1.5 py-1 rounded-lg font-semibold leading-tight text-white w-full transition-opacity"
                         style={{
                           backgroundColor:
@@ -1529,7 +1780,10 @@ function TabTurnos({ restaurantId, weekStart }: { restaurantId: number; weekStar
                           outlineOffset: '2px',
                         }}
                       >
-                        {emp.rol ? (ROL_SHORT[emp.rol] ?? turno.tipo?.nombre ?? turno.horaInicio) : (turno.tipo?.nombre ?? turno.horaInicio)}<br />
+                        <div className="flex items-center gap-1 justify-between w-full">
+                          <span>{emp.rol ? (ROL_SHORT[emp.rol] ?? turno.tipo?.nombre ?? turno.horaInicio) : (turno.tipo?.nombre ?? turno.horaInicio)}</span>
+                          {turno.esExtra && <span className="text-[8px] font-bold bg-white/25 px-0.5 rounded leading-none">EXT</span>}
+                        </div>
                         <span className="opacity-80">{horasEnTurno(turno.horaInicio, turno.horaFin)}h</span>
                       </button>
                     ) : (
@@ -1764,6 +2018,19 @@ function TabTurnos({ restaurantId, weekStart }: { restaurantId: number; weekStar
         )
       })()}
 
+      {accionesModal && (
+        <TurnoAccionesModal
+          turno={accionesModal}
+          origenRestaurantId={restaurantId}
+          onClose={() => setAccionesModal(null)}
+          onEdit={() => {
+            const t = accionesModal
+            setAccionesModal(null)
+            setEditModal({ fecha: t.fecha.slice(0, 10), turno: t })
+          }}
+        />
+      )}
+
       {editModal && (
         <AssignShiftModal
           restaurantId={restaurantId}
@@ -1974,12 +2241,410 @@ function GlobalPlanningModal({ weekStart, restaurantes, onClose }: {
   )
 }
 
+// ── Modal: Borrar planning global ─────────────────────────────────────────────
+function BorrarPlanningModal({ weekStart, restaurantes, onClose }: {
+  weekStart: Date
+  restaurantes: Restaurante[]
+  onClose: () => void
+}) {
+  const qc    = useQueryClient()
+  const desde = toISO(weekStart)
+  const wEnd  = addDays(weekStart, 6)
+  const wLabel = `${weekStart.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })} – ${wEnd.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}`
+
+  const [selected, setSelected] = useState<Set<number>>(() => new Set(restaurantes.map(r => r.id)))
+  const [confirm,  setConfirm]  = useState(false)
+
+  const toggle = (id: number) => setSelected(s => {
+    const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n
+  })
+
+  const borrar = useMutation({
+    mutationFn: () => api.staffing.deleteSemanaGlobal([...selected], desde),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['staffing-semana'] })
+      qc.invalidateQueries({ queryKey: ['staffing-emp-semana'] })
+      qc.invalidateQueries({ queryKey: ['staffing-semana-global'] })
+      onClose()
+    },
+  })
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm">
+
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <div>
+            <h3 className="font-bold text-gray-800">🗑 Borrar planning</h3>
+            <p className="text-xs text-gray-400 mt-0.5">Semana del {wLabel}</p>
+          </div>
+          {!borrar.isPending && (
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+          )}
+        </div>
+
+        {!confirm ? (
+          <>
+            <div className="px-5 py-4 space-y-2">
+              <p className="text-xs text-gray-400 mb-3">
+                Selecciona los restaurantes cuyo planning de esta semana quieres eliminar.
+              </p>
+              {restaurantes.map(r => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => toggle(r.id)}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all text-left ${
+                    selected.has(r.id) ? 'border-red-300 bg-red-50' : 'border-gray-100 hover:border-gray-200'
+                  }`}
+                >
+                  <span className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${
+                    selected.has(r.id) ? 'bg-red-500 border-red-500' : 'border-gray-300'
+                  }`}>
+                    {selected.has(r.id) && <span className="text-white text-xs font-bold">✓</span>}
+                  </span>
+                  <span className="text-sm font-medium text-gray-800">{r.nombre}</span>
+                </button>
+              ))}
+            </div>
+            <div className="px-5 py-4 border-t border-gray-100 flex justify-end gap-2">
+              <button onClick={onClose} className="text-sm text-gray-400 hover:text-gray-600 px-3 py-1.5">Cancelar</button>
+              <button
+                onClick={() => setConfirm(true)}
+                disabled={selected.size === 0}
+                className="text-sm bg-red-500 text-white px-4 py-1.5 rounded-lg hover:bg-red-600 disabled:opacity-40"
+              >
+                Borrar {selected.size > 0 ? `(${selected.size})` : ''}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="px-5 py-6 text-center">
+              <div className="text-3xl mb-3">⚠️</div>
+              <p className="text-sm font-semibold text-gray-800 mb-1">
+                ¿Eliminar todos los turnos de la semana del {wLabel}?
+              </p>
+              <p className="text-xs text-gray-400">
+                Se borrarán los turnos de {selected.size} restaurante{selected.size !== 1 ? 's' : ''}. Esta acción no se puede deshacer.
+              </p>
+            </div>
+            <div className="px-5 py-4 border-t border-gray-100 flex justify-end gap-2">
+              <button onClick={() => setConfirm(false)} disabled={borrar.isPending} className="text-sm text-gray-400 hover:text-gray-600 px-3 py-1.5">Volver</button>
+              <button
+                onClick={() => borrar.mutate()}
+                disabled={borrar.isPending}
+                className="text-sm bg-red-500 text-white px-4 py-1.5 rounded-lg hover:bg-red-600 disabled:opacity-40 font-semibold"
+              >
+                {borrar.isPending ? 'Borrando…' : 'Sí, borrar'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Tab: Cobertura de horas ────────────────────────────────────────────────────
+function HuecosPanel({ empId, lunes }: { empId: number; lunes: string }) {
+  const { data: huecos = [], isLoading } = useQuery({
+    queryKey: ['staffing-huecos', empId, lunes],
+    queryFn:  () => api.staffing.getHuecosEmpleado(empId, lunes),
+  })
+
+  const DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+  const fmtFechaCorta = (fecha: string) => {
+    const d = new Date(`${fecha}T12:00:00Z`)
+    const dow = d.getUTCDay()
+    const idx = dow === 0 ? 6 : dow - 1
+    return `${DIAS[idx]} ${d.getUTCDate()}`
+  }
+
+  if (isLoading) return <p className="text-xs text-gray-400 py-2 text-center">Buscando huecos…</p>
+
+  if (huecos.length === 0) return (
+    <p className="text-xs text-gray-400 py-2 text-center">
+      Sin huecos disponibles para su puesto esta semana
+    </p>
+  )
+
+  // Agrupar por fecha
+  const porFecha = huecos.reduce<Record<string, typeof huecos>>((acc, h) => {
+    if (!acc[h.fecha]) acc[h.fecha] = []
+    acc[h.fecha].push(h)
+    return acc
+  }, {})
+
+  return (
+    <div className="space-y-1.5">
+      {Object.entries(porFecha).sort(([a], [b]) => a.localeCompare(b)).map(([fecha, items]) => (
+        <div key={fecha} className="flex items-start gap-2">
+          <span className="text-xs font-semibold text-indigo-500 w-14 shrink-0 pt-0.5">{fmtFechaCorta(fecha)}</span>
+          <div className="flex flex-wrap gap-1.5">
+            {items.map(h => (
+              <span
+                key={h.restaurantId}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 text-xs font-medium border border-indigo-100"
+              >
+                {h.restaurantNombre}
+                <span className="text-indigo-400">·{h.deficit} libre{h.deficit > 1 ? 's' : ''}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function TabCobertura() {
+  const [weekStart, setWeekStart]             = useState<Date>(() => isoWeekStart(new Date()))
+  const lunes = toISO(weekStart)
+  const days: string[]                        = Array.from({ length: 7 }, (_, i) => toISO(addDays(weekStart, i)))
+  const [soloIncompletos, setSoloIncompletos] = useState(false)
+  const [expandedEmpId, setExpandedEmpId]     = useState<number | null>(null)
+  const [hoveredEmp, setHoveredEmp]           = useState<{ id: number; x: number; y: number } | null>(null)
+
+  const weekEnd   = addDays(weekStart, 6)
+  const weekLabel = `${weekStart.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })} – ${weekEnd.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}`
+
+  const { data: empSemana } = useQuery({
+    queryKey: ['staffing-emp-semana', hoveredEmp?.id, lunes],
+    queryFn:  () => api.staffing.getEmpleadoSemana(hoveredEmp!.id, lunes),
+    enabled:  !!hoveredEmp,
+    staleTime: 0,
+  })
+
+  const { data: empleados = [], isLoading } = useQuery({
+    queryKey: ['staffing-cobertura', lunes],
+    queryFn:  () => api.staffing.getCobertura(lunes),
+  })
+
+  const filtrados = soloIncompletos
+    ? empleados.filter(e => e.horasAsignadas < e.horasSemanales)
+    : empleados
+
+  const cocina = filtrados.filter(e => e.tipo === 'cocina')
+  const sala   = filtrados.filter(e => e.tipo === 'sala')
+
+  const ROL_LABEL: Record<string, string> = {
+    jefe_cocina: 'Jefe cocina', cocinero: 'Cocinero', friegaplatos: 'Friegaplatos',
+    produccion: 'Producción', camarero: 'Camarero', encargado: 'Encargado',
+  }
+
+  function EmpRow({ emp }: { emp: CoberturaEmpleado }) {
+    const pct      = Math.min(emp.horasAsignadas / emp.horasSemanales, 1)
+    const ok       = emp.horasAsignadas >= emp.horasSemanales
+    const partial  = !ok && emp.horasAsignadas > 0
+    const none     = emp.horasAsignadas === 0
+    const expanded = expandedEmpId === emp.id
+
+    const barColor  = ok ? 'bg-emerald-400' : partial ? 'bg-amber-400' : 'bg-red-300'
+    const textColor = ok ? 'text-emerald-600' : partial ? 'text-amber-600' : 'text-red-500'
+
+    return (
+      <div className="border-b border-gray-100 last:border-0">
+        <div className="flex items-center gap-3 py-2.5">
+          {/* Nombre + rol */}
+          <div className="w-44 min-w-0">
+            <p
+              className="text-sm font-medium text-gray-800 truncate cursor-default hover:text-indigo-600 transition-colors"
+              onMouseEnter={e => setHoveredEmp({ id: emp.id, x: e.clientX + 12, y: e.clientY })}
+              onMouseLeave={() => setHoveredEmp(null)}
+            >
+              {emp.nombre}
+            </p>
+            <p className="text-xs text-gray-400">{emp.rol ? ROL_LABEL[emp.rol] ?? emp.rol : '—'}</p>
+          </div>
+
+          {/* Barra de cobertura */}
+          <div className="flex-1 min-w-0">
+            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${barColor}`}
+                style={{ width: `${pct * 100}%` }}
+              />
+            </div>
+            {emp.restaurants.length > 0 && (
+              <p className="text-xs text-gray-400 mt-0.5 truncate">
+                {emp.restaurants.map(r => r.nombre).join(', ')}
+              </p>
+            )}
+          </div>
+
+          {/* Horas */}
+          <div className={`text-sm font-semibold tabular-nums w-20 text-right ${textColor}`}>
+            {none
+              ? <span className="text-gray-300">0 / {emp.horasSemanales}h</span>
+              : <>{emp.horasAsignadas} / {emp.horasSemanales}h</>
+            }
+          </div>
+
+          {/* Botón huecos — solo si tiene horas sin cubrir y tiene rol */}
+          {!ok && emp.rol && (
+            <button
+              onClick={() => setExpandedEmpId(expanded ? null : emp.id)}
+              className={`shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors border ${
+                expanded
+                  ? 'bg-indigo-100 text-indigo-700 border-indigo-200'
+                  : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200'
+              }`}
+              title="Ver huecos disponibles para este puesto esta semana"
+            >
+              🔍 Huecos
+            </button>
+          )}
+        </div>
+
+        {/* Panel de huecos expandido */}
+        {expanded && (
+          <div className="mb-2.5 ml-4 mr-2 p-3 bg-indigo-50 rounded-xl border border-indigo-100">
+            <HuecosPanel empId={emp.id} lunes={lunes} />
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  if (isLoading) return <div className="text-sm text-gray-400 py-8 text-center">Cargando…</div>
+
+  return (
+    <div>
+      {/* Navegador de semana propio */}
+      <div className="flex items-center gap-3 mb-5">
+        <button onClick={() => setWeekStart(d => addDays(d, -7))} className="p-1.5 rounded-lg border border-gray-200 hover:bg-white text-gray-500">←</button>
+        <span className="text-sm font-medium text-gray-700 min-w-[160px] text-center">{weekLabel}</span>
+        <button onClick={() => setWeekStart(d => addDays(d, 7))} className="p-1.5 rounded-lg border border-gray-200 hover:bg-white text-gray-500">→</button>
+        <button onClick={() => setWeekStart(isoWeekStart(new Date()))} className="text-xs text-cyan-500 hover:text-cyan-700 ml-1">Esta semana</button>
+      </div>
+
+      {/* Filtro */}
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-sm text-gray-500">
+          {empleados.length} empleados
+        </p>
+        <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={soloIncompletos}
+            onChange={e => setSoloIncompletos(e.target.checked)}
+            className="rounded"
+          />
+          Solo incompletos
+        </label>
+      </div>
+
+      {/* Cocina */}
+      {cocina.length > 0 && (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-4">
+          <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">🍳 Cocina</h3>
+          {cocina.map(e => <EmpRow key={e.id} emp={e} />)}
+        </div>
+      )}
+
+      {/* Sala */}
+      {sala.length > 0 && (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+          <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">🍽 Sala</h3>
+          {sala.map(e => <EmpRow key={e.id} emp={e} />)}
+        </div>
+      )}
+
+      {filtrados.length === 0 && (
+        <div className="text-sm text-gray-400 text-center py-12">
+          {soloIncompletos ? 'Todos los empleados tienen sus horas cubiertas ✓' : 'Sin empleados activos'}
+        </div>
+      )}
+
+      {/* Tooltip hover: planning semanal del empleado */}
+      {hoveredEmp && (() => {
+        const emp = empleados.find(e => e.id === hoveredEmp.id)
+        const DIA = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom']
+        const REST_COLORS = ['#6366f1','#0ea5e9','#f59e0b','#10b981','#ec4899']
+        const restIds: number[] = []
+        empSemana?.forEach(t => { if (!restIds.includes(t.restaurant.id)) restIds.push(t.restaurant.id) })
+        const restColor = (id: number) => REST_COLORS[restIds.indexOf(id) % REST_COLORS.length]
+
+        return (
+          <div
+            className="fixed z-50 pointer-events-none"
+            style={{
+              left: Math.min(hoveredEmp.x, window.innerWidth - 520),
+              top:  Math.max(8, hoveredEmp.y - 10),
+            }}
+          >
+            <div className="bg-white border border-gray-200 rounded-xl shadow-xl p-3 text-xs" style={{ minWidth: 480 }}>
+              {emp && (
+                <div className="flex items-center gap-2 mb-2.5">
+                  <span className="font-semibold text-gray-800">{emp.nombre}</span>
+                  <span className="text-gray-400">{emp.rol ?? emp.tipo}</span>
+                  {empSemana && (
+                    <span className="ml-auto text-gray-400">
+                      {Math.round(empSemana.reduce((s, t) => s + horasEnTurno(t.horaInicio, t.horaFin), 0) * 10) / 10}h
+                      <span className="text-gray-300"> / {emp.horasSemanales}h</span>
+                    </span>
+                  )}
+                </div>
+              )}
+              {!empSemana ? (
+                <div className="text-gray-400 text-center py-3">Cargando…</div>
+              ) : (
+                <div className="grid grid-cols-7 gap-1">
+                  {days.map((_, i) => (
+                    <div key={i} className="text-center font-semibold text-gray-400 pb-1">{DIA[i]}</div>
+                  ))}
+                  {days.map((dayStr, i) => {
+                    const turno = empSemana.find(t => t.fecha.startsWith(dayStr))
+                    if (!turno) return (
+                      <div key={i} className="flex items-center justify-center h-14 rounded-lg bg-gray-50 border border-dashed border-gray-200">
+                        <span className="text-gray-300 text-[10px] italic">libre</span>
+                      </div>
+                    )
+                    const color = restColor(turno.restaurant.id)
+                    return (
+                      <div
+                        key={i}
+                        className="flex flex-col items-center justify-center h-14 rounded-lg text-white px-1 gap-0.5"
+                        style={{ backgroundColor: color }}
+                      >
+                        <span className="font-bold text-[11px] leading-none">{turno.horaInicio}</span>
+                        <span className="text-[9px] opacity-70 leading-none">↓</span>
+                        <span className="font-bold text-[11px] leading-none">{turno.horaFin}</span>
+                        <span className="text-[9px] opacity-80 mt-0.5 truncate w-full text-center leading-none px-0.5">{turno.restaurant.nombre.split(' ')[0]}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+              {empSemana && restIds.length > 1 && (
+                <div className="flex gap-3 mt-2.5 pt-2 border-t border-gray-100">
+                  {restIds.map(id => {
+                    const name = empSemana.find(t => t.restaurant.id === id)?.restaurant.nombre ?? ''
+                    return (
+                      <div key={id} className="flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: restColor(id) }} />
+                        <span className="text-gray-500 truncate max-w-[100px]">{name}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )
+      })()}
+    </div>
+  )
+}
+
 // ── Main page ──────────────────────────────────────────────────────────────────
 export default function StaffingPage() {
-  const [restaurantId,    setRestaurantId]    = useState(0)
-  const [tab,             setTab]             = useState<'turnos' | 'tipos' | 'necesidades'>('tipos')
-  const [weekStart,       setWeekStart]       = useState<Date>(() => isoWeekStart(new Date()))
-  const [globalPlanModal, setGlobalPlanModal] = useState(false)
+  const [restaurantId,       setRestaurantId]       = useState(0)
+  const [tab,                setTab]                = useState<'turnos' | 'tipos' | 'necesidades' | 'cobertura'>('tipos')
+  const [weekStart,          setWeekStart]          = useState<Date>(() => isoWeekStart(new Date()))
+  const [globalPlanModal,    setGlobalPlanModal]    = useState(false)
+  const [borrarPlanModal,    setBorrarPlanModal]    = useState(false)
 
   const { data: restaurantes = [] } = useQuery({
     queryKey: ['restaurantes'],
@@ -1996,7 +2661,7 @@ export default function StaffingPage() {
   const weekEnd   = addDays(weekStart, 6)
   const weekLabel = `${weekStart.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })} – ${weekEnd.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}`
 
-  const TAB_LABELS = { tipos: 'Tipos de turno', turnos: 'Planning', necesidades: 'Necesidades' }
+  const TAB_LABELS = { tipos: 'Tipos de turno', turnos: 'Planning', necesidades: 'Necesidades', cobertura: 'Cobertura' }
 
   return (
     <div className="min-h-full bg-gray-50">
@@ -2009,6 +2674,13 @@ export default function StaffingPage() {
             <p className="text-gray-400 text-sm mt-1">Tipos de turno, necesidades y planning semanal</p>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setBorrarPlanModal(true)}
+              className="flex items-center gap-1.5 px-3 py-2 bg-red-50 text-red-500 text-sm font-semibold rounded-xl hover:bg-red-100 border border-red-200 transition-colors"
+              title="Borrar planning de la semana"
+            >
+              🗑 Borrar plan
+            </button>
             <button
               onClick={() => setGlobalPlanModal(true)}
               className="flex items-center gap-1.5 px-3 py-2 bg-indigo-500 text-white text-sm font-semibold rounded-xl hover:bg-indigo-400 transition-colors"
@@ -2029,7 +2701,7 @@ export default function StaffingPage() {
 
         {/* Tabs */}
         <div className="flex gap-1 mb-4 bg-gray-100 rounded-xl p-1 w-fit">
-          {(['tipos', 'necesidades', 'turnos'] as const).map(t => (
+          {(['tipos', 'necesidades', 'turnos', 'cobertura'] as const).map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -2056,6 +2728,7 @@ export default function StaffingPage() {
         {selectedRestaurantId > 0 && (
           tab === 'tipos'       ? <TabTipos       restaurantId={selectedRestaurantId} /> :
           tab === 'necesidades' ? <TabNecesidades restaurantId={selectedRestaurantId} /> :
+          tab === 'cobertura'   ? <TabCobertura /> :
                                   <TabTurnos      restaurantId={selectedRestaurantId} weekStart={weekStart} />
         )}
 
@@ -2064,6 +2737,13 @@ export default function StaffingPage() {
             weekStart={weekStart}
             restaurantes={restaurantes as Restaurante[]}
             onClose={() => setGlobalPlanModal(false)}
+          />
+        )}
+        {borrarPlanModal && (
+          <BorrarPlanningModal
+            weekStart={weekStart}
+            restaurantes={restaurantes as Restaurante[]}
+            onClose={() => setBorrarPlanModal(false)}
           />
         )}
       </div>

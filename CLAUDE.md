@@ -3,10 +3,14 @@
 ## Qué es este proyecto
 
 Sistema de gestión integral para un grupo de restaurantes (cliente: Sensi Tapas, Barcelona).
-Incluye tres módulos principales:
-1. **Almacén**: control de retiros de materia prima con pistola de código de barras
+Módulos activos:
+1. **Almacén**: control de retiros de materia prima con pistola de código de barras + validación por QR
 2. **Sala (TPV)**: sistema de comandas para camareros y encargados — mesas, menú, cocina, propinas, mermas, Google Reviews
 3. **Inventario**: conteo periódico de stock de sala por restaurante, con catálogo global + específico por restaurante
+4. **Grupos**: gestión de menús cerrados para grupos (plantillas con cursos, precios por pax, restricciones alimentarias)
+5. **Empleados**: ficha de personal con roles, horas contractuales, días libres y configuración para planning
+6. **Staffing**: planificación semanal de turnos de empleados con auto-planning por IA
+7. **Reservas** (OidoPerso, en desarrollo): sistema de reservas online por restaurante con formulario público
 
 ## Contexto de negocio
 
@@ -21,7 +25,7 @@ Incluye tres módulos principales:
 - **Backend**: Fastify + Prisma + Zod + TypeScript
 - **DB**: PostgreSQL 16
 - **Infra**: Ubuntu VPS + Nginx + PM2
-- **Tiempo real**: SSE (Server-Sent Events) via `apps/api/src/sse.ts` + `useRestaurantEvents` hook
+- **Tiempo real**: SSE (Server-Sent Events) via `apps/api/src/sse.ts` + `useRestaurantEvents` hook (por restaurante) + `useAdminEvents` hook (global)
 
 ## Estructura del proyecto
 
@@ -43,7 +47,11 @@ almacen_app/
 │   │   │       ├── productos.ts
 │   │   │       ├── restaurantes.ts
 │   │   │       ├── empleados.ts
-│   │   │       └── inventario.ts
+│   │   │       ├── inventario.ts
+│   │   │       ├── grupo-menu.ts   ← menús cerrados para grupos
+│   │   │       ├── staffing.ts     ← planificación de personal
+│   │   │       ├── events.ts       ← SSE por restaurante + global
+│   │   │       └── reservas.ts     ← sistema de reservas (OidoPerso)
 │   │   ├── prisma/
 │   │   │   ├── schema.prisma
 │   │   │   └── seed.ts
@@ -58,9 +66,17 @@ almacen_app/
 │           │   ├── TurnosPage.tsx        ← historial turnos + propinas
 │           │   ├── TurnoDetallePage.tsx  ← detalle de un turno cerrado
 │           │   ├── InventarioPage.tsx    ← inventario de sala
-│           │   └── ...
+│           │   ├── EmpleadosPage.tsx     ← gestión de empleados
+│           │   ├── GrupoMenuPage.tsx     ← menús cerrados para grupos
+│           │   ├── StaffingPage.tsx      ← planificación semanal de turnos
+│           │   ├── ReservasAdminPage.tsx ← admin de reservas (OidoPerso)
+│           │   ├── ReservaPublicaPage.tsx← formulario público /reservas/:slug
+│           │   ├── ValidarPage.tsx       ← escaneo QR para validar retiros
+│           │   ├── VerificarPage.tsx     ← vista pública de un retiro /verificar/:id
+│           │   └── LogoLabPage.tsx       ← herramienta interna exploración logo
 │           ├── hooks/
-│           │   ├── useRestaurantEvents.ts ← SSE → invalida React Query cache
+│           │   ├── useRestaurantEvents.ts ← SSE por restaurante → invalida React Query cache
+│           │   ├── useAdminEvents.ts      ← SSE global → invalida cache del admin
 │           │   └── useScanner.ts          ← pistola de barcode
 │           └── api.ts                     ← cliente HTTP centralizado
 ```
@@ -125,6 +141,7 @@ Cada item tiene:
 - `nivel`: orden de salida (1=primero, 2=segundo, etc.) — `null` si aún no enviado
 - `ronda`: `0`=nunca enviado, `1`=comanda original, `2+`=marcha pasa (re-envíos)
 - `tipo`: `'cocina'` | `'barra'`
+- `autoGenerado`: `true` si fue añadido automáticamente al abrir la mesa (ej: ítem `autoPorPax`) — no va a cocina ni barra
 
 Al enviar (`PATCH /comandas/:id/enviar`), se calcula `nextRonda = max(ronda existente) + 1` y se asignan nivel y ronda a los items pendientes.
 
@@ -229,6 +246,7 @@ Gestionado desde `/admin/menu`. Selector de restaurante en la parte superior.
 - **Copiar item** (`POST /menu/items/:id/copiar`): copia un item a un restaurante + categoría destino. Si la categoría destino no existe, la crea. Devuelve 409 si el item ya existe en ese destino.
 - **Toggle activo** (`PATCH /menu/:id/toggle`): activa/desactiva un item.
 - **Toggle autoPorPax** (`PATCH /menu/:id/toggleAutoPorPax`): marca si el item se cobra automáticamente por comensal.
+- **Alérgenos**: campo `alergenos Int` — bitmask de los 14 alérgenos EU (Reglamento 1169/2011). Bit 0=Gluten, 1=Crustáceos, 2=Huevos, 3=Pescado, 4=Cacahuetes, 5=Soja, 6=Lácteos, 7=Frutos secos, 8=Apio, 9=Mostaza, 10=Sésamo, 11=Sulfitos, 12=Altramuces, 13=Moluscos.
 
 ---
 
@@ -281,6 +299,250 @@ InventarioConteoItem conteoId + productoId + cantidad  @@unique([conteoId, produ
 
 La pistola envía chars a < 50ms entre sí y termina con Enter. Un humano tarda > 300ms.
 El hook distingue pistola vs teclado por velocidad.
+
+### Validación de retiros por QR
+
+- Cada retiro tiene un QR que apunta a `/verificar/:id` (vista pública con detalle del retiro)
+- `/admin/validar` (`ValidarPage`): escáner de QR via cámara (html5-qrcode) para que el encargado valide retiros presencialmente
+- Al confirmar: `POST /retiros/:id/confirmar` — guarda `confirmadoAt` y `confirmadoPor` en el retiro
+- Campos en `Retiro`: `confirmadoAt DateTime?`, `confirmadoPor String?`
+
+---
+
+## Módulo: Empleados
+
+Gestionado desde `/admin/empleados`. Ficha completa de personal del grupo.
+
+### Campos de empleado
+
+- `tipo`: `'cocina'` | `'sala'`
+- `rol`: cocina → `'jefe_cocina'` | `'cocinero'` | `'produccion'` | `'friegaplatos'`; sala → `'camarero'` | `'encargado'`
+- `puedeEncargado`: camarero que puede cubrir turno de encargado
+- `puedeJefeCocina`: cocinero que puede cubrir turno de jefe de cocina
+- `excluirPlanning`: no incluir en auto-planning
+- `restaurantId`: restaurante habitual (null = rotativo entre varios)
+- `horasSemanales`: horas de contrato (opciones: 20, 25, 30, 35, 40)
+- `diasLibresFijos`: días fijos de libranza (0=Lun … 6=Dom)
+- `faseLibreRotacion`: fase 0-3 en rotación de días libres para el auto-planning
+- `pin`: PIN de 4 dígitos para autenticación en la sala (camareros)
+- `activo`: soft-delete
+
+---
+
+## Módulo: Grupos
+
+Gestionado desde `/admin/grupos`. Gestión de menús cerrados para grupos con plantillas reutilizables.
+
+### Modelos
+
+```
+GrupoMenuTemplate  restaurantId, nombre, precio (€/pax), niveles (Json), activo
+GrupoAgendado      restaurantId, templateId, fecha, pax, restricciones (Json), estado, comandaId?
+```
+
+### GrupoMenuNivel (JSON en `niveles`)
+
+```ts
+{ nivel: number, nombre: string, platos: string[], esPostre: boolean }
+// Legacy (backward compat): plato, vegetariano, sinCerdo, sinGluten
+```
+
+### GrupoMenuRestricciones (JSON en `restricciones`)
+
+```ts
+{ normales: number, vegetarianos: number, sinCerdo: number, sinGluten: number }
+```
+
+### Flujo
+
+1. Crear plantillas (ej: "Estándar 45€", "Premium 65€") con sus cursos y platos
+2. Agendar grupo: fecha + pax + restricciones alimentarias → `estado: 'pendiente'`
+3. Cuando llegan: crear comanda y vincularla (`comandaId`) → `estado: 'asignado'`
+4. El menú se sirve por niveles/cursos con las restricciones indicadas
+
+### API (`/grupo-menu`)
+
+- `GET /grupo-menu?restaurantId=X`
+- `POST /grupo-menu` — crear plantilla
+- `PUT /grupo-menu/:id` — editar plantilla
+- `DELETE /grupo-menu/:id` — desactivar plantilla
+- `GET /grupo-menu/agendados?restaurantId=X&fecha=YYYY-MM-DD`
+- `POST /grupo-menu/agendados` — agendar grupo
+- `PATCH /grupo-menu/agendados/:id` — actualizar estado/comanda
+- `DELETE /grupo-menu/agendados/:id`
+
+---
+
+## Módulo: Staffing (Planificación de Personal)
+
+Gestionado desde `/admin/staffing`. Planificación semanal de turnos por restaurante con auto-planning.
+
+### Modelos
+
+```
+TurnoTipo          restaurantId? (null=global), nombre, horaInicio, horaFin, horas, color, tipoEmpleado?, rolEmpleado?, excluirAutoPlanning
+TurnoEmpleado      restaurantId, empleadoId, tipoId?, fecha, horaInicio, horaFin, estado
+StaffingConfig     restaurantId @unique, ratioSalaXPax, ratioCocinaXPax
+StaffingNecesidadDia     restaurantId + diaSemana (plantilla base por día de la semana)
+StaffingNecesidadFecha   restaurantId + fecha exacta (extras para festivos/eventos)
+```
+
+### TurnoEmpleado estados
+
+`'planificado'` | `'confirmado'` | `'ausente'`
+
+### TurnoTipo
+
+- `restaurantId=null`: tipo global compartido entre todos los restaurantes
+- `tipoEmpleado`: filtra qué tipo de empleado puede tener este turno (null = ambos)
+- `rolEmpleado`: filtra por rol específico (null = todos los roles)
+- `excluirAutoPlanning`: no usar este tipo en el auto-planning
+
+### API (`/staffing`)
+
+- `GET /staffing/tipos?restaurantId=X` — globales + específicos del restaurante
+- `POST /staffing/tipos`, `PUT /staffing/tipos/:id`, `DELETE /staffing/tipos/:id`
+- `GET /staffing/turnos?restaurantId=X&fecha=YYYY-MM-DD` — turnos del día con empleado+tipo incluidos
+- `GET /staffing/semana?restaurantId=X&lunes=YYYY-MM-DD` — vista semanal agrupada por día
+- `POST /staffing/turnos` — crear turno
+- `PUT /staffing/turnos/:id` — editar turno (acepta `restaurantId` para transferir a otro restaurante)
+- `DELETE /staffing/turnos/:id` — eliminar turno
+- `DELETE /staffing/turnos/semana-todos?desde=YYYY-MM-DD&restaurantIds=1,2,3` — borrar toda la semana de los restaurantes indicados
+- `GET /staffing/config?restaurantId=X`
+- `PUT /staffing/config` — actualizar ratios
+- `GET /staffing/necesidades/dia?restaurantId=X` — plantilla base por día de la semana
+- `PUT /staffing/necesidades/dia` — actualizar plantilla
+- `GET /staffing/necesidades/fecha?restaurantId=X&desde=&hasta=`
+- `POST/PUT/DELETE /staffing/necesidades/fecha`
+- `POST /staffing/auto-planning` — Wizard: genera turnos automáticamente para una semana
+- `GET /staffing/disponibles?restaurantId=X&fecha=YYYY-MM-DD&rol=X` — empleados disponibles ese día (sin turno asignado Y con horas semanales libres). Devuelve `horasRestantes` por empleado.
+- `GET /staffing/transferir-destinos?empId=X&fecha=YYYY-MM-DD&origenId=X` — restaurantes donde el rol del empleado tiene déficit ese día (destinos válidos para transferir su turno)
+- `GET /staffing/exceso-personal?rol=X&fecha=YYYY-MM-DD&restaurantId=X` — restaurantes donde ese rol tiene exceso de personal ese día, con lista de empleados transferibles (incluye `turnoId`)
+- `GET /staffing/cobertura?lunes=YYYY-MM-DD` — lista todos los empleados activos con `horasAsignadas` esa semana vs `horasSemanales` de contrato
+- `GET /staffing/huecos-empleado?empId=X&lunes=YYYY-MM-DD` — para un empleado concreto, devuelve los días+restaurantes donde su rol tiene déficit esa semana (`HuecoEmpleado[]`)
+
+### Wizards
+
+- **Global Wizard**: genera planificación para todos los restaurantes a la vez. Respeta horas contractuales (`horasSemanales`) — 40h=5×8h, 35h=3×8h+2×5.5h, etc. Fase de pruning: elimina turnos sobrantes solo si el empleado mantiene sus horas de contrato.
+- **HR Planning Wizard**: wizard de planificación RRHH — considera horas contractuales, días libres fijos y fase de rotación de cada empleado.
+- **Borrar Planning Global**: botón junto a "Plan Global" que elimina todos los turnos de la semana actual en los restaurantes seleccionados (`DELETE /staffing/turnos/semana-todos`).
+
+### Tab Cobertura (`StaffingPage`)
+
+Pestaña independiente en Gestión de Personal que lista todos los empleados activos ordenados alfabéticamente mostrando su cobertura semanal:
+
+- **Navegador de semana propio** (independiente del de la tab Planning, para evitar mezcla de datos).
+- **Barra de progreso** horas asignadas / horas de contrato con porcentaje. Verde ≥ 100%, ámbar < 100%.
+- **Botón 🔍 Huecos**: aparece si `horasAsignadas < horasSemanales`. Abre `HuecosPanel` con los días+restaurantes donde el rol del empleado tiene déficit esa semana (pills con nombre de restaurante + nº de hueco).
+- **Tooltip hover**: al pasar el cursor sobre el nombre del empleado, muestra la cuadrícula semanal (misma que en la tab Planning) con los turnos ya asignados y sus restaurantes.
+- Los datos de cobertura provienen de `GET /staffing/cobertura?lunes=YYYY-MM-DD` y los huecos de `GET /staffing/huecos-empleado?empId=X&lunes=YYYY-MM-DD`.
+
+### Patrones de días libres (auto-planning)
+
+4 patrones consecutivos, distribución por índice posicional dentro del grupo tipo (cocina/sala):
+
+```
+Fase 0: Lun+Mar  (días 0+1)
+Fase 1: Mié+Jue  (días 2+3)
+Fase 2: Vie+Sáb  (días 4+5)
+Fase 3: Dom+Lun  (días 6+0)
+```
+
+- Solo el Lunes se repite (aparece en fase 0 y fase 3) — día más tranquilo del restaurante.
+- Días libres siempre consecutivos. Si el empleado tiene `diasLibresFijos`, se completan con días consecutivos al último fijo.
+- La distribución usa **índice posicional** dentro del grupo tipo (no `emp.id % 4`) para garantizar reparto uniforme independientemente de los IDs de BD.
+- `faseLibreRotacion` avanza 1 cada semana planificada para rotar los días libres.
+
+### Asignación de rotativos — sistema de 3 niveles
+
+Cuando un rotativo se incorpora a un restaurante, los días de trabajo se construyen por prioridad hasta completar la **semana entera** del empleado (días disponibles = 7 − 2 días libres, típicamente 5):
+
+| Nivel | Criterio | Propósito |
+|-------|----------|-----------|
+| **1 — Déficit** | needed > 0 y aún no cubierto | Principal: cubrir hueco real |
+| **2 — Cubierto-pero-necesario** | needed > 0, ya cubierto | Rellenar horas de contrato |
+| **3 — No necesario** | needed = 0 | Último recurso |
+
+**Regla clave**: `targetDays = workingDays.length` (días disponibles antes del filtro). Siempre se intenta dar al rotativo su semana completa — 20h → 5×4h, 40h → 5×8h, etc.
+
+**Efecto en el Global Wizard** (secuencial): el primer restaurante que usa al rotativo absorbe su semana completa. Los siguientes lo ven con 0h libres en `otherRestaurantShifts` y no lo vuelven a planificar.
+
+### Diversidad de fases (rotativos sin días libres fijos)
+
+Cuando dos rotativos del mismo rol tienen la misma fase natural, el segundo recibe una fase complementaria calculada por `bestComplementPhase`:
+
+- Recorre las 4 fases no usadas y calcula la cobertura combinada (días-trabajados ∪ nuevos días trabajados).
+- Devuelve la fase que maximiza los días distintos cubiertos entre los dos empleados.
+- Esto evita el patrón "ambos libres Mié+Jue → déficit esos días, exceso el resto".
+
+Solo se aplica cuando el empleado **no tiene** `diasLibresFijos` (los que sí tienen no pueden cambiar su libranza contractual).
+
+### Skip guard (rotativos con días libres fijos)
+
+Antes de añadir turnos a un rotativo, se comprueba si puede cubrir **al menos un día con déficit real**:
+
+- Se calcula `deficitDayNums`: días donde `needed > 0` y `covered < needed`.
+- Se excluyen también los días que el empleado tiene bloqueados en otro restaurante (`otherRestaurantShifts`).
+- Si hay días con déficit pero el empleado no puede cubrir ninguno (todos son sus días libres fijos o días ya ocupados en otro restaurante), se **salta** (`continue`) — no se le asignan turnos.
+
+Esto evita asignar a un rotativo que solo crearía exceso sin resolver el déficit real.
+
+### Transferir turno / traer personal
+
+- **Transferir** (desde `TurnoAccionesModal`): al hacer clic en un turno → opciones Editar / Eliminar / Transferir. "Transferir" consulta `transferir-destinos` y muestra restaurantes con déficit del mismo rol ese día. Hace `PUT /staffing/turnos/:id` con `{ restaurantId: destino }`.
+- **Traer de exceso** (desde `DisponiblesModal`): al añadir personal a un puesto vacío, además de disponibles libres, muestra una sección ámbar "Traer de restaurante con exceso" con empleados que están en otro restaurante pero son excedentes allí. Hace `PUT /staffing/turnos/:id` con `{ restaurantId: origenId }` para mover el turno.
+
+---
+
+## Módulo: Reservas (OidoPerso — en desarrollo ~70%)
+
+### Concepto
+
+Sistema de reservas online por restaurante. Cada restaurante tiene una config con slug único. Los clientes acceden al formulario público en `/reservas/:slug`.
+
+### Modelos
+
+```
+ReservaConfig   restaurantId @unique, slug @unique, activo, maxPaxPorSlot, duracionMin, diasAntelacion
+ReservaHorario  configId, nombre, diasSemana (Json), horaInicio, horaFin, intervaloMin, maxPax, activo
+Reserva         restaurantId, configId, fecha, hora, pax, nombre, telefono, email?, notas?, estado, origen
+```
+
+### Estados de Reserva
+
+`'confirmada'` | `'cancelada'` | `'no_show'`
+
+### Origen
+
+`'web'` (formulario público) | `'admin'` (creada desde el panel)
+
+### Rutas
+
+- `/reservas/:slug` — formulario público para clientes (`ReservaPublicaPage`)
+- `/admin/reservas` — panel admin: ver reservas del día, crear manual, cambiar estado (`ReservasAdminPage`)
+
+### API (`/reservas`)
+
+- `GET /reservas/config/:slug` — config pública para el formulario
+- `GET /reservas/disponibilidad?slug=X&fecha=YYYY-MM-DD` — slots disponibles
+- `POST /reservas` — crear reserva (pública o admin)
+- `GET /reservas?restaurantId=X&fecha=YYYY-MM-DD` — listar por restaurante + día
+- `PATCH /reservas/:id` — actualizar estado
+- `DELETE /reservas/:id`
+- `GET /reservas/config/admin?restaurantId=X` — config admin
+- `PUT /reservas/config` — actualizar config
+- `POST /reservas/horarios`, `PUT /reservas/horarios/:id`, `DELETE /reservas/horarios/:id`
+
+---
+
+## SSE — Server-Sent Events
+
+Dos canales de eventos en tiempo real:
+
+- **`/api/events?restaurantId=X`** — eventos de un restaurante concreto. Hook: `useRestaurantEvents` (usado en la sala del camarero y MesasFeedPage).
+- **`/api/events/global`** — eventos de todos los restaurantes. Hook: `useAdminEvents` (usado en el dashboard admin).
+
+Ambos envían un ping cada 25s y confirman conexión con `{"type":"connected"}`. El broadcast está en `apps/api/src/sse.ts` (`broadcast(restaurantId, event)` y `broadcastGlobal(event)`).
 
 ---
 

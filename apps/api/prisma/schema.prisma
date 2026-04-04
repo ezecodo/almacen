@@ -397,6 +397,7 @@ model TurnoEmpleado {
   horaInicio   String
   horaFin      String
   estado       String     @default("planificado") // 'planificado' | 'confirmado' | 'ausente'
+  esExtra      Boolean    @default(false)
   createdAt    DateTime   @default(now())
 
   @@index([restaurantId, fecha])
