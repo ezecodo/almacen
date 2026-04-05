@@ -192,7 +192,7 @@ async function put<T>(path: string, body: unknown): Promise<T> {
 
 export interface MenuCategoria {
   id: number
-  restaurantId: number
+  restaurantId: number | null
   grupo: string
   nombre: string
   icono: string
@@ -202,7 +202,7 @@ export interface MenuCategoria {
 
 export interface MenuItem {
   id: number
-  restaurantId: number
+  restaurantId: number | null
   categoria: string
   nombre: string
   descripcion: string
@@ -342,6 +342,7 @@ export interface InventarioCategoria {
   id: number
   nombre: string
   orden: number
+  personalProduccion: 'sala' | 'cocina' | null
   restaurantId: number | null
   productos: InventarioProducto[]
 }
@@ -351,6 +352,8 @@ export interface InventarioProducto {
   nombre: string
   unidad: string
   stockMinimo: number
+  precioCoste: number | null
+  precioVenta: number | null
   orden: number
   activo: boolean
   categoriaId: number
@@ -382,11 +385,47 @@ export interface InventarioConteoDetalleItem {
   nombre: string
   unidad: string
   stockMinimo: number
+  precioCoste: number | null
+  precioVenta: number | null
   categoriaId: number
   categoriaNombre: string
   cantidad: number
   anterior: number | null
   diferencia: number | null
+}
+
+export interface InventarioCostesRow {
+  productoId: number
+  nombre: string
+  unidad: string
+  categoriaNombre: string
+  precioCoste: number | null
+  precioVenta: number | null
+  cantBase: number
+  cantFinal: number
+  consumido: number
+  coste: number | null
+}
+
+export interface InventarioProduccion {
+  id: number
+  restaurantId: number
+  productoId: number
+  cantidad: number
+  unidad: string
+  creadoPor: string | null
+  notas: string | null
+  fecha: string
+  createdAt: string
+  producto: { nombre: string; unidad: string }
+}
+
+export interface InventarioCostes {
+  rows: InventarioCostesRow[]
+  totalCoste: number
+  sinPrecio: number
+  baseFecha: string
+  finalFecha: string
 }
 
 export interface InventarioConteoDetalle {
@@ -627,8 +666,8 @@ export const api = {
     delete: (id: number) => del(`/retiros/${id}`),
   },
   menuCategorias: {
-    list:   (restaurantId: number) => get<MenuCategoria[]>(`/menu/categorias?restaurantId=${restaurantId}`),
-    create: (body: { restaurantId: number; grupo?: string; nombre: string; icono?: string; orden?: number }) =>
+    list:   (restaurantId: number | null) => get<MenuCategoria[]>(`/menu/categorias${restaurantId !== null ? `?restaurantId=${restaurantId}` : ''}`),
+    create: (body: { restaurantId: number | null; grupo?: string; nombre: string; icono?: string; orden?: number }) =>
       post<MenuCategoria>('/menu/categorias', body),
     update: (id: number, body: Partial<{ grupo: string; nombre: string; icono: string; orden: number }>) =>
       put<MenuCategoria>(`/menu/categorias/${id}`, body),
@@ -637,16 +676,22 @@ export const api = {
       post<{ resultados: { restaurantId: number; copiados: number; omitidos: number }[] }>(
         `/menu/categorias/${id}/copiar`, { restaurantIds, incluirItems }
       ),
+    migrarAGlobal: (restaurantId: number) =>
+      post<{ categoriasMigradas: number; categoriasOmitidas: number; itemsMigrados: number; itemsOmitidos: number }>(
+        '/menu/migrar-a-global', { restaurantId }
+      ),
   },
   menu: {
-    list:   (restaurantId: number, categoria?: string) =>
-      get<MenuItem[]>(`/menu?restaurantId=${restaurantId}${categoria ? `&categoria=${encodeURIComponent(categoria)}` : ''}`),
+    list:   (restaurantId: number | null, categoria?: string) =>
+      get<MenuItem[]>(`/menu${restaurantId !== null ? `?restaurantId=${restaurantId}` : ''}${categoria ? `${restaurantId !== null ? '&' : '?'}categoria=${encodeURIComponent(categoria)}` : ''}`),
     create: (body: Omit<MenuItem, 'id' | 'activo' | 'autoPorPax'>) => post<MenuItem>('/menu', body),
     update: (id: number, body: Partial<Omit<MenuItem, 'id' | 'restaurantId' | 'activo'>>) => put<MenuItem>(`/menu/${id}`, body),
     toggle:           (id: number) => patch<MenuItem>(`/menu/${id}/toggle`, {}),
     toggleAutoPorPax: (id: number) => patch<MenuItem>(`/menu/${id}/toggleAutoPorPax`, {}),
     copiar: (id: number, restaurantId: number, categoria: string) =>
       post<MenuItem>(`/menu/items/${id}/copiar`, { restaurantId, categoria }),
+    moverARestaurante: (id: number, restaurantId: number) =>
+      patch<MenuItem>(`/menu/${id}/mover-restaurante`, { restaurantId }),
     delete: (id: number) => del(`/menu/${id}`),
   },
   reviews: {
@@ -817,12 +862,12 @@ export const api = {
       get<InventarioCategoria[]>(`/inventario/categorias${restaurantId ? `?restaurantId=${restaurantId}` : ''}`),
     createCategoria: (body: { nombre: string; restaurantId?: number }) =>
       post<InventarioCategoria>('/inventario/categorias', body),
-    updateCategoria: (id: number, body: { nombre?: string; orden?: number }) =>
+    updateCategoria: (id: number, body: { nombre?: string; orden?: number; personalProduccion?: 'sala' | 'cocina' | null }) =>
       patch<InventarioCategoria>(`/inventario/categorias/${id}`, body),
     deleteCategoria: (id: number) => del(`/inventario/categorias/${id}`),
     createProducto: (body: { nombre: string; categoriaId: number; unidad: string; stockMinimo: number; restaurantId?: number }) =>
       post<InventarioProducto>('/inventario/productos', body),
-    updateProducto: (id: number, body: Partial<{ nombre: string; unidad: string; stockMinimo: number; activo: boolean; orden: number }>) =>
+    updateProducto: (id: number, body: Partial<{ nombre: string; unidad: string; stockMinimo: number; precioCoste: number | null; precioVenta: number | null; activo: boolean; orden: number }>) =>
       patch<InventarioProducto>(`/inventario/productos/${id}`, body),
     deleteProducto: (id: number) => del(`/inventario/productos/${id}`),
     getConteos: (restaurantId: number) =>
@@ -831,5 +876,12 @@ export const api = {
       post<InventarioConteo>('/inventario/conteos', body),
     getConteo: (id: number) => get<InventarioConteoDetalle>(`/inventario/conteos/${id}`),
     deleteConteo: (id: number) => del(`/inventario/conteos/${id}`),
+    getCostes: (baseId: number, finalId: number) =>
+      get<InventarioCostes>(`/inventario/costes?baseId=${baseId}&finalId=${finalId}`),
+    getProducciones: (restaurantId: number) =>
+      get<InventarioProduccion[]>(`/inventario/producciones?restaurantId=${restaurantId}`),
+    createProduccion: (body: { restaurantId: number; productoId: number; cantidad: number; unidad: string; creadoPor?: string; notas?: string; fecha?: string }) =>
+      post<InventarioProduccion>('/inventario/producciones', body),
+    deleteProduccion: (id: number) => del(`/inventario/producciones/${id}`),
   },
 }

@@ -79,7 +79,7 @@ function CategoriaForm({
   initial,
   onDone,
 }: {
-  restaurantId: number
+  restaurantId: number | null
   grupoDefault?: string
   initial?: MenuCategoria
   onDone: () => void
@@ -92,7 +92,7 @@ function CategoriaForm({
   const save = useMutation({
     mutationFn: () => initial
       ? api.menuCategorias.update(initial.id, { nombre, icono, grupo })
-      : api.menuCategorias.create({ restaurantId, grupo, nombre, icono }),
+      : api.menuCategorias.create({ restaurantId: restaurantId ?? null, grupo, nombre, icono }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['menu-cats', restaurantId] })
       onDone()
@@ -138,11 +138,13 @@ function ItemForm({
   restaurantId,
   categoria,
   initial,
+  restaurantes,
   onDone,
 }: {
-  restaurantId: number
+  restaurantId: number | null
   categoria: string
   initial?: MenuItem
+  restaurantes?: Restaurante[]
   onDone: () => void
 }) {
   const qc = useQueryClient()
@@ -150,11 +152,16 @@ function ItemForm({
   const [descripcion, setDesc]    = useState(initial?.descripcion ?? '')
   const [precio, setPrecio]       = useState(initial?.precio?.toString() ?? '')
   const [alergenos, setAlergenos] = useState(initial?.alergenos ?? 0)
+  // destino solo aplica al crear desde contexto global (restaurantes prop presente)
+  const [destino, setDestino]     = useState<number | null>(null) // null = Global
+
+  // El restaurantId efectivo para crear: si hay selector de destino, usa destino; si no, usa el prop
+  const ridEfectivo = restaurantes && !initial ? destino : restaurantId
 
   const save = useMutation({
     mutationFn: () => initial
       ? api.menu.update(initial.id, { nombre, descripcion, precio: parseFloat(precio), alergenos })
-      : api.menu.create({ restaurantId, categoria, nombre, descripcion, precio: parseFloat(precio), orden: 0, alergenos }),
+      : api.menu.create({ restaurantId: ridEfectivo, categoria, nombre, descripcion, precio: parseFloat(precio), orden: 0, alergenos }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['menu-items', restaurantId, categoria] })
       qc.invalidateQueries({ queryKey: ['menu-cats', restaurantId] })
@@ -164,6 +171,28 @@ function ItemForm({
 
   return (
     <div className="bg-cyan-50 border border-cyan-100 rounded-xl p-3 space-y-2">
+      {/* Selector destino: solo al crear desde contexto Global */}
+      {restaurantes && !initial && (
+        <div className="flex flex-wrap gap-1.5 pb-1">
+          <button
+            type="button"
+            onClick={() => setDestino(null)}
+            className={`text-xs font-semibold px-3 py-1 rounded-lg border transition-all ${destino === null ? 'bg-indigo-500 border-indigo-500 text-white' : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'}`}
+          >
+            🌐 Global
+          </button>
+          {restaurantes.map(r => (
+            <button
+              key={r.id}
+              type="button"
+              onClick={() => setDestino(r.id)}
+              className={`text-xs font-semibold px-3 py-1 rounded-lg border transition-all ${destino === r.id ? 'bg-cyan-500 border-cyan-500 text-white' : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'}`}
+            >
+              {r.nombre}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="grid grid-cols-3 gap-2">
         <div className="col-span-2">
           <input value={nombre} onChange={e => setNombre(e.target.value)}
@@ -191,17 +220,86 @@ function ItemForm({
   )
 }
 
+// ── Modal: mover item global → restaurante específico ────────────────────────
+function MoverItemModal({
+  item,
+  restaurantes,
+  onClose,
+  onDone,
+}: {
+  item: MenuItem
+  restaurantes: Restaurante[]
+  onClose: () => void
+  onDone: (msg: string) => void
+}) {
+  const [restaurantId, setRestaurantId] = useState<number>(restaurantes[0]?.id ?? 0)
+  const [loading, setLoading] = useState(false)
+
+  const handleConfirm = async () => {
+    if (!restaurantId) return
+    setLoading(true)
+    try {
+      await api.menu.moverARestaurante(item.id, restaurantId)
+      const nombre = restaurantes.find(r => r.id === restaurantId)?.nombre ?? ''
+      onDone(`✓ "${item.nombre}" movido a ${nombre}`)
+    } catch (e) {
+      onDone(`⚠ Error al mover el item`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4">
+        <h3 className="font-bold text-gray-900 text-lg">Mover item a restaurante</h3>
+        <p className="text-sm text-gray-600">
+          <strong>"{item.nombre}"</strong> dejará de ser global y solo estará disponible en el restaurante que elijas.
+        </p>
+        <div className="space-y-1">
+          <label className="text-xs font-semibold text-gray-500">Restaurante destino</label>
+          <select
+            value={restaurantId}
+            onChange={e => setRestaurantId(Number(e.target.value))}
+            className={inputCls}
+          >
+            {restaurantes.map(r => (
+              <option key={r.id} value={r.id}>{r.nombre}</option>
+            ))}
+          </select>
+        </div>
+        <div className="flex gap-3 pt-1">
+          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50">
+            Cancelar
+          </button>
+          <button
+            onClick={handleConfirm}
+            disabled={loading || !restaurantId}
+            className="flex-1 py-2.5 rounded-xl bg-indigo-500 text-white text-sm font-semibold hover:bg-indigo-600 disabled:opacity-50"
+          >
+            {loading ? 'Moviendo…' : 'Confirmar'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Panel de items de una categoría ──────────────────────────────────────────
 function CategoriaPanel({
   restaurantId,
   cat,
   onClose,
   onCopiarItem,
+  onMoverItem,
+  restaurantes,
 }: {
-  restaurantId: number
+  restaurantId: number | null
   cat: MenuCategoria
   onClose: () => void
   onCopiarItem: (item: MenuItem) => void
+  onMoverItem?: (item: MenuItem) => void
+  restaurantes?: Restaurante[]
 }) {
   const qc = useQueryClient()
   const [creando, setCreando]   = useState(false)
@@ -212,6 +310,8 @@ function CategoriaPanel({
     queryFn: () => api.menu.list(restaurantId, cat.nombre),
   })
 
+  const esGlobalCat = cat.restaurantId === null
+
   const toggle = useMutation({
     mutationFn: (id: number) => api.menu.toggle(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['menu-items', restaurantId, cat.nombre] }),
@@ -219,6 +319,11 @@ function CategoriaPanel({
 
   const toggleAutoPorPax = useMutation({
     mutationFn: (id: number) => api.menu.toggleAutoPorPax(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['menu-items', restaurantId, cat.nombre] }),
+  })
+
+  const hacerEspecifico = useMutation({
+    mutationFn: (id: number) => api.menu.moverARestaurante(id, restaurantId as number),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['menu-items', restaurantId, cat.nombre] }),
   })
 
@@ -236,7 +341,10 @@ function CategoriaPanel({
         <div className="flex items-center gap-2">
           {cat.icono && <span className="text-xl">{cat.icono}</span>}
           <div>
-            <h3 className="font-bold text-gray-800">{cat.nombre}</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="font-bold text-gray-800">{cat.nombre}</h3>
+              {esGlobalCat && <GlobalBadge />}
+            </div>
             <p className="text-xs text-gray-400">{items.length} items</p>
           </div>
         </div>
@@ -253,48 +361,73 @@ function CategoriaPanel({
 
       <div className="p-4 space-y-2">
         {creando && (
-          <ItemForm restaurantId={restaurantId} categoria={cat.nombre} onDone={() => setCreando(false)} />
+          <ItemForm restaurantId={restaurantId} categoria={cat.nombre} restaurantes={restaurantes} onDone={() => setCreando(false)} />
         )}
         {items.length === 0 && !creando && (
           <p className="text-center text-gray-400 text-sm py-6">Sin items todavía</p>
         )}
-        {items.map((item: MenuItem) => (
-          <div key={item.id}>
-            {editando?.id === item.id ? (
-              <ItemForm restaurantId={restaurantId} categoria={cat.nombre}
-                initial={item} onDone={() => setEditando(null)} />
-            ) : (
-              <div className={`flex items-start gap-3 px-3 py-3 rounded-xl border ${item.activo ? 'border-gray-100' : 'border-dashed border-gray-200 opacity-40'}`}>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <p className="font-medium text-gray-900 text-sm">{item.nombre}</p>
-                    {item.autoPorPax && (
-                      <span className="text-xs bg-amber-100 text-amber-700 font-semibold px-1.5 py-0.5 rounded">×pax</span>
+        {items.map((item: MenuItem) => {
+          const esItemGlobal = item.restaurantId === null
+          // En vista de restaurante, items globales son solo lectura
+          const itemSoloLectura = restaurantId !== null && esItemGlobal
+          return (
+            <div key={item.id}>
+              {editando?.id === item.id ? (
+                <ItemForm restaurantId={restaurantId} categoria={cat.nombre}
+                  initial={item} onDone={() => setEditando(null)} />
+              ) : (
+                <div className={`flex items-start gap-3 px-3 py-3 rounded-xl border ${item.activo ? 'border-gray-100' : 'border-dashed border-gray-200 opacity-40'}`}>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <p className="font-medium text-gray-900 text-sm">{item.nombre}</p>
+                      {item.autoPorPax && (
+                        <span className="text-xs bg-amber-100 text-amber-700 font-semibold px-1.5 py-0.5 rounded">×pax</span>
+                      )}
+                      {esItemGlobal && restaurantId !== null && <GlobalBadge />}
+                    </div>
+                    {item.descripcion && <p className="text-xs text-gray-400 mt-0.5">{item.descripcion}</p>}
+                    {!!item.alergenos && <AlergenosBadges mask={item.alergenos} />}
+                  </div>
+                  <span className="text-sm font-bold text-cyan-600 shrink-0">{formatEur(item.precio)}</span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {!itemSoloLectura && <button onClick={() => setEditando(item)} className="text-xs text-cyan-500 hover:text-cyan-700">Editar</button>}
+                    {!esItemGlobal && <button onClick={() => onCopiarItem(item)} className="text-xs text-gray-400 hover:text-indigo-500">Copiar</button>}
+                    {esItemGlobal && restaurantId === null && onMoverItem && (
+                      <button onClick={() => onMoverItem(item)} className="text-xs text-indigo-400 hover:text-indigo-600 font-medium">Mover</button>
+                    )}
+                    {esItemGlobal && restaurantId !== null && (
+                      <button
+                        onClick={() => { if (confirm(`¿Hacer "${item.nombre}" específico de este restaurante?\n\nDejará de aparecer en los demás.`)) hacerEspecifico.mutate(item.id) }}
+                        disabled={hacerEspecifico.isPending}
+                        className="text-xs text-amber-500 hover:text-amber-700 font-medium disabled:opacity-40"
+                        title="Convertir en item específico de este restaurante"
+                      >
+                        → Específico
+                      </button>
+                    )}
+                    {!itemSoloLectura && (
+                      <button onClick={() => toggleAutoPorPax.mutate(item.id)}
+                        className={`text-xs font-medium ${item.autoPorPax ? 'text-amber-600 hover:text-amber-800' : 'text-gray-300 hover:text-amber-500'}`}
+                        title="Auto-añadir al abrir mesa (×pax)">
+                        ×pax
+                      </button>
+                    )}
+                    {!itemSoloLectura && (
+                      <button onClick={() => toggle.mutate(item.id)}
+                        className={`text-xs font-medium ${item.activo ? 'text-gray-400 hover:text-gray-600' : 'text-green-500 hover:text-green-700'}`}>
+                        {item.activo ? 'Ocultar' : 'Activar'}
+                      </button>
+                    )}
+                    {!itemSoloLectura && (
+                      <button onClick={() => { if (confirm(`¿Eliminar "${item.nombre}"?`)) eliminar.mutate(item.id) }}
+                        className="text-xs text-red-400 hover:text-red-600">✕</button>
                     )}
                   </div>
-                  {item.descripcion && <p className="text-xs text-gray-400 mt-0.5">{item.descripcion}</p>}
-                  {!!item.alergenos && <AlergenosBadges mask={item.alergenos} />}
                 </div>
-                <span className="text-sm font-bold text-cyan-600 shrink-0">{formatEur(item.precio)}</span>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button onClick={() => setEditando(item)} className="text-xs text-cyan-500 hover:text-cyan-700">Editar</button>
-                  <button onClick={() => onCopiarItem(item)} className="text-xs text-gray-400 hover:text-indigo-500">Copiar</button>
-                  <button onClick={() => toggleAutoPorPax.mutate(item.id)}
-                    className={`text-xs font-medium ${item.autoPorPax ? 'text-amber-600 hover:text-amber-800' : 'text-gray-300 hover:text-amber-500'}`}
-                    title="Auto-añadir al abrir mesa (×pax)">
-                    ×pax
-                  </button>
-                  <button onClick={() => toggle.mutate(item.id)}
-                    className={`text-xs font-medium ${item.activo ? 'text-gray-400 hover:text-gray-600' : 'text-green-500 hover:text-green-700'}`}>
-                    {item.activo ? 'Ocultar' : 'Activar'}
-                  </button>
-                  <button onClick={() => { if (confirm(`¿Eliminar "${item.nombre}"?`)) eliminar.mutate(item.id) }}
-                    className="text-xs text-red-400 hover:text-red-600">✕</button>
-                </div>
-              </div>
-            )}
-          </div>
-        ))}
+              )}
+            </div>
+          )
+        })}
       </div>
     </div>
   )
@@ -467,6 +600,7 @@ function CopiarItemModal({
 // ── Tarjeta de categoría ──────────────────────────────────────────────────────
 function CategoriaCard({
   cat,
+  esGlobal,
   selected,
   onSelect,
   onEdit,
@@ -476,11 +610,12 @@ function CategoriaCard({
   onMoveDown,
 }: {
   cat: MenuCategoria
+  esGlobal: boolean
   selected: boolean
   onSelect: () => void
-  onEdit: () => void
-  onDelete: () => void
-  onCopiar: () => void
+  onEdit?: () => void
+  onDelete?: () => void
+  onCopiar?: () => void
   onMoveUp?: () => void
   onMoveDown?: () => void
 }) {
@@ -513,38 +648,63 @@ function CategoriaCard({
         </div>
       )}
       <div className="flex-1 min-w-0">
-        <p className="font-semibold text-gray-800 text-sm truncate">{cat.nombre}</p>
+        <div className="flex items-center gap-1.5">
+          <p className="font-semibold text-gray-800 text-sm truncate">{cat.nombre}</p>
+          {esGlobal && <GlobalBadge />}
+        </div>
         <p className="text-xs text-gray-400">{cat.itemCount} item{cat.itemCount !== 1 ? 's' : ''}</p>
       </div>
       <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
-        <button onClick={onEdit}
-          className="text-xs text-gray-400 hover:text-cyan-600 px-2 py-1 rounded-lg hover:bg-gray-100">
-          Editar
-        </button>
-        <button onClick={onCopiar}
-          className="text-xs text-gray-400 hover:text-indigo-500 px-2 py-1 rounded-lg hover:bg-gray-100"
-          title="Copiar a otro restaurante">
-          Copiar
-        </button>
-        <button onClick={onDelete}
-          className="text-xs text-gray-400 hover:text-red-500 px-2 py-1 rounded-lg hover:bg-gray-100">
-          ✕
-        </button>
+        {onEdit && (
+          <button onClick={onEdit}
+            className="text-xs text-gray-400 hover:text-cyan-600 px-2 py-1 rounded-lg hover:bg-gray-100">
+            Editar
+          </button>
+        )}
+        {onCopiar && (
+          <button onClick={onCopiar}
+            className="text-xs text-gray-400 hover:text-indigo-500 px-2 py-1 rounded-lg hover:bg-gray-100"
+            title="Copiar a otro restaurante">
+            Copiar
+          </button>
+        )}
+        {onDelete && (
+          <button onClick={onDelete}
+            className="text-xs text-gray-400 hover:text-red-500 px-2 py-1 rounded-lg hover:bg-gray-100">
+            ✕
+          </button>
+        )}
       </div>
     </div>
+  )
+}
+
+// Badge global (reutilizable)
+function GlobalBadge() {
+  return (
+    <span className="inline-flex items-center text-[10px] font-bold bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded uppercase tracking-wide">
+      Global
+    </span>
   )
 }
 
 // ── Página principal ──────────────────────────────────────────────────────────
 export default function MenuPage() {
   const qc = useQueryClient()
+  // null = Global, number = restaurante específico
   const [restaurantId, setRestaurantId] = useState<number | null>(null)
   const [catSeleccionada, setCatSeleccionada] = useState<MenuCategoria | null>(null)
   const [creandoCat, setCreandoCat]     = useState<string | null>(null)
   const [editandoCat, setEditandoCat]   = useState<MenuCategoria | null>(null)
   const [copiandoCat, setCopiandoCat]   = useState<MenuCategoria | null>(null)
   const [copiandoItem, setCopiandoItem] = useState<MenuItem | null>(null)
+  const [moviendoItem, setMoviendoItem] = useState<MenuItem | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  const [modoGlobal, setModoGlobal] = useState(true) // true = vista Global al inicio
+  const [confirmMigrar, setConfirmMigrar] = useState(false)
+
+  // restaurantId efectivo para queries: null = Global
+  const rid = modoGlobal ? null : restaurantId
 
   const { data: restaurantes } = useQuery({
     queryKey: ['restaurantes'],
@@ -552,9 +712,8 @@ export default function MenuPage() {
   })
 
   const { data: categorias = [] } = useQuery<MenuCategoria[]>({
-    queryKey: ['menu-cats', restaurantId],
-    queryFn: () => api.menuCategorias.list(restaurantId!),
-    enabled: !!restaurantId,
+    queryKey: ['menu-cats', rid],
+    queryFn: () => api.menuCategorias.list(rid),
   })
 
   const showToast = (msg: string) => {
@@ -565,7 +724,7 @@ export default function MenuPage() {
   const eliminarCat = useMutation({
     mutationFn: (id: number) => api.menuCategorias.delete(id),
     onSuccess: (_, id) => {
-      qc.invalidateQueries({ queryKey: ['menu-cats', restaurantId] })
+      qc.invalidateQueries({ queryKey: ['menu-cats', rid] })
       if (catSeleccionada?.id === id) setCatSeleccionada(null)
     },
     onError: (err: Error) => showToast(err.message),
@@ -579,7 +738,7 @@ export default function MenuPage() {
       api.menuCategorias.update(a.id, { orden: b.orden }),
       api.menuCategorias.update(b.id, { orden: a.orden }),
     ])
-    qc.invalidateQueries({ queryKey: ['menu-cats', restaurantId] })
+    qc.invalidateQueries({ queryKey: ['menu-cats', rid] })
   }
 
   // Agrupar categorías por grupo
@@ -589,19 +748,43 @@ export default function MenuPage() {
     cats: categorias.filter(c => (g === '' ? !c.grupo : c.grupo === g)),
   })).filter(g => g.cats.length > 0 || g.nombre === '')
 
+  const resetNav = () => { setCatSeleccionada(null); setCreandoCat(null); setEditandoCat(null) }
+
+  const migrarAGlobal = useMutation({
+    mutationFn: () => api.menuCategorias.migrarAGlobal(restaurantId as number),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['menu-cats'] })
+      resetNav()
+      setModoGlobal(true)
+      setConfirmMigrar(false)
+      showToast(`✓ Migración completa — ${res.categoriasMigradas} categorías y ${res.itemsMigrados} items movidos a Global (${res.categoriasOmitidas + res.itemsOmitidos} omitidos por duplicado)`)
+    },
+    onError: (err: Error) => showToast(err.message),
+  })
+
   return (
     <>
       <div className="max-w-3xl mx-auto px-4 md:px-6 py-6 space-y-5">
 
-        {/* Selector restaurante */}
+        {/* Selector restaurante / Global */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-          <h2 className="font-semibold text-gray-700 mb-3">Restaurante</h2>
+          <h2 className="font-semibold text-gray-700 mb-3">Menú</h2>
           <div className="flex flex-wrap gap-2">
+            {/* Opción Global */}
+            <button
+              onClick={() => { setModoGlobal(true); resetNav() }}
+              className={`px-4 py-2 rounded-xl text-sm font-semibold border-2 transition-all ${
+                modoGlobal
+                  ? 'bg-indigo-500 border-indigo-500 text-white'
+                  : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
+              }`}>
+              🌐 Global
+            </button>
             {restaurantes?.map(r => (
               <button key={r.id}
-                onClick={() => { setRestaurantId(r.id); setCatSeleccionada(null); setCreandoCat(null); setEditandoCat(null) }}
+                onClick={() => { setModoGlobal(false); setRestaurantId(r.id); resetNav() }}
                 className={`px-4 py-2 rounded-xl text-sm font-semibold border-2 transition-all ${
-                  restaurantId === r.id
+                  !modoGlobal && restaurantId === r.id
                     ? 'bg-cyan-500 border-cyan-500 text-white'
                     : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
                 }`}>
@@ -609,81 +792,101 @@ export default function MenuPage() {
               </button>
             ))}
           </div>
+          {!modoGlobal && (
+            <div className="mt-3 flex items-center justify-between">
+              <p className="text-xs text-gray-400">
+                Muestra las categorías globales + las específicas de este restaurante.
+              </p>
+              <button
+                onClick={() => setConfirmMigrar(true)}
+                className="text-xs text-indigo-500 hover:text-indigo-700 font-semibold border border-indigo-200 rounded-lg px-3 py-1.5 hover:bg-indigo-50 transition-colors"
+              >
+                ↑ Migrar todo a Global
+              </button>
+            </div>
+          )}
+          {modoGlobal && (
+            <p className="text-xs text-indigo-400 mt-2">
+              Las categorías e items globales aparecen en <strong>todos los restaurantes</strong>.
+            </p>
+          )}
         </div>
 
-        {restaurantId && (
-          <>
-            {/* Panel detalle categoría seleccionada */}
-            {catSeleccionada && (
-              <CategoriaPanel
-                restaurantId={restaurantId}
-                cat={catSeleccionada}
-                onClose={() => setCatSeleccionada(null)}
-                onCopiarItem={item => setCopiandoItem(item)}
-              />
-            )}
-
-            {/* Formulario crear/editar categoría */}
-            {(creandoCat !== null || editandoCat) && (
-              <CategoriaForm
-                restaurantId={restaurantId}
-                grupoDefault={creandoCat ?? undefined}
-                initial={editandoCat ?? undefined}
-                onDone={() => { setCreandoCat(null); setEditandoCat(null) }}
-              />
-            )}
-
-            {/* Grupos de categorías */}
-            <div className="space-y-4">
-              {grupos.map(({ nombre: grupoNombre, cats }) => (
-                <div key={grupoNombre || '__sin_grupo'} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                  {/* Cabecera del grupo */}
-                  <div className="px-5 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
-                    <h2 className="font-bold text-gray-700">
-                      {grupoNombre || 'Sin sección'}
-                    </h2>
-                    <button
-                      onClick={() => { setCreandoCat(grupoNombre); setCatSeleccionada(null); setEditandoCat(null) }}
-                      className="text-xs text-cyan-600 hover:text-cyan-700 font-semibold"
-                    >
-                      + Categoría
-                    </button>
-                  </div>
-
-                  <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {cats.map((cat, idx) => (
-                      <CategoriaCard
-                        key={cat.id}
-                        cat={cat}
-                        selected={catSeleccionada?.id === cat.id}
-                        onSelect={() => { setCatSeleccionada(cat); setCreandoCat(null); setEditandoCat(null) }}
-                        onEdit={() => { setEditandoCat(cat); setCatSeleccionada(null); setCreandoCat(null) }}
-                        onDelete={() => { if (confirm(`¿Eliminar "${cat.nombre}"?\n\nSe eliminarán también todos sus items.`)) eliminarCat.mutate(cat.id) }}
-                        onCopiar={() => setCopiandoCat(cat)}
-                        onMoveUp={idx > 0 ? () => moverCat(cats, idx, -1) : undefined}
-                        onMoveDown={idx < cats.length - 1 ? () => moverCat(cats, idx, 1) : undefined}
-                      />
-                    ))}
-                  </div>
-                </div>
-              ))}
-
-              {/* Botón para crear nueva sección */}
-              <button
-                onClick={() => { setCreandoCat(''); setCatSeleccionada(null); setEditandoCat(null) }}
-                className="w-full py-3 rounded-2xl border-2 border-dashed border-gray-200 text-gray-400 hover:border-cyan-300 hover:text-cyan-500 text-sm font-semibold transition-colors"
-              >
-                + Nueva sección / categoría
-              </button>
-
-              {categorias.length === 0 && (
-                <p className="text-center text-gray-400 text-sm py-6">
-                  Sin categorías todavía. Crea la primera para empezar.
-                </p>
-              )}
-            </div>
-          </>
+        {/* Panel detalle categoría seleccionada */}
+        {catSeleccionada && (
+          <CategoriaPanel
+            restaurantId={rid}
+            cat={catSeleccionada}
+            onClose={() => setCatSeleccionada(null)}
+            onCopiarItem={item => setCopiandoItem(item)}
+            onMoverItem={modoGlobal ? item => setMoviendoItem(item) : undefined}
+            restaurantes={modoGlobal ? restaurantes : undefined}
+          />
         )}
+
+        {/* Formulario crear/editar categoría */}
+        {(creandoCat !== null || editandoCat) && (
+          <CategoriaForm
+            restaurantId={rid}
+            grupoDefault={creandoCat ?? undefined}
+            initial={editandoCat ?? undefined}
+            onDone={() => { setCreandoCat(null); setEditandoCat(null) }}
+          />
+        )}
+
+        {/* Grupos de categorías */}
+        <div className="space-y-4">
+          {grupos.map(({ nombre: grupoNombre, cats }) => (
+            <div key={grupoNombre || '__sin_grupo'} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+              <div className="px-5 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+                <h2 className="font-bold text-gray-700">
+                  {grupoNombre || 'Sin sección'}
+                </h2>
+                <button
+                  onClick={() => { setCreandoCat(grupoNombre); setCatSeleccionada(null); setEditandoCat(null) }}
+                  className="text-xs text-cyan-600 hover:text-cyan-700 font-semibold"
+                >
+                  + Categoría
+                </button>
+              </div>
+
+              <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {cats.map((cat, idx) => {
+                  const esGlobal = cat.restaurantId === null
+                  // En vista de restaurante, las globales no se pueden mover ni editar desde aquí
+                  const soloLectura = !modoGlobal && esGlobal
+                  return (
+                    <CategoriaCard
+                      key={cat.id}
+                      cat={cat}
+                      esGlobal={esGlobal}
+                      selected={catSeleccionada?.id === cat.id}
+                      onSelect={() => { setCatSeleccionada(cat); setCreandoCat(null); setEditandoCat(null) }}
+                      onEdit={soloLectura ? undefined : () => { setEditandoCat(cat); setCatSeleccionada(null); setCreandoCat(null) }}
+                      onDelete={soloLectura ? undefined : () => { if (confirm(`¿Eliminar "${cat.nombre}"?\n\nSe eliminarán también todos sus items.`)) eliminarCat.mutate(cat.id) }}
+                      onCopiar={esGlobal ? undefined : () => setCopiandoCat(cat)}
+                      onMoveUp={soloLectura || idx === 0 ? undefined : () => moverCat(cats.filter(c => c.restaurantId === cat.restaurantId), cats.filter(c => c.restaurantId === cat.restaurantId).indexOf(cat), -1)}
+                      onMoveDown={soloLectura || idx === cats.length - 1 ? undefined : () => moverCat(cats.filter(c => c.restaurantId === cat.restaurantId), cats.filter(c => c.restaurantId === cat.restaurantId).indexOf(cat), 1)}
+                    />
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+
+          <button
+            onClick={() => { setCreandoCat(''); setCatSeleccionada(null); setEditandoCat(null) }}
+            className="w-full py-3 rounded-2xl border-2 border-dashed border-gray-200 text-gray-400 hover:border-cyan-300 hover:text-cyan-500 text-sm font-semibold transition-colors"
+          >
+            + Nueva sección / categoría
+          </button>
+
+          {categorias.length === 0 && (
+            <p className="text-center text-gray-400 text-sm py-6">
+              Sin categorías todavía. Crea la primera para empezar.
+            </p>
+          )}
+        </div>
       </div>
 
       {copiandoCat && restaurantId && restaurantes && (
@@ -711,6 +914,51 @@ export default function MenuPage() {
             showToast(msg)
           }}
         />
+      )}
+
+      {/* Modal mover item global a restaurante específico */}
+      {moviendoItem && restaurantes && (
+        <MoverItemModal
+          item={moviendoItem}
+          restaurantes={restaurantes}
+          onClose={() => setMoviendoItem(null)}
+          onDone={msg => {
+            setMoviendoItem(null)
+            qc.invalidateQueries({ queryKey: ['menu-items'] })
+            qc.invalidateQueries({ queryKey: ['menu-cats'] })
+            showToast(msg)
+          }}
+        />
+      )}
+
+      {/* Modal confirmar migración a Global */}
+      {confirmMigrar && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4">
+            <h3 className="font-bold text-gray-900 text-lg">Migrar menú a Global</h3>
+            <p className="text-sm text-gray-600">
+              Todos las categorías e items <strong>específicos de este restaurante</strong> pasarán a ser <strong>globales</strong> (visibles en todos los restaurantes).
+            </p>
+            <p className="text-sm text-amber-600 bg-amber-50 rounded-xl px-3 py-2">
+              Si ya existe una categoría o item global con el mismo nombre, el del restaurante se elimina (evita duplicados).
+            </p>
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={() => setConfirmMigrar(false)}
+                className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => migrarAGlobal.mutate()}
+                disabled={migrarAGlobal.isPending}
+                className="flex-1 py-2.5 rounded-xl bg-indigo-500 text-white text-sm font-semibold hover:bg-indigo-600 disabled:opacity-50"
+              >
+                {migrarAGlobal.isPending ? 'Migrando…' : 'Confirmar migración'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {toast && (

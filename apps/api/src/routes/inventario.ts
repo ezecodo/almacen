@@ -14,12 +14,17 @@ export async function inventarioRoutes(app: FastifyInstance) {
       ? { OR: [{ restaurantId: null }, { restaurantId: rId }] }
       : { restaurantId: null }
 
+    // Filtrar productos por scope: global + específicos del restaurante (si aplica)
+    const productosWhere = rId
+      ? { activo: true, OR: [{ restaurantId: null }, { restaurantId: rId }] }
+      : { activo: true, restaurantId: null }
+
     const categorias = await prisma.inventarioCategoria.findMany({
       where,
       orderBy: { orden: 'asc' },
       include: {
         productos: {
-          where: { activo: true },
+          where: productosWhere,
           orderBy: { orden: 'asc' },
         },
       },
@@ -47,13 +52,14 @@ export async function inventarioRoutes(app: FastifyInstance) {
   // PATCH /inventario/categorias/:id
   app.patch('/inventario/categorias/:id', async (req, reply) => {
     const id = Number((req.params as { id: string }).id)
-    const { nombre, orden } = req.body as { nombre?: string; orden?: number }
+    const { nombre, orden, personalProduccion } = req.body as { nombre?: string; orden?: number; personalProduccion?: string | null }
 
     const categoria = await prisma.inventarioCategoria.update({
       where: { id },
       data: {
         ...(nombre !== undefined && { nombre }),
         ...(orden !== undefined && { orden }),
+        ...(personalProduccion !== undefined && { personalProduccion: personalProduccion ?? null }),
       },
       include: { productos: true },
     })
@@ -109,12 +115,14 @@ export async function inventarioRoutes(app: FastifyInstance) {
   // PATCH /inventario/productos/:id
   app.patch('/inventario/productos/:id', async (req, reply) => {
     const id = Number((req.params as { id: string }).id)
-    const { nombre, unidad, stockMinimo, activo, orden } = req.body as {
+    const { nombre, unidad, stockMinimo, activo, orden, precioCoste, precioVenta } = req.body as {
       nombre?: string
       unidad?: string
       stockMinimo?: number
       activo?: boolean
       orden?: number
+      precioCoste?: number | null
+      precioVenta?: number | null
     }
 
     const producto = await prisma.inventarioProducto.update({
@@ -125,6 +133,8 @@ export async function inventarioRoutes(app: FastifyInstance) {
         ...(stockMinimo !== undefined && { stockMinimo }),
         ...(activo !== undefined && { activo }),
         ...(orden !== undefined && { orden }),
+        ...(precioCoste !== undefined && { precioCoste }),
+        ...(precioVenta !== undefined && { precioVenta }),
       },
     })
 
@@ -143,6 +153,58 @@ export async function inventarioRoutes(app: FastifyInstance) {
       await prisma.inventarioProducto.delete({ where: { id } })
     }
 
+    return reply.status(204).send()
+  })
+
+  // ── Producciones ─────────────────────────────────────────────────────────────
+
+  // GET /inventario/producciones?restaurantId=X
+  app.get('/inventario/producciones', async (req, reply) => {
+    const { restaurantId } = req.query as { restaurantId?: string }
+    if (!restaurantId) return reply.status(400).send({ error: 'restaurantId requerido' })
+
+    const producciones = await prisma.inventarioProduccion.findMany({
+      where: { restaurantId: Number(restaurantId) },
+      orderBy: { fecha: 'desc' },
+      include: { producto: { select: { nombre: true, unidad: true } } },
+    })
+    return producciones
+  })
+
+  // POST /inventario/producciones
+  app.post('/inventario/producciones', async (req, reply) => {
+    const { restaurantId, productoId, cantidad, unidad, creadoPor, notas, fecha } = req.body as {
+      restaurantId: number
+      productoId: number
+      cantidad: number
+      unidad: string
+      creadoPor?: string
+      notas?: string
+      fecha?: string
+    }
+    if (!restaurantId || !productoId || !cantidad || !unidad) {
+      return reply.status(400).send({ error: 'restaurantId, productoId, cantidad y unidad son requeridos' })
+    }
+
+    const produccion = await prisma.inventarioProduccion.create({
+      data: {
+        restaurantId,
+        productoId,
+        cantidad,
+        unidad,
+        creadoPor: creadoPor ?? null,
+        notas: notas ?? null,
+        fecha: fecha ? new Date(fecha) : new Date(),
+      },
+      include: { producto: { select: { nombre: true, unidad: true } } },
+    })
+    return reply.status(201).send(produccion)
+  })
+
+  // DELETE /inventario/producciones/:id
+  app.delete('/inventario/producciones/:id', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    await prisma.inventarioProduccion.delete({ where: { id } })
     return reply.status(204).send()
   })
 
@@ -242,6 +304,8 @@ export async function inventarioRoutes(app: FastifyInstance) {
         nombre: item.producto.nombre,
         unidad: item.producto.unidad,
         stockMinimo: item.producto.stockMinimo,
+        precioCoste:    item.producto.precioCoste,
+        precioVenta:    item.producto.precioVenta,
         categoriaId: item.producto.categoriaId,
         categoriaNombre: item.producto.categoria.nombre,
         cantidad: item.cantidad,
@@ -277,5 +341,63 @@ export async function inventarioRoutes(app: FastifyInstance) {
 
     await prisma.inventarioConteo.delete({ where: { id } })
     return reply.status(204).send()
+  })
+
+  // GET /inventario/costes?baseId=X&finalId=Y
+  // Compara dos conteos y calcula consumo real + coste por producto
+  app.get('/inventario/costes', async (req, reply) => {
+    const { baseId, finalId } = req.query as { baseId?: string; finalId?: string }
+    if (!baseId || !finalId) return reply.status(400).send({ error: 'baseId y finalId requeridos' })
+
+    const [base, final] = await Promise.all([
+      prisma.inventarioConteo.findUnique({
+        where: { id: Number(baseId) },
+        include: { items: { include: { producto: { include: { categoria: true } } } } },
+      }),
+      prisma.inventarioConteo.findUnique({
+        where: { id: Number(finalId) },
+        include: { items: { include: { producto: { include: { categoria: true } } } } },
+      }),
+    ])
+
+    if (!base || !final) return reply.status(404).send({ error: 'Conteo no encontrado' })
+
+    // Unión de todos los productos entre ambos conteos
+    const baseMap  = new Map(base.items.map(i  => [i.productoId, i]))
+    const finalMap = new Map(final.items.map(i => [i.productoId, i]))
+    const allIds   = new Set([...baseMap.keys(), ...finalMap.keys()])
+
+    const rows = [...allIds].map(pid => {
+      const bItem = baseMap.get(pid)
+      const fItem = finalMap.get(pid)
+      const prod  = (bItem ?? fItem)!.producto
+      const cantBase  = bItem?.cantidad ?? 0
+      const cantFinal = fItem?.cantidad ?? 0
+      const consumido = cantBase - cantFinal          // positivo = se consumió
+      const precio    = prod.precioCoste ?? null
+      const coste     = precio !== null ? consumido * precio : null
+      return {
+        productoId:    prod.id,
+        nombre:        prod.nombre,
+        unidad:        prod.unidad,
+        categoriaNombre: prod.categoria.nombre,
+        precioCoste:    precio,
+        precioVenta:    prod.precioVenta ?? null,
+        cantBase,
+        cantFinal,
+        consumido,
+        coste,
+      }
+    })
+
+    rows.sort((a, b) => {
+      const cc = a.categoriaNombre.localeCompare(b.categoriaNombre)
+      return cc !== 0 ? cc : a.nombre.localeCompare(b.nombre)
+    })
+
+    const totalCoste = rows.reduce((s, r) => s + (r.coste ?? 0), 0)
+    const sinPrecio  = rows.filter(r => r.precioCoste === null && r.consumido > 0).length
+
+    return { rows, totalCoste, sinPrecio, baseFecha: base.fecha, finalFecha: final.fecha }
   })
 }

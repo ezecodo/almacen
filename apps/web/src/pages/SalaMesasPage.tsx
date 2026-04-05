@@ -4,7 +4,7 @@ const ThemeCtx = createContext<boolean>(true) // true = dark
 import CheckOverlay from '../components/CheckOverlay'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, Comanda, ComandaItem, FloorPlan, GrupoAgendado, Mesa, MenuCategoria, MenuItem, MermaMotivo, MiTurno } from '../api'
+import { api, Comanda, ComandaItem, FloorPlan, GrupoAgendado, InventarioCategoria, Mesa, MenuCategoria, MenuItem, MermaMotivo, MiTurno } from '../api'
 import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
 
 const SQUARE_SIZE = 80
@@ -1454,6 +1454,146 @@ function PerfilPanel({ camarero, onClose }: { camarero: { id: number; nombre: st
   )
 }
 
+// ── Modal producción sala ─────────────────────────────────────────────────────
+function ProduccionSalaModal({
+  restaurantId,
+  camareroNombre,
+  onClose,
+}: {
+  restaurantId: number
+  camareroNombre: string
+  onClose: () => void
+}) {
+  const { data: categorias = [] } = useQuery({
+    queryKey: ['inv-cats-sala', restaurantId],
+    queryFn: () => api.inventario.getCategorias(restaurantId),
+  })
+
+  const productos = (categorias as InventarioCategoria[])
+    .filter(c => c.personalProduccion === 'sala')
+    .flatMap(c => c.productos)
+
+  const [productoId, setProductoId] = useState<number>(productos[0]?.id ?? 0)
+  const [cantidad, setCantidad]     = useState('')
+  const [unidad, setUnidad]         = useState(productos[0]?.unidad ?? 'ud')
+  const [notas, setNotas]           = useState('')
+  const [saved, setSaved]           = useState(false)
+
+  // sync productoId/unidad when productos loads
+  useEffect(() => {
+    if (productos.length > 0 && !productoId) {
+      setProductoId(productos[0].id)
+      setUnidad(productos[0].unidad)
+    }
+  }, [productos.length])
+
+  const handleProductoChange = (id: number) => {
+    setProductoId(id)
+    const prod = productos.find(p => p.id === id)
+    if (prod) setUnidad(prod.unidad)
+  }
+
+  const handleGuardar = async () => {
+    if (!productoId || !cantidad) return
+    await api.inventario.createProduccion({
+      restaurantId,
+      productoId,
+      cantidad: parseFloat(cantidad),
+      unidad,
+      creadoPor: camareroNombre,
+      notas: notas || undefined,
+    })
+    setSaved(true)
+    setTimeout(() => {
+      setSaved(false)
+      setCantidad('')
+      setNotas('')
+    }, 1500)
+  }
+
+  if (productos.length === 0) {
+    return (
+      <div className="fixed inset-0 bg-black/70 flex items-end justify-center z-50 p-4" onClick={onClose}>
+        <div className="bg-[var(--sala-srf)] rounded-2xl p-6 w-full max-w-sm text-center space-y-3" onClick={e => e.stopPropagation()}>
+          <p className="text-[var(--sala-txt)] font-bold text-lg">⚗️ Producción</p>
+          <p className="text-[var(--sala-tx2)] text-sm">No hay productos de producción configurados para este restaurante.</p>
+          <button onClick={onClose} className="w-full py-3 rounded-xl bg-[var(--sala-brd)] text-[var(--sala-tx2)]">Cerrar</button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-end justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-[var(--sala-srf)] rounded-2xl w-full max-w-sm overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-[var(--sala-brd)] flex items-center justify-between">
+          <p className="text-[var(--sala-txt)] font-bold text-base">⚗️ Registrar producción</p>
+          <button onClick={onClose} className="text-[var(--sala-tx4)] hover:text-[var(--sala-tx2)] text-xl">✕</button>
+        </div>
+        <div className="p-5 space-y-4">
+          {/* Producto */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-[var(--sala-tx2)]">Producto</label>
+            <select
+              value={productoId}
+              onChange={e => handleProductoChange(Number(e.target.value))}
+              className="w-full rounded-xl px-3 py-3 text-sm font-medium text-[var(--sala-txt)] bg-[var(--sala-bg)] border border-[var(--sala-brd)] focus:outline-none focus:border-[#4CC8A0]"
+            >
+              {productos.map(p => (
+                <option key={p.id} value={p.id}>{p.nombre}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Cantidad + Unidad */}
+          <div className="flex gap-3">
+            <div className="flex-1 space-y-1.5">
+              <label className="text-xs font-semibold text-[var(--sala-tx2)]">Cantidad</label>
+              <input
+                type="number" min="0.1" step="0.5"
+                value={cantidad} onChange={e => setCantidad(e.target.value)}
+                placeholder="Ej: 5"
+                className="w-full rounded-xl px-3 py-3 text-lg font-bold text-[var(--sala-txt)] bg-[var(--sala-bg)] border border-[var(--sala-brd)] focus:outline-none focus:border-[#4CC8A0]"
+              />
+            </div>
+            <div className="w-28 space-y-1.5">
+              <label className="text-xs font-semibold text-[var(--sala-tx2)]">Unidad</label>
+              <select
+                value={unidad} onChange={e => setUnidad(e.target.value)}
+                className="w-full rounded-xl px-3 py-3 text-sm text-[var(--sala-txt)] bg-[var(--sala-bg)] border border-[var(--sala-brd)] focus:outline-none focus:border-[#4CC8A0]"
+              >
+                {['ud', 'botella', 'caja', 'l', 'kg'].map(u => <option key={u} value={u}>{u}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Notas */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-[var(--sala-tx2)]">Notas (opcional)</label>
+            <input
+              value={notas} onChange={e => setNotas(e.target.value)}
+              placeholder="Ej: botella de 5L, lote especial…"
+              className="w-full rounded-xl px-3 py-2.5 text-sm text-[var(--sala-txt)] bg-[var(--sala-bg)] border border-[var(--sala-brd)] focus:outline-none focus:border-[#4CC8A0]"
+            />
+          </div>
+
+          <button
+            onClick={handleGuardar}
+            disabled={!productoId || !cantidad || saved}
+            className={`w-full py-3.5 rounded-xl font-bold text-base transition-all ${
+              saved
+                ? 'bg-emerald-500 text-white'
+                : 'bg-[#4CC8A0] text-gray-900 hover:bg-[#3ab890] disabled:opacity-40'
+            }`}
+          >
+            {saved ? '✓ Registrado' : 'Registrar producción'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Página principal camarero ─────────────────────────────────────────────────
 export default function SalaMesasPage() {
   const navigate   = useNavigate()
@@ -1482,6 +1622,7 @@ export default function SalaMesasPage() {
   const [showPerfil, setShowPerfil]       = useState(false)
   const [showMoverMesa, setShowMoverMesa] = useState(false)
   const [animFacturada, setAnimFacturada] = useState(false)
+  const [showProduccion, setShowProduccion] = useState(false)
   const [isDark, setIsDark] = useState(() => localStorage.getItem('sala_theme') !== 'light')
   const toggleTheme = () => setIsDark(d => {
     const next = !d
@@ -1652,6 +1793,14 @@ export default function SalaMesasPage() {
             </p>
           </button>
           <div className="flex items-center gap-3">
+            {/* Producción */}
+            <button
+              onClick={() => setShowProduccion(true)}
+              title="Registrar producción"
+              className="text-[var(--sala-tx2)] hover:text-[#4CC8A0] text-lg transition-colors"
+            >
+              ⚗️
+            </button>
             {/* Theme toggle pill */}
             <button onClick={toggleTheme} title={isDark ? 'Modo claro' : 'Modo oscuro'}
               style={{
@@ -1872,6 +2021,13 @@ export default function SalaMesasPage() {
 
       {showPerfil && camarero && (
         <PerfilPanel camarero={camarero} onClose={() => setShowPerfil(false)} />
+      )}
+      {showProduccion && (
+        <ProduccionSalaModal
+          restaurantId={restaurant.id}
+          camareroNombre={camarero.nombre}
+          onClose={() => setShowProduccion(false)}
+        />
       )}
     </div>
     </ThemeCtx.Provider>

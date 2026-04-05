@@ -2,10 +2,9 @@ import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../server'
 
-// ── Categorías ────────────────────────────────────────────────────────────────
-
+// restaurantId null = global, number = específico de restaurante
 const catSchema = z.object({
-  restaurantId: z.number().int().positive(),
+  restaurantId: z.number().int().positive().nullable().optional(),
   grupo:        z.string().default(''),
   nombre:       z.string().min(1),
   icono:        z.string().default(''),
@@ -14,10 +13,8 @@ const catSchema = z.object({
 
 const catUpdateSchema = catSchema.partial().omit({ restaurantId: true })
 
-// ── Items ─────────────────────────────────────────────────────────────────────
-
 const itemSchema = z.object({
-  restaurantId: z.number().int().positive(),
+  restaurantId: z.number().int().positive().nullable().optional(),
   categoria:    z.string().min(1),
   nombre:       z.string().min(1),
   descripcion:  z.string().default(''),
@@ -32,41 +29,46 @@ export async function menuRoutes(app: FastifyInstance) {
 
   // ── Categorías ──────────────────────────────────────────────────────────────
 
-  // GET /menu/categorias?restaurantId=1
+  // GET /menu/categorias?restaurantId=1  (omitir param = solo globales)
   app.get('/menu/categorias', async (req, reply) => {
     const { restaurantId } = req.query as { restaurantId?: string }
-    if (!restaurantId) return reply.status(400).send({ error: 'restaurantId requerido' })
+    const rid = restaurantId ? Number(restaurantId) : null
 
-    const rid = Number(restaurantId)
+    const where = rid
+      ? { OR: [{ restaurantId: null }, { restaurantId: rid }] }
+      : { restaurantId: null }
 
-    // Auto-migrar: crear MenuCategoria para categorías que existen en items pero no están gestionadas
-    const [cats, itemCounts] = await Promise.all([
-      prisma.menuCategoria.findMany({ where: { restaurantId: rid } }),
-      prisma.menuItem.groupBy({
-        by: ['categoria'],
-        where: { restaurantId: rid },
-        _count: { id: true },
-      }),
-    ])
-
-    const managedNames = new Set(cats.map(c => c.nombre))
-    const toCreate = itemCounts
-      .map(c => c.categoria)
-      .filter(nombre => !managedNames.has(nombre))
-
-    if (toCreate.length > 0) {
-      await prisma.menuCategoria.createMany({
-        data: toCreate.map((nombre, i) => ({ restaurantId: rid, nombre, icono: '', orden: i })),
-        skipDuplicates: true,
-      })
+    // En contexto de restaurante: limpiar automáticamente las categorías específicas que
+    // duplican una global (mismo nombre). Estos duplicados se generaban antes de la fix.
+    if (rid) {
+      const [globalCats, restaurantCats] = await Promise.all([
+        prisma.menuCategoria.findMany({ where: { restaurantId: null }, select: { nombre: true } }),
+        prisma.menuCategoria.findMany({ where: { restaurantId: rid }, select: { id: true, nombre: true } }),
+      ])
+      const globalNames = new Set(globalCats.map(c => c.nombre))
+      const duplicateIds = restaurantCats
+        .filter(c => globalNames.has(c.nombre))
+        .map(c => c.id)
+      if (duplicateIds.length > 0) {
+        await prisma.menuCategoria.deleteMany({ where: { id: { in: duplicateIds } } })
+      }
     }
 
-    // Volver a cargar con las nuevas
     const allCats = await prisma.menuCategoria.findMany({
-      where: { restaurantId: rid },
+      where,
       orderBy: [{ orden: 'asc' }, { nombre: 'asc' }],
     })
 
+    // Contar items por categoría (globales o del restaurante según contexto)
+    const itemWhere = rid
+      ? { OR: [{ restaurantId: null }, { restaurantId: rid }] }
+      : { restaurantId: null }
+
+    const itemCounts = await prisma.menuItem.groupBy({
+      by: ['categoria'],
+      where: itemWhere,
+      _count: { id: true },
+    })
     const countMap: Record<string, number> = {}
     for (const c of itemCounts) countMap[c.categoria] = c._count.id
 
@@ -77,7 +79,13 @@ export async function menuRoutes(app: FastifyInstance) {
   app.post('/menu/categorias', async (req, reply) => {
     const result = catSchema.safeParse(req.body)
     if (!result.success) return reply.status(400).send({ error: result.error.flatten() })
-    const cat = await prisma.menuCategoria.create({ data: result.data })
+    const cat = await prisma.menuCategoria.create({ data: {
+      restaurantId: result.data.restaurantId ?? null,
+      grupo:        result.data.grupo,
+      nombre:       result.data.nombre,
+      icono:        result.data.icono,
+      orden:        result.data.orden,
+    }})
     return reply.status(201).send({ ...cat, itemCount: 0 })
   })
 
@@ -91,8 +99,12 @@ export async function menuRoutes(app: FastifyInstance) {
     if (result.data.nombre) {
       const old = await prisma.menuCategoria.findUnique({ where: { id } })
       if (old && old.nombre !== result.data.nombre) {
+        // Actualizar items del mismo scope (null=global, o del restaurante)
         await prisma.menuItem.updateMany({
-          where: { restaurantId: old.restaurantId, categoria: old.nombre },
+          where: {
+            categoria:    old.nombre,
+            restaurantId: old.restaurantId,
+          },
           data: { categoria: result.data.nombre },
         })
       }
@@ -108,6 +120,7 @@ export async function menuRoutes(app: FastifyInstance) {
     const cat = await prisma.menuCategoria.findUnique({ where: { id } })
     if (!cat) return reply.status(404).send({ error: 'No encontrada' })
 
+    // Solo eliminar items del mismo scope que la categoría
     await prisma.menuItem.deleteMany({
       where: { restaurantId: cat.restaurantId, categoria: cat.nombre },
     })
@@ -117,14 +130,18 @@ export async function menuRoutes(app: FastifyInstance) {
 
   // ── Items ───────────────────────────────────────────────────────────────────
 
-  // GET /menu?restaurantId=1[&categoria=X]
+  // GET /menu?restaurantId=1[&categoria=X]  (omitir param = solo globales)
   app.get('/menu', async (req, reply) => {
     const { restaurantId, categoria } = req.query as { restaurantId?: string; categoria?: string }
-    if (!restaurantId) return reply.status(400).send({ error: 'restaurantId requerido' })
+    const rid = restaurantId ? Number(restaurantId) : null
+
+    const baseWhere = rid
+      ? { OR: [{ restaurantId: null }, { restaurantId: rid }] }
+      : { restaurantId: null }
 
     const items = await prisma.menuItem.findMany({
       where: {
-        restaurantId: Number(restaurantId),
+        ...baseWhere,
         ...(categoria ? { categoria } : {}),
       },
       orderBy: [{ orden: 'asc' }, { nombre: 'asc' }],
@@ -136,7 +153,15 @@ export async function menuRoutes(app: FastifyInstance) {
   app.post('/menu', async (req, reply) => {
     const result = itemSchema.safeParse(req.body)
     if (!result.success) return reply.status(400).send({ error: result.error.flatten() })
-    const item = await prisma.menuItem.create({ data: result.data })
+    const item = await prisma.menuItem.create({ data: {
+      restaurantId: result.data.restaurantId ?? null,
+      categoria:    result.data.categoria,
+      nombre:       result.data.nombre,
+      descripcion:  result.data.descripcion,
+      precio:       result.data.precio,
+      orden:        result.data.orden,
+      alergenos:    result.data.alergenos,
+    }})
     return reply.status(201).send(item)
   })
 
@@ -174,6 +199,39 @@ export async function menuRoutes(app: FastifyInstance) {
     return reply.status(204).send()
   })
 
+  // PATCH /menu/:id/mover-restaurante  — mueve un item global a un restaurante específico
+  app.patch('/menu/:id/mover-restaurante', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    const schema = z.object({ restaurantId: z.number().int().positive() })
+    const result = schema.safeParse(req.body)
+    if (!result.success) return reply.status(400).send({ error: result.error.flatten() })
+
+    const item = await prisma.menuItem.findUnique({ where: { id } })
+    if (!item) return reply.status(404).send({ error: 'Item no encontrado' })
+
+    // Solo crear categoría específica si NO existe ninguna global con ese nombre.
+    // Si ya hay una global "Cocteles", el item simplemente convive bajo ella.
+    const catGlobal = await prisma.menuCategoria.findFirst({
+      where: { restaurantId: null, nombre: item.categoria },
+    })
+    if (!catGlobal) {
+      const catEspecifica = await prisma.menuCategoria.findFirst({
+        where: { restaurantId: result.data.restaurantId, nombre: item.categoria },
+      })
+      if (!catEspecifica) {
+        await prisma.menuCategoria.create({
+          data: { restaurantId: result.data.restaurantId, nombre: item.categoria, icono: '', grupo: '', orden: 0 },
+        })
+      }
+    }
+
+    const updated = await prisma.menuItem.update({
+      where: { id },
+      data: { restaurantId: result.data.restaurantId },
+    })
+    return updated
+  })
+
   // POST /menu/categorias/:id/copiar
   app.post('/menu/categorias/:id/copiar', async (req, reply) => {
     const id = Number((req.params as { id: string }).id)
@@ -193,7 +251,6 @@ export async function menuRoutes(app: FastifyInstance) {
 
     const resultados = []
     for (const rid of result.data.restaurantIds) {
-      // Crear categoría si no existe en el destino
       const catExiste = await prisma.menuCategoria.findFirst({
         where: { restaurantId: rid, nombre: cat.nombre },
       })
@@ -215,14 +272,8 @@ export async function menuRoutes(app: FastifyInstance) {
         for (const item of items) {
           if (nombresExistentes.has(item.nombre)) { omitidos++; continue }
           await prisma.menuItem.create({
-            data: {
-              restaurantId: rid,
-              categoria:    item.categoria,
-              nombre:       item.nombre,
-              descripcion:  item.descripcion,
-              precio:       item.precio,
-              orden:        item.orden,
-            },
+            data: { restaurantId: rid, categoria: item.categoria, nombre: item.nombre,
+                    descripcion: item.descripcion, precio: item.precio, orden: item.orden },
           })
           copiados++
         }
@@ -231,6 +282,54 @@ export async function menuRoutes(app: FastifyInstance) {
     }
 
     return { resultados }
+  })
+
+  // POST /menu/migrar-a-global
+  // Convierte todas las categorías e items de un restaurante en globales (restaurantId = null).
+  // Si ya existe una categoría/item global con el mismo nombre, fusiona (omite duplicados).
+  app.post('/menu/migrar-a-global', async (req, reply) => {
+    const schema = z.object({ restaurantId: z.number().int().positive() })
+    const result = schema.safeParse(req.body)
+    if (!result.success) return reply.status(400).send({ error: result.error.flatten() })
+    const rid = result.data.restaurantId
+
+    // 1. Migrar ítems: mover a global o eliminar si ya existe globalmente
+    const itemsPropios = await prisma.menuItem.findMany({ where: { restaurantId: rid } })
+    let itemsMigrados = 0
+    let itemsOmitidos = 0
+
+    for (const item of itemsPropios) {
+      const globalExiste = await prisma.menuItem.findFirst({
+        where: { restaurantId: null, categoria: item.categoria, nombre: item.nombre },
+      })
+      if (globalExiste) {
+        await prisma.menuItem.delete({ where: { id: item.id } })
+        itemsOmitidos++
+      } else {
+        await prisma.menuItem.update({ where: { id: item.id }, data: { restaurantId: null } })
+        itemsMigrados++
+      }
+    }
+
+    // 2. Migrar categorías: mover a global o eliminar si ya existe globalmente
+    const catsPropias = await prisma.menuCategoria.findMany({ where: { restaurantId: rid } })
+    let categoriasMigradas = 0
+    let categoriasOmitidas = 0
+
+    for (const cat of catsPropias) {
+      const globalExiste = await prisma.menuCategoria.findFirst({
+        where: { restaurantId: null, nombre: cat.nombre },
+      })
+      if (globalExiste) {
+        await prisma.menuCategoria.delete({ where: { id: cat.id } })
+        categoriasOmitidas++
+      } else {
+        await prisma.menuCategoria.update({ where: { id: cat.id }, data: { restaurantId: null } })
+        categoriasMigradas++
+      }
+    }
+
+    return { categoriasMigradas, categoriasOmitidas, itemsMigrados, itemsOmitidos }
   })
 
   // POST /menu/items/:id/copiar
@@ -251,7 +350,6 @@ export async function menuRoutes(app: FastifyInstance) {
     })
     if (yaExiste) return reply.status(409).send({ error: `Ya existe "${item.nombre}" en esa categoría` })
 
-    // Crear la categoría destino si no existe
     const catExiste = await prisma.menuCategoria.findFirst({
       where: { restaurantId: result.data.restaurantId, nombre: result.data.categoria },
     })
@@ -260,25 +358,14 @@ export async function menuRoutes(app: FastifyInstance) {
         where: { restaurantId: item.restaurantId, nombre: item.categoria },
       })
       await prisma.menuCategoria.create({
-        data: {
-          restaurantId: result.data.restaurantId,
-          nombre:       result.data.categoria,
-          icono:        catOrigen?.icono ?? '',
-          grupo:        catOrigen?.grupo ?? '',
-          orden:        catOrigen?.orden ?? 0,
-        },
+        data: { restaurantId: result.data.restaurantId, nombre: result.data.categoria,
+                icono: catOrigen?.icono ?? '', grupo: catOrigen?.grupo ?? '', orden: catOrigen?.orden ?? 0 },
       })
     }
 
     const nuevo = await prisma.menuItem.create({
-      data: {
-        restaurantId: result.data.restaurantId,
-        categoria:    result.data.categoria,
-        nombre:       item.nombre,
-        descripcion:  item.descripcion,
-        precio:       item.precio,
-        orden:        item.orden,
-      },
+      data: { restaurantId: result.data.restaurantId, categoria: result.data.categoria,
+              nombre: item.nombre, descripcion: item.descripcion, precio: item.precio, orden: item.orden },
     })
     return reply.status(201).send(nuevo)
   })

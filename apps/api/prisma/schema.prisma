@@ -27,6 +27,7 @@ model Restaurant {
   invCategorias          InventarioCategoria[]
   invProductos           InventarioProducto[]
   invConteos             InventarioConteo[]
+  invProducciones        InventarioProduccion[]
   reservaConfig          ReservaConfig?
   reservas               Reserva[]
   turnosEmpleados        TurnoEmpleado[]
@@ -155,9 +156,9 @@ model RetiroItem {
 }
 
 model MenuCategoria {
-  id           Int        @id @default(autoincrement())
-  restaurantId Int
-  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  id           Int         @id @default(autoincrement())
+  restaurantId Int?
+  restaurant   Restaurant? @relation(fields: [restaurantId], references: [id])
   grupo        String     @default("")
   nombre       String
   icono        String     @default("")
@@ -166,9 +167,9 @@ model MenuCategoria {
 }
 
 model MenuItem {
-  id           Int        @id @default(autoincrement())
-  restaurantId Int
-  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  id           Int         @id @default(autoincrement())
+  restaurantId Int?
+  restaurant   Restaurant? @relation(fields: [restaurantId], references: [id])
   categoria    String
   nombre       String
   descripcion  String     @default("")
@@ -246,26 +247,30 @@ model Producto {
 }
 
 model InventarioCategoria {
-  id           Int                  @id @default(autoincrement())
-  nombre       String
-  orden        Int                  @default(0)
-  restaurantId Int?
-  restaurant   Restaurant?          @relation(fields: [restaurantId], references: [id])
-  productos    InventarioProducto[]
+  id             Int                  @id @default(autoincrement())
+  nombre              String
+  orden               Int                  @default(0)
+  personalProduccion  String?              // null = no es producción | 'sala' | 'cocina'
+  restaurantId        Int?
+  restaurant     Restaurant?          @relation(fields: [restaurantId], references: [id])
+  productos      InventarioProducto[]
 }
 
 model InventarioProducto {
-  id           Int                    @id @default(autoincrement())
-  nombre       String
-  unidad       String                 @default("ud")
-  stockMinimo  Float                  @default(0)
-  orden        Int                    @default(0)
-  activo       Boolean                @default(true)
-  categoriaId  Int
+  id             Int                    @id @default(autoincrement())
+  nombre         String
+  unidad         String                 @default("ud")
+  stockMinimo    Float                  @default(0)
+  precioCoste    Float?
+  precioVenta    Float?
+  orden          Int                    @default(0)
+  activo         Boolean                @default(true)
+  categoriaId    Int
   categoria    InventarioCategoria    @relation(fields: [categoriaId], references: [id])
   restaurantId Int?
   restaurant   Restaurant?            @relation(fields: [restaurantId], references: [id])
   items        InventarioConteoItem[]
+  producciones InventarioProduccion[]
 }
 
 model InventarioConteo {
@@ -278,6 +283,20 @@ model InventarioConteo {
   cerrado      Boolean                @default(false)
   items        InventarioConteoItem[]
   createdAt    DateTime               @default(now())
+}
+
+model InventarioProduccion {
+  id           Int                @id @default(autoincrement())
+  restaurantId Int
+  restaurant   Restaurant         @relation(fields: [restaurantId], references: [id])
+  productoId   Int
+  producto     InventarioProducto @relation(fields: [productoId], references: [id])
+  cantidad     Float
+  unidad       String
+  creadoPor    String?
+  notas        String?
+  fecha        DateTime           @default(now())
+  createdAt    DateTime           @default(now())
 }
 
 model InventarioConteoItem {

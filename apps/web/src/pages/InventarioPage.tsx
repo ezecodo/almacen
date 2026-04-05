@@ -6,6 +6,8 @@ import {
   InventarioCategoria,
   InventarioProducto,
   InventarioConteoDetalleItem,
+  InventarioCostesRow,
+  InventarioProduccion,
 } from '../api'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -61,6 +63,16 @@ function ProductoRow({
       <span className="text-xs bg-gray-700 text-gray-300 px-2 py-0.5 rounded font-mono">
         {producto.unidad}
       </span>
+      {producto.precioVenta != null && (
+        <span className="text-xs text-cyan-400 font-medium">
+          PV {producto.precioVenta.toFixed(2)}€
+        </span>
+      )}
+      {producto.precioCoste != null && (
+        <span className="text-xs text-emerald-400 font-medium">
+          PC {producto.precioCoste.toFixed(2)}€
+        </span>
+      )}
       {producto.stockMinimo > 0 && (
         <span className="text-xs text-gray-400">
           min: {producto.stockMinimo}
@@ -90,16 +102,20 @@ function ProductoForm({
   categoriaId,
   restaurantId,
   initial,
+  restaurantes,
   onSave,
   onCancel,
 }: {
   categoriaId: number
   restaurantId: number | null
   initial?: InventarioProducto
+  restaurantes?: Restaurante[]
   onSave: (data: {
     nombre: string
     unidad: string
     stockMinimo: number
+    precioVenta: number | null
+    precioCoste: number | null
     categoriaId: number
     restaurantId?: number
   }) => void
@@ -108,6 +124,15 @@ function ProductoForm({
   const [nombre, setNombre] = useState(initial?.nombre ?? '')
   const [unidad, setUnidad] = useState<string>(initial?.unidad ?? 'ud')
   const [stockMinimo, setStockMinimo] = useState(String(initial?.stockMinimo ?? 0))
+  const [pVenta, setPVenta] = useState(initial?.precioVenta != null ? String(initial.precioVenta) : '')
+  const [pCoste, setPCoste] = useState(initial?.precioCoste != null ? String(initial.precioCoste) : '')
+  // Selector de destino: solo al crear desde contexto global (null = global, number = restaurante específico)
+  const [destino, setDestino] = useState<number | 'global'>('global')
+
+  // ridEfectivo: si hay selector activo (contexto global + creando), usa destino; si no, el prop
+  const ridEfectivo = restaurantes && !initial
+    ? (destino === 'global' ? null : destino)
+    : restaurantId
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -116,13 +141,40 @@ function ProductoForm({
       nombre: nombre.trim(),
       unidad,
       stockMinimo: parseFloat(stockMinimo) || 0,
+      precioVenta: pVenta.trim() !== '' ? parseFloat(pVenta) : null,
+      precioCoste: pCoste.trim() !== '' ? parseFloat(pCoste) : null,
       categoriaId,
-      ...(restaurantId !== null ? { restaurantId } : {}),
+      ...(ridEfectivo !== null ? { restaurantId: ridEfectivo } : {}),
     })
   }
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-wrap gap-2 items-end py-2 px-3 bg-gray-800 rounded-lg">
+      {/* Selector restaurante destino — solo al crear desde contexto global */}
+      {restaurantes && !initial && (
+        <div className="w-full">
+          <label className="block text-xs text-gray-400 mb-1">Asignar a</label>
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              onClick={() => setDestino('global')}
+              className={`text-xs font-semibold px-3 py-1 rounded-lg border transition-all ${destino === 'global' ? 'bg-cyan-600 border-cyan-600 text-white' : 'bg-gray-700 border-gray-600 text-gray-300 hover:border-gray-400'}`}
+            >
+              Global
+            </button>
+            {restaurantes.map(r => (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => setDestino(r.id)}
+                className={`text-xs font-semibold px-3 py-1 rounded-lg border transition-all ${destino === r.id ? 'bg-cyan-600 border-cyan-600 text-white' : 'bg-gray-700 border-gray-600 text-gray-300 hover:border-gray-400'}`}
+              >
+                {r.nombre}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="flex-1 min-w-[140px]">
         <label className="block text-xs text-gray-400 mb-1">Nombre</label>
         <input
@@ -158,6 +210,30 @@ function ProductoForm({
           className="w-full bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600 focus:outline-none focus:border-cyan-500"
         />
       </div>
+      <div className="w-28">
+        <label className="block text-xs text-cyan-400 mb-1">P. Venta <span className="text-gray-600">(€)</span></label>
+        <input
+          type="number"
+          min={0}
+          step={0.01}
+          value={pVenta}
+          onChange={e => setPVenta(e.target.value)}
+          placeholder="—"
+          className="w-full bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600 focus:outline-none focus:border-cyan-500"
+        />
+      </div>
+      <div className="w-28">
+        <label className="block text-xs text-emerald-400 mb-1">P. Coste <span className="text-gray-600">(€)</span></label>
+        <input
+          type="number"
+          min={0}
+          step={0.01}
+          value={pCoste}
+          onChange={e => setPCoste(e.target.value)}
+          placeholder="—"
+          className="w-full bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600 focus:outline-none focus:border-emerald-500"
+        />
+      </div>
       <div className="flex gap-2">
         <button
           type="submit"
@@ -184,11 +260,13 @@ function CategoriaBlock({
   selectedRestaurantId,
   onCategoriaUpdated,
   onCategoriaDeleted,
+  restaurantes,
 }: {
   categoria: InventarioCategoria
   selectedRestaurantId: number | null
   onCategoriaUpdated: () => void
   onCategoriaDeleted: () => void
+  restaurantes?: Restaurante[]
 }) {
   const [editingName, setEditingName] = useState(false)
   const [nameValue, setNameValue] = useState(categoria.nombre)
@@ -272,6 +350,32 @@ function CategoriaBlock({
           <>
             <span className="font-semibold text-white text-sm flex-1">{categoria.nombre}</span>
             {isGlobal && <GlobalBadge />}
+            {/* Toggle producción: null → sala → cocina → null */}
+            {categoria.personalProduccion === null ? (
+              <div className="flex items-center gap-1">
+                <span className="text-xs text-gray-500">⚗️</span>
+                <button onClick={() => api.inventario.updateCategoria(categoria.id, { personalProduccion: 'sala' }).then(onCategoriaUpdated)}
+                  className="text-xs border border-gray-600 text-gray-500 hover:border-cyan-500 hover:text-cyan-400 px-2 py-0.5 rounded transition-all">
+                  Sala
+                </button>
+                <button onClick={() => api.inventario.updateCategoria(categoria.id, { personalProduccion: 'cocina' }).then(onCategoriaUpdated)}
+                  className="text-xs border border-gray-600 text-gray-500 hover:border-orange-500 hover:text-orange-400 px-2 py-0.5 rounded transition-all">
+                  Cocina
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => api.inventario.updateCategoria(categoria.id, { personalProduccion: null }).then(onCategoriaUpdated)}
+                title="Quitar categoría de producción"
+                className={`text-xs font-semibold px-2 py-1 rounded border transition-all ${
+                  categoria.personalProduccion === 'sala'
+                    ? 'bg-cyan-500/20 border-cyan-500 text-cyan-400'
+                    : 'bg-orange-500/20 border-orange-500 text-orange-400'
+                }`}
+              >
+                ⚗️ {categoria.personalProduccion === 'sala' ? 'Sala' : 'Cocina'}
+              </button>
+            )}
             <span className="text-xs text-gray-500">
               {categoria.productos.length === 0
                 ? '(vacía)'
@@ -316,6 +420,7 @@ function CategoriaBlock({
                 onSave={data => updateProducto.mutate({ id: p.id, data })}
                 onCancel={() => setEditingProducto(null)}
               />
+              {/* no restaurantes prop on edit — scope is fixed */}
             </div>
           ) : (
             <ProductoRow
@@ -336,6 +441,7 @@ function CategoriaBlock({
             <ProductoForm
               categoriaId={categoria.id}
               restaurantId={selectedRestaurantId}
+              restaurantes={selectedRestaurantId === null ? restaurantes : undefined}
               onSave={data => createProducto.mutate(data)}
               onCancel={() => setShowAddProduct(false)}
             />
@@ -502,6 +608,7 @@ function CatalogoTab({ restaurantes }: { restaurantes: Restaurante[] }) {
             selectedRestaurantId={selectedId}
             onCategoriaUpdated={invalidate}
             onCategoriaDeleted={invalidate}
+            restaurantes={restaurantes}
           />
         ))}
       </div>
@@ -958,9 +1065,431 @@ function ConteosTab({ restaurantes }: { restaurantes: Restaurante[] }) {
   )
 }
 
+// ─── Tab: Costes ──────────────────────────────────────────────────────────────
+
+function CostesTab({ restaurantes }: { restaurantes: Restaurante[] }) {
+  const [restaurantId, setRestaurantId] = useState<number>(restaurantes[0]?.id ?? 0)
+  const [baseId, setBaseId] = useState<number | null>(null)
+  const [finalId, setFinalId] = useState<number | null>(null)
+
+  const { data: conteos } = useQuery({
+    queryKey: ['inv-conteos', restaurantId],
+    queryFn: () => api.inventario.getConteos(restaurantId),
+    enabled: restaurantId > 0,
+  })
+
+  const { data: costes, isLoading } = useQuery({
+    queryKey: ['inv-costes', baseId, finalId],
+    queryFn: () => api.inventario.getCostes(baseId!, finalId!),
+    enabled: baseId !== null && finalId !== null && baseId !== finalId,
+  })
+
+  // Agrupar filas por categoría
+  const byCategory = useMemo(() => {
+    if (!costes) return {}
+    const map: Record<string, InventarioCostesRow[]> = {}
+    for (const row of costes.rows) {
+      if (!map[row.categoriaNombre]) map[row.categoriaNombre] = []
+      map[row.categoriaNombre].push(row)
+    }
+    return map
+  }, [costes])
+
+  function fmtEur(n: number) {
+    return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '€'
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Restaurant selector */}
+      <div className="flex flex-wrap gap-2">
+        {restaurantes.map(r => (
+          <button
+            key={r.id}
+            onClick={() => { setRestaurantId(r.id); setBaseId(null); setFinalId(null) }}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              restaurantId === r.id ? 'bg-cyan-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+            }`}
+          >
+            {r.nombre}
+          </button>
+        ))}
+      </div>
+
+      {/* Conteo selectors */}
+      <div className="bg-gray-900 rounded-xl border border-gray-700 p-5 space-y-4">
+        <h3 className="text-sm font-semibold text-white">Seleccionar rango de conteos</h3>
+        {!conteos || conteos.length < 2 ? (
+          <p className="text-gray-400 text-sm italic">Necesitas al menos 2 conteos para comparar.</p>
+        ) : (
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">Conteo base (inicio)</label>
+              <select
+                value={baseId ?? ''}
+                onChange={e => setBaseId(Number(e.target.value) || null)}
+                className="w-full bg-gray-800 text-white text-sm rounded-lg px-3 py-2 border border-gray-700 focus:outline-none focus:border-cyan-500"
+              >
+                <option value="">Seleccionar…</option>
+                {conteos.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {new Date(c.fecha).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    {c.creadoPor ? ` · ${c.creadoPor}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">Conteo final</label>
+              <select
+                value={finalId ?? ''}
+                onChange={e => setFinalId(Number(e.target.value) || null)}
+                className="w-full bg-gray-800 text-white text-sm rounded-lg px-3 py-2 border border-gray-700 focus:outline-none focus:border-cyan-500"
+              >
+                <option value="">Seleccionar…</option>
+                {conteos.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {new Date(c.fecha).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    {c.creadoPor ? ` · ${c.creadoPor}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Results */}
+      {isLoading && <p className="text-gray-400 text-sm">Calculando costes…</p>}
+
+      {costes && (
+        <div className="space-y-4">
+          {/* Summary bar */}
+          <div className="flex flex-wrap gap-4">
+            <div className="bg-gray-900 rounded-xl border border-gray-700 px-5 py-3 flex flex-col">
+              <span className="text-xs text-gray-400">Coste total período</span>
+              <span className="text-2xl font-bold text-emerald-400 mt-0.5">{fmtEur(costes.totalCoste)}</span>
+            </div>
+            <div className="bg-gray-900 rounded-xl border border-gray-700 px-5 py-3 flex flex-col">
+              <span className="text-xs text-gray-400">Productos analizados</span>
+              <span className="text-2xl font-bold text-white mt-0.5">{costes.rows.length}</span>
+            </div>
+            {costes.sinPrecio > 0 && (
+              <div className="bg-amber-950 rounded-xl border border-amber-700 px-5 py-3 flex flex-col">
+                <span className="text-xs text-amber-400">Sin precio configurado</span>
+                <span className="text-2xl font-bold text-amber-300 mt-0.5">{costes.sinPrecio}</span>
+                <span className="text-[11px] text-amber-500 mt-0.5">Configura el precio en Catálogo</span>
+              </div>
+            )}
+          </div>
+
+          {/* Table by category */}
+          {Object.entries(byCategory).map(([catNombre, rows]) => {
+            const catTotal = rows.reduce((s, r) => s + (r.coste ?? 0), 0)
+            return (
+              <div key={catNombre} className="bg-gray-900 rounded-xl border border-gray-700 overflow-hidden">
+                <div className="px-4 py-3 bg-gray-800 border-b border-gray-700 flex items-center justify-between">
+                  <span className="font-semibold text-white text-sm">{catNombre}</span>
+                  <span className="text-sm font-bold text-emerald-400">{fmtEur(catTotal)}</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-gray-400 text-xs border-b border-gray-800">
+                        <th className="text-left px-4 py-2 font-medium">Producto</th>
+                        <th className="text-right px-4 py-2 font-medium">Base</th>
+                        <th className="text-right px-4 py-2 font-medium">Final</th>
+                        <th className="text-right px-4 py-2 font-medium">Consumido</th>
+                        <th className="text-right px-4 py-2 font-medium">€/u</th>
+                        <th className="text-right px-4 py-2 font-medium">Coste</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-800">
+                      {rows.map(row => (
+                        <tr key={row.productoId} className={row.consumido < 0 ? 'bg-blue-950/30' : 'hover:bg-gray-800'}>
+                          <td className="px-4 py-2.5 text-white">
+                            {row.nombre}
+                            <span className="ml-1.5 text-[10px] text-gray-500 font-mono">{row.unidad}</span>
+                          </td>
+                          <td className="px-4 py-2.5 text-right text-gray-400">{row.cantBase}</td>
+                          <td className="px-4 py-2.5 text-right text-gray-400">{row.cantFinal}</td>
+                          <td className={`px-4 py-2.5 text-right font-semibold ${
+                            row.consumido > 0 ? 'text-white' : row.consumido < 0 ? 'text-blue-400' : 'text-gray-500'
+                          }`}>
+                            {row.consumido > 0 ? row.consumido : row.consumido < 0 ? `+${Math.abs(row.consumido)}` : '—'}
+                          </td>
+                          <td className="px-4 py-2.5 text-right text-gray-400">
+                            {row.precioCoste !== null ? `${row.precioCoste.toFixed(2)}€` : (
+                              <span className="text-amber-500 text-xs">sin precio</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-semibold">
+                            {row.coste !== null
+                              ? <span className="text-emerald-400">{fmtEur(row.coste)}</span>
+                              : <span className="text-gray-600">—</span>
+                            }
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )
+          })}
+
+          {/* Grand total */}
+          <div className="flex justify-end">
+            <div className="bg-gray-900 border border-emerald-800 rounded-xl px-6 py-4 text-right">
+              <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Total período</p>
+              <p className="text-3xl font-bold text-emerald-400">{fmtEur(costes.totalCoste)}</p>
+              {costes.sinPrecio > 0 && (
+                <p className="text-xs text-amber-500 mt-1">+ {costes.sinPrecio} producto{costes.sinPrecio !== 1 ? 's' : ''} sin precio (no incluidos)</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── ProduccionTab ────────────────────────────────────────────────────────────
+
+function ProduccionTab({ restaurantes }: { restaurantes: Restaurante[] }) {
+  const qc = useQueryClient()
+  const [restaurantId, setRestaurantId] = useState(restaurantes[0]?.id)
+  const [showForm, setShowForm] = useState(false)
+
+  const { data: categorias = [] } = useQuery({
+    queryKey: ['inv-cats', restaurantId],
+    queryFn: () => api.inventario.getCategorias(restaurantId),
+    enabled: !!restaurantId,
+  })
+
+  const { data: producciones = [], isLoading } = useQuery({
+    queryKey: ['inv-producciones', restaurantId],
+    queryFn: () => api.inventario.getProducciones(restaurantId),
+    enabled: !!restaurantId,
+  })
+
+  const eliminar = useMutation({
+    mutationFn: (id: number) => api.inventario.deleteProduccion(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['inv-producciones', restaurantId] }),
+  })
+
+  // Solo productos de categorías de producción
+  const productos = useMemo(
+    () => categorias.filter(c => c.personalProduccion !== null).flatMap(c => c.productos),
+    [categorias]
+  )
+
+  return (
+    <div className="space-y-4">
+      {/* Restaurant selector */}
+      <div className="bg-gray-800 rounded-xl p-4 flex flex-wrap gap-2 items-center justify-between">
+        <div className="flex flex-wrap gap-2">
+          {restaurantes.map(r => (
+            <button
+              key={r.id}
+              onClick={() => setRestaurantId(r.id)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                restaurantId === r.id ? 'bg-cyan-500 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              }`}
+            >
+              {r.nombre}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={() => setShowForm(true)}
+          className="bg-cyan-500 hover:bg-cyan-400 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+        >
+          + Registrar producción
+        </button>
+      </div>
+
+      {/* Form modal */}
+      {showForm && (
+        <ProduccionForm
+          restaurantId={restaurantId}
+          productos={productos}
+          onDone={() => {
+            setShowForm(false)
+            qc.invalidateQueries({ queryKey: ['inv-producciones', restaurantId] })
+          }}
+          onCancel={() => setShowForm(false)}
+        />
+      )}
+
+      {/* List */}
+      {isLoading ? (
+        <p className="text-gray-400 text-sm text-center py-8">Cargando...</p>
+      ) : producciones.length === 0 ? (
+        <div className="text-center py-12 text-gray-500">
+          <p className="text-lg mb-1">Sin registros</p>
+          <p className="text-sm">Pulsa "+ Registrar producción" para añadir el primero</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {producciones.map((p: InventarioProduccion) => (
+            <div key={p.id} className="bg-gray-800 rounded-xl px-4 py-3 flex items-center gap-4">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-white">{p.producto.nombre}</span>
+                  <span className="text-cyan-400 font-bold">{p.cantidad} {p.unidad}</span>
+                </div>
+                <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-400">
+                  <span>{fmtFecha(p.fecha)}</span>
+                  {p.creadoPor && <span>· {p.creadoPor}</span>}
+                  {p.notas && <span>· {p.notas}</span>}
+                </div>
+              </div>
+              <button
+                onClick={() => { if (confirm('¿Eliminar este registro?')) eliminar.mutate(p.id) }}
+                className="text-gray-600 hover:text-red-400 text-sm transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ProduccionForm({
+  restaurantId,
+  productos,
+  onDone,
+  onCancel,
+}: {
+  restaurantId: number
+  productos: InventarioProducto[]
+  onDone: () => void
+  onCancel: () => void
+}) {
+  const [productoId, setProductoId] = useState(productos[0]?.id ?? 0)
+  const [cantidad, setCantidad]     = useState('')
+  const [unidad, setUnidad]         = useState(productos[0]?.unidad ?? 'ud')
+  const [creadoPor, setCreadoPor]   = useState('')
+  const [notas, setNotas]           = useState('')
+  const [fecha, setFecha]           = useState(() => new Date().toISOString().slice(0, 16))
+  const [saving, setSaving]         = useState(false)
+
+  const handleProductoChange = (id: number) => {
+    setProductoId(id)
+    const prod = productos.find(p => p.id === id)
+    if (prod) setUnidad(prod.unidad)
+  }
+
+  const handleSubmit = async () => {
+    if (!productoId || !cantidad) return
+    setSaving(true)
+    try {
+      await api.inventario.createProduccion({
+        restaurantId,
+        productoId,
+        cantidad: parseFloat(cantidad),
+        unidad,
+        creadoPor: creadoPor || undefined,
+        notas: notas || undefined,
+        fecha: new Date(fecha).toISOString(),
+      })
+      onDone()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (productos.length === 0) {
+    return (
+      <div className="bg-gray-800 rounded-xl p-6 text-center text-gray-400 text-sm">
+        No hay productos en el catálogo. Añade productos primero desde la pestaña Catálogo.
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-gray-800 border border-cyan-700 rounded-xl p-5 space-y-4">
+      <h3 className="font-bold text-white text-lg">Registrar producción de premix</h3>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="sm:col-span-2 space-y-1">
+          <label className="text-xs text-gray-400 font-medium">Producto</label>
+          <select
+            value={productoId}
+            onChange={e => handleProductoChange(Number(e.target.value))}
+            className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan-500"
+          >
+            {productos.map(p => (
+              <option key={p.id} value={p.id}>{p.nombre}</option>
+            ))}
+          </select>
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs text-gray-400 font-medium">Cantidad</label>
+          <input
+            type="number" min="0.1" step="0.5"
+            value={cantidad} onChange={e => setCantidad(e.target.value)}
+            placeholder="Ej: 5"
+            className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan-500"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs text-gray-400 font-medium">Unidad</label>
+          <select
+            value={unidad} onChange={e => setUnidad(e.target.value)}
+            className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan-500"
+          >
+            {(['ud', 'botella', 'caja', 'l', 'kg'] as const).map(u => (
+              <option key={u} value={u}>{u}</option>
+            ))}
+          </select>
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs text-gray-400 font-medium">Preparado por (opcional)</label>
+          <input
+            value={creadoPor} onChange={e => setCreadoPor(e.target.value)}
+            placeholder="Nombre"
+            className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan-500"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs text-gray-400 font-medium">Fecha y hora</label>
+          <input
+            type="datetime-local" value={fecha} onChange={e => setFecha(e.target.value)}
+            className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan-500"
+          />
+        </div>
+        <div className="sm:col-span-2 space-y-1">
+          <label className="text-xs text-gray-400 font-medium">Notas (opcional)</label>
+          <input
+            value={notas} onChange={e => setNotas(e.target.value)}
+            placeholder="Ej: Botella de 5L, lote especial…"
+            className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan-500"
+          />
+        </div>
+      </div>
+      <div className="flex justify-end gap-3 pt-1">
+        <button onClick={onCancel} className="text-sm text-gray-400 hover:text-white px-4 py-2">
+          Cancelar
+        </button>
+        <button
+          onClick={handleSubmit}
+          disabled={!productoId || !cantidad || saving}
+          className="bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 text-white text-sm font-semibold px-5 py-2 rounded-lg transition-colors"
+        >
+          {saving ? 'Guardando…' : 'Registrar'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
-type Tab = 'catalogo' | 'conteos'
+type Tab = 'catalogo' | 'conteos' | 'costes' | 'produccion'
 
 export default function InventarioPage() {
   const [tab, setTab] = useState<Tab>('catalogo')
@@ -993,7 +1522,7 @@ export default function InventarioPage() {
 
         {/* Tabs */}
         <div className="flex gap-1 bg-gray-800 p-1 rounded-lg w-fit">
-          {(['catalogo', 'conteos'] as Tab[]).map(t => (
+          {(['catalogo', 'conteos', 'costes', 'produccion'] as Tab[]).map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -1003,7 +1532,7 @@ export default function InventarioPage() {
                   : 'text-gray-400 hover:text-white'
               }`}
             >
-              {t === 'catalogo' ? 'Catálogo' : 'Conteos'}
+              {t === 'catalogo' ? 'Catálogo' : t === 'conteos' ? 'Conteos' : t === 'costes' ? 'Costes' : 'Producción'}
             </button>
           ))}
         </div>
@@ -1011,8 +1540,12 @@ export default function InventarioPage() {
         {/* Tab content */}
         {tab === 'catalogo' ? (
           <CatalogoTab restaurantes={rests} />
-        ) : (
+        ) : tab === 'conteos' ? (
           <ConteosTab restaurantes={rests} />
+        ) : tab === 'costes' ? (
+          <CostesTab restaurantes={rests} />
+        ) : (
+          <ProduccionTab restaurantes={rests} />
         )}
       </div>
     </div>
