@@ -6,7 +6,7 @@ Sistema de gestión integral para un grupo de restaurantes (cliente: Sensi Tapas
 Módulos activos:
 1. **Almacén**: control de retiros de materia prima con pistola de código de barras + validación por QR
 2. **Sala (TPV)**: sistema de comandas para camareros y encargados — mesas, menú, cocina, propinas, mermas, Google Reviews
-3. **Inventario**: conteo periódico de stock de sala por restaurante, con catálogo global + específico por restaurante
+3. **Inventario**: conteo periódico de stock, catálogo global + específico por restaurante, costes y registro de producción (premixes)
 4. **Grupos**: gestión de menús cerrados para grupos (plantillas con cursos, precios por pax, restricciones alimentarias)
 5. **Empleados**: ficha de personal con roles, horas contractuales, días libres y configuración para planning
 6. **Staffing**: planificación semanal de turnos de empleados con auto-planning por IA
@@ -151,6 +151,7 @@ Al enviar (`PATCH /comandas/:id/enviar`), se calcula `nextRonda = max(ronda exis
 - PIN de autenticación por camarero
 - Abrir mesa → añadir items del menú → OrdenarModal (asignar niveles de salida) → Enviar a cocina
 - Puede re-enviar (marcha pasa), imprimir cuenta, registrar mermas, cambiar mesa, fusionar mesas
+- Botón ⚗️ en el header para registrar producción de premixes (solo categorías `personalProduccion = 'sala'`)
 
 ### Cambiar mesa / Merge (POST /api/comandas/merge)
 
@@ -237,13 +238,31 @@ Página de inicio tras el login. Animación de entrada: viñeta grande aparece c
 
 Gestionado desde `/admin/menu`. Selector de restaurante en la parte superior.
 
+### Scope global / restaurante
+
+`MenuCategoria` y `MenuItem` tienen `restaurantId Int?`:
+- `null` = **global** (visible en todos los restaurantes)
+- `X` = **específico** de un restaurante
+
+En vista de restaurante se muestran globales + específicos del restaurante. Los items/categorías globales son de solo lectura desde la vista de restaurante.
+
+### Operaciones de migración
+- **Migrar a Global** (`POST /menu/migrar-a-global`): mueve todas las categorías e items de un restaurante a `restaurantId = null`. Si ya existe un global con el mismo nombre, elimina el duplicado del restaurante.
+- **Mover item a restaurante** (`PATCH /menu/:id/mover-restaurante`): mueve un item global a un restaurante específico. Si ya existe una categoría global con ese nombre, el item convive bajo ella (no crea categoría específica).
+
+### Deduplicación automática de categorías
+
+`GET /menu/categorias?restaurantId=X` detecta y elimina silenciosamente las categorías específicas del restaurante que tienen el mismo nombre que una categoría global (evita duplicados visuales).
+
 ### Categorías
 - **Orden**: cada categoría tiene campo `orden`. Botones ▲▼ en la card para reordenar dentro del mismo `grupo` (intercambia valores `orden` con la categoría adyacente via dos `PUT /menu/categorias/:id`).
 - **Copiar categoría** (`POST /menu/categorias/:id/copiar`): copia una categoría (con o sin sus items) a uno o varios restaurantes. Omite items duplicados por nombre.
-- **Eliminar**: borrado en cascada — elimina todos los items de la categoría primero, luego la categoría. El frontend pide confirmación indicando cuántos items se eliminarán.
+- **Eliminar**: borrado en cascada — elimina todos los items del mismo scope primero, luego la categoría.
 
 ### Items
-- **Copiar item** (`POST /menu/items/:id/copiar`): copia un item a un restaurante + categoría destino. Si la categoría destino no existe, la crea. Devuelve 409 si el item ya existe en ese destino.
+- **Copiar item** (`POST /menu/items/:id/copiar`): copia un item a un restaurante + categoría destino.
+- **Mover item** (`PATCH /menu/:id/mover-restaurante`): desde vista Global, mueve un item global a un restaurante específico.
+- **Hacer específico** (botón "→ Específico"): desde vista restaurante, convierte un item global en específico del restaurante actual.
 - **Toggle activo** (`PATCH /menu/:id/toggle`): activa/desactiva un item.
 - **Toggle autoPorPax** (`PATCH /menu/:id/toggleAutoPorPax`): marca si el item se cobra automáticamente por comensal.
 - **Alérgenos**: campo `alergenos Int` — bitmask de los 14 alérgenos EU (Reglamento 1169/2011). Bit 0=Gluten, 1=Crustáceos, 2=Huevos, 3=Pescado, 4=Cacahuetes, 5=Soja, 6=Lácteos, 7=Frutos secos, 8=Apio, 9=Mostaza, 10=Sésamo, 11=Sulfitos, 12=Altramuces, 13=Moluscos.
@@ -260,27 +279,62 @@ Catálogo **global** (compartido entre todos los restaurantes) + productos/categ
 
 ```
 InventarioCategoria  restaurantId=null → global | restaurantId=X → específica
+                     personalProduccion: null | 'sala' | 'cocina'  ← quién produce
 InventarioProducto   restaurantId=null → global | restaurantId=X → específica
                      unidad: ud | botella | caja | l | kg
+                     precioCoste Float?   ← precio de compra al proveedor
+                     precioVenta Float?   ← precio de venta al público
 InventarioConteo     siempre por restaurantId, cerrado=true al guardar
 InventarioConteoItem conteoId + productoId + cantidad  @@unique([conteoId, productoId])
+InventarioProduccion restaurantId, productoId, cantidad, unidad, creadoPor?, notas?, fecha
 ```
+
+### Filtrado de productos por scope
+
+`GET /inventario/categorias?restaurantId=X` filtra los productos incluidos por scope:
+- Vista restaurante → productos globales + específicos del restaurante
+- Vista global → solo productos globales
+
+Esto evita que los productos de un restaurante aparezcan en otro.
+
+### Producción (`personalProduccion`)
+
+Las categorías se pueden marcar como de producción con quién las produce:
+- `null` = no es categoría de producción (vinos, cervezas, etc.)
+- `'sala'` = el personal de sala lo prepara (premixes de cócteles)
+- `'cocina'` = el personal de cocina lo prepara
 
 ### API
 
-- `GET /inventario/categorias?restaurantId=X` — devuelve globales + específicas del restaurante, con productos incluidos
-- `POST/PATCH/DELETE /inventario/categorias/:id`
-- `POST/PATCH/DELETE /inventario/productos/:id`
+- `GET /inventario/categorias?restaurantId=X` — globales + específicas, productos filtrados por scope
+- `POST/PATCH/DELETE /inventario/categorias/:id` — PATCH acepta `personalProduccion`
+- `POST/PATCH/DELETE /inventario/productos/:id` — PATCH acepta `precioCoste`, `precioVenta`
 - `GET /inventario/conteos?restaurantId=X` — lista con `_count.items`
 - `POST /inventario/conteos` — crea y cierra inmediatamente con todos los items
-- `GET /inventario/conteos/:id` — detalle con diferencial vs conteo anterior del mismo restaurante
+- `GET /inventario/conteos/:id` — detalle con diferencial vs conteo anterior + `precioCoste`/`precioVenta`
 - `DELETE /inventario/conteos/:id`
+- `GET /inventario/costes?baseId=X&finalId=Y` — compara dos conteos: consumido = cantBase − cantFinal, coste = consumido × precioCoste
+- `GET /inventario/producciones?restaurantId=X` — historial de producciones
+- `POST /inventario/producciones` — registrar producción (producto, cantidad, unidad, creadoPor, notas, fecha)
+- `DELETE /inventario/producciones/:id`
 
 ### Frontend (`/admin/inventario`)
 
-**Pestaña Catálogo**: selector Global/restaurante, categorías con productos inline, badge "Global", campos nombre/unidad/stockMínimo.
+**Pestaña Catálogo**: selector Global/restaurante. Al añadir producto desde vista global, permite elegir a qué restaurante asignarlo (pills Global / Restaurante X). Toggle ⚗️ Sala / ⚗️ Cocina para marcar categorías de producción.
 
 **Pestaña Conteos**: selector de restaurante, historial con fecha/autor/nº productos, nuevo conteo con inputs grandes (tablet-friendly) agrupados por categoría, vista detalle con tabla Cantidad | Anterior | Diferencia (verde/rojo) y productos bajo mínimo resaltados.
+
+**Pestaña Costes**: seleccionar dos conteos para comparar consumo real × precio de coste. Total de coste y aviso de productos sin precio.
+
+**Pestaña Producción**: historial de producciones por restaurante. Botón "+ Registrar producción" — desplegable solo con productos de categorías `personalProduccion !== null`.
+
+### Producción desde la app de camarero
+
+Botón ⚗️ en el header de `SalaMesasPage`. Abre `ProduccionSalaModal` con:
+- Solo productos de categorías `personalProduccion = 'sala'` del restaurante
+- Campos: producto, cantidad, unidad, notas
+- `creadoPor` pre-relleno con el nombre del camarero logueado
+- Al guardar muestra ✓ y se resetea para registrar otro sin cerrar
 
 ---
 
