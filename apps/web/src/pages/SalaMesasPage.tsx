@@ -608,6 +608,10 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
   const [confirmarCerrar, setConfirmarCerrar] = useState(false)
   const [oidoAnim, setOidoAnim] = useState(false)
   const [dotsAnim, setDotsAnim] = useState(false)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const [fabPos, setFabPos] = useState<{ x: number; y: number } | null>(null)
+  const [fabDragging, setFabDragging] = useState(false)
 
   const yaEnviada    = comanda.estado === 'enviada'
   const yaFacturada  = comanda.estado === 'facturada'
@@ -641,6 +645,75 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
     try { return JSON.parse(sessionStorage.getItem('oidoops_camarero') ?? '') }
     catch { return null }
   })()
+
+  const STORAGE_KEY_FAB = `sala_lupa_pos_${camareroSesion?.id ?? 'def'}`
+
+  useEffect(() => {
+    if (!panelRef.current) return
+    const rect = panelRef.current.getBoundingClientRect()
+    let pos = { x: rect.width - 68, y: rect.height - 180 }
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_FAB)
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        pos = {
+          x: Math.min(Math.max(8, parsed.x), rect.width - 56),
+          y: Math.min(Math.max(8, parsed.y), rect.height - 56),
+        }
+      }
+    } catch {}
+    setFabPos(pos)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const handleFabPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    e.preventDefault()
+    if (!panelRef.current) return
+    const fabBtn = e.currentTarget
+    const panelRect = panelRef.current.getBoundingClientRect()
+    const startX = e.clientX
+    const startY = e.clientY
+    const startPos = fabPos ?? { x: 0, y: 0 }
+    let dragActive = false
+    let curX = startPos.x
+    let curY = startPos.y
+
+    const longPressId = setTimeout(() => {
+      dragActive = true
+      setFabDragging(true)
+      try { fabBtn.setPointerCapture(e.pointerId) } catch {}
+      if ('vibrate' in navigator) navigator.vibrate(40)
+    }, 450)
+
+    const onMove = (ev: PointerEvent) => {
+      const dx = ev.clientX - startX
+      const dy = ev.clientY - startY
+      if (!dragActive) {
+        if (Math.hypot(dx, dy) > 12) clearTimeout(longPressId)
+        return
+      }
+      curX = Math.min(Math.max(8, startPos.x + dx), panelRect.width - 56)
+      curY = Math.min(Math.max(8, startPos.y + dy), panelRect.height - 56)
+      setFabPos({ x: curX, y: curY })
+    }
+
+    const onUp = () => {
+      clearTimeout(longPressId)
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      if (dragActive) {
+        setFabDragging(false)
+        try { localStorage.setItem(STORAGE_KEY_FAB, JSON.stringify({ x: curX, y: curY })) } catch {}
+      } else {
+        // Tap corto → abre buscador
+        if (tab !== 'menu') setTab('menu')
+        setTimeout(() => searchInputRef.current?.focus(), 60)
+      }
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
 
   const registrarMerma = useMutation({
     mutationFn: ({ motivo, descripcion, cantidad }: { motivo: MermaMotivo; descripcion?: string; cantidad: number }) =>
@@ -773,7 +846,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end" onClick={onClose}>
-      <div className="w-full sm:max-w-md bg-[var(--sala-hdr)] h-full flex flex-col shadow-2xl border-l border-[var(--sala-brd)]" onClick={e => e.stopPropagation()}>
+      <div ref={panelRef} className="relative w-full sm:max-w-md bg-[var(--sala-hdr)] h-full flex flex-col shadow-2xl border-l border-[var(--sala-brd)]" onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="px-5 pt-5 pb-3 border-b border-[var(--sala-brd)]">
           <div className="flex items-start justify-between mb-1">
@@ -970,12 +1043,12 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                 </div>
               )}
               {/* Grupo tabs + search */}
-              <div className="px-4 pt-3 pb-2 space-y-2 border-b border-[var(--sala-brd)]">
+              <div className="px-2.5 pt-2 pb-1.5 space-y-1.5 border-b border-[var(--sala-brd)]">
                 {grupos.length > 1 && (
-                  <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+                  <div className="flex gap-1 overflow-x-auto pb-0.5">
                     {grupos.map(g => (
                       <button key={g} onClick={() => { setGrupoTab(g); setSelectedCat(null); setSearchMenu('') }}
-                        className={`px-4 py-1.5 rounded-xl text-sm font-semibold whitespace-nowrap transition-colors ${
+                        className={`px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
                           grupoActivo === g ? 'bg-cyan-600 text-[var(--sala-txt)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx2)] hover:bg-gray-700'
                         }`}>
                         {g}
@@ -983,9 +1056,9 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                     ))}
                   </div>
                 )}
-                <input value={searchMenu} onChange={e => { setSearchMenu(e.target.value); setSelectedCat(null) }}
+                <input ref={searchInputRef} value={searchMenu} onChange={e => { setSearchMenu(e.target.value); setSelectedCat(null) }}
                   placeholder="Buscar plato o bebida…"
-                  className="w-full bg-[var(--sala-btn2)] text-[var(--sala-txt)] text-sm px-4 py-2 rounded-xl outline-none placeholder:text-[var(--sala-tx4)]" />
+                  className="w-full bg-[var(--sala-btn2)] text-[var(--sala-txt)] text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-[var(--sala-tx4)]" />
               </div>
 
               {searchMenu.trim() ? (
@@ -1044,23 +1117,24 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                   </div>
                 </div>
               ) : (
-                /* ── Grid de categorías ── */
-                <div className="flex-1 overflow-y-auto p-4">
-                  <div className="grid grid-cols-2 gap-3">
-                    {categoriasSorted.map(cat => {
-                      const meta = categorias.find(c => c.nombre === cat)
-                      const count = menuByCategoria[cat]?.length ?? 0
-                      const esBarra = GRUPOS_BARRA.includes(meta?.grupo ?? '')
-                      return (
-                        <button key={cat} onClick={() => setSelectedCat(cat)}
-                          className="aspect-square rounded-2xl bg-[var(--sala-srf)] active:scale-95 transition-all flex flex-col items-center justify-center gap-2 p-4 border border-[var(--sala-brd)]/50 hover:border-cyan-700/40 hover:bg-[var(--sala-srf2)]">
-                          <span className="text-5xl leading-none">{meta?.icono ?? '🍽'}</span>
-                          <span className="text-[var(--sala-txt)] text-sm font-bold text-center leading-tight">{cat}</span>
-                          <span className={`text-xs ${esBarra ? 'text-amber-500' : 'text-[var(--sala-tx3)]'}`}>{count} items</span>
-                        </button>
-                      )
-                    })}
-                  </div>
+                /* ── Lista compacta de categorías (PADs/Handys) ── */
+                <div className="flex-1 overflow-y-auto p-1.5 space-y-1">
+                  {categoriasSorted.map(cat => {
+                    const meta = categorias.find(c => c.nombre === cat)
+                    const count = menuByCategoria[cat]?.length ?? 0
+                    const esBarra = GRUPOS_BARRA.includes(meta?.grupo ?? '')
+                    return (
+                      <button key={cat} onClick={() => setSelectedCat(cat)}
+                        className="w-full flex items-center gap-3 px-3 py-2 rounded-lg bg-[var(--sala-srf)] active:scale-[0.98] transition-all hover:bg-[var(--sala-srf2)] border border-[var(--sala-brd)]/50 hover:border-cyan-700/40">
+                        <span className="text-2xl leading-none shrink-0 w-7 text-center">{meta?.icono ?? '🍽'}</span>
+                        <span className="flex-1 text-left text-[var(--sala-txt)] text-sm font-semibold truncate">{cat}</span>
+                        <span className={`text-[11px] font-medium tabular-nums ${esBarra ? 'text-amber-500' : 'text-[var(--sala-tx3)]'}`}>{count}</span>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--sala-tx4)] shrink-0">
+                          <path d="M9 6l6 6-6 6" />
+                        </svg>
+                      </button>
+                    )
+                  })}
                 </div>
               )}
             </div>
@@ -1068,33 +1142,33 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-[var(--sala-brd)]">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-[var(--sala-tx2)] text-sm">Total</span>
-            <span className="text-[var(--sala-txt)] text-2xl font-bold">{total.toFixed(2)} €</span>
+        <div className="px-3 py-2 border-t border-[var(--sala-brd)]">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[var(--sala-tx2)] text-xs">Total</span>
+            <span className="text-[var(--sala-txt)] text-xl font-bold">{total.toFixed(2)} €</span>
           </div>
           {yaFacturada ? (
-            <div className="space-y-2">
-              <div className="flex items-center justify-center gap-2 py-2 bg-amber-500/10 rounded-xl">
-                <span className="text-amber-400 text-sm font-bold">🧾 Cuenta impresa — pendiente de cobro</span>
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-center gap-2 py-1.5 bg-amber-500/10 rounded-lg">
+                <span className="text-amber-400 text-xs font-bold">🧾 Cuenta impresa — pendiente de cobro</span>
               </div>
               <button onClick={e => { e.stopPropagation(); onLiberar() }}
-                className="w-full py-4 rounded-2xl bg-[#4CC8A0] text-[var(--sala-txt)] font-bold text-lg active:scale-95 transition-all">
+                className="w-full py-2.5 rounded-xl bg-[#4CC8A0] text-[var(--sala-txt)] font-bold text-base active:scale-95 transition-all">
                 Mesa libre 🔓
               </button>
               <button onClick={e => { e.stopPropagation(); setVerCuenta(true) }}
-                className="w-full py-2 rounded-2xl bg-[var(--sala-srf)] border border-[var(--sala-brd2)] text-[var(--sala-tx2)] font-medium text-sm">
+                className="w-full py-1.5 rounded-xl bg-[var(--sala-srf)] border border-[var(--sala-brd2)] text-[var(--sala-tx2)] font-medium text-xs">
                 Ver cuenta de nuevo
               </button>
             </div>
           ) : !hayPendientes && (yaEnviada || comanda.items.some(i => i.nivel != null)) ? (
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <button onClick={e => { e.stopPropagation(); setVerCuenta(true) }}
-                className="w-full py-4 rounded-2xl bg-[#f59e0b] text-[var(--sala-txt)] font-bold text-lg active:scale-95 transition-all">
+                className="w-full py-2.5 rounded-xl bg-[#f59e0b] text-[var(--sala-txt)] font-bold text-base active:scale-95 transition-all">
                 Ver cuenta 🧾
               </button>
               {yaEnviada && (
-                <button onClick={() => setOrdenando(true)} className="w-full py-2 text-[var(--sala-tx3)] text-xs underline">
+                <button onClick={() => setOrdenando(true)} className="w-full py-1 text-[var(--sala-tx3)] text-[11px] underline">
                   re-enviar comanda
                 </button>
               )}
@@ -1102,12 +1176,12 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
           ) : (
             <button onClick={hayPendientes ? handleOido : undefined}
               disabled={comanda.items.length === 0}
-              className={`w-full rounded-2xl flex items-center justify-center gap-3 py-4 transition-all active:scale-95 ${hayPendientes ? '' : 'opacity-25 cursor-default'}`}>
+              className={`w-full rounded-xl flex items-center justify-center gap-2 py-2.5 transition-all active:scale-95 ${hayPendientes ? '' : 'opacity-25 cursor-default'}`}>
               {/* Texto "Oído" — misma fuente que el logo */}
               <span style={{
                 fontFamily: "'Helvetica Neue', Arial, sans-serif",
                 fontWeight: 800,
-                fontSize: '2rem',
+                fontSize: '1.5rem',
                 color: hayPendientes ? '#4CC8A0' : '#6b7280',
                 opacity: oidoAnim ? 0 : 1,
                 transition: 'opacity 0.15s',
@@ -1115,7 +1189,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                 Oído
               </span>
               {/* Viñeta — misma forma y gradiente que el logo de OidoOps */}
-              <svg viewBox="0 0 68 72" className="w-14 h-14" style={{ filter: hayPendientes ? 'drop-shadow(0 0 10px rgba(76,200,160,0.55))' : 'none' }}>
+              <svg viewBox="0 0 68 72" className="w-10 h-10" style={{ filter: hayPendientes ? 'drop-shadow(0 0 8px rgba(76,200,160,0.55))' : 'none' }}>
                 <defs>
                   <linearGradient id="oido-grad" x1="0" y1="0" x2="1" y2="1">
                     <stop offset="0%" stopColor={hayPendientes ? '#4B9EDF' : '#374151'} />
@@ -1138,6 +1212,22 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
             </button>
           )}
         </div>
+
+        {/* Lupa flotante — tap: enfoca búsqueda · long-press: arrastrar */}
+        {fabPos && (
+          <button
+            onPointerDown={handleFabPointerDown}
+            style={{ left: fabPos.x, top: fabPos.y, touchAction: 'none' }}
+            className={`absolute z-50 w-12 h-12 rounded-full bg-cyan-600 text-white shadow-lg flex items-center justify-center select-none ${fabDragging ? 'scale-110 ring-4 ring-cyan-400/40 transition-none' : 'opacity-85 hover:opacity-100 hover:bg-cyan-500 transition-all'}`}
+            aria-label="Buscar"
+            title="Tap: buscar · Mantén pulsado: mover"
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="7" />
+              <path d="m20 20-3.5-3.5" />
+            </svg>
+          </button>
+        )}
       </div>
 
       {ordenando && (
@@ -1842,24 +1932,80 @@ export default function SalaMesasPage() {
         </div>
         {/* Vista tabs */}
         <div className="flex items-center gap-2">
-          {(['mapa', 'mesas', 'nueva'] as const).map(v => (
-            <button key={v} onClick={() => setView(v)}
-              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                view === v ? 'bg-[var(--sala-btna)] text-[var(--sala-txt)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)] hover:bg-gray-700'
-              }`}>
-              {v === 'mapa' ? '🗺 Mapa' : v === 'mesas' ? `📋 Mesas (${comandas?.length ?? 0})` : '➕ Nueva'}
-            </button>
-          ))}
-          {view === 'mapa' && planes && planes.length > 1 && (
-            <div className="flex gap-1 ml-1 overflow-x-auto">
-              {planes.map(p => (
-                <button key={p.id} onClick={() => setPlanId(p.id)}
-                  className={`px-3 py-1 rounded-lg text-xs font-medium whitespace-nowrap ${activePlan?.id === p.id ? 'bg-[var(--sala-btna)] text-[var(--sala-txt)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)]'}`}>
-                  {p.nombre}
-                </button>
-              ))}
-            </div>
-          )}
+          {/* Mapa */}
+          <button onClick={() => setView('mapa')}
+            aria-label="Mapa" title="Mapa"
+            className={`px-3 py-1.5 rounded-lg transition-colors inline-flex items-center justify-center ${
+              view === 'mapa' ? 'bg-[var(--sala-btna)] text-[var(--sala-txt)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)] hover:bg-gray-700'
+            }`}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M3 12h18" />
+              <path d="M12 3a14 14 0 0 1 0 18" />
+              <path d="M12 3a14 14 0 0 0 0 18" />
+            </svg>
+          </button>
+
+          {/* Selector de planta — solo en vista Mapa */}
+          {view === 'mapa' && planes && planes.length > 1 && planes.map(p => {
+            const lower = p.nombre.toLowerCase()
+            const isAlta = lower.includes('alta')
+            const isBaja = lower.includes('baja')
+            const showIcon = isAlta || isBaja
+            return (
+              <button key={p.id} onClick={() => setPlanId(p.id)}
+                aria-label={p.nombre} title={p.nombre}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap inline-flex items-center justify-center ${activePlan?.id === p.id ? 'bg-[var(--sala-btna)] text-[var(--sala-txt)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)]'}`}>
+                {showIcon ? (
+                  isAlta ? (
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      {/* Escalera ascendente (izquierda) */}
+                      <path d="M3 21h3v-3h3v-3h3v-3h3v-3" />
+                      {/* Flecha arriba (derecha, separada) */}
+                      <path d="M19 14V5" />
+                      <path d="M16 8l3-3 3 3" />
+                    </svg>
+                  ) : (
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      {/* Escalera descendente (izquierda) */}
+                      <path d="M3 6h3v3h3v3h3v3h3v3" />
+                      {/* Flecha abajo (derecha, separada) */}
+                      <path d="M19 10v9" />
+                      <path d="M16 16l3 3 3-3" />
+                    </svg>
+                  )
+                ) : (
+                  p.nombre
+                )}
+              </button>
+            )
+          })}
+
+          {/* Mesas */}
+          <button onClick={() => setView('mesas')}
+            aria-label="Mesas" title="Mesas"
+            className={`px-3 py-1.5 rounded-lg transition-colors inline-flex items-center justify-center ${
+              view === 'mesas' ? 'bg-[var(--sala-btna)] text-[var(--sala-txt)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)] hover:bg-gray-700'
+            }`}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 10h18" />
+              <path d="M4 10V8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2" />
+              <path d="M7 10v9" />
+              <path d="M17 10v9" />
+            </svg>
+          </button>
+
+          {/* Nueva */}
+          <button onClick={() => setView('nueva')}
+            aria-label="Nueva" title="Nueva"
+            className={`px-3 py-1.5 rounded-lg transition-colors inline-flex items-center justify-center ${
+              view === 'nueva' ? 'bg-[var(--sala-btna)] text-[var(--sala-txt)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)] hover:bg-gray-700'
+            }`}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 5v14" />
+              <path d="M5 12h14" />
+            </svg>
+          </button>
         </div>
       </div>
 
