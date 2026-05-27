@@ -1143,18 +1143,15 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
 
         {/* Footer */}
         <div className="px-3 py-2 border-t border-[var(--sala-brd)]">
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[var(--sala-tx2)] text-xs">Total</span>
-            <span className="text-[var(--sala-txt)] text-xl font-bold">{total.toFixed(2)} €</span>
-          </div>
           {yaFacturada ? (
             <div className="space-y-1.5">
               <div className="flex items-center justify-center gap-2 py-1.5 bg-amber-500/10 rounded-lg">
                 <span className="text-amber-400 text-xs font-bold">🧾 Cuenta impresa — pendiente de cobro</span>
               </div>
               <button onClick={e => { e.stopPropagation(); onLiberar() }}
-                className="w-full py-2.5 rounded-xl bg-[#4CC8A0] text-[var(--sala-txt)] font-bold text-base active:scale-95 transition-all">
-                Mesa libre 🔓
+                className="w-full py-2.5 px-4 rounded-xl bg-[#4CC8A0] text-[var(--sala-txt)] font-bold text-base active:scale-95 transition-all flex items-center justify-between">
+                <span>Mesa libre 🔓</span>
+                <span className="tabular-nums">{total.toFixed(2)} €</span>
               </button>
               <button onClick={e => { e.stopPropagation(); setVerCuenta(true) }}
                 className="w-full py-1.5 rounded-xl bg-[var(--sala-srf)] border border-[var(--sala-brd2)] text-[var(--sala-tx2)] font-medium text-xs">
@@ -1164,8 +1161,9 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
           ) : !hayPendientes && (yaEnviada || comanda.items.some(i => i.nivel != null)) ? (
             <div className="space-y-1.5">
               <button onClick={e => { e.stopPropagation(); setVerCuenta(true) }}
-                className="w-full py-2.5 rounded-xl bg-[#f59e0b] text-[var(--sala-txt)] font-bold text-base active:scale-95 transition-all">
-                Ver cuenta 🧾
+                className="w-full py-2.5 px-4 rounded-xl bg-[#f59e0b] text-[var(--sala-txt)] font-bold text-base active:scale-95 transition-all flex items-center justify-between">
+                <span>Ver cuenta 🧾</span>
+                <span className="tabular-nums">{total.toFixed(2)} €</span>
               </button>
               {yaEnviada && (
                 <button onClick={() => setOrdenando(true)} className="w-full py-1 text-[var(--sala-tx3)] text-[11px] underline">
@@ -1176,9 +1174,9 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
           ) : (
             <button onClick={hayPendientes ? handleOido : undefined}
               disabled={comanda.items.length === 0}
-              className={`w-full rounded-xl flex items-center justify-center gap-2 py-2.5 transition-all active:scale-95 ${hayPendientes ? '' : 'opacity-25 cursor-default'}`}>
-              {/* Texto "Oído" — misma fuente que el logo */}
-              <span style={{
+              className={`w-full rounded-xl grid grid-cols-3 items-center py-2 px-4 transition-all active:scale-95 ${hayPendientes ? '' : 'opacity-25 cursor-default'}`}>
+              {/* Texto "Oído" — izquierda */}
+              <span className="justify-self-start" style={{
                 fontFamily: "'Helvetica Neue', Arial, sans-serif",
                 fontWeight: 800,
                 fontSize: '1.5rem',
@@ -1188,8 +1186,8 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
               }}>
                 Oído
               </span>
-              {/* Viñeta — misma forma y gradiente que el logo de OidoOps */}
-              <svg viewBox="0 0 68 72" className="w-10 h-10" style={{ filter: hayPendientes ? 'drop-shadow(0 0 8px rgba(76,200,160,0.55))' : 'none' }}>
+              {/* Viñeta — centro (target del tap) */}
+              <svg viewBox="0 0 68 72" className="w-10 h-10 justify-self-center" style={{ filter: hayPendientes ? 'drop-shadow(0 0 8px rgba(76,200,160,0.55))' : 'none' }}>
                 <defs>
                   <linearGradient id="oido-grad" x1="0" y1="0" x2="1" y2="1">
                     <stop offset="0%" stopColor={hayPendientes ? '#4B9EDF' : '#374151'} />
@@ -1209,6 +1207,8 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                   strokeDasharray={60} strokeDashoffset={oidoAnim ? 0 : 60}
                   style={{ transition: oidoAnim ? 'stroke-dashoffset 0.4s ease-out' : 'none' }} />
               </svg>
+              {/* Euros — derecha */}
+              <span className="justify-self-end text-[var(--sala-txt)] text-lg font-bold tabular-nums">{total.toFixed(2)} €</span>
             </button>
           )}
         </div>
@@ -1958,20 +1958,20 @@ export default function SalaMesasPage() {
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap inline-flex items-center justify-center ${activePlan?.id === p.id ? 'bg-[var(--sala-btna)] text-[var(--sala-txt)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)]'}`}>
                 {showIcon ? (
                   isAlta ? (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <svg width="22" height="22" viewBox="0 0 28 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
                       {/* Escalera ascendente (izquierda) */}
-                      <path d="M3 21h3v-3h3v-3h3v-3h3v-3" />
-                      {/* Flecha arriba (derecha, separada) */}
-                      <path d="M19 14V5" />
-                      <path d="M16 8l3-3 3 3" />
+                      <path d="M1 21h2.5v-2.5h2.5v-2.5h2.5v-2.5h2.5v-2.5" strokeWidth="1.6" />
+                      {/* Flecha arriba (derecha, separada del cuerpo de la escalera) */}
+                      <path d="M21 21V4" strokeWidth="2.4" />
+                      <path d="M16 8l5-5 5 5" strokeWidth="2.4" />
                     </svg>
                   ) : (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <svg width="22" height="22" viewBox="0 0 28 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
                       {/* Escalera descendente (izquierda) */}
-                      <path d="M3 6h3v3h3v3h3v3h3v3" />
-                      {/* Flecha abajo (derecha, separada) */}
-                      <path d="M19 10v9" />
-                      <path d="M16 16l3 3 3-3" />
+                      <path d="M1 3h2.5v2.5h2.5v2.5h2.5v2.5h2.5v2.5" strokeWidth="1.6" />
+                      {/* Flecha abajo (derecha, separada del cuerpo de la escalera) */}
+                      <path d="M21 3v17" strokeWidth="2.4" />
+                      <path d="M16 16l5 5 5-5" strokeWidth="2.4" />
                     </svg>
                   )
                 ) : (
