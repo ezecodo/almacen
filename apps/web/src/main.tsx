@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import LandingPage from './pages/LandingPage'
+import AccederPage from './pages/AccederPage'
 import RetiroPage from './pages/RetiroPage'
 import AdminPage from './pages/AdminPage'
 import ProductosPage from './pages/ProductosPage'
@@ -45,6 +46,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<LandingPage />} />
+          <Route path="/acceder" element={<AccederPage />} />
           <Route path="/logo-lab" element={<LogoLabPage />} />
           <Route path="/sala/setup" element={<SetupPage />} />
           <Route path="/sala" element={<SalaLoginPage />} />
