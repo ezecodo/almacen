@@ -529,6 +529,21 @@
   transform-origin: center bottom;
 }
 
+.landing-root .hero-device-peek {
+  position: relative;
+  width: 100%;
+  height: 560px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  transform: translateY(20%);
+}
+.landing-root .hero-device-wrap {
+  transform: scale(0.82) rotate(-2deg);
+  transform-origin: bottom center;
+  animation: landingBreathe 8s ease-in-out infinite;
+}
+
 .landing-root .hero-chip {
   position: absolute;
   display: inline-flex;
@@ -546,6 +561,9 @@
   z-index: 3;
   white-space: nowrap;
 }
+.landing-root .hero-chip--topRight    { top: 24px;  right: 0; }
+.landing-root .hero-chip--midLeft     { top: 168px; left: 8px; }
+.landing-root .hero-chip--bottomRight { bottom: 80px; right: -20px; }
 .landing-root .hero-chip-dot {
   width: 8px; height: 8px;
   border-radius: 50%;
@@ -577,6 +595,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
+}
+.landing-root .sticky-device-wrap {
+  transform: scale(0.85);
+  transform-origin: center center;
+  transition: opacity 0.5s ease;
 }
 .landing-root .sticky-features-right {
   display: flex;
@@ -1326,6 +1349,14 @@
   min-height: 0;
 }
 
+/* ════════════════════════════════════════════════════════════════════════
+ * RESPONSIVE — breakpoints
+ *   1100  → 2-col modules
+ *    960  → tablet vertical: secciones a 1-col, devices reducidos
+ *    760  → mobile: hero device oculto, chips ocultos, paddings reducidos
+ *    480  → mobile pequeño: type más chico
+ * ════════════════════════════════════════════════════════════════════════ */
+
 @media (max-width: 1100px) {
   .landing-root .modules-grid {
     grid-template-columns: repeat(2, 1fr);
@@ -1336,19 +1367,216 @@
     grid-column: span 1;
   }
 }
-@media (max-width: 700px) {
-  .landing-root .modules-grid { grid-template-columns: 1fr; }
-  .landing-root .camarero-phones { grid-template-columns: 1fr; }
-  .landing-root .a11y-grid { grid-template-columns: 1fr; }
-}
+
 @media (max-width: 960px) {
   .landing-root { --section-pad-y: 96px; }
   .landing-root .hero-bottom { grid-template-columns: 1fr; gap: 24px; }
   .landing-root .sticky-features-grid { grid-template-columns: 1fr; gap: 32px; }
-  .landing-root .sticky-features-left { position: relative; height: auto; top: 0; }
+  .landing-root .sticky-features-left {
+    position: relative;
+    height: auto;
+    top: 0;
+    overflow: hidden;
+    width: 100%;
+  }
+  /* El device sigue siendo 760px de ancho — usamos scale + márgenes negativos
+     para que ocupe menos espacio real en el flujo y no cause scroll horizontal. */
+  .landing-root .sticky-device-wrap {
+    transform: scale(0.65);
+    transform-origin: top center;
+    margin: -50px -200px -160px;
+  }
   .landing-root .sticky-feature { min-height: auto; padding: 40px 0; }
   .landing-root .stats-grid { grid-template-columns: 1fr; }
   .landing-root .nav-links { display: none; }
+  .landing-root .camarero-phones { grid-template-columns: 1fr 1fr; gap: 24px; }
+  .landing-root .camarero-card.is-highlight .camarero-card-phone { transform: none; }
+}
+
+@media (max-width: 760px) {
+  .landing-root {
+    --gutter: 20px;
+    --section-pad-y: 72px;
+  }
+
+  /* Nav: solo logo + CTA */
+  .landing-root .nav {
+    top: 16px;
+    width: calc(100% - 32px);
+    padding: 10px 12px 10px 18px;
+  }
+
+  /* Hero: ocultar device + chips, dejar headline + CTA */
+  .landing-root .hero {
+    min-height: auto;
+    padding-top: 120px;
+    padding-bottom: 80px;
+  }
+  .landing-root .hero-bg-blob {
+    width: 400px;
+    height: 400px;
+    top: -10%;
+    right: -25%;
+  }
+  .landing-root .hero-meta {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    margin-bottom: 24px;
+    font-size: 10px;
+  }
+  /* Madrid·Barcelona + HH:MM tienen gap 28 inline → reducir y bajar a column */
+  .landing-root .hero-meta > span:nth-child(2) {
+    flex-direction: column !important;
+    align-items: flex-start;
+    gap: 4px !important;
+  }
+  .landing-root .hero-headline { margin-bottom: 24px; }
+  .landing-root .hero-left { padding-bottom: 0; }
+  .landing-root .hero-sub { margin-bottom: 24px; }
+  .landing-root .hero-ctas .btn { width: 100%; }
+  .landing-root .hero-device-peek { display: none; }
+
+  /* Sticky features: device escala aún más chica */
+  .landing-root .sticky-device-wrap {
+    transform: scale(0.42);
+    transform-origin: top center;
+    margin: -100px -250px -290px;
+  }
+  .landing-root .sticky-features-left {
+    height: auto;
+    margin-bottom: 0;
+  }
+  .landing-root .sticky-feature-title {
+    font-size: 32px;
+  }
+
+  /* Marquee: mantener pero items más chicos */
+  .landing-root .marquee-item {
+    font-size: 42px;
+    gap: 14px;
+  }
+  .landing-root .marquee-track { gap: 40px; padding-right: 40px; }
+
+  /* Modules: una columna */
+  .landing-root .modules-grid {
+    grid-template-columns: 1fr;
+    grid-auto-rows: 340px;
+  }
+
+  /* Camarero: una sola columna de phones */
+  .landing-root .camarero-phones {
+    grid-template-columns: 1fr;
+    gap: 48px;
+  }
+  .landing-root .a11y-grid {
+    grid-template-columns: 1fr;
+    padding-top: 36px;
+  }
+  .landing-root .a11y-card { padding: 18px 0; border-bottom: 1px solid var(--line); }
+  .landing-root .a11y-card:last-child { border-bottom: none; }
+
+  /* Verifactu: countdown debajo del chip, ticket más chico */
+  .landing-root .verifactu-chip-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .landing-root .verifactu-body {
+    grid-template-columns: 1fr;
+    gap: 48px;
+  }
+  .landing-root .verifactu-ticket-wrap { order: -1; }
+  .landing-root .verifactu-ticket {
+    width: 100%;
+    max-width: 320px;
+    transform: none;          /* quitar rotación para no causar overflow horizontal */
+  }
+  .landing-root .verifactu-bullets { gap: 20px; }
+  .landing-root .verifactu-bullets li { gap: 14px; }
+  .landing-root .verifactu-bullets h4 { font-size: 19px; }
+  .landing-root .verifactu-foot {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+  }
+
+  /* Stats: trust strip a 2 columnas, gap menor */
+  .landing-root .stats-grid {
+    grid-template-columns: 1fr;
+    gap: 24px;
+    margin-top: 48px;
+  }
+  .landing-root .stat-card { padding: 8px 0 8px 20px; }
+  .landing-root .stat-number {
+    font-size: 72px;
+  }
+  .landing-root .stats .container > div:last-child {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 24px;
+  }
+  .landing-root .stats .container > div:last-child > div:last-child {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px !important;
+    width: 100%;
+  }
+
+  /* Statement: padding y type */
+  .landing-root .statement-section { padding: 96px 0; }
+  .landing-root .statement-section .h-statement {
+    font-size: clamp(40px, 11vw, 64px);
+  }
+
+  /* Closer: padding + foot stack */
+  .landing-root .closer { padding: 120px 0 80px; }
+  .landing-root .closer-foot {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 18px;
+    text-align: left;
+  }
+  .landing-root .closer-ctas .btn { width: 100%; }
+}
+
+@media (max-width: 480px) {
+  .landing-root .h-display {
+    /* 11vw a 375px = 41px → "sin papelitos." cabe en el container con margen */
+    font-size: clamp(36px, 11vw, 56px);
+  }
+  .landing-root .h-section {
+    font-size: clamp(32px, 9vw, 44px);
+  }
+  .landing-root .h-statement {
+    font-size: clamp(36px, 11vw, 56px);
+  }
+  .landing-root .marquee-item { font-size: 34px; }
+  .landing-root .stat-number { font-size: 56px; }
+  .landing-root .nav .btn { padding: 0 12px; font-size: 13px; }
+  /* Asegurar que el rotor no fuerce un min-width mayor que el container */
+  .landing-root .hero-rotor { max-width: 100%; }
+  /* Phones más chicos en pantallas <480px (caben en iPhone SE) */
+  .landing-root .scaled-phone {
+    transform: scale(0.78);
+    transform-origin: top center;
+    margin-bottom: -140px;
+  }
+  /* Trust strip: gap más chico entre las 2 columnas */
+  .landing-root .stats .container > div:last-child > div:last-child {
+    gap: 14px !important;
+  }
+  /* Verifactu chip más chico para no rebosar */
+  .landing-root .verifactu-chip { font-size: 12px; padding: 8px 12px; }
+  .landing-root .verifactu-countdown { padding: 6px 12px 6px 14px; }
+}
+
+/* Anti scroll horizontal accidental — cualquier hijo del root no puede rebosar */
+.landing-root,
+.landing-root .container,
+.landing-root section {
+  max-width: 100vw;
+  overflow-x: clip;
 }
 
 @media (prefers-reduced-motion: reduce) {

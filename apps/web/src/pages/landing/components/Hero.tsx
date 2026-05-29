@@ -82,24 +82,10 @@ export function HeroSection() {
 function HeroDevicePeek() {
   const chips = copy.hero.chips
   return (
-    <div
-      style={{
-        position: 'relative',
-        width: '100%',
-        height: 560,
-        display: 'flex',
-        alignItems: 'flex-end',
-        justifyContent: 'center',
-        transform: 'translateY(20%)',
-      }}
-    >
+    <div className="hero-device-peek">
       <div
-        className="hero-chip"
-        style={{
-          top: 24,
-          right: 0,
-          animation: 'landingDrift1 5s ease-in-out infinite',
-        }}
+        className="hero-chip hero-chip--topRight"
+        style={{ animation: 'landingDrift1 5s ease-in-out infinite' }}
       >
         <span className="hero-chip-dot" style={{ background: '#D97706' }} />
         <span>{chips.topRight.text}</span>
@@ -119,22 +105,16 @@ function HeroDevicePeek() {
       </div>
 
       <div
-        className="hero-chip"
-        style={{
-          top: 168,
-          left: 8,
-          animation: 'landingDrift2 7s ease-in-out infinite',
-        }}
+        className="hero-chip hero-chip--midLeft"
+        style={{ animation: 'landingDrift2 7s ease-in-out infinite' }}
       >
         <span className="hero-chip-dot pulse-dot" style={{ background: '#2A9D7F' }} />
         <span>{chips.midLeft.text}</span>
       </div>
 
       <div
-        className="hero-chip"
+        className="hero-chip hero-chip--bottomRight"
         style={{
-          bottom: 80,
-          right: -20,
           animation: 'landingDrift1 6s ease-in-out infinite',
           animationDelay: '0.5s',
         }}
@@ -155,13 +135,7 @@ function HeroDevicePeek() {
         </span>
       </div>
 
-      <div
-        style={{
-          transform: 'scale(0.82) rotate(-2deg)',
-          transformOrigin: 'bottom center',
-          animation: 'landingBreathe 8s ease-in-out infinite',
-        }}
-      >
+      <div className="hero-device-wrap">
         <LandingDevice view="comanda" />
       </div>
     </div>

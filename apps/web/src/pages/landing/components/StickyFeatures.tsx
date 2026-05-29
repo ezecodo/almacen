@@ -67,13 +67,7 @@ export function StickyFeaturesSection() {
         <div ref={ref} className="sticky-features-stage">
           <div className="sticky-features-grid">
             <div className="sticky-features-left">
-              <div
-                style={{
-                  transform: 'scale(0.85)',
-                  transformOrigin: 'center center',
-                  transition: 'opacity 0.5s ease',
-                }}
-              >
+              <div className="sticky-device-wrap">
                 <LandingDevice view={c.features[activeIdx].view} />
               </div>
             </div>
