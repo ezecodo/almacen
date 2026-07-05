@@ -35,7 +35,77 @@ model Restaurant {
   staffingConfig         StaffingConfig?
   necesidadesDia         StaffingNecesidadDia[]
   necesidadesFecha       StaffingNecesidadFecha[]
+  wikiArticulos          WikiArticulo[]
+  checklistSectores      ChecklistSector[]
+  checklistEjecuciones   ChecklistEjecucion[]
   createdAt              DateTime              @default(now())
+}
+
+// ── Wiki ──────────────────────────────────────────────────────────────────────
+// Base de conocimiento por restaurante: speeches, protocolos, conceptos.
+// Categorías globales (compartidas por la cadena) + artículos con scope
+// global (restaurantId = null) o específico de un restaurante.
+
+model WikiCategoria {
+  id        Int            @id @default(autoincrement())
+  nombre    String
+  icono     String         @default("")
+  orden     Int            @default(0)
+  articulos WikiArticulo[]
+  createdAt DateTime       @default(now())
+}
+
+model WikiArticulo {
+  id           Int           @id @default(autoincrement())
+  categoriaId  Int
+  categoria    WikiCategoria @relation(fields: [categoriaId], references: [id])
+  restaurantId Int?          // null = global (toda la cadena)
+  restaurant   Restaurant?   @relation(fields: [restaurantId], references: [id])
+  titulo       String
+  guiones      Json          @default("{}") // { en?, fr?, de? } — guiones por idioma (lo que lee el TTS)
+  notas        String        @default("") // notas/contexto en español para el camarero
+  orden        Int           @default(0)
+  activo       Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+// ── Checklists ──────────────────────────────────────────────────────────────────
+// Cada restaurante define sus sectores (Barra 1, Sala 2, Paso…). Cada sector tiene
+// ítems de apertura y de cierre. Cada vez que el personal completa uno se registra
+// una ejecución con snapshot inmutable de lo marcado (accountability).
+
+model ChecklistSector {
+  id           Int                  @id @default(autoincrement())
+  restaurantId Int
+  restaurant   Restaurant           @relation(fields: [restaurantId], references: [id])
+  nombre       String               // "Barra 1", "Sala 2", "Paso"
+  orden        Int                  @default(0)
+  items        ChecklistItem[]
+  ejecuciones  ChecklistEjecucion[]
+  createdAt    DateTime             @default(now())
+}
+
+model ChecklistItem {
+  id        Int             @id @default(autoincrement())
+  sectorId  Int
+  sector    ChecklistSector @relation(fields: [sectorId], references: [id])
+  momento   String          // 'apertura' | 'cierre'
+  texto     String
+  orden     Int             @default(0)
+  createdAt DateTime        @default(now())
+}
+
+model ChecklistEjecucion {
+  id            Int             @id @default(autoincrement())
+  sectorId      Int
+  sector        ChecklistSector @relation(fields: [sectorId], references: [id])
+  restaurantId  Int
+  restaurant    Restaurant      @relation(fields: [restaurantId], references: [id])
+  momento       String          // 'apertura' | 'cierre'
+  completadoPor String
+  itemsMarcados Json            // snapshot: [{ texto: string, marcado: boolean }]
+  fecha         DateTime        @default(now())
 }
 
 model Turno {

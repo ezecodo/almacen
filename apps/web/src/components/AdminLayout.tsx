@@ -11,6 +11,7 @@ const NAV_GROUPS = [
       { to: '/admin/turnos',   label: 'Turnos' },
       { to: '/admin/mermas',   label: 'Mermas' },
       { to: '/admin/propinas', label: 'Propinas' },
+      { to: '/admin/checklists', label: 'Checklists' },
     ],
   },
   {
@@ -52,6 +53,7 @@ const NAV_GROUPS = [
     items: [
       { to: '/admin/empleados', label: 'Empleados' },
       { to: '/admin/staffing',  label: 'Personal' },
+      { to: '/admin/wiki',      label: 'Wiki' },
     ],
   },
 ]

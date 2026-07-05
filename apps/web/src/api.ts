@@ -585,6 +585,67 @@ export interface EmpleadoDisponible {
 }
 
 
+// ── Wiki ────────────────────────────────────────────────────────────────────
+export interface WikiGuiones {
+  en?: string
+  fr?: string
+  de?: string
+}
+
+export interface WikiArticulo {
+  id: number
+  categoriaId: number
+  restaurantId: number | null
+  titulo: string
+  guiones: WikiGuiones
+  notas: string
+  orden: number
+  activo: boolean
+}
+
+export interface WikiCategoria {
+  id: number
+  nombre: string
+  icono: string
+  orden: number
+  _count?: { articulos: number }
+  articulos?: WikiArticulo[]
+}
+
+// ── Checklists ──────────────────────────────────────────────────────────────
+export interface ChecklistItem {
+  id: number
+  sectorId: number
+  momento: 'apertura' | 'cierre'
+  texto: string
+  orden: number
+}
+
+export interface ChecklistMarcado {
+  texto: string
+  marcado: boolean
+}
+
+export interface ChecklistEjecucion {
+  id: number
+  sectorId: number
+  restaurantId: number
+  momento: 'apertura' | 'cierre'
+  completadoPor: string
+  itemsMarcados: ChecklistMarcado[]
+  fecha: string
+  sector?: ChecklistSector
+}
+
+export interface ChecklistSector {
+  id: number
+  restaurantId: number
+  nombre: string
+  orden: number
+  items?: ChecklistItem[]
+  ejecuciones?: ChecklistEjecucion[] // ejecuciones de hoy (vista sala)
+}
+
 export const api = {
   restaurantes: {
     list: () => get<Restaurante[]>('/restaurantes'),
@@ -883,5 +944,51 @@ export const api = {
     createProduccion: (body: { restaurantId: number; productoId: number; cantidad: number; unidad: string; creadoPor?: string; notas?: string; fecha?: string }) =>
       post<InventarioProduccion>('/inventario/producciones', body),
     deleteProduccion: (id: number) => del(`/inventario/producciones/${id}`),
+  },
+  wiki: {
+    // Vista combinada para sala: categorías con artículos activos filtrados por scope
+    contenido: (restaurantId: number) =>
+      get<WikiCategoria[]>(`/wiki?restaurantId=${restaurantId}`),
+    // Categorías (admin)
+    listCategorias: () => get<WikiCategoria[]>('/wiki/categorias'),
+    createCategoria: (body: { nombre: string; icono?: string; orden?: number }) =>
+      post<WikiCategoria>('/wiki/categorias', body),
+    updateCategoria: (id: number, body: Partial<{ nombre: string; icono: string; orden: number }>) =>
+      put<WikiCategoria>(`/wiki/categorias/${id}`, body),
+    deleteCategoria: (id: number) => del(`/wiki/categorias/${id}`),
+    // Artículos (admin) — con restaurantId: globales + específicos; sin él: solo globales
+    listArticulos: (restaurantId: number | null) =>
+      get<WikiArticulo[]>(`/wiki/articulos${restaurantId !== null ? `?restaurantId=${restaurantId}` : ''}`),
+    createArticulo: (body: { categoriaId: number; restaurantId: number | null; titulo: string; guiones?: WikiGuiones; notas?: string; orden?: number }) =>
+      post<WikiArticulo>('/wiki/articulos', body),
+    updateArticulo: (id: number, body: Partial<{ categoriaId: number; restaurantId: number | null; titulo: string; guiones: WikiGuiones; notas: string; orden: number }>) =>
+      put<WikiArticulo>(`/wiki/articulos/${id}`, body),
+    toggleArticulo: (id: number) => patch<WikiArticulo>(`/wiki/articulos/${id}/toggle`, {}),
+    deleteArticulo: (id: number) => del(`/wiki/articulos/${id}`),
+  },
+  checklists: {
+    // Vista sala: sectores con ítems + ejecuciones de hoy
+    contenido: (restaurantId: number) =>
+      get<ChecklistSector[]>(`/checklists?restaurantId=${restaurantId}`),
+    // Sectores (admin)
+    listSectores: (restaurantId: number) =>
+      get<ChecklistSector[]>(`/checklists/sectores?restaurantId=${restaurantId}`),
+    createSector: (body: { restaurantId: number; nombre: string; orden?: number }) =>
+      post<ChecklistSector>('/checklists/sectores', body),
+    updateSector: (id: number, body: Partial<{ nombre: string; orden: number }>) =>
+      put<ChecklistSector>(`/checklists/sectores/${id}`, body),
+    deleteSector: (id: number) => del(`/checklists/sectores/${id}`),
+    // Ítems (admin)
+    createItem: (body: { sectorId: number; momento: 'apertura' | 'cierre'; texto: string; orden?: number }) =>
+      post<ChecklistItem>('/checklists/items', body),
+    updateItem: (id: number, body: Partial<{ momento: 'apertura' | 'cierre'; texto: string; orden: number }>) =>
+      put<ChecklistItem>(`/checklists/items/${id}`, body),
+    deleteItem: (id: number) => del(`/checklists/items/${id}`),
+    // Ejecuciones
+    registrar: (body: { sectorId: number; momento: 'apertura' | 'cierre'; completadoPor: string; itemsMarcados: ChecklistMarcado[] }) =>
+      post<ChecklistEjecucion>('/checklists/ejecuciones', body),
+    listEjecuciones: (restaurantId: number, fecha?: string) =>
+      get<ChecklistEjecucion[]>(`/checklists/ejecuciones?restaurantId=${restaurantId}${fecha ? `&fecha=${fecha}` : ''}`),
+    deleteEjecucion: (id: number) => del(`/checklists/ejecuciones/${id}`),
   },
 }

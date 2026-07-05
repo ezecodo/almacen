@@ -11,6 +11,8 @@ Módulos activos:
 5. **Empleados**: ficha de personal con roles, horas contractuales, días libres y configuración para planning
 6. **Staffing**: planificación semanal de turnos de empleados con auto-planning por IA
 7. **Reservas** (OidoPerso, en desarrollo): sistema de reservas online por restaurante con formulario público
+8. **Wiki**: base de conocimiento por restaurante (speeches, protocolos, conceptos) — el personal de sala consulta/escucha el speech, cargado desde el admin
+9. **Checklists**: listas de apertura y cierre por sector (Barra 1, Sala 2, Paso…) — el personal las completa desde la app de sala, con histórico para el encargado
 
 ## Contexto de negocio
 
@@ -51,7 +53,9 @@ almacen_app/
 │   │   │       ├── grupo-menu.ts   ← menús cerrados para grupos
 │   │   │       ├── staffing.ts     ← planificación de personal
 │   │   │       ├── events.ts       ← SSE por restaurante + global
-│   │   │       └── reservas.ts     ← sistema de reservas (OidoPerso)
+│   │   │       ├── reservas.ts     ← sistema de reservas (OidoPerso)
+│   │   │       ├── wiki.ts         ← base de conocimiento (speeches/protocolos)
+│   │   │       └── checklists.ts   ← checklists de apertura/cierre por sector
 │   │   ├── prisma/
 │   │   │   ├── schema.prisma
 │   │   │   └── seed.ts
@@ -69,6 +73,8 @@ almacen_app/
 │           │   ├── EmpleadosPage.tsx     ← gestión de empleados
 │           │   ├── GrupoMenuPage.tsx     ← menús cerrados para grupos
 │           │   ├── StaffingPage.tsx      ← planificación semanal de turnos
+│           │   ├── WikiPage.tsx          ← admin de la wiki (categorías + artículos)
+│           │   ├── ChecklistsPage.tsx    ← admin checklists (sectores + ítems + registro)
 │           │   ├── ReservasAdminPage.tsx ← admin de reservas (OidoPerso)
 │           │   ├── ReservaPublicaPage.tsx← formulario público /reservas/:slug
 │           │   ├── ValidarPage.tsx       ← escaneo QR para validar retiros
@@ -586,6 +592,82 @@ Reserva         restaurantId, configId, fecha, hora, pax, nombre, telefono, emai
 - `GET /reservas/config/admin?restaurantId=X` — config admin
 - `PUT /reservas/config` — actualizar config
 - `POST /reservas/horarios`, `PUT /reservas/horarios/:id`, `DELETE /reservas/horarios/:id`
+
+---
+
+## Módulo: Wiki
+
+Base de conocimiento del grupo: speeches de bienvenida, protocolos, conceptos. El admin carga el contenido desde `/admin/wiki` y el personal de sala lo consulta (y **escucha**) desde el botón 📖 en el header de `SalaMesasPage`.
+
+### Modelos
+
+```
+WikiCategoria  nombre, icono, orden  ← categorías globales/compartidas (Bienvenida, Concepto…)
+WikiArticulo   categoriaId, restaurantId Int?, titulo, guiones (Json), notas, orden, activo
+```
+
+- **Categorías**: siempre globales (sin scope). Estructura organizativa compartida por toda la cadena.
+- **Artículos**: `restaurantId Int?` — `null` = global (toda la cadena), `X` = específico de un restaurante. Mismo patrón scope que Menú/Inventario.
+- `guiones`: **Json `{ en?, fr?, de? }`** — el guion del speech por idioma (lo que el camarero le dice al cliente y lo que lee el TTS). **Solo los idiomas con texto son "escuchables"** — así se decide desde el dashboard qué ítem tiene audio y en qué idiomas (sin flag extra).
+- `notas`: contexto/instrucciones **en español** para el camarero (opcional).
+
+### Text-to-Speech multi-idioma (`apps/web/src/lib/tts.tsx`)
+
+Se usa la **Web Speech API nativa del navegador** (`SpeechSynthesisUtterance`), sin infraestructura de audio ni archivos. Módulo compartido `lib/tts.tsx`:
+- `speak(text, lang)` — lee en el idioma dado (`en`→en-GB, `fr`→fr-FR, `de`→de-DE), con la voz y velocidad guardadas por el usuario.
+- `LANGS` — idiomas soportados (inglés 🇬🇧, francés 🇫🇷, alemán 🇩🇪).
+- `<VozSelector>` — componente reutilizable: un selector de **voz por idioma** (entre las del dispositivo) + control de **velocidad**, persistidos en `localStorage` (`tts_voice_<lang>`, `tts_rate`). En la sala usa el tema oscuro (`dark`), en el admin el claro.
+- La calidad depende del dispositivo: en tablets Android usa las voces neuronales de Google (mejores); conviene descargar voces de alta calidad en Ajustes → Texto a voz.
+
+### API (`/wiki`)
+
+- `GET /wiki?restaurantId=X` — **vista sala**: categorías con sus artículos activos filtrados por scope (globales + del restaurante). Anidado.
+- `GET /wiki/categorias` — categorías con `_count.articulos` (admin)
+- `POST/PUT/DELETE /wiki/categorias/:id` — DELETE borra en cascada los artículos de la categoría
+- `GET /wiki/articulos?restaurantId=X` — con restaurantId: globales + específicos; sin él: solo globales (admin)
+- `POST/PUT/DELETE /wiki/articulos/:id`
+- `PATCH /wiki/articulos/:id/toggle` — activar/ocultar artículo
+
+### Frontend
+
+- **Admin** (`/admin/wiki`, `WikiPage.tsx`): selector Global/restaurante (pills), gestión de categorías y artículos. Editor de artículo con textarea del guion (inglés) + botón 🔊 preview + textarea de notas (español). Los artículos globales son de solo lectura desde la vista de restaurante.
+- **Sala** (`WikiPanel` en `SalaMesasPage.tsx`): bottom-sheet con las categorías y artículos (`WikiArticuloCard`). Cada artículo muestra **chips de idioma** (🇬🇧 🇫🇷 🇩🇪) por cada guion cargado; al tocar un chip se muestra ese texto y se **lee en voz** en ese idioma. Botón 🎚️ en el header del panel abre el `<VozSelector>`. Solo muestra categorías con artículos activos.
+- **Acceso**: los botones de Wiki y Checklists **no** están en el header de la app de comandas — están dentro del **panel de perfil del camarero** (`PerfilPanel`, se abre al tocar el nombre), como accesos junto al resumen de propinas.
+
+---
+
+## Módulo: Checklists
+
+Listas de apertura y cierre por **sector**, ya que cada restaurante tiene sus peculiaridades (2 salas, 2 barras, un paso…). El personal de sala las completa desde el botón ✅ en el header de `SalaMesasPage`; el encargado revisa el histórico en `/admin/checklists`.
+
+### Modelos
+
+```
+ChecklistSector      restaurantId, nombre ("Barra 1"), orden  ← por restaurante (scope obligatorio)
+ChecklistItem        sectorId, momento ('apertura'|'cierre'), texto, orden
+ChecklistEjecucion   sectorId, restaurantId, momento, completadoPor, itemsMarcados (Json), fecha
+```
+
+- **Sectores**: siempre por restaurante (no hay globales — son la peculiaridad de cada local).
+- **Ítems**: pertenecen a un sector + `momento`. Un sector tiene ítems de apertura y de cierre.
+- **Ejecución**: cada vez que se completa un checklist se guarda un **snapshot inmutable** en `itemsMarcados` (`[{ texto, marcado }]`). Así el histórico no se altera aunque después se editen o borren los ítems del sector. Da accountability (quién abrió/cerró cada sector y qué quedó sin hacer).
+
+### API (`/checklists`)
+
+- `GET /checklists?restaurantId=X` — **vista sala**: sectores con sus ítems + las **ejecuciones de hoy** (para marcar en verde lo ya completado).
+- `GET /checklists/sectores?restaurantId=X` — sectores con ítems (admin)
+- `POST/PUT/DELETE /checklists/sectores/:id` — DELETE borra en cascada ítems + ejecuciones del sector
+- `POST/PUT/DELETE /checklists/items/:id`
+- `POST /checklists/ejecuciones` — registrar checklist completado (`{ sectorId, momento, completadoPor, itemsMarcados }`); el `restaurantId` se deriva del sector
+- `GET /checklists/ejecuciones?restaurantId=X&fecha=YYYY-MM-DD` — histórico del día (admin), con `sector` incluido
+- `DELETE /checklists/ejecuciones/:id`
+
+### Frontend
+
+- **Admin** (`/admin/checklists`, `ChecklistsPage.tsx`, grupo Sala): selector de restaurante + dos pestañas:
+  - **Configurar**: sectores con dos columnas (🔓 Apertura / 🔒 Cierre), cada una con sus ítems editables inline. Añadir sector con input + Enter.
+  - **Registro**: histórico por fecha. Cada ejecución muestra sector, momento, quién, hora y `marcados/total` (verde ✓ si completo, ámbar ⚠️ con los ítems sin marcar).
+- **Sala** (`ChecklistPanel` en `SalaMesasPage.tsx`, se abre desde el `PerfilPanel`): bottom-sheet de 2 vistas — (1) lista de sectores, cada uno con chips Apertura/Cierre (verde con nombre+hora si ya se completó hoy); (2) al elegir sector+momento, ítems como checkboxes grandes (tablet) + botón "Completar (n/total)" que registra la ejecución con el nombre del camarero logueado.
 
 ---
 

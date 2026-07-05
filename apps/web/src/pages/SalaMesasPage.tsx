@@ -4,7 +4,8 @@ const ThemeCtx = createContext<boolean>(true) // true = dark
 import CheckOverlay from '../components/CheckOverlay'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, Comanda, ComandaItem, FloorPlan, GrupoAgendado, InventarioCategoria, Mesa, MenuCategoria, MenuItem, MermaMotivo, MiTurno } from '../api'
+import { api, Comanda, ComandaItem, FloorPlan, GrupoAgendado, InventarioCategoria, Mesa, MenuCategoria, MenuItem, MermaMotivo, MiTurno, WikiCategoria, WikiArticulo, ChecklistSector } from '../api'
+import { speak, VozSelector, LANGS, Lang } from '../lib/tts'
 import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
 
 const SQUARE_SIZE = 80
@@ -1479,7 +1480,274 @@ function MoverMesaModal({ comanda, planes, comandas, onMoverALibre, onMerge, onC
 }
 
 // ── Panel perfil + propinas del camarero ──────────────────────────────────────
-function PerfilPanel({ camarero, onClose }: { camarero: { id: number; nombre: string }; onClose: () => void }) {
+// ── Panel Checklists (apertura/cierre por sector) ──────────────────────────────
+function ChecklistPanel({
+  restaurantId,
+  camareroNombre,
+  onClose,
+}: {
+  restaurantId: number
+  camareroNombre: string
+  onClose: () => void
+}) {
+  const qc = useQueryClient()
+  const [activo, setActivo] = useState<{ sector: ChecklistSector; momento: 'apertura' | 'cierre' } | null>(null)
+  const [marcados, setMarcados] = useState<Set<number>>(new Set())
+  const [guardado, setGuardado] = useState(false)
+
+  const { data: sectores, isLoading } = useQuery({
+    queryKey: ['checklist-sala', restaurantId],
+    queryFn: () => api.checklists.contenido(restaurantId),
+  })
+
+  const registrar = useMutation({
+    mutationFn: () => {
+      const items = (activo!.sector.items ?? []).filter(i => i.momento === activo!.momento)
+      return api.checklists.registrar({
+        sectorId: activo!.sector.id,
+        momento: activo!.momento,
+        completadoPor: camareroNombre,
+        itemsMarcados: items.map(it => ({ texto: it.texto, marcado: marcados.has(it.id) })),
+      })
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['checklist-sala', restaurantId] })
+      setGuardado(true)
+      setTimeout(() => { setGuardado(false); setActivo(null); setMarcados(new Set()) }, 1200)
+    },
+  })
+
+  const abrir = (sector: ChecklistSector, momento: 'apertura' | 'cierre') => {
+    setActivo({ sector, momento })
+    setMarcados(new Set())
+  }
+  const toggle = (id: number) =>
+    setMarcados(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+
+  // Ejecución de hoy para un sector+momento (si existe)
+  const ejecHoy = (sector: ChecklistSector, momento: 'apertura' | 'cierre') =>
+    (sector.ejecuciones ?? []).find(e => e.momento === momento)
+
+  const items = activo ? (activo.sector.items ?? []).filter(i => i.momento === activo.momento) : []
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-end z-50" onClick={onClose}>
+      <div className="w-full bg-[var(--sala-hdr)] rounded-t-3xl shadow-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        {/* Handle */}
+        <div className="flex justify-center pt-3 pb-1">
+          <div className="w-10 h-1 rounded-full bg-[var(--sala-btna)]" />
+        </div>
+
+        {/* Header */}
+        <div className="px-5 pt-2 pb-4 border-b border-[var(--sala-brd)] flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {activo && (
+              <button onClick={() => setActivo(null)} className="text-[var(--sala-tx3)] text-lg">←</button>
+            )}
+            <div>
+              <h2 className="text-[var(--sala-txt)] font-bold text-lg">
+                {activo ? `${activo.momento === 'apertura' ? '🔓 Apertura' : '🔒 Cierre'} · ${activo.sector.nombre}` : '✅ Checklists'}
+              </h2>
+              {!activo && <p className="text-[var(--sala-tx3)] text-xs mt-0.5">Apertura y cierre por sector</p>}
+            </div>
+          </div>
+          <button onClick={onClose} className="text-[var(--sala-tx3)] text-xl">✕</button>
+        </div>
+
+        {/* Vista lista de sectores */}
+        {!activo && (
+          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+            {isLoading && <p className="text-[var(--sala-tx4)] text-sm text-center py-6">Cargando…</p>}
+            {!isLoading && (sectores?.length ?? 0) === 0 && (
+              <p className="text-[var(--sala-tx4)] text-sm text-center py-6">No hay sectores configurados.</p>
+            )}
+            {sectores?.map((s: ChecklistSector) => (
+              <div key={s.id} className="bg-[var(--sala-srf)] rounded-2xl p-4">
+                <p className="text-[var(--sala-txt)] font-bold text-sm mb-3">📍 {s.nombre}</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['apertura', 'cierre'] as const).map(m => {
+                    const ej = ejecHoy(s, m)
+                    const nItems = (s.items ?? []).filter(i => i.momento === m).length
+                    return (
+                      <button
+                        key={m}
+                        onClick={() => abrir(s, m)}
+                        disabled={nItems === 0}
+                        className={`rounded-xl px-3 py-2.5 text-left transition-colors disabled:opacity-30 ${
+                          ej ? 'bg-emerald-500/15 border border-emerald-500/30' : 'bg-[var(--sala-btn2)] border border-[var(--sala-brd)]'
+                        }`}
+                      >
+                        <p className="text-[var(--sala-txt)] text-sm font-semibold">
+                          {m === 'apertura' ? '🔓 Apertura' : '🔒 Cierre'}
+                        </p>
+                        {ej ? (
+                          <p className="text-emerald-500 text-[11px] mt-0.5">
+                            ✓ {ej.completadoPor} · {new Date(ej.fecha).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        ) : (
+                          <p className="text-[var(--sala-tx4)] text-[11px] mt-0.5">{nItems} ítems</p>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Vista ítems marcables */}
+        {activo && (
+          <>
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-2">
+              {items.length === 0 && <p className="text-[var(--sala-tx4)] text-sm text-center py-6">Sin ítems.</p>}
+              {items.map(it => {
+                const on = marcados.has(it.id)
+                return (
+                  <button
+                    key={it.id}
+                    onClick={() => toggle(it.id)}
+                    className={`w-full flex items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors ${
+                      on ? 'bg-emerald-500/15 border border-emerald-500/40' : 'bg-[var(--sala-srf)] border border-[var(--sala-brd)]'
+                    }`}
+                  >
+                    <span className={`shrink-0 w-6 h-6 rounded-md flex items-center justify-center text-sm font-bold ${
+                      on ? 'bg-emerald-500 text-white' : 'bg-[var(--sala-btn2)] text-transparent'
+                    }`}>✓</span>
+                    <span className={`text-sm ${on ? 'text-[var(--sala-txt)]' : 'text-[var(--sala-tx1)]'}`}>{it.texto}</span>
+                  </button>
+                )
+              })}
+            </div>
+            {/* Footer completar */}
+            <div className="px-5 py-4 border-t border-[var(--sala-brd)]">
+              <button
+                onClick={() => registrar.mutate()}
+                disabled={registrar.isPending || guardado}
+                className="w-full bg-[#4CC8A0] text-white font-bold py-3 rounded-2xl active:scale-[0.98] transition-transform disabled:opacity-60"
+              >
+                {guardado ? '✓ Registrado' : `Completar (${marcados.size}/${items.length})`}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Tarjeta de artículo Wiki (con chips de idioma escuchables) ─────────────────
+function WikiArticuloCard({ art }: { art: WikiArticulo }) {
+  const idiomas = LANGS.filter(l => (art.guiones?.[l.code] ?? '').trim())
+  const [activo, setActivo] = useState<Lang | null>(idiomas[0]?.code ?? null)
+  const texto = activo ? (art.guiones[activo] ?? '') : ''
+
+  const tocar = (l: Lang) => { setActivo(l); speak(art.guiones[l] ?? '', l) }
+
+  return (
+    <div className="bg-[var(--sala-srf)] rounded-2xl p-4">
+      <h3 className="text-[var(--sala-txt)] font-bold text-sm mb-2">{art.titulo}</h3>
+      {idiomas.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {idiomas.map(l => (
+            <button
+              key={l.code}
+              onClick={() => tocar(l.code)}
+              className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full active:scale-95 transition-transform ${
+                activo === l.code ? 'bg-[#4CC8A0] text-white' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx2)]'
+              }`}
+            >
+              {l.flag} 🔊
+            </button>
+          ))}
+        </div>
+      )}
+      {texto && (
+        <p className="text-[var(--sala-tx1)] text-sm leading-relaxed whitespace-pre-wrap">{texto}</p>
+      )}
+      {art.notas && (
+        <div className="mt-3 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2">
+          <p className="text-amber-500 text-xs leading-relaxed whitespace-pre-wrap">📝 {art.notas}</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Panel Wiki (consulta camarero) ─────────────────────────────────────────────
+function WikiPanel({ restaurantId, onClose }: { restaurantId: number; onClose: () => void }) {
+  const [showVoz, setShowVoz] = useState(false)
+  const { data: categorias, isLoading } = useQuery({
+    queryKey: ['wiki-sala', restaurantId],
+    queryFn: () => api.wiki.contenido(restaurantId),
+  })
+
+  // Solo categorías con artículos activos
+  const conContenido = (categorias ?? []).filter((c: WikiCategoria) => (c.articulos?.length ?? 0) > 0)
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-end z-50" onClick={onClose}>
+      <div className="w-full bg-[var(--sala-hdr)] rounded-t-3xl shadow-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        {/* Handle */}
+        <div className="flex justify-center pt-3 pb-1">
+          <div className="w-10 h-1 rounded-full bg-[var(--sala-btna)]" />
+        </div>
+
+        {/* Header */}
+        <div className="px-5 pt-2 pb-4 border-b border-[var(--sala-brd)] flex items-center justify-between">
+          <div>
+            <h2 className="text-[var(--sala-txt)] font-bold text-lg">📖 Wiki</h2>
+            <p className="text-[var(--sala-tx3)] text-xs mt-0.5">Speeches y protocolos</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowVoz(v => !v)}
+              title="Ajustes de voz"
+              className={`text-lg transition-colors ${showVoz ? 'text-[#4CC8A0]' : 'text-[var(--sala-tx3)] hover:text-[#4CC8A0]'}`}
+            >
+              🎚️
+            </button>
+            <button onClick={() => { window.speechSynthesis?.cancel(); onClose() }} className="text-[var(--sala-tx3)] text-xl">✕</button>
+          </div>
+        </div>
+
+        {/* Ajustes de voz (desplegable) */}
+        {showVoz && (
+          <div className="px-5 py-3 border-b border-[var(--sala-brd)] bg-[var(--sala-srf)]">
+            <VozSelector dark />
+          </div>
+        )}
+
+        {/* Contenido */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
+          {isLoading && <p className="text-[var(--sala-tx4)] text-sm text-center py-6">Cargando…</p>}
+          {!isLoading && conContenido.length === 0 && (
+            <p className="text-[var(--sala-tx4)] text-sm text-center py-6">No hay contenido todavía.</p>
+          )}
+          {conContenido.map((cat: WikiCategoria) => (
+            <div key={cat.id}>
+              <p className="text-[var(--sala-tx3)] text-xs font-bold uppercase tracking-wider mb-2">
+                {cat.icono || '📄'} {cat.nombre}
+              </p>
+              <div className="space-y-3">
+                {(cat.articulos ?? []).map(art => (
+                  <WikiArticuloCard key={art.id} art={art} />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PerfilPanel({ camarero, onClose, onOpenWiki, onOpenChecklist }: {
+  camarero: { id: number; nombre: string }
+  onClose: () => void
+  onOpenWiki: () => void
+  onOpenChecklist: () => void
+}) {
   const ahora  = new Date()
   const desde  = `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, '0')}-01`
 
@@ -1521,6 +1789,30 @@ function PerfilPanel({ camarero, onClose }: { camarero: { id: number; nombre: st
             <p className="text-[var(--sala-tx2)] text-xs mb-1">Horas trabajadas</p>
             <p className="text-[var(--sala-txt)] text-2xl font-black">{totalHoras}h</p>
           </div>
+        </div>
+
+        {/* Accesos: Wiki + Checklists */}
+        <div className="grid grid-cols-2 gap-3 px-5 pb-2">
+          <button
+            onClick={onOpenChecklist}
+            className="flex items-center gap-2 bg-[var(--sala-srf)] hover:bg-[var(--sala-btn2)] rounded-2xl px-4 py-3 transition-colors"
+          >
+            <span className="text-xl">✅</span>
+            <div className="text-left">
+              <p className="text-[var(--sala-txt)] text-sm font-semibold">Checklists</p>
+              <p className="text-[var(--sala-tx3)] text-[11px]">Apertura y cierre</p>
+            </div>
+          </button>
+          <button
+            onClick={onOpenWiki}
+            className="flex items-center gap-2 bg-[var(--sala-srf)] hover:bg-[var(--sala-btn2)] rounded-2xl px-4 py-3 transition-colors"
+          >
+            <span className="text-xl">📖</span>
+            <div className="text-left">
+              <p className="text-[var(--sala-txt)] text-sm font-semibold">Wiki</p>
+              <p className="text-[var(--sala-tx3)] text-[11px]">Speeches y protocolos</p>
+            </div>
+          </button>
         </div>
 
         {/* Lista de turnos */}
@@ -1713,6 +2005,8 @@ export default function SalaMesasPage() {
   const [showMoverMesa, setShowMoverMesa] = useState(false)
   const [animFacturada, setAnimFacturada] = useState(false)
   const [showProduccion, setShowProduccion] = useState(false)
+  const [showWiki, setShowWiki] = useState(false)
+  const [showChecklist, setShowChecklist] = useState(false)
   const [isDark, setIsDark] = useState(() => localStorage.getItem('sala_theme') !== 'light')
   const toggleTheme = () => setIsDark(d => {
     const next = !d
@@ -2166,7 +2460,12 @@ export default function SalaMesasPage() {
       )}
 
       {showPerfil && camarero && (
-        <PerfilPanel camarero={camarero} onClose={() => setShowPerfil(false)} />
+        <PerfilPanel
+          camarero={camarero}
+          onClose={() => setShowPerfil(false)}
+          onOpenWiki={() => { setShowPerfil(false); setShowWiki(true) }}
+          onOpenChecklist={() => { setShowPerfil(false); setShowChecklist(true) }}
+        />
       )}
       {showProduccion && (
         <ProduccionSalaModal
@@ -2174,6 +2473,12 @@ export default function SalaMesasPage() {
           camareroNombre={camarero.nombre}
           onClose={() => setShowProduccion(false)}
         />
+      )}
+      {showWiki && (
+        <WikiPanel restaurantId={restaurant.id} onClose={() => setShowWiki(false)} />
+      )}
+      {showChecklist && (
+        <ChecklistPanel restaurantId={restaurant.id} camareroNombre={camarero.nombre} onClose={() => setShowChecklist(false)} />
       )}
     </div>
     </ThemeCtx.Provider>
