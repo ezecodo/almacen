@@ -197,6 +197,7 @@ export interface MenuCategoria {
   nombre: string
   icono: string
   orden: number
+  parentId: number | null
   itemCount: number
 }
 
@@ -728,11 +729,13 @@ export const api = {
   },
   menuCategorias: {
     list:   (restaurantId: number | null) => get<MenuCategoria[]>(`/menu/categorias${restaurantId !== null ? `?restaurantId=${restaurantId}` : ''}`),
-    create: (body: { restaurantId: number | null; grupo?: string; nombre: string; icono?: string; orden?: number }) =>
+    create: (body: { restaurantId: number | null; grupo?: string; nombre: string; icono?: string; orden?: number; parentId?: number | null }) =>
       post<MenuCategoria>('/menu/categorias', body),
     update: (id: number, body: Partial<{ grupo: string; nombre: string; icono: string; orden: number }>) =>
       put<MenuCategoria>(`/menu/categorias/${id}`, body),
     delete: (id: number) => del(`/menu/categorias/${id}`),
+    anidar: (id: number, parentId: number | null) =>
+      post<MenuCategoria>(`/menu/categorias/${id}/anidar`, { parentId }),
     copiar: (id: number, restaurantIds: number[], incluirItems: boolean) =>
       post<{ resultados: { restaurantId: number; copiados: number; omitidos: number }[] }>(
         `/menu/categorias/${id}/copiar`, { restaurantIds, incluirItems }

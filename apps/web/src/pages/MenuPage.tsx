@@ -76,11 +76,15 @@ function AlergenosBadges({ mask }: { mask: number }) {
 function CategoriaForm({
   restaurantId,
   grupoDefault,
+  gruposExistentes = [],
+  parent,
   initial,
   onDone,
 }: {
   restaurantId: number | null
   grupoDefault?: string
+  gruposExistentes?: string[]
+  parent?: MenuCategoria
   initial?: MenuCategoria
   onDone: () => void
 }) {
@@ -92,7 +96,7 @@ function CategoriaForm({
   const save = useMutation({
     mutationFn: () => initial
       ? api.menuCategorias.update(initial.id, { nombre, icono, grupo })
-      : api.menuCategorias.create({ restaurantId: restaurantId ?? null, grupo, nombre, icono }),
+      : api.menuCategorias.create({ restaurantId: restaurantId ?? null, grupo, nombre, icono, ...(parent ? { parentId: parent.id } : {}) }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['menu-cats', restaurantId] })
       onDone()
@@ -101,7 +105,9 @@ function CategoriaForm({
 
   return (
     <div className="bg-white border border-cyan-100 rounded-2xl p-4 shadow-sm space-y-3">
-      <h3 className="font-semibold text-gray-700 text-sm">{initial ? 'Editar categoría' : 'Nueva categoría'}</h3>
+      <h3 className="font-semibold text-gray-700 text-sm">
+        {initial ? 'Editar categoría' : parent ? <>Nueva subcategoría en <span className="text-cyan-600">{parent.icono} {parent.nombre}</span></> : 'Nueva categoría'}
+      </h3>
       <div className="flex gap-3">
         <div className="w-20">
           <label className="block text-xs font-medium text-gray-500 mb-1">Icono</label>
@@ -114,11 +120,25 @@ function CategoriaForm({
             className={inputCls} placeholder="Ej: Classic Tapas, Cervezas..." autoFocus />
         </div>
       </div>
+      {!parent && (
       <div>
         <label className="block text-xs font-medium text-gray-500 mb-1">Sección</label>
+        {gruposExistentes.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {gruposExistentes.map(g => (
+              <button key={g} type="button" onClick={() => setGrupo(g)}
+                className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
+                  grupo === g ? 'bg-cyan-500 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                }`}>
+                {g}
+              </button>
+            ))}
+          </div>
+        )}
         <input value={grupo} onChange={e => setGrupo(e.target.value)}
-          className={inputCls} placeholder="Ej: Comida, Bebidas, Vinos..." />
+          className={inputCls} placeholder="O escribe una sección nueva…" />
       </div>
+      )}
       <div className="flex justify-end gap-3">
         <button onClick={onDone} className="text-sm text-gray-400 hover:text-gray-600">Cancelar</button>
         <button
@@ -285,17 +305,52 @@ function MoverItemModal({
   )
 }
 
+// Chip de subcategoría: zona de drop para mover items arrastrándolos
+function SubDropChip({ sub, onDropItem }: { sub: MenuCategoria; onDropItem: (payload: { id: number; categoria: string }) => void }) {
+  const [over, setOver] = useState(false)
+  return (
+    <span
+      onDragOver={e => {
+        if (e.dataTransfer.types.includes('application/x-menu-item')) {
+          e.preventDefault()
+          e.dataTransfer.dropEffect = 'move'
+          setOver(true)
+        }
+      }}
+      onDragLeave={() => setOver(false)}
+      onDrop={e => {
+        setOver(false)
+        const raw = e.dataTransfer.getData('application/x-menu-item')
+        if (!raw) return
+        e.preventDefault()
+        const payload = JSON.parse(raw) as { id: number; categoria: string }
+        if (payload.categoria !== sub.nombre) onDropItem(payload)
+      }}
+      className={`inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-full border-2 border-dashed transition-all ${
+        over ? 'border-emerald-400 bg-emerald-50 text-emerald-700 scale-105' : 'border-gray-200 bg-gray-50 text-gray-500'
+      }`}
+    >
+      {sub.icono && <span>{sub.icono}</span>}
+      {sub.nombre}
+    </span>
+  )
+}
+
 // ── Panel de items de una categoría ──────────────────────────────────────────
 function CategoriaPanel({
   restaurantId,
   cat,
+  subcats = [],
   onClose,
   onCopiarItem,
   onMoverItem,
+  onMoveItemToCat,
   restaurantes,
 }: {
   restaurantId: number | null
   cat: MenuCategoria
+  subcats?: MenuCategoria[]
+  onMoveItemToCat?: (payload: { id: number; categoria: string }, destino: MenuCategoria) => void
   onClose: () => void
   onCopiarItem: (item: MenuItem) => void
   onMoverItem?: (item: MenuItem) => void
@@ -359,6 +414,16 @@ function CategoriaPanel({
         </div>
       </div>
 
+      {/* Zonas de drop: arrastrar un item de la lista a una subcategoría */}
+      {subcats.length > 0 && onMoveItemToCat && (
+        <div className="px-5 py-3 border-b border-gray-100 bg-gray-50/60 flex flex-wrap items-center gap-2">
+          <span className="text-xs text-gray-400 font-medium">Arrastrá items a:</span>
+          {subcats.map(sc => (
+            <SubDropChip key={sc.id} sub={sc} onDropItem={payload => onMoveItemToCat(payload, sc)} />
+          ))}
+        </div>
+      )}
+
       <div className="p-4 space-y-2">
         {creando && (
           <ItemForm restaurantId={restaurantId} categoria={cat.nombre} restaurantes={restaurantes} onDone={() => setCreando(false)} />
@@ -376,7 +441,13 @@ function CategoriaPanel({
                 <ItemForm restaurantId={restaurantId} categoria={cat.nombre}
                   initial={item} onDone={() => setEditando(null)} />
               ) : (
-                <div className={`flex items-start gap-3 px-3 py-3 rounded-xl border ${item.activo ? 'border-gray-100' : 'border-dashed border-gray-200 opacity-40'}`}>
+                <div
+                  draggable={!itemSoloLectura}
+                  onDragStart={e => {
+                    e.dataTransfer.setData('application/x-menu-item', JSON.stringify({ id: item.id, categoria: item.categoria }))
+                    e.dataTransfer.effectAllowed = 'move'
+                  }}
+                  className={`flex items-start gap-3 px-3 py-3 rounded-xl border ${item.activo ? 'border-gray-100' : 'border-dashed border-gray-200 opacity-40'} ${!itemSoloLectura ? 'cursor-grab active:cursor-grabbing' : ''}`}>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5">
                       <p className="font-medium text-gray-900 text-sm">{item.nombre}</p>
@@ -608,6 +679,11 @@ function CategoriaCard({
   onCopiar,
   onMoveUp,
   onMoveDown,
+  onDropItem,
+  onDropCat,
+  onUnnest,
+  onAddSub,
+  canDrag,
 }: {
   cat: MenuCategoria
   esGlobal: boolean
@@ -618,12 +694,50 @@ function CategoriaCard({
   onCopiar?: () => void
   onMoveUp?: () => void
   onMoveDown?: () => void
+  onDropItem?: (payload: { id: number; categoria: string }) => void
+  onDropCat?: (payload: { id: number; nombre: string }) => void
+  onUnnest?: () => void
+  onAddSub?: () => void
+  canDrag?: boolean
 }) {
+  const [dragOver, setDragOver] = useState(false)
   return (
     <div
       onClick={onSelect}
+      draggable={canDrag}
+      onDragStart={e => {
+        e.dataTransfer.setData('application/x-menu-cat', JSON.stringify({ id: cat.id, nombre: cat.nombre }))
+        e.dataTransfer.effectAllowed = 'move'
+      }}
+      onDragOver={e => {
+        const acepta =
+          (onDropItem && e.dataTransfer.types.includes('application/x-menu-item')) ||
+          (onDropCat && e.dataTransfer.types.includes('application/x-menu-cat'))
+        if (acepta) {
+          e.preventDefault()
+          e.dataTransfer.dropEffect = 'move'
+          setDragOver(true)
+        }
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={e => {
+        setDragOver(false)
+        const rawItem = e.dataTransfer.getData('application/x-menu-item')
+        const rawCat = e.dataTransfer.getData('application/x-menu-cat')
+        if (rawItem && onDropItem) {
+          e.preventDefault()
+          const payload = JSON.parse(rawItem) as { id: number; categoria: string }
+          if (payload.categoria !== cat.nombre) onDropItem(payload)
+        } else if (rawCat && onDropCat) {
+          e.preventDefault()
+          const payload = JSON.parse(rawCat) as { id: number; nombre: string }
+          if (payload.id !== cat.id) onDropCat(payload)
+        }
+      }}
       className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${
-        selected ? 'border-cyan-400 bg-cyan-50' : 'border-gray-100 hover:border-gray-200 hover:bg-gray-50'
+        dragOver
+          ? 'border-emerald-400 bg-emerald-50 scale-[1.02] shadow-md'
+          : selected ? 'border-cyan-400 bg-cyan-50' : 'border-gray-100 hover:border-gray-200 hover:bg-gray-50'
       }`}
     >
       {/* Flechas de orden */}
@@ -655,6 +769,20 @@ function CategoriaCard({
         <p className="text-xs text-gray-400">{cat.itemCount} item{cat.itemCount !== 1 ? 's' : ''}</p>
       </div>
       <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+        {onAddSub && (
+          <button onClick={onAddSub}
+            className="text-xs text-gray-400 hover:text-cyan-600 px-2 py-1 rounded-lg hover:bg-gray-100"
+            title="Añadir subcategoría dentro de esta categoría">
+            + Sub
+          </button>
+        )}
+        {onUnnest && (
+          <button onClick={onUnnest}
+            className="text-xs text-gray-400 hover:text-amber-600 px-2 py-1 rounded-lg hover:bg-gray-100"
+            title="Sacar al nivel superior">
+            ↖ Sacar
+          </button>
+        )}
         {onEdit && (
           <button onClick={onEdit}
             className="text-xs text-gray-400 hover:text-cyan-600 px-2 py-1 rounded-lg hover:bg-gray-100">
@@ -695,6 +823,7 @@ export default function MenuPage() {
   const [restaurantId, setRestaurantId] = useState<number | null>(null)
   const [catSeleccionada, setCatSeleccionada] = useState<MenuCategoria | null>(null)
   const [creandoCat, setCreandoCat]     = useState<string | null>(null)
+  const [creandoSubDe, setCreandoSubDe] = useState<MenuCategoria | null>(null)
   const [editandoCat, setEditandoCat]   = useState<MenuCategoria | null>(null)
   const [copiandoCat, setCopiandoCat]   = useState<MenuCategoria | null>(null)
   const [copiandoItem, setCopiandoItem] = useState<MenuItem | null>(null)
@@ -730,6 +859,27 @@ export default function MenuPage() {
     onError: (err: Error) => showToast(err.message),
   })
 
+  // Drag & drop: anidar una categoría como subcategoría de otra (o sacarla con parentId=null)
+  const anidarCat = useMutation({
+    mutationFn: ({ id, parentId }: { id: number; parentId: number | null }) => api.menuCategorias.anidar(id, parentId),
+    onSuccess: (_, { parentId }) => {
+      qc.invalidateQueries({ queryKey: ['menu-cats'] })
+      showToast(parentId === null ? 'Subcategoría sacada al nivel superior ✓' : 'Categoría anidada ✓')
+    },
+    onError: (err: Error) => showToast(err.message),
+  })
+
+  // Drag & drop: mover un item a otra categoría
+  const moverItemACat = useMutation({
+    mutationFn: ({ id, categoria }: { id: number; categoria: string }) => api.menu.update(id, { categoria }),
+    onSuccess: (_, { categoria }) => {
+      qc.invalidateQueries({ queryKey: ['menu-items'] })
+      qc.invalidateQueries({ queryKey: ['menu-cats'] })
+      showToast(`Item movido a "${categoria}" ✓`)
+    },
+    onError: (err: Error) => showToast(err.message),
+  })
+
   const moverCat = async (cats: MenuCategoria[], idx: number, direccion: -1 | 1) => {
     const a = cats[idx]
     const b = cats[idx + direccion]
@@ -741,12 +891,13 @@ export default function MenuPage() {
     qc.invalidateQueries({ queryKey: ['menu-cats', rid] })
   }
 
-  // Agrupar categorías por grupo
+  // Agrupar categorías por grupo (solo las de nivel superior; las subcategorías se anidan bajo su padre)
   const gruposUnicos = ['', ...new Set(categorias.filter(c => c.grupo).map(c => c.grupo))]
   const grupos = gruposUnicos.map(g => ({
     nombre: g,
-    cats: categorias.filter(c => (g === '' ? !c.grupo : c.grupo === g)),
+    cats: categorias.filter(c => !c.parentId && (g === '' ? !c.grupo : c.grupo === g)),
   })).filter(g => g.cats.length > 0 || g.nombre === '')
+  const hijasDe = (catId: number) => categorias.filter(c => c.parentId === catId)
 
   const resetNav = () => { setCatSeleccionada(null); setCreandoCat(null); setEditandoCat(null) }
 
@@ -817,6 +968,10 @@ export default function MenuPage() {
           <CategoriaPanel
             restaurantId={rid}
             cat={catSeleccionada}
+            subcats={catSeleccionada.parentId
+              ? categorias.filter(c => c.id === catSeleccionada.parentId || (c.parentId === catSeleccionada.parentId && c.id !== catSeleccionada.id))
+              : hijasDe(catSeleccionada.id)}
+            onMoveItemToCat={(payload, destino) => moverItemACat.mutate({ id: payload.id, categoria: destino.nombre })}
             onClose={() => setCatSeleccionada(null)}
             onCopiarItem={item => setCopiandoItem(item)}
             onMoverItem={modoGlobal ? item => setMoviendoItem(item) : undefined}
@@ -829,6 +984,7 @@ export default function MenuPage() {
           <CategoriaForm
             restaurantId={rid}
             grupoDefault={creandoCat ?? undefined}
+            gruposExistentes={gruposUnicos.filter(Boolean) as string[]}
             initial={editandoCat ?? undefined}
             onDone={() => { setCreandoCat(null); setEditandoCat(null) }}
           />
@@ -855,19 +1011,53 @@ export default function MenuPage() {
                   const esGlobal = cat.restaurantId === null
                   // En vista de restaurante, las globales no se pueden mover ni editar desde aquí
                   const soloLectura = !modoGlobal && esGlobal
+                  const hijas = hijasDe(cat.id)
                   return (
-                    <CategoriaCard
-                      key={cat.id}
-                      cat={cat}
-                      esGlobal={esGlobal}
-                      selected={catSeleccionada?.id === cat.id}
-                      onSelect={() => { setCatSeleccionada(cat); setCreandoCat(null); setEditandoCat(null) }}
-                      onEdit={soloLectura ? undefined : () => { setEditandoCat(cat); setCatSeleccionada(null); setCreandoCat(null) }}
-                      onDelete={soloLectura ? undefined : () => { if (confirm(`¿Eliminar "${cat.nombre}"?\n\nSe eliminarán también todos sus items.`)) eliminarCat.mutate(cat.id) }}
-                      onCopiar={esGlobal ? undefined : () => setCopiandoCat(cat)}
-                      onMoveUp={soloLectura || idx === 0 ? undefined : () => moverCat(cats.filter(c => c.restaurantId === cat.restaurantId), cats.filter(c => c.restaurantId === cat.restaurantId).indexOf(cat), -1)}
-                      onMoveDown={soloLectura || idx === cats.length - 1 ? undefined : () => moverCat(cats.filter(c => c.restaurantId === cat.restaurantId), cats.filter(c => c.restaurantId === cat.restaurantId).indexOf(cat), 1)}
-                    />
+                    <div key={cat.id} className="space-y-1.5">
+                      <CategoriaCard
+                        cat={cat}
+                        esGlobal={esGlobal}
+                        selected={catSeleccionada?.id === cat.id}
+                        onSelect={() => { setCatSeleccionada(cat); setCreandoCat(null); setEditandoCat(null) }}
+                        onEdit={soloLectura ? undefined : () => { setEditandoCat(cat); setCatSeleccionada(null); setCreandoCat(null) }}
+                        onDelete={soloLectura ? undefined : () => { if (confirm(`¿Eliminar "${cat.nombre}"?\n\nSe eliminarán también todos sus items.${hijas.length ? '\nSus subcategorías volverán al nivel superior.' : ''}`)) eliminarCat.mutate(cat.id) }}
+                        onCopiar={esGlobal ? undefined : () => setCopiandoCat(cat)}
+                        onMoveUp={soloLectura || idx === 0 ? undefined : () => moverCat(cats.filter(c => c.restaurantId === cat.restaurantId), cats.filter(c => c.restaurantId === cat.restaurantId).indexOf(cat), -1)}
+                        onMoveDown={soloLectura || idx === cats.length - 1 ? undefined : () => moverCat(cats.filter(c => c.restaurantId === cat.restaurantId), cats.filter(c => c.restaurantId === cat.restaurantId).indexOf(cat), 1)}
+                        onDropItem={payload => moverItemACat.mutate({ id: payload.id, categoria: cat.nombre })}
+                        onDropCat={payload => {
+                          if (confirm(`¿Meter "${payload.nombre}" dentro de "${cat.nombre}" como subcategoría?\n\nSus items se conservan.`))
+                            anidarCat.mutate({ id: payload.id, parentId: cat.id })
+                        }}
+                        onAddSub={soloLectura ? undefined : () => { setCreandoSubDe(cat); setCreandoCat(null); setEditandoCat(null); setCatSeleccionada(null) }}
+                        canDrag={!soloLectura}
+                      />
+                      {creandoSubDe?.id === cat.id && (
+                        <div className="ml-6 pl-2 border-l-2 border-cyan-100">
+                          <CategoriaForm restaurantId={rid} parent={cat} onDone={() => setCreandoSubDe(null)} />
+                        </div>
+                      )}
+                      {hijas.map(sub => {
+                        const subGlobal = sub.restaurantId === null
+                        const subSoloLectura = !modoGlobal && subGlobal
+                        return (
+                          <div key={sub.id} className="ml-6 pl-2 border-l-2 border-cyan-100">
+                            <CategoriaCard
+                              cat={sub}
+                              esGlobal={subGlobal}
+                              selected={catSeleccionada?.id === sub.id}
+                              onSelect={() => { setCatSeleccionada(sub); setCreandoCat(null); setEditandoCat(null) }}
+                              onEdit={subSoloLectura ? undefined : () => { setEditandoCat(sub); setCatSeleccionada(null); setCreandoCat(null) }}
+                              onDelete={subSoloLectura ? undefined : () => { if (confirm(`¿Eliminar "${sub.nombre}"?\n\nSe eliminarán también todos sus items.`)) eliminarCat.mutate(sub.id) }}
+                              onCopiar={subGlobal ? undefined : () => setCopiandoCat(sub)}
+                              onDropItem={payload => moverItemACat.mutate({ id: payload.id, categoria: sub.nombre })}
+                              onUnnest={subSoloLectura ? undefined : () => anidarCat.mutate({ id: sub.id, parentId: null })}
+                              canDrag={!subSoloLectura}
+                            />
+                          </div>
+                        )
+                      })}
+                    </div>
                   )
                 })}
               </div>

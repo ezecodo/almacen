@@ -9,6 +9,7 @@ const catSchema = z.object({
   nombre:       z.string().min(1),
   icono:        z.string().default(''),
   orden:        z.number().int().default(0),
+  parentId:     z.number().int().positive().nullable().optional(),
 })
 
 const catUpdateSchema = catSchema.partial().omit({ restaurantId: true })
@@ -50,6 +51,8 @@ export async function menuRoutes(app: FastifyInstance) {
         .filter(c => globalNames.has(c.nombre))
         .map(c => c.id)
       if (duplicateIds.length > 0) {
+        // Las subcategorías de un duplicado vuelven al nivel superior antes de borrarlo
+        await prisma.menuCategoria.updateMany({ where: { parentId: { in: duplicateIds } }, data: { parentId: null } })
         await prisma.menuCategoria.deleteMany({ where: { id: { in: duplicateIds } } })
       }
     }
@@ -79,12 +82,25 @@ export async function menuRoutes(app: FastifyInstance) {
   app.post('/menu/categorias', async (req, reply) => {
     const result = catSchema.safeParse(req.body)
     if (!result.success) return reply.status(400).send({ error: result.error.flatten() })
+
+    // Crear directamente como subcategoría: valida el padre y hereda su grupo
+    let parentId: number | null = null
+    let grupo = result.data.grupo
+    if (result.data.parentId) {
+      const parent = await prisma.menuCategoria.findUnique({ where: { id: result.data.parentId } })
+      if (!parent) return reply.status(404).send({ error: 'Categoría padre no encontrada' })
+      if (parent.parentId !== null) return reply.status(400).send({ error: 'Solo se permite un nivel de subcategorías' })
+      parentId = parent.id
+      grupo = parent.grupo
+    }
+
     const cat = await prisma.menuCategoria.create({ data: {
       restaurantId: result.data.restaurantId ?? null,
-      grupo:        result.data.grupo,
+      grupo,
       nombre:       result.data.nombre,
       icono:        result.data.icono,
       orden:        result.data.orden,
+      parentId,
     }})
     return reply.status(201).send({ ...cat, itemCount: 0 })
   })
@@ -99,11 +115,13 @@ export async function menuRoutes(app: FastifyInstance) {
     if (result.data.nombre) {
       const old = await prisma.menuCategoria.findUnique({ where: { id } })
       if (old && old.nombre !== result.data.nombre) {
-        // Actualizar items del mismo scope (null=global, o del restaurante)
+        // Categoría global: actualizar también los items específicos de restaurante
+        // que conviven bajo ella (si no, quedan huérfanos con el nombre viejo).
+        // Categoría de restaurante: solo los items de ese scope.
         await prisma.menuItem.updateMany({
           where: {
-            categoria:    old.nombre,
-            restaurantId: old.restaurantId,
+            categoria: old.nombre,
+            ...(old.restaurantId !== null && { restaurantId: old.restaurantId }),
           },
           data: { categoria: result.data.nombre },
         })
@@ -114,12 +132,37 @@ export async function menuRoutes(app: FastifyInstance) {
     return cat
   })
 
+  // POST /menu/categorias/:id/anidar — mete/saca una categoría como subcategoría de otra
+  // body: { parentId: number | null }  (null = sacarla al nivel superior)
+  app.post('/menu/categorias/:id/anidar', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    const { parentId } = req.body as { parentId: number | null }
+    if (parentId === id) return reply.status(400).send({ error: 'Una categoría no puede contenerse a sí misma' })
+
+    const cat = await prisma.menuCategoria.findUnique({ where: { id }, include: { children: true } })
+    if (!cat) return reply.status(404).send({ error: 'Categoría no encontrada' })
+
+    if (parentId === null) {
+      return prisma.menuCategoria.update({ where: { id }, data: { parentId: null } })
+    }
+
+    const parent = await prisma.menuCategoria.findUnique({ where: { id: parentId } })
+    if (!parent) return reply.status(404).send({ error: 'Categoría destino no encontrada' })
+    if (parent.parentId !== null) return reply.status(400).send({ error: 'Solo se permite un nivel de subcategorías' })
+    if (cat.children.length > 0) return reply.status(400).send({ error: 'Esta categoría tiene subcategorías; sácalas primero' })
+
+    // Hereda el grupo del padre para que el ruteo barra/cocina siga funcionando
+    return prisma.menuCategoria.update({ where: { id }, data: { parentId, grupo: parent.grupo } })
+  })
+
   // DELETE /menu/categorias/:id
   app.delete('/menu/categorias/:id', async (req, reply) => {
     const id = Number((req.params as { id: string }).id)
     const cat = await prisma.menuCategoria.findUnique({ where: { id } })
     if (!cat) return reply.status(404).send({ error: 'No encontrada' })
 
+    // Las subcategorías vuelven al nivel superior (no se borran en cascada)
+    await prisma.menuCategoria.updateMany({ where: { parentId: id }, data: { parentId: null } })
     // Solo eliminar items del mismo scope que la categoría
     await prisma.menuItem.deleteMany({
       where: { restaurantId: cat.restaurantId, categoria: cat.nombre },

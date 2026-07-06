@@ -109,7 +109,7 @@ cd apps/api && npx tsx prisma/seed.ts
 ## Deploy
 
 **GitHub Actions se encarga del deploy automático al VPS.**
-Basta con hacer `git push` desde local — el workflow actualiza el VPS automáticamente (git pull + build frontend + migraciones + restart PM2).
+Basta con hacer `git push` desde local — el workflow actualiza el VPS automáticamente (git pull + build frontend + `prisma db push --accept-data-loss` + restart PM2). No hay archivos de migración: el schema se sincroniza con `db push` tanto en local como en producción.
 
 - VPS: Ubuntu `82.165.93.34`, directorio `/root/almacen`
 - Proceso PM2: `almacen-api` (el frontend lo sirve Nginx como estáticos)
@@ -158,6 +158,25 @@ Al enviar (`PATCH /comandas/:id/enviar`), se calcula `nextRonda = max(ronda exis
 - Abrir mesa → añadir items del menú → OrdenarModal (asignar niveles de salida) → Enviar a cocina
 - Puede re-enviar (marcha pasa), imprimir cuenta, registrar mermas, cambiar mesa, fusionar mesas
 - Botón ⚗️ en el header para registrar producción de premixes (solo categorías `personalProduccion = 'sala'`)
+- Panel de perfil (`PerfilPanel`, tocar el nombre): propinas del mes + accesos a Wiki y Checklists (iconos SVG de línea con tinte de color, no emoji)
+
+### Añadir items — navegación por niveles (tiles, accesibilidad visual)
+
+Pestaña "Añadir" del `ComandaPanel`. Navegación por **tiles cuadrados grandes** (texto uppercase 18px font-black, pensado para camareros con dificultades visuales):
+
+```
+Nivel 1: grupos (🍽️ COMIDA / 🍹 BEBIDAS…) — cards full-width h-24
+Nivel 2: categorías del grupo — grid 3 cols, tiles aspect-square
+Nivel 3: subcategorías (si las hay, mismo tile) + items directos
+Nivel 4: items de la subcategoría
+```
+
+- Si solo hay un grupo se entra directo al nivel 2. Categoría sin subcategorías va directa a sus items.
+- **Tinte ámbar** en tiles de grupos de barra (detectados con `esGrupoBarra(g)` = regex `/vino|bebida/i` — NO lista hardcodeada; cubre "Vinos Botella", "VINOS", etc.). Determina también el `tipo` cocina/barra del item.
+- **Volver un nivel**: FAB circular centrado (64px, gradiente azul→verde de marca, `bottom-24`) + swipe horizontal en cualquier dirección (>80px) + botón "← nombre" arriba. Los tres conviven porque el swipe falla en algunos teléfonos.
+- **Búsqueda global**: el campo de búsqueda (y la lupa flotante) ignora el nivel/grupo activo y matchea por nombre de item **o de categoría** en todo el menú.
+- **Cantidad**: taps repetidos sobre un item acumulan (`qtyPending`, commit a los 1.5s).
+- **Comentario por item (long-press)**: mantener apretado un plato (~450ms, con vibración) abre un box de comentario ("sin cebolla…"); al confirmar se añade el item con la `nota` puesta. Absorbe la cantidad pendiente de taps previos del mismo plato. Backend: `POST /comandas/:id/items` solo fusiona con un item pendiente existente si tiene **la misma nota** (notas distintas = filas separadas para cocina).
 
 ### Cambiar mesa / Merge (POST /api/comandas/merge)
 
@@ -258,12 +277,30 @@ En vista de restaurante se muestran globales + específicos del restaurante. Los
 
 ### Deduplicación automática de categorías
 
-`GET /menu/categorias?restaurantId=X` detecta y elimina silenciosamente las categorías específicas del restaurante que tienen el mismo nombre que una categoría global (evita duplicados visuales).
+`GET /menu/categorias?restaurantId=X` detecta y elimina silenciosamente las categorías específicas del restaurante que tienen el mismo nombre que una categoría global (evita duplicados visuales). Antes de borrar un duplicado, sus subcategorías vuelven al nivel superior (evita violación de FK).
+
+### Jerarquía: Sección → Categoría → Subcategoría
+
+- **Sección** = campo `grupo String` de MenuCategoria (ej: "Comida", "Bebidas"). Es el nivel 1 de la app del camarero. En el admin se elige con **pills de secciones existentes** + input libre (evita duplicados por mayúsculas).
+- **Subcategoría** = `parentId Int?` en MenuCategoria (self-relation `SubCategorias`). **Solo 1 nivel** de anidado (una subcategoría no puede contener otras). Al anidar, la hija **hereda el `grupo` del padre** (mantiene el ruteo barra/cocina).
+- ⚠️ `MenuItem.categoria` es un **string** (nombre de la categoría), no una FK. Cualquier rename/merge de categorías debe actualizar los items por nombre — ver siguiente punto.
+
+### Renombrar categoría (PUT /menu/categorias/:id)
+
+Al cambiar `nombre`, actualiza los items que apuntaban al nombre viejo. Si la categoría es **global**, actualiza también los items específicos de restaurante que conviven bajo ella (si no, quedan huérfanos e invisibles — bug histórico ya corregido).
+
+### Drag & drop en el admin (MenuPage)
+
+- **Item → card de categoría**: mueve el item a esa categoría (`PUT /menu/:id` con `categoria`). DataTransfer type `application/x-menu-item`.
+- **Categoría → card de categoría**: la anida como subcategoría (con confirm; nada se borra). DataTransfer type `application/x-menu-cat`.
+- **Chips de drop en el panel de items** (`SubDropChip`): al abrir una categoría padre, aparecen chips punteados de sus subcategorías para arrastrarle items sin cerrar el panel. Al abrir una subcategoría, los chips son el padre + las hermanas (reorganización en ambos sentidos).
+- Solo lectura (globales en vista restaurante) no se puede arrastrar.
 
 ### Categorías
 - **Orden**: cada categoría tiene campo `orden`. Botones ▲▼ en la card para reordenar dentro del mismo `grupo` (intercambia valores `orden` con la categoría adyacente via dos `PUT /menu/categorias/:id`).
+- **Subcategorías**: botón **"+ Sub"** en la card crea una subcategoría dentro (`POST /menu/categorias` con `parentId`; el form oculta la sección porque se hereda). Botón **"↖ Sacar"** en la card hija la devuelve al nivel superior. `POST /menu/categorias/:id/anidar` con `{ parentId: number | null }` hace ambas cosas (valida: no a sí misma, no >1 nivel, no anidar una que tiene hijas).
 - **Copiar categoría** (`POST /menu/categorias/:id/copiar`): copia una categoría (con o sin sus items) a uno o varios restaurantes. Omite items duplicados por nombre.
-- **Eliminar**: borrado en cascada — elimina todos los items del mismo scope primero, luego la categoría.
+- **Eliminar**: borrado en cascada — elimina todos los items del mismo scope primero, luego la categoría. Las subcategorías NO se borran: vuelven al nivel superior.
 
 ### Items
 - **Copiar item** (`POST /menu/items/:id/copiar`): copia un item a un restaurante + categoría destino.
@@ -631,7 +668,7 @@ Se usa la **Web Speech API nativa del navegador** (`SpeechSynthesisUtterance`), 
 ### Frontend
 
 - **Admin** (`/admin/wiki`, `WikiPage.tsx`): selector Global/restaurante (pills), gestión de categorías y artículos. Editor de artículo con textarea del guion (inglés) + botón 🔊 preview + textarea de notas (español). Los artículos globales son de solo lectura desde la vista de restaurante.
-- **Sala** (`WikiPanel` en `SalaMesasPage.tsx`): bottom-sheet con las categorías y artículos (`WikiArticuloCard`). Cada artículo muestra **chips de idioma** (🇬🇧 🇫🇷 🇩🇪) por cada guion cargado; al tocar un chip se muestra ese texto y se **lee en voz** en ese idioma. Botón 🎚️ en el header del panel abre el `<VozSelector>`. Solo muestra categorías con artículos activos.
+- **Sala** (`WikiPanel` en `SalaMesasPage.tsx`): bottom-sheet de **2 vistas** — (1) lista de artículos clicables agrupados por categoría (título + banderas de idiomas disponibles + chevron); (2) al tocar uno, detalle con la `WikiArticuloCard`: **chips de idioma** (🇬🇧 🇫🇷 🇩🇪) por cada guion cargado; al tocar un chip se muestra ese texto y se **lee en voz** en ese idioma. Flecha ← para volver (cancela el TTS). Botón 🎚️ en el header abre el `<VozSelector>`. Solo muestra categorías con artículos activos. Diseñado así para que la Wiki escale con más tipos de contenido.
 - **Acceso**: los botones de Wiki y Checklists **no** están en el header de la app de comandas — están dentro del **panel de perfil del camarero** (`PerfilPanel`, se abre al tocar el nombre), como accesos junto al resumen de propinas.
 
 ---

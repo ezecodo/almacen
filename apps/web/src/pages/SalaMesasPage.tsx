@@ -53,6 +53,10 @@ const CATEGORIA_NIVEL: Record<string, number> = {
 }
 const COLD_KEYWORDS = ['tartare','tatar','burrata','stracciatella','carpaccio','anchovies','ham','cheese','salchichón','jamón','crudo']
 
+// Secciones cuyo contenido sale por barra (no cocina). Matching tolerante:
+// cubre 'Bebidas', 'Vinos', 'Vinos Botella', 'VINOS'… sin depender del nombre exacto.
+const esGrupoBarra = (g: string) => /vino|bebida/i.test(g)
+
 function suggestNivel(nombre: string, menu: MenuItem[]): number {
   const menuItem = menu.find(m => m.nombre === nombre)
   const base = CATEGORIA_NIVEL[menuItem?.categoria ?? ''] ?? 3
@@ -203,7 +207,6 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
   marchaPasa?: boolean
 }) {
   const queryClient = useQueryClient()
-  const GRUPOS_BARRA = ['Bebidas', 'Vinos']
   const catMeta: Record<string, string> = {}
   for (const c of categorias) catMeta[c.nombre] = c.grupo || ''
 
@@ -224,7 +227,7 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
 
   const addItem = useMutation({
     mutationFn: (item: MenuItem) => {
-      const tipo: 'cocina' | 'barra' = GRUPOS_BARRA.includes(catMeta[item.categoria] ?? '') ? 'barra' : 'cocina'
+      const tipo: 'cocina' | 'barra' = esGrupoBarra(catMeta[item.categoria] ?? '') ? 'barra' : 'cocina'
       return api.comandas.addItem(comanda.id, { nombre: item.nombre, precio: item.precio, cantidad: 1, tipo })
     },
     onSuccess: () => {
@@ -598,11 +601,15 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
   const [searchMenu, setSearchMenu] = useState('')
   const [grupoTab, setGrupoTab] = useState<string | null>(null)
   const [selectedCat, setSelectedCat] = useState<string | null>(null)
+  const [selectedSub, setSelectedSub] = useState<string | null>(null)
   const swipeRef = useRef<number | null>(null)
   const [nota, setNota] = useState<{ itemId: number; value: string } | null>(null)
   const [addedId, setAddedId] = useState<number | null>(null)
   const [qtyPending, setQtyPending] = useState<{ id: number; qty: number } | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [notaNueva, setNotaNueva] = useState<{ item: MenuItem; qty: number; value: string } | null>(null)
+  const lpTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lpFired = useRef(false)
   const [ordenando, setOrdenando] = useState(false)
   const [verCuenta, setVerCuenta] = useState(false)
   const [mermaItem, setMermaItem] = useState<ComandaItem | null>(null)
@@ -758,13 +765,12 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
 
   const total = comanda.items.reduce((s, i) => s + i.precio * i.cantidad, 0)
 
-  const GRUPOS_BARRA = ['Bebidas', 'Vinos']
   const getTipo = (item: MenuItem): 'cocina' | 'barra' =>
-    GRUPOS_BARRA.includes(catMeta[item.categoria]?.grupo ?? '') ? 'barra' : 'cocina'
+    esGrupoBarra(catMeta[item.categoria]?.grupo ?? '') ? 'barra' : 'cocina'
 
   const addItem = useMutation({
-    mutationFn: ({ item, cantidad }: { item: MenuItem; cantidad: number }) =>
-      api.comandas.addItem(comanda.id, { nombre: item.nombre, precio: item.precio, cantidad, tipo: getTipo(item) }),
+    mutationFn: ({ item, cantidad, nota: notaItem }: { item: MenuItem; cantidad: number; nota?: string }) =>
+      api.comandas.addItem(comanda.id, { nombre: item.nombre, precio: item.precio, cantidad, tipo: getTipo(item), ...(notaItem ? { nota: notaItem } : {}) }),
     onSuccess: (_, { item }) => {
       setAddedId(item.id)
       setTimeout(() => setAddedId(null), 1000)
@@ -799,6 +805,36 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
     }
   }
 
+  // ── Long-press sobre un plato → box de comentario antes de añadir ──
+  const startLongPress = (item: MenuItem) => {
+    lpFired.current = false
+    if (lpTimer.current) clearTimeout(lpTimer.current)
+    lpTimer.current = setTimeout(() => {
+      lpFired.current = true
+      navigator.vibrate?.(30)
+      let qty = 1
+      if (qtyPending && timerRef.current) {
+        clearTimeout(timerRef.current)
+        timerRef.current = null
+        if (qtyPending.id === item.id) {
+          qty = qtyPending.qty // absorbe los taps previos del mismo plato
+        } else {
+          const prevItem = menu.find(m => m.id === qtyPending.id)
+          if (prevItem) addItem.mutate({ item: prevItem, cantidad: qtyPending.qty })
+        }
+        setQtyPending(null)
+      }
+      setNotaNueva({ item, qty, value: '' })
+    }, 450)
+  }
+  const cancelLongPress = () => {
+    if (lpTimer.current) { clearTimeout(lpTimer.current); lpTimer.current = null }
+  }
+  const tapItem = (item: MenuItem) => {
+    if (lpFired.current) { lpFired.current = false; return } // el long-press ya abrió el box
+    handleMenuItemTap(item)
+  }
+
   const updateItem = useMutation({
     mutationFn: ({ itemId, cantidad }: { itemId: number; cantidad: number }) =>
       api.comandas.updateItem(comanda.id, itemId, { cantidad }),
@@ -827,23 +863,62 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
   const catMeta: Record<string, { grupo: string; orden: number }> = {}
   for (const c of categorias) catMeta[c.nombre] = { grupo: c.grupo || 'Otros', orden: c.orden }
 
+  // Subcategorías: mapa nombre-hija → nombre-padre. Los items de una subcategoría
+  // se muestran dentro del tile de su padre, agrupados con encabezado.
+  const padreDe: Record<string, string> = {}
+  for (const c of categorias) {
+    if (c.parentId) {
+      const p = categorias.find(x => x.id === c.parentId)
+      if (p) padreDe[c.nombre] = p.nombre
+    }
+  }
+  const catTop = (nombre: string) => padreDe[nombre] ?? nombre
+  const subcatsDe = (nombre: string) =>
+    categorias.filter(c => padreDe[c.nombre] === nombre).sort((a, b) => a.orden - b.orden)
+
   // Grupos únicos ordenados
   const grupos = [...new Set(categorias.map(c => c.grupo || 'Otros'))]
-  const grupoActivo = grupoTab ?? grupos[0] ?? null
+  // Navegación por niveles: grupos → categorías → platos.
+  // Sin grupo elegido se muestran los tiles de grupo (si solo hay uno, se entra directo).
+  const grupoActivo = grupoTab ?? (grupos.length === 1 ? grupos[0] : null)
 
-  const filteredMenu = menu.filter(m =>
-    m.activo &&
-    m.nombre.toLowerCase().includes(searchMenu.toLowerCase()) &&
-    (!grupoActivo || (catMeta[m.categoria]?.grupo ?? 'Otros') === grupoActivo)
-  )
+  const searchQ = searchMenu.trim().toLowerCase()
+  const filteredMenu = menu.filter(m => {
+    if (!m.activo) return false
+    // Búsqueda global: ignora el grupo activo y matchea nombre o categoría
+    if (searchQ) return m.nombre.toLowerCase().includes(searchQ) || m.categoria.toLowerCase().includes(searchQ)
+    return !grupoActivo || (catMeta[m.categoria]?.grupo ?? 'Otros') === grupoActivo
+  })
   const menuByCategoria = filteredMenu.reduce<Record<string, MenuItem[]>>((acc, m) => {
-    if (!acc[m.categoria]) acc[m.categoria] = []
-    acc[m.categoria].push(m)
+    const top = catTop(m.categoria)
+    if (!acc[top]) acc[top] = []
+    acc[top].push(m)
     return acc
   }, {})
   const categoriasSorted = Object.keys(menuByCategoria).sort((a, b) =>
     (catMeta[a]?.orden ?? 99) - (catMeta[b]?.orden ?? 99)
   )
+
+  // Botón de plato (vista de categoría) — tap añade, long-press abre comentario
+  const renderItemBtn = (item: MenuItem) => {
+    const isPending = qtyPending?.id === item.id
+    const isAdded   = addedId === item.id
+    return (
+      <button key={item.id} onClick={() => tapItem(item)}
+        onPointerDown={() => startLongPress(item)} onPointerUp={cancelLongPress} onPointerLeave={cancelLongPress}
+        onTouchMove={cancelLongPress} onContextMenu={e => e.preventDefault()}
+        className={`w-full text-left rounded-xl px-4 py-3.5 transition-colors relative overflow-hidden select-none ${isPending ? 'bg-[var(--sala-srf2)] border-2 border-[#4CC8A0]' : 'bg-[var(--sala-srf)] hover:bg-[var(--sala-srf2)]'}`}>
+        <span className="text-[var(--sala-txt)] text-base font-medium">{item.nombre}</span>
+        {item.descripcion ? <p className="text-[var(--sala-tx3)] text-xs mt-0.5 truncate">{item.descripcion}</p> : null}
+        {isPending && <span className="absolute right-3 inset-y-0 flex items-center"><span className="text-[#4CC8A0] font-black text-2xl">{qtyPending!.qty}×</span></span>}
+        {isAdded && (
+          <span className="absolute inset-0 flex items-center justify-center bg-[var(--sala-srf)] rounded-xl" style={{ animation: 'fadeInOut 1s ease forwards' }}>
+            <svg viewBox="0 0 52 58" className="h-8 w-8"><defs><linearGradient id="lgfbs3" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#4B9EDF"/><stop offset="100%" stopColor="#4CC8A0"/></linearGradient></defs><path d="M8 2 L44 2 Q50 2 50 8 L50 38 Q50 44 44 44 L32 44 L26 52 L20 44 L8 44 Q2 44 2 38 L2 8 Q2 2 8 2 Z" fill="url(#lgfbs3)"/><path d="M14 22 L23 31 L38 13" stroke="white" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>
+          </span>
+        )}
+      </button>
+    )
+  }
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end" onClick={onClose}>
@@ -1043,22 +1118,10 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                   </div>
                 </div>
               )}
-              {/* Grupo tabs + search */}
-              <div className="px-2.5 pt-2 pb-1.5 space-y-1.5 border-b border-[var(--sala-brd)]">
-                {grupos.length > 1 && (
-                  <div className="flex gap-1 overflow-x-auto pb-0.5">
-                    {grupos.map(g => (
-                      <button key={g} onClick={() => { setGrupoTab(g); setSelectedCat(null); setSearchMenu('') }}
-                        className={`px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-                          grupoActivo === g ? 'bg-cyan-600 text-[var(--sala-txt)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx2)] hover:bg-gray-700'
-                        }`}>
-                        {g}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <input ref={searchInputRef} value={searchMenu} onChange={e => { setSearchMenu(e.target.value); setSelectedCat(null) }}
-                  placeholder="Buscar plato o bebida…"
+              {/* Search global */}
+              <div className="px-2.5 pt-2 pb-1.5 border-b border-[var(--sala-brd)]">
+                <input ref={searchInputRef} value={searchMenu} onChange={e => { setSearchMenu(e.target.value); setSelectedCat(null); setSelectedSub(null) }}
+                  placeholder="Buscar en todo el menú…"
                   className="w-full bg-[var(--sala-btn2)] text-[var(--sala-txt)] text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-[var(--sala-tx4)]" />
               </div>
 
@@ -1069,8 +1132,10 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                     const isPending = qtyPending?.id === item.id
                     const isAdded   = addedId === item.id
                     return (
-                      <button key={item.id} onClick={() => handleMenuItemTap(item)}
-                        className={`w-full text-left rounded-xl px-4 py-3 transition-colors relative overflow-hidden ${isPending ? 'bg-[var(--sala-srf2)] border-2 border-[#4CC8A0]' : 'bg-[var(--sala-srf)] hover:bg-[var(--sala-srf2)]'}`}>
+                      <button key={item.id} onClick={() => tapItem(item)}
+                        onPointerDown={() => startLongPress(item)} onPointerUp={cancelLongPress} onPointerLeave={cancelLongPress}
+                        onTouchMove={cancelLongPress} onContextMenu={e => e.preventDefault()}
+                        className={`w-full text-left rounded-xl px-4 py-3 transition-colors relative overflow-hidden select-none ${isPending ? 'bg-[var(--sala-srf2)] border-2 border-[#4CC8A0]' : 'bg-[var(--sala-srf)] hover:bg-[var(--sala-srf2)]'}`}>
                         <p className="text-[var(--sala-txt)] text-sm font-medium">{item.nombre}</p>
                         <p className="text-[var(--sala-tx3)] text-xs">{item.categoria}</p>
                         {isPending && <span className="absolute right-3 inset-y-0 flex items-center"><span className="text-[#4CC8A0] font-black text-2xl">{qtyPending!.qty}×</span></span>}
@@ -1085,52 +1150,101 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                   {filteredMenu.length === 0 && <p className="text-center text-[var(--sala-tx4)] text-sm py-8">Sin resultados</p>}
                 </div>
               ) : selectedCat ? (
-                /* ── Items de la categoría seleccionada ── */
+                /* ── Dentro de una categoría: tiles de subcategoría o items ── */
                 <div className="flex-1 overflow-y-auto"
                   onTouchStart={e => { swipeRef.current = e.touches[0].clientX }}
                   onTouchEnd={e => {
-                    if (swipeRef.current !== null && e.changedTouches[0].clientX - swipeRef.current > 80)
-                      setSelectedCat(null)
+                    // Swipe horizontal en cualquier dirección → un nivel atrás
+                    if (swipeRef.current !== null && Math.abs(e.changedTouches[0].clientX - swipeRef.current) > 80)
+                      selectedSub ? setSelectedSub(null) : setSelectedCat(null)
                     swipeRef.current = null
                   }}>
-                  <button onClick={() => setSelectedCat(null)}
+                  <button onClick={() => selectedSub ? setSelectedSub(null) : setSelectedCat(null)}
                     className="flex items-center gap-2 px-4 py-3 text-cyan-400 text-sm font-semibold w-full border-b border-[var(--sala-brd)] hover:bg-[var(--sala-btn2)]/40">
-                    ← {selectedCat}
+                    ← {selectedSub ?? selectedCat}
                   </button>
-                  <div className="p-4 space-y-1.5">
-                    {(menu.filter(m => m.activo && m.categoria === selectedCat)).map((item: MenuItem) => {
-                      const isPending = qtyPending?.id === item.id
-                      const isAdded   = addedId === item.id
+                  {selectedSub ? (
+                    /* ── Nivel 4: items de la subcategoría ── */
+                    <div className="p-4 space-y-1.5">
+                      {menu.filter(m => m.activo && m.categoria === selectedSub).map(renderItemBtn)}
+                    </div>
+                  ) : (
+                    <>
+                      {/* Tiles de subcategoría (mismo diseño que las categorías) */}
+                      {subcatsDe(selectedCat).length > 0 && (
+                        <div className="p-2 grid grid-cols-3 gap-2">
+                          {subcatsDe(selectedCat).map(sc => {
+                            const count = menu.filter(m => m.activo && m.categoria === sc.nombre).length
+                            const esBarra = esGrupoBarra(sc.grupo || catMeta[selectedCat]?.grupo || '')
+                            return (
+                              <button key={sc.id} onClick={() => setSelectedSub(sc.nombre)}
+                                className={`relative aspect-square rounded-2xl flex flex-col items-center justify-center gap-1.5 p-2 active:scale-95 transition-all border ${
+                                  esBarra
+                                    ? 'bg-amber-500/[0.06] border-amber-600/25 hover:bg-amber-500/10 hover:border-amber-500/40'
+                                    : 'bg-[var(--sala-srf)] border-[var(--sala-brd)]/50 hover:bg-[var(--sala-srf2)] hover:border-cyan-700/40'
+                                }`}>
+                                <span className={`absolute top-1.5 right-2 text-xs font-semibold tabular-nums ${esBarra ? 'text-amber-500/80' : 'text-[var(--sala-tx4)]'}`}>{count}</span>
+                                <span className="text-4xl leading-none">{sc.icono || '🍽'}</span>
+                                <span className="text-[var(--sala-txt)] text-lg font-black uppercase tracking-wide text-center leading-tight px-0.5" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{sc.nombre}</span>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
+                      {/* Items directos de la categoría */}
+                      <div className="p-4 pt-2 space-y-1.5">
+                        {menu.filter(m => m.activo && m.categoria === selectedCat).map(renderItemBtn)}
+                      </div>
+                    </>
+                  )}
+                </div>
+              ) : grupoActivo ? (
+                /* ── Nivel 2: grid de categorías del grupo (tiles cuadrados) ── */
+                <div className="flex-1 overflow-y-auto p-2"
+                  onTouchStart={e => { swipeRef.current = e.touches[0].clientX }}
+                  onTouchEnd={e => {
+                    if (swipeRef.current !== null && Math.abs(e.changedTouches[0].clientX - swipeRef.current) > 80 && grupos.length > 1)
+                      setGrupoTab(null)
+                    swipeRef.current = null
+                  }}>
+                  <div className="grid grid-cols-3 gap-2">
+                    {categoriasSorted.map(cat => {
+                      const meta = categorias.find(c => c.nombre === cat)
+                      const count = menuByCategoria[cat]?.length ?? 0
+                      const esBarra = esGrupoBarra(meta?.grupo ?? '')
                       return (
-                        <button key={item.id} onClick={() => handleMenuItemTap(item)}
-                          className={`w-full text-left rounded-xl px-4 py-3.5 transition-colors relative overflow-hidden ${isPending ? 'bg-[var(--sala-srf2)] border-2 border-[#4CC8A0]' : 'bg-[var(--sala-srf)] hover:bg-[var(--sala-srf2)]'}`}>
-                          <span className="text-[var(--sala-txt)] text-base font-medium">{item.nombre}</span>
-                          {item.descripcion ? <p className="text-[var(--sala-tx3)] text-xs mt-0.5 truncate">{item.descripcion}</p> : null}
-                          {isPending && <span className="absolute right-3 inset-y-0 flex items-center"><span className="text-[#4CC8A0] font-black text-2xl">{qtyPending!.qty}×</span></span>}
-                          {isAdded && (
-                            <span className="absolute inset-0 flex items-center justify-center bg-[var(--sala-srf)] rounded-xl" style={{ animation: 'fadeInOut 1s ease forwards' }}>
-                              <svg viewBox="0 0 52 58" className="h-8 w-8"><defs><linearGradient id="lgfbs3" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#4B9EDF"/><stop offset="100%" stopColor="#4CC8A0"/></linearGradient></defs><path d="M8 2 L44 2 Q50 2 50 8 L50 38 Q50 44 44 44 L32 44 L26 52 L20 44 L8 44 Q2 44 2 38 L2 8 Q2 2 8 2 Z" fill="url(#lgfbs3)"/><path d="M14 22 L23 31 L38 13" stroke="white" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>
-                            </span>
-                          )}
+                        <button key={cat} onClick={() => { setSelectedCat(cat); setSelectedSub(null) }}
+                          className={`relative aspect-square rounded-2xl flex flex-col items-center justify-center gap-1.5 p-2 active:scale-95 transition-all border ${
+                            esBarra
+                              ? 'bg-amber-500/[0.06] border-amber-600/25 hover:bg-amber-500/10 hover:border-amber-500/40'
+                              : 'bg-[var(--sala-srf)] border-[var(--sala-brd)]/50 hover:bg-[var(--sala-srf2)] hover:border-cyan-700/40'
+                          }`}>
+                          <span className={`absolute top-1.5 right-2 text-xs font-semibold tabular-nums ${esBarra ? 'text-amber-500/80' : 'text-[var(--sala-tx4)]'}`}>{count}</span>
+                          <span className="text-4xl leading-none">{meta?.icono ?? '🍽'}</span>
+                          <span className="text-[var(--sala-txt)] text-lg font-black uppercase tracking-wide text-center leading-tight px-0.5" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{cat}</span>
                         </button>
                       )
                     })}
                   </div>
                 </div>
               ) : (
-                /* ── Lista compacta de categorías (PADs/Handys) ── */
-                <div className="flex-1 overflow-y-auto p-1.5 space-y-1">
-                  {categoriasSorted.map(cat => {
-                    const meta = categorias.find(c => c.nombre === cat)
-                    const count = menuByCategoria[cat]?.length ?? 0
-                    const esBarra = GRUPOS_BARRA.includes(meta?.grupo ?? '')
+                /* ── Nivel 1: tiles de grupo (COMIDA / BEBIDAS / VINOS) ── */
+                <div className="flex-1 overflow-y-auto p-3 space-y-3">
+                  {grupos.map(g => {
+                    const esBarra = esGrupoBarra(g)
+                    const nCats = categorias.filter(c => (c.grupo || 'Otros') === g).length
+                    const icono = /vino/i.test(g) ? '🍷' : /bebida/i.test(g) ? '🍹' : /comida/i.test(g) ? '🍽️' : '📋'
                     return (
-                      <button key={cat} onClick={() => setSelectedCat(cat)}
-                        className="w-full flex items-center gap-3 px-3 py-2 rounded-lg bg-[var(--sala-srf)] active:scale-[0.98] transition-all hover:bg-[var(--sala-srf2)] border border-[var(--sala-brd)]/50 hover:border-cyan-700/40">
-                        <span className="text-2xl leading-none shrink-0 w-7 text-center">{meta?.icono ?? '🍽'}</span>
-                        <span className="flex-1 text-left text-[var(--sala-txt)] text-sm font-semibold truncate">{cat}</span>
-                        <span className={`text-[11px] font-medium tabular-nums ${esBarra ? 'text-amber-500' : 'text-[var(--sala-tx3)]'}`}>{count}</span>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--sala-tx4)] shrink-0">
+                      <button key={g} onClick={() => { setGrupoTab(g); setSelectedCat(null); setSelectedSub(null) }}
+                        className={`w-full h-24 rounded-2xl flex items-center gap-4 px-5 active:scale-[0.97] transition-all border ${
+                          esBarra
+                            ? 'bg-amber-500/[0.06] border-amber-600/25 hover:bg-amber-500/10 hover:border-amber-500/40'
+                            : 'bg-[var(--sala-srf)] border-[var(--sala-brd)]/50 hover:bg-[var(--sala-srf2)] hover:border-cyan-700/40'
+                        }`}>
+                        <span className="text-4xl leading-none">{icono}</span>
+                        <span className="flex-1 text-left text-[var(--sala-txt)] text-2xl font-black uppercase tracking-wide truncate">{g}</span>
+                        <span className={`text-xs font-semibold tabular-nums ${esBarra ? 'text-amber-500/80' : 'text-[var(--sala-tx4)]'}`}>{nCats}</span>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--sala-tx4)] shrink-0">
                           <path d="M9 6l6 6-6 6" />
                         </svg>
                       </button>
@@ -1141,6 +1255,56 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
             </div>
           )}
         </div>
+
+        {/* FAB volver — un nivel atrás (backup del swipe) */}
+        {tab === 'menu' && (selectedSub || selectedCat || (grupoTab && grupos.length > 1)) && !searchMenu.trim() && (
+          <button
+            onClick={() => selectedSub ? setSelectedSub(null) : selectedCat ? setSelectedCat(null) : setGrupoTab(null)}
+            aria-label="Volver a categorías"
+            className="absolute bottom-24 left-1/2 -translate-x-1/2 z-30 w-16 h-16 rounded-full grid place-items-center text-white active:scale-90 transition-transform"
+            style={{
+              background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)',
+              boxShadow: '0 4px 20px rgba(76,200,160,0.45), 0 2px 8px rgba(0,0,0,0.35)',
+            }}
+          >
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.75" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 5l-7 7 7 7" />
+            </svg>
+          </button>
+        )}
+
+        {/* Box de comentario (long-press sobre un plato) */}
+        {notaNueva && (
+          <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-6" onClick={() => setNotaNueva(null)}>
+            <div className="w-full max-w-sm bg-[var(--sala-hdr)] border border-[var(--sala-brd2)] rounded-2xl p-5 shadow-2xl" onClick={e => e.stopPropagation()}>
+              <p className="text-[var(--sala-tx3)] text-[11px] font-semibold uppercase tracking-wider mb-1">💬 Comentario</p>
+              <h3 className="text-[var(--sala-txt)] font-bold text-lg mb-3">
+                {notaNueva.item.nombre}{notaNueva.qty > 1 && <span className="text-[#4CC8A0]"> ×{notaNueva.qty}</span>}
+              </h3>
+              <textarea
+                autoFocus
+                value={notaNueva.value}
+                onChange={e => setNotaNueva({ ...notaNueva, value: e.target.value })}
+                placeholder="Sin cebolla, poco hecho, alergia…"
+                rows={3}
+                className="w-full bg-[var(--sala-btn2)] text-[var(--sala-txt)] text-sm px-3 py-2.5 rounded-xl outline-none placeholder:text-[var(--sala-tx4)] resize-none"
+              />
+              <div className="flex gap-2 mt-3">
+                <button onClick={() => setNotaNueva(null)}
+                  className="px-4 py-2.5 rounded-xl bg-[var(--sala-btn2)] text-[var(--sala-tx2)] text-sm font-semibold">
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => { addItem.mutate({ item: notaNueva.item, cantidad: notaNueva.qty, nota: notaNueva.value.trim() || undefined }); setNotaNueva(null) }}
+                  className="flex-1 py-2.5 rounded-xl text-white text-sm font-bold active:scale-95 transition-transform"
+                  style={{ background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)' }}
+                >
+                  Añadir{notaNueva.value.trim() ? ' con comentario' : ''}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Footer */}
         <div className="px-3 py-2 border-t border-[var(--sala-brd)]">
@@ -1677,6 +1841,7 @@ function WikiArticuloCard({ art }: { art: WikiArticulo }) {
 // ── Panel Wiki (consulta camarero) ─────────────────────────────────────────────
 function WikiPanel({ restaurantId, onClose }: { restaurantId: number; onClose: () => void }) {
   const [showVoz, setShowVoz] = useState(false)
+  const [activo, setActivo] = useState<WikiArticulo | null>(null)
   const { data: categorias, isLoading } = useQuery({
     queryKey: ['wiki-sala', restaurantId],
     queryFn: () => api.wiki.contenido(restaurantId),
@@ -1684,6 +1849,8 @@ function WikiPanel({ restaurantId, onClose }: { restaurantId: number; onClose: (
 
   // Solo categorías con artículos activos
   const conContenido = (categorias ?? []).filter((c: WikiCategoria) => (c.articulos?.length ?? 0) > 0)
+
+  const volver = () => { window.speechSynthesis?.cancel(); setActivo(null) }
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-end z-50" onClick={onClose}>
@@ -1695,11 +1862,16 @@ function WikiPanel({ restaurantId, onClose }: { restaurantId: number; onClose: (
 
         {/* Header */}
         <div className="px-5 pt-2 pb-4 border-b border-[var(--sala-brd)] flex items-center justify-between">
-          <div>
-            <h2 className="text-[var(--sala-txt)] font-bold text-lg">📖 Wiki</h2>
-            <p className="text-[var(--sala-tx3)] text-xs mt-0.5">Speeches y protocolos</p>
+          <div className="flex items-center gap-2 min-w-0">
+            {activo && (
+              <button onClick={volver} className="text-[var(--sala-tx3)] text-lg shrink-0">←</button>
+            )}
+            <div className="min-w-0">
+              <h2 className="text-[var(--sala-txt)] font-bold text-lg truncate">{activo ? activo.titulo : '📖 Wiki'}</h2>
+              {!activo && <p className="text-[var(--sala-tx3)] text-xs mt-0.5">Speeches y protocolos</p>}
+            </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 shrink-0">
             <button
               onClick={() => setShowVoz(v => !v)}
               title="Ajustes de voz"
@@ -1718,25 +1890,49 @@ function WikiPanel({ restaurantId, onClose }: { restaurantId: number; onClose: (
           </div>
         )}
 
-        {/* Contenido */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
-          {isLoading && <p className="text-[var(--sala-tx4)] text-sm text-center py-6">Cargando…</p>}
-          {!isLoading && conContenido.length === 0 && (
-            <p className="text-[var(--sala-tx4)] text-sm text-center py-6">No hay contenido todavía.</p>
-          )}
-          {conContenido.map((cat: WikiCategoria) => (
-            <div key={cat.id}>
-              <p className="text-[var(--sala-tx3)] text-xs font-bold uppercase tracking-wider mb-2">
-                {cat.icono || '📄'} {cat.nombre}
-              </p>
-              <div className="space-y-3">
-                {(cat.articulos ?? []).map(art => (
-                  <WikiArticuloCard key={art.id} art={art} />
-                ))}
+        {/* Vista detalle: speech del artículo */}
+        {activo && (
+          <div className="flex-1 overflow-y-auto px-5 py-4">
+            <WikiArticuloCard art={activo} />
+          </div>
+        )}
+
+        {/* Vista lista: artículos clicables agrupados por categoría */}
+        {!activo && (
+          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
+            {isLoading && <p className="text-[var(--sala-tx4)] text-sm text-center py-6">Cargando…</p>}
+            {!isLoading && conContenido.length === 0 && (
+              <p className="text-[var(--sala-tx4)] text-sm text-center py-6">No hay contenido todavía.</p>
+            )}
+            {conContenido.map((cat: WikiCategoria) => (
+              <div key={cat.id}>
+                <p className="text-[var(--sala-tx3)] text-xs font-bold uppercase tracking-wider mb-2">
+                  {cat.icono || '📄'} {cat.nombre}
+                </p>
+                <div className="space-y-2">
+                  {(cat.articulos ?? []).map(art => {
+                    const idiomas = LANGS.filter(l => (art.guiones?.[l.code] ?? '').trim())
+                    return (
+                      <button
+                        key={art.id}
+                        onClick={() => setActivo(art)}
+                        className="w-full flex items-center gap-3 bg-[var(--sala-srf)] hover:bg-[var(--sala-btn2)] rounded-2xl px-4 py-3 text-left transition-colors active:scale-[0.99]"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[var(--sala-txt)] font-semibold text-sm truncate">{art.titulo}</p>
+                          {idiomas.length > 0 && (
+                            <p className="text-[var(--sala-tx3)] text-xs mt-0.5">{idiomas.map(l => l.flag).join(' ')}</p>
+                          )}
+                        </div>
+                        <span className="text-[var(--sala-tx3)] text-lg shrink-0">›</span>
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -1795,9 +1991,16 @@ function PerfilPanel({ camarero, onClose, onOpenWiki, onOpenChecklist }: {
         <div className="grid grid-cols-2 gap-3 px-5 pb-2">
           <button
             onClick={onOpenChecklist}
-            className="flex items-center gap-2 bg-[var(--sala-srf)] hover:bg-[var(--sala-btn2)] rounded-2xl px-4 py-3 transition-colors"
+            className="group flex items-center gap-3 bg-[var(--sala-srf)] hover:bg-[var(--sala-btn2)] rounded-2xl px-4 py-3 transition-colors"
           >
-            <span className="text-xl">✅</span>
+            <span className="shrink-0 grid place-items-center w-10 h-10 rounded-xl bg-[#4CC8A0]/15 text-[#4CC8A0] transition-transform group-active:scale-95">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="4" y="3" width="16" height="18" rx="2.5" />
+                <path d="M8 3.5h8v2.5a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1z" />
+                <path d="m8.5 12.5 1.8 1.8 3.5-3.6" />
+                <path d="M8.5 17.5h5" />
+              </svg>
+            </span>
             <div className="text-left">
               <p className="text-[var(--sala-txt)] text-sm font-semibold">Checklists</p>
               <p className="text-[var(--sala-tx3)] text-[11px]">Apertura y cierre</p>
@@ -1805,9 +2008,15 @@ function PerfilPanel({ camarero, onClose, onOpenWiki, onOpenChecklist }: {
           </button>
           <button
             onClick={onOpenWiki}
-            className="flex items-center gap-2 bg-[var(--sala-srf)] hover:bg-[var(--sala-btn2)] rounded-2xl px-4 py-3 transition-colors"
+            className="group flex items-center gap-3 bg-[var(--sala-srf)] hover:bg-[var(--sala-btn2)] rounded-2xl px-4 py-3 transition-colors"
           >
-            <span className="text-xl">📖</span>
+            <span className="shrink-0 grid place-items-center w-10 h-10 rounded-xl bg-[#4C9EE0]/15 text-[#4C9EE0] transition-transform group-active:scale-95">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 6.5C10.6 5.4 8.7 5 6.5 5H4v13h2.5c2.2 0 4.1.4 5.5 1.5" />
+                <path d="M12 6.5C13.4 5.4 15.3 5 17.5 5H20v13h-2.5c-2.2 0-4.1.4-5.5 1.5" />
+                <path d="M12 6.5v13" />
+              </svg>
+            </span>
             <div className="text-left">
               <p className="text-[var(--sala-txt)] text-sm font-semibold">Wiki</p>
               <p className="text-[var(--sala-tx3)] text-[11px]">Speeches y protocolos</p>

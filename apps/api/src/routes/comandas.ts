@@ -89,9 +89,10 @@ export async function comandaRoutes(app: FastifyInstance) {
     const result = itemSchema.safeParse(req.body)
     if (!result.success) return reply.status(400).send({ error: result.error.flatten() })
 
-    // Si ya existe un item igual sin enviar (nivel null), incrementar cantidad en vez de crear uno nuevo
+    // Si ya existe un item igual sin enviar (nivel null) y con la misma nota, incrementar cantidad en vez de crear uno nuevo
+    // (un item con comentario distinto va en fila aparte para que cocina lo vea claro)
     const existing = await prisma.comandaItem.findFirst({
-      where: { comandaId, nombre: result.data.nombre, tipo: result.data.tipo, nivel: null },
+      where: { comandaId, nombre: result.data.nombre, tipo: result.data.tipo, nivel: null, nota: result.data.nota },
     })
 
     const { restaurantId: rId } = (await prisma.comanda.findUnique({ where: { id: comandaId }, select: { restaurantId: true } }))!

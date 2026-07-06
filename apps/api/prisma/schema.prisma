@@ -233,6 +233,9 @@ model MenuCategoria {
   nombre       String
   icono        String     @default("")
   orden        Int        @default(0)
+  parentId     Int?       // subcategoría: id de la categoría contenedora (1 solo nivel)
+  parent       MenuCategoria?  @relation("SubCategorias", fields: [parentId], references: [id])
+  children     MenuCategoria[] @relation("SubCategorias")
   createdAt    DateTime   @default(now())
 }
 
