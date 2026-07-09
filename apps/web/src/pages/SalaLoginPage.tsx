@@ -40,7 +40,12 @@ export default function SalaLoginPage() {
       if (empleado.tipo !== 'sala') {
         triggerError('Solo personal de sala puede acceder')
       } else {
-        sessionStorage.setItem('oidoops_camarero', JSON.stringify({ id: empleado.id, nombre: empleado.nombre }))
+        sessionStorage.setItem('oidoops_camarero', JSON.stringify({
+          id: empleado.id,
+          nombre: empleado.nombre,
+          rol: empleado.rol ?? null,
+          accesoEncargadoApp: empleado.accesoEncargadoApp ?? false,
+        }))
         navigate('/sala/mesas', { replace: true })
       }
     } catch {

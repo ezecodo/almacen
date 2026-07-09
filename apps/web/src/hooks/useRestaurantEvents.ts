@@ -21,6 +21,8 @@ export function useRestaurantEvents(restaurantId: number | null) {
           queryClient.invalidateQueries({ queryKey: ['comandas-feed-activas', restaurantId] })
           queryClient.invalidateQueries({ queryKey: ['comandas-feed-liberadas', restaurantId] })
           queryClient.invalidateQueries({ queryKey: ['comandas-feed-cerradas', restaurantId] })
+          queryClient.invalidateQueries({ queryKey: ['enc-cobros', restaurantId] })
+          queryClient.invalidateQueries({ queryKey: ['turno-activo', restaurantId] })
         }
       } catch {}
     }

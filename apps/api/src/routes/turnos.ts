@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../server'
+import { broadcast } from '../sse'
 
 export async function turnoRoutes(app: FastifyInstance) {
 
@@ -65,11 +66,11 @@ export async function turnoRoutes(app: FastifyInstance) {
 
       const totalEfectivo = comandas
         .filter(c => c.metodoPago === 'cash')
-        .reduce((s, c) => s + c.items.reduce((ss, i) => ss + i.precio * i.cantidad, 0), 0)
+        .reduce((s, c) => s + c.items.reduce((ss, i) => ss + (i.invitacion ? 0 : i.precio * i.cantidad), 0), 0)
 
       const totalTarjeta = comandas
         .filter(c => c.metodoPago === 'tarjeta')
-        .reduce((s, c) => s + c.items.reduce((ss, i) => ss + i.precio * i.cantidad, 0), 0)
+        .reduce((s, c) => s + c.items.reduce((ss, i) => ss + (i.invitacion ? 0 : i.precio * i.cantidad), 0), 0)
 
       return {
         restaurantId: r.id,
@@ -105,6 +106,7 @@ export async function turnoRoutes(app: FastifyInstance) {
     const turno = await prisma.turno.create({
       data: { restaurantId: result.data.restaurantId, encargadoNombre: result.data.encargadoNombre },
     })
+    broadcast(turno.restaurantId, 'update')
     return reply.status(201).send(turno)
   })
 
@@ -134,17 +136,22 @@ export async function turnoRoutes(app: FastifyInstance) {
       },
     })
 
-    // Calcular totales
+    // Calcular totales (las invitaciones de la casa van a 0 € y se registran aparte)
+    const cobrable = (i: { precio: number; cantidad: number; invitacion: boolean }) =>
+      i.invitacion ? 0 : i.precio * i.cantidad
+
     const totalEfectivo = comandas
       .filter(c => c.metodoPago === 'cash')
-      .reduce((s, c) => s + c.items.reduce((ss, i) => ss + i.precio * i.cantidad, 0), 0)
+      .reduce((s, c) => s + c.items.reduce((ss, i) => ss + cobrable(i), 0), 0)
 
     const totalTarjeta = comandas
       .filter(c => c.metodoPago === 'tarjeta')
-      .reduce((s, c) => s + c.items.reduce((ss, i) => ss + i.precio * i.cantidad, 0), 0)
+      .reduce((s, c) => s + c.items.reduce((ss, i) => ss + cobrable(i), 0), 0)
 
     const totalMermas   = mermas.reduce((s, m) => s + m.precio * m.cantidad, 0)
     const totalPropinas = comandas.reduce((s, c) => s + (c.propina ?? 0), 0)
+    const totalInvitaciones = comandas.reduce(
+      (s, c) => s + c.items.reduce((ss, i) => ss + (i.invitacion ? i.precio * i.cantidad : 0), 0), 0)
 
     const now = new Date()
     const updated = await prisma.turno.update({
@@ -157,10 +164,12 @@ export async function turnoRoutes(app: FastifyInstance) {
         totalVentas:  totalEfectivo + totalTarjeta,
         totalMermas,
         totalPropinas,
+        totalInvitaciones,
         numComandas:  comandas.length,
       },
     })
 
+    broadcast(updated.restaurantId, 'update')
     return updated
   })
 

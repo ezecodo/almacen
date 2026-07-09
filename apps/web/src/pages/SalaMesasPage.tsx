@@ -4,7 +4,7 @@ const ThemeCtx = createContext<boolean>(true) // true = dark
 import CheckOverlay from '../components/CheckOverlay'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, Comanda, ComandaItem, FloorPlan, GrupoAgendado, InventarioCategoria, Mesa, MenuCategoria, MenuItem, MermaMotivo, MiTurno, WikiCategoria, WikiArticulo, ChecklistSector } from '../api'
+import { api, Comanda, ComandaItem, FloorPlan, GrupoAgendado, GrupoMenuTemplate, InventarioCategoria, Mesa, MenuCategoria, MenuItem, MermaMotivo, MiTurno, Turno, WikiCategoria, WikiArticulo, ChecklistSector, sugerirCantidadesMenu, totalComanda, valorItem } from '../api'
 import { speak, VozSelector, LANGS, Lang } from '../lib/tts'
 import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
 
@@ -43,23 +43,25 @@ function timeAgo(iso: string) {
   return `${Math.floor(mins / 60)}h ${mins % 60}m`
 }
 
-const CATEGORIA_NIVEL: Record<string, number> = {
-  'Classic Tapas':    1,
-  'Vegetarian Tapas': 2,
-  'Fish Tapas':       3,
-  'Meat Tapas':       4,
-  'Rice':             4,
-  'Pasta':            5,
-}
-const COLD_KEYWORDS = ['tartare','tatar','burrata','stracciatella','carpaccio','anchovies','ham','cheese','salchichón','jamón','crudo']
+// Sugerencia de nivel de salida por categoría — matching tolerante (regex, NO nombres exactos):
+// sobrevive a renombres ES/EN, mayúsculas y variantes ('Classic Tapas', 'CLASICAS', 'Carnes'…)
+const NIVEL_PATTERNS: Array<[RegExp, number]> = [
+  [/clasic|classic/i,   1],
+  [/veget/i,            2],
+  [/pescad|fish/i,      3],
+  [/carne|meat/i,       4],
+  [/arroz|rice/i,       4],
+  [/pasta/i,            5],
+]
+const COLD_KEYWORDS = ['tartare','tatar','tártar','burrata','stracciatella','carpaccio','anchovies','anchoa','ham','cheese','queso','salchichón','jamón','crudo']
 
 // Secciones cuyo contenido sale por barra (no cocina). Matching tolerante:
 // cubre 'Bebidas', 'Vinos', 'Vinos Botella', 'VINOS'… sin depender del nombre exacto.
 const esGrupoBarra = (g: string) => /vino|bebida/i.test(g)
 
 function suggestNivel(nombre: string, menu: MenuItem[]): number {
-  const menuItem = menu.find(m => m.nombre === nombre)
-  const base = CATEGORIA_NIVEL[menuItem?.categoria ?? ''] ?? 3
+  const categoria = menu.find(m => m.nombre === nombre)?.categoria ?? ''
+  const base = NIVEL_PATTERNS.find(([re]) => re.test(categoria))?.[1] ?? 3
   const isCold = COLD_KEYWORDS.some(kw => nombre.toLowerCase().includes(kw))
   return isCold && base > 1 ? base - 1 : base
 }
@@ -143,13 +145,13 @@ function MesaBtn({ mesa, comanda, onClick }: { mesa: Mesa; comanda?: Comanda; on
 }
 
 // ── Modal abrir mesa ──────────────────────────────────────────────────────────
-function AbrirMesaModal({ mesa, onConfirm, onClose }: { mesa: Mesa; onConfirm: (pax: number) => void; onClose: () => void }) {
+function AbrirMesaModal({ mesa, onConfirm, onMenuGrupo, onClose }: { mesa: Mesa; onConfirm: (pax: number) => void; onMenuGrupo?: (pax: number) => void; onClose: () => void }) {
   const [pax, setPax] = useState(2)
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 px-4">
       <div className="bg-[var(--sala-srf)] rounded-2xl p-6 w-full max-w-xs shadow-2xl">
         <h3 className="text-[var(--sala-txt)] font-bold text-lg mb-1">Mesa {mesa.numero}</h3>
-        <p className="text-[var(--sala-tx2)] text-sm mb-6">¿Cuántos comensales?</p>
+        <p className="text-[var(--sala-tx2)] text-sm mb-6">¿Cuántos PAX?</p>
         <div className="flex items-center gap-4 mb-8">
           <button onClick={() => setPax(p => Math.max(1, p - 1))} className="w-14 h-14 rounded-xl bg-[var(--sala-btn)] text-[var(--sala-txt)] text-3xl hover:bg-gray-600">−</button>
           <span className="flex-1 text-center text-[var(--sala-txt)] text-5xl font-bold">{pax}</span>
@@ -159,6 +161,13 @@ function AbrirMesaModal({ mesa, onConfirm, onClose }: { mesa: Mesa; onConfirm: (
           <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-[var(--sala-btn)] text-[var(--sala-tx1)] font-medium">Cancelar</button>
           <button onClick={() => onConfirm(pax)} className="flex-1 py-3 rounded-xl bg-[#4CC8A0] text-[var(--sala-txt)] font-bold">Abrir mesa</button>
         </div>
+        {/* Grupo grande: armar menú degustación desde plantilla */}
+        {onMenuGrupo && (
+          <button onClick={() => onMenuGrupo(pax)}
+            className="w-full mt-3 py-3 rounded-xl border-2 border-indigo-400/60 bg-indigo-500/10 text-indigo-300 font-bold active:scale-95 transition-transform">
+            🍽 Menú grupo ({pax} PAX)
+          </button>
+        )}
       </div>
     </div>
   )
@@ -166,7 +175,7 @@ function AbrirMesaModal({ mesa, onConfirm, onClose }: { mesa: Mesa; onConfirm: (
 
 // ── Modal ver cuenta (para el camarero, sin cobrar) ───────────────────────────
 function VerCuentaModal({ comanda, onClose, onFacturar }: { comanda: Comanda; onClose: () => void; onFacturar: () => void }) {
-  const total = comanda.items.reduce((s, i) => s + i.precio * i.cantidad, 0)
+  const total = totalComanda(comanda.items)
   return (
     <div className="fixed inset-0 bg-black/80 flex items-end sm:items-center justify-center z-50" onClick={onClose}>
       <div className="bg-[var(--sala-hdr)] w-full sm:max-w-sm rounded-t-3xl sm:rounded-2xl overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
@@ -179,9 +188,19 @@ function VerCuentaModal({ comanda, onClose, onFacturar }: { comanda: Comanda; on
         </div>
         <div className="px-5 py-4 space-y-2 max-h-64 overflow-y-auto">
           {comanda.items.map(item => (
-            <div key={item.id} className="flex items-center justify-between">
-              <span className="text-[var(--sala-tx1)] text-sm">{item.cantidad > 1 && <span className="text-cyan-400 font-bold mr-1">{item.cantidad}×</span>}{item.nombre}</span>
-              <span className="text-[var(--sala-txt)] font-semibold text-sm">{(item.precio * item.cantidad).toFixed(2)} €</span>
+            <div key={item.id} className="flex items-center justify-between gap-2">
+              <span className="text-[var(--sala-tx1)] text-sm min-w-0">
+                {item.cantidad > 1 && <span className="text-cyan-400 font-bold mr-1">{item.cantidad}×</span>}{item.nombre}
+                {item.invitacion && <span className="ml-1.5 text-xs bg-amber-500/15 text-amber-500 font-bold px-1.5 py-0.5 rounded whitespace-nowrap">🎁 Invitación</span>}
+              </span>
+              {item.invitacion ? (
+                <span className="font-semibold text-sm shrink-0">
+                  <s className="text-[var(--sala-tx4)] mr-1.5">{(item.precio * item.cantidad).toFixed(2)}</s>
+                  <span className="text-amber-500">0,00 €</span>
+                </span>
+              ) : (
+                <span className="text-[var(--sala-txt)] font-semibold text-sm shrink-0">{(item.precio * item.cantidad).toFixed(2)} €</span>
+              )}
             </div>
           ))}
         </div>
@@ -224,6 +243,8 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
   const [oidoAnim, setOidoAnim] = useState(false)
   const [barraOpen, setBarraOpen] = useState(false)
   const [search, setSearch] = useState('')
+  // Swipe horizontal = salir del modal sin enviar (los niveles locales se descartan, como la ✕)
+  const swipeSalirRef = useRef<{ x: number; y: number } | null>(null)
 
   const addItem = useMutation({
     mutationFn: (item: MenuItem) => {
@@ -293,7 +314,16 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
 
   return (
     <div className="fixed inset-0 bg-black/80 flex items-stretch sm:items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-[var(--sala-hdr)] w-full sm:max-w-md sm:rounded-2xl overflow-hidden shadow-2xl flex flex-col sm:max-h-[90vh]" onClick={e => e.stopPropagation()}>
+      <div className="bg-[var(--sala-hdr)] w-full sm:max-w-md sm:rounded-2xl overflow-hidden shadow-2xl flex flex-col sm:max-h-[90vh]" onClick={e => e.stopPropagation()}
+        onTouchStart={e => { swipeSalirRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY } }}
+        onTouchEnd={e => {
+          const st = swipeSalirRef.current
+          swipeSalirRef.current = null
+          if (!st) return
+          const dx = e.changedTouches[0].clientX - st.x
+          const dy = e.changedTouches[0].clientY - st.y
+          if (Math.abs(dx) > 90 && Math.abs(dy) < 70) onClose()
+        }}>
         <div className="px-5 pt-5 pb-3 border-b border-[var(--sala-brd)]">
           <div className="flex items-center justify-between mb-3">
             <div>
@@ -316,14 +346,14 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
           {/* Resultados del search */}
           {search.trim().length > 0 && (
             <div className="mt-1.5 bg-[var(--sala-btn2)] rounded-xl overflow-hidden max-h-48 overflow-y-auto">
-              {menu.filter(m => m.activo && m.nombre.toLowerCase().includes(search.toLowerCase())).slice(0, 8).map(item => (
+              {menu.filter(m => m.activo && !m.ocultoEnCarta && normTxt(m.nombre).includes(normTxt(search))).slice(0, 8).map(item => (
                 <button key={item.id} onClick={() => addItem.mutate(item)}
                   className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-gray-700 active:bg-gray-600 border-b border-[var(--sala-brd)]/50 last:border-0">
                   <span className="text-[var(--sala-txt)] text-sm text-left">{item.nombre}</span>
                   <span className="text-[var(--sala-tx2)] text-xs shrink-0 ml-2">{item.precio.toFixed(2)} €</span>
                 </button>
               ))}
-              {menu.filter(m => m.activo && m.nombre.toLowerCase().includes(search.toLowerCase())).length === 0 && (
+              {menu.filter(m => m.activo && !m.ocultoEnCarta && normTxt(m.nombre).includes(normTxt(search))).length === 0 && (
                 <p className="text-[var(--sala-tx4)] text-sm px-4 py-3">Sin resultados</p>
               )}
             </div>
@@ -464,14 +494,17 @@ const MOTIVOS: { value: MermaMotivo; label: string; desc: string }[] = [
   { value: 'otro',          label: 'Otro',              desc: 'Especifica el motivo abajo' },
 ]
 
-function MermaModal({ item, onConfirm, onClose }: {
+function MermaModal({ item, onConfirm, onClose, onInvitar }: {
   item: ComandaItem
   onConfirm: (motivo: MermaMotivo, descripcion?: string, cantidad?: number) => void
   onClose: () => void
+  onInvitar?: (motivo?: string) => void // solo encargado: marcar/quitar invitación de la casa
 }) {
   const [motivo, setMotivo] = useState<MermaMotivo | null>(null)
   const [descripcion, setDescripcion] = useState('')
   const [cantidad, setCantidad] = useState(item.cantidad)
+  const [invitando, setInvitando] = useState(false)   // opción 🎁 seleccionada
+  const [motivoInv, setMotivoInv] = useState('')      // por qué se invita (opcional)
 
   return (
     <div className="fixed inset-0 bg-black/80 flex items-end z-[70]" onClick={onClose}>
@@ -499,7 +532,7 @@ function MermaModal({ item, onConfirm, onClose }: {
 
         <div className="space-y-2 mb-4">
           {MOTIVOS.map(m => (
-            <button key={m.value} onClick={() => setMotivo(m.value)}
+            <button key={m.value} onClick={() => { setMotivo(m.value); setInvitando(false) }}
               className={`w-full text-left px-4 py-3 rounded-2xl border transition-all ${
                 motivo === m.value
                   ? 'bg-red-900/40 border-red-500'
@@ -509,7 +542,37 @@ function MermaModal({ item, onConfirm, onClose }: {
               <p className="text-[var(--sala-tx3)] text-xs mt-0.5">{m.desc}</p>
             </button>
           ))}
+          {/* Invitación de la casa — solo encargado. No es merma: el item queda en cuenta a 0 € */}
+          {onInvitar && (
+            <button onClick={() => {
+                if (item.invitacion) { onInvitar(); onClose(); return } // quitar: acción directa
+                setInvitando(v => !v)
+                setMotivo(null)
+              }}
+              className={`w-full text-left px-4 py-3 rounded-2xl border transition-all ${
+                invitando ? 'bg-amber-500/25 border-amber-500' : 'border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20'
+              }`}>
+              <p className="font-semibold text-sm text-amber-400">
+                🎁 {item.invitacion ? 'Quitar invitación de la casa' : 'Invitación de la casa'}
+              </p>
+              <p className="text-[var(--sala-tx3)] text-xs mt-0.5">
+                {item.invitacion
+                  ? 'El item vuelve a cobrarse a su precio normal'
+                  : 'El item queda visible en la cuenta a 0 € — no es una merma'}
+              </p>
+            </button>
+          )}
         </div>
+
+        {invitando && (
+          <input
+            autoFocus
+            value={motivoInv}
+            onChange={e => setMotivoInv(e.target.value)}
+            placeholder="¿Por qué se invita? (opcional — ej: espera larga, cumpleaños…)"
+            className="w-full bg-[var(--sala-btn2)] text-[var(--sala-txt)] text-sm px-4 py-3 rounded-xl outline-none mb-4"
+          />
+        )}
 
         {motivo === 'otro' && (
           <input
@@ -521,20 +584,29 @@ function MermaModal({ item, onConfirm, onClose }: {
           />
         )}
 
-        <button
-          onClick={() => motivo && onConfirm(motivo, descripcion || undefined, cantidad)}
-          disabled={!motivo || (motivo === 'otro' && !descripcion.trim())}
-          className="w-full py-4 rounded-2xl bg-red-600 text-[var(--sala-txt)] font-bold text-base disabled:opacity-30 active:scale-95 transition-all"
-        >
-          Confirmar merma {item.cantidad > 1 && `(${cantidad}×)`}
-        </button>
+        {invitando ? (
+          <button
+            onClick={() => { onInvitar?.(motivoInv.trim() || undefined); onClose() }}
+            className="w-full py-4 rounded-2xl bg-amber-500 text-black font-black text-base active:scale-95 transition-all"
+          >
+            🎁 Marcar invitación de la casa
+          </button>
+        ) : (
+          <button
+            onClick={() => motivo && onConfirm(motivo, descripcion || undefined, cantidad)}
+            disabled={!motivo || (motivo === 'otro' && !descripcion.trim())}
+            className="w-full py-4 rounded-2xl bg-red-600 text-[var(--sala-txt)] font-bold text-base disabled:opacity-30 active:scale-95 transition-all"
+          >
+            Confirmar merma {item.cantidad > 1 && `(${cantidad}×)`}
+          </button>
+        )}
       </div>
     </div>
   )
 }
 
 // ── Fila de item reutilizable ─────────────────────────────────────────────────
-function ItemRow({ item, nota, setNota, onUpdate, onDelete, onSaveNota, onMerma, onRepeat }: {
+function ItemRow({ item, nota, setNota, onUpdate, onDelete, onSaveNota, onMerma, onRepeat, onInvitar }: {
   item: ComandaItem
   nota: { itemId: number; value: string } | null
   setNota: (v: { itemId: number; value: string } | null) => void
@@ -543,9 +615,10 @@ function ItemRow({ item, nota, setNota, onUpdate, onDelete, onSaveNota, onMerma,
   onSaveNota: (v: string) => void
   onMerma?: () => void
   onRepeat?: () => void
+  onInvitar?: () => void
 }) {
   return (
-    <div className="bg-[var(--sala-srf)] rounded-xl p-3">
+    <div className={`bg-[var(--sala-srf)] rounded-xl p-3 ${item.invitacion ? 'border border-amber-500/40' : ''}`}>
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-1">
           <button onClick={() => item.cantidad > 1 ? onUpdate(item.cantidad - 1) : onDelete()}
@@ -555,9 +628,24 @@ function ItemRow({ item, nota, setNota, onUpdate, onDelete, onSaveNota, onMerma,
             className="w-8 h-8 rounded-lg bg-[var(--sala-btn)] text-[var(--sala-tx1)] text-sm hover:bg-gray-600 flex items-center justify-center">+</button>
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-[var(--sala-txt)] text-sm font-medium truncate">{item.nombre}</p>
+          <p className="text-[var(--sala-txt)] text-sm font-medium truncate">
+            {item.nombre}
+            {item.autoGenerado && <span className="ml-1.5 text-[10px] font-bold text-[var(--sala-tx4)] uppercase">🔇 sin cocina</span>}
+          </p>
+          {item.invitacion && (
+            <p className="text-amber-500 text-xs font-bold truncate">
+              🎁 Invitación{item.invitadoPor ? ` · ${item.invitadoPor}` : ''}{item.invitacionMotivo ? ` — ${item.invitacionMotivo}` : ''}
+            </p>
+          )}
           {item.nota && <p className="text-[var(--sala-tx3)] text-xs truncate">{item.nota}</p>}
         </div>
+        {onInvitar && item.invitacion && (
+          <button onClick={onInvitar}
+            className="text-base shrink-0 scale-110 transition-all"
+            title="Quitar invitación de la casa">
+            🎁
+          </button>
+        )}
         <button onClick={() => setNota(nota?.itemId === item.id ? null : { itemId: item.id, value: item.nota ?? '' })}
           className="text-[var(--sala-tx4)] text-xs hover:text-[var(--sala-tx2)] shrink-0">nota</button>
         {onRepeat && (
@@ -588,16 +676,23 @@ function ItemRow({ item, nota, setNota, onUpdate, onDelete, onSaveNota, onMerma,
 }
 
 // ── Panel comanda (modo camarero) ─────────────────────────────────────────────
-function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar, onCambiarMesa, onFacturar }: {
+function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar, onCambiarMesa, onFacturar, esEncargado }: {
   comanda: Comanda; menu: MenuItem[]; categorias: MenuCategoria[]
   onClose: () => void
   onEnviar: (niveles: { itemId: number; nivel: number; nota?: string }[], silent?: boolean) => void
   onLiberar: () => void
   onCambiarMesa?: () => void
   onFacturar?: () => void
+  esEncargado?: boolean
 }) {
   const queryClient = useQueryClient()
-  const [tab, setTab] = useState<'pedido' | 'menu'>(comanda.items.every(i => i.autoGenerado) ? 'menu' : 'pedido')
+  // Pestaña inicial: si la mesa ya está toda comandada (sin pendientes), se entra para pedir
+  // algo más → directo a la carta. Con pendientes sin enviar o cuenta impresa → vista del pedido.
+  const [tab, setTab] = useState<'pedido' | 'menu'>(() => {
+    if (comanda.estado === 'facturada' || comanda.estado === 'liberada') return 'pedido'
+    const hayPendientesSinEnviar = comanda.items.some(i => i.nivel == null && !i.autoGenerado)
+    return hayPendientesSinEnviar ? 'pedido' : 'menu'
+  })
   const [searchMenu, setSearchMenu] = useState('')
   const [grupoTab, setGrupoTab] = useState<string | null>(null)
   const [selectedCat, setSelectedCat] = useState<string | null>(null)
@@ -608,9 +703,12 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
   const [qtyPending, setQtyPending] = useState<{ id: number; qty: number } | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [notaNueva, setNotaNueva] = useState<{ item: MenuItem; qty: number; value: string } | null>(null)
+  const [mixerPick, setMixerPick] = useState<MenuItem | null>(null)
   const lpTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lpFired = useRef(false)
   const [ordenando, setOrdenando] = useState(false)
+  // Reordenar TODOS los niveles (no solo pendientes) — comandas ya enviadas / menús de grupo
+  const [ordenarFull, setOrdenarFull] = useState(false)
   const [verCuenta, setVerCuenta] = useState(false)
   const [mermaItem, setMermaItem] = useState<ComandaItem | null>(null)
   const [confirmarCerrar, setConfirmarCerrar] = useState(false)
@@ -620,6 +718,10 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
   const panelRef = useRef<HTMLDivElement>(null)
   const [fabPos, setFabPos] = useState<{ x: number; y: number } | null>(null)
   const [fabDragging, setFabDragging] = useState(false)
+
+  // Swipe → derecha sobre el panel = volver al mapa ("ahh, no era esta mesa").
+  // Solo en la vista del pedido o en el primer nivel de la carta (más adentro, el swipe ya navega niveles).
+  const swipeCloseRef = useRef<{ x: number; y: number } | null>(null)
 
   const yaEnviada    = comanda.estado === 'enviada'
   const yaFacturada  = comanda.estado === 'facturada'
@@ -763,14 +865,14 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
     },
   })
 
-  const total = comanda.items.reduce((s, i) => s + i.precio * i.cantidad, 0)
+  const total = totalComanda(comanda.items)
 
   const getTipo = (item: MenuItem): 'cocina' | 'barra' =>
     esGrupoBarra(catMeta[item.categoria]?.grupo ?? '') ? 'barra' : 'cocina'
 
   const addItem = useMutation({
     mutationFn: ({ item, cantidad, nota: notaItem }: { item: MenuItem; cantidad: number; nota?: string }) =>
-      api.comandas.addItem(comanda.id, { nombre: item.nombre, precio: item.precio, cantidad, tipo: getTipo(item), ...(notaItem ? { nota: notaItem } : {}) }),
+      api.comandas.addItem(comanda.id, { nombre: item.nombre, precio: item.precio, cantidad, tipo: getTipo(item), ...(notaItem ? { nota: notaItem } : {}), ...(modoSinCocina ? { directo: true } : {}) }),
     onSuccess: (_, { item }) => {
       setAddedId(item.id)
       setTimeout(() => setAddedId(null), 1000)
@@ -779,6 +881,32 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
       queryClient.invalidateQueries({ queryKey: ['comanda-sala', comanda.id] })
     },
   })
+
+  // Combinado: destilado + mixer en un solo renglón ("Vodka Absolut + Coca-Cola")
+  const addCombinado = useMutation({
+    mutationFn: ({ item, mixer }: { item: MenuItem; mixer: MenuItem | null }) => {
+      const nombre = mixer ? `${item.nombre} + ${mixer.nombre}` : item.nombre
+      const precio = mixer
+        ? (item.precioCombinado ?? item.precio) + (mixer.suplementoMixer || 0)
+        : item.precio
+      return api.comandas.addItem(comanda.id, { nombre, precio, cantidad: 1, tipo: getTipo(item), ...(modoSinCocina ? { directo: true } : {}) })
+    },
+    onSuccess: (_, { item }) => {
+      setAddedId(item.id)
+      setTimeout(() => setAddedId(null), 1000)
+      setDotsAnim(true)
+      setTimeout(() => setDotsAnim(false), 1600)
+      queryClient.invalidateQueries({ queryKey: ['comanda-sala', comanda.id] })
+      // Combinado en modo sin cocina: volver a la vista del pedido para ver el resultado
+      if (modoSinCocina) setTimeout(() => setTab('pedido'), 600)
+    },
+  })
+
+  // Encargado: cobrar la mesa directamente desde el panel (abre el CobroSheet)
+  const [showCobro, setShowCobro] = useState(false)
+  // Encargado: modo "sin cocina" — los items añadidos entran ya servidos (se cobran pero no
+  // pasan por el flujo de envío a cocina/barra; ej: se decidió servir algo directamente)
+  const [modoSinCocina, setModoSinCocina] = useState(false)
 
   const commitQty = (item: MenuItem, qty: number) => {
     if (timerRef.current) clearTimeout(timerRef.current)
@@ -832,6 +960,23 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
   }
   const tapItem = (item: MenuItem) => {
     if (lpFired.current) { lpFired.current = false; return } // el long-press ya abrió el box
+    // Modo sin cocina: añade al instante (sin timer de cantidad) y vuelve a la vista del pedido
+    if (modoSinCocina && !item.combinable) {
+      addItem.mutate({ item, cantidad: 1 }, { onSuccess: () => setTimeout(() => setTab('pedido'), 600) })
+      return
+    }
+    if (item.combinable) {
+      // Antes de abrir el picker, committea la cantidad pendiente de otro item
+      if (qtyPending && timerRef.current) {
+        clearTimeout(timerRef.current)
+        timerRef.current = null
+        const prevItem = menu.find(m => m.id === qtyPending.id)
+        if (prevItem) addItem.mutate({ item: prevItem, cantidad: qtyPending.qty })
+        setQtyPending(null)
+      }
+      setMixerPick(item)
+      return
+    }
     handleMenuItemTap(item)
   }
 
@@ -842,6 +987,26 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
   })
   const deleteItem = useMutation({
     mutationFn: (itemId: number) => api.comandas.deleteItem(comanda.id, itemId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['comanda-sala', comanda.id] }),
+  })
+  // Deshacer una merma: elimina el registro y el item vuelve a la comanda (se cobra normal)
+  const restituirMerma = useMutation({
+    mutationFn: (id: number) => api.mermas.restituir(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['comanda-sala', comanda.id] })
+      queryClient.invalidateQueries({ queryKey: ['comandas-sala'] })
+    },
+  })
+
+  // 🎁 Invitación de la casa (solo encargado): toggle a 0 € en cuenta, registra quién y por qué
+  const invitarItem = useMutation({
+    mutationFn: ({ item, motivo }: { item: ComandaItem; motivo?: string }) => {
+      const quien = (() => {
+        try { return JSON.parse(sessionStorage.getItem('oidoops_camarero') ?? '').nombre as string }
+        catch { return undefined }
+      })()
+      return api.comandas.updateItem(comanda.id, item.id, { invitacion: !item.invitacion, invitadoPor: quien, invitacionMotivo: motivo })
+    },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['comanda-sala', comanda.id] }),
   })
   const cambiarPax = useMutation({
@@ -876,17 +1041,26 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
   const subcatsDe = (nombre: string) =>
     categorias.filter(c => padreDe[c.nombre] === nombre).sort((a, b) => a.orden - b.orden)
 
+  // Items activos de una categoría, respetando su flag ordenAlfabetico
+  // (apagado = orden manual de la carta física, que ya viene de la API)
+  const itemsDeCat = (catNombre: string) => {
+    const arr = menu.filter(m => m.activo && !m.ocultoEnCarta && m.categoria === catNombre)
+    return categorias.find(c => c.nombre === catNombre)?.ordenAlfabetico
+      ? [...arr].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
+      : arr
+  }
+
   // Grupos únicos ordenados
   const grupos = [...new Set(categorias.map(c => c.grupo || 'Otros'))]
   // Navegación por niveles: grupos → categorías → platos.
   // Sin grupo elegido se muestran los tiles de grupo (si solo hay uno, se entra directo).
   const grupoActivo = grupoTab ?? (grupos.length === 1 ? grupos[0] : null)
 
-  const searchQ = searchMenu.trim().toLowerCase()
+  const searchQ = normTxt(searchMenu.trim())
   const filteredMenu = menu.filter(m => {
-    if (!m.activo) return false
+    if (!m.activo || m.ocultoEnCarta) return false
     // Búsqueda global: ignora el grupo activo y matchea nombre o categoría
-    if (searchQ) return m.nombre.toLowerCase().includes(searchQ) || m.categoria.toLowerCase().includes(searchQ)
+    if (searchQ) return normTxt(m.nombre).includes(searchQ) || normTxt(m.categoria).includes(searchQ)
     return !grupoActivo || (catMeta[m.categoria]?.grupo ?? 'Otros') === grupoActivo
   })
   const menuByCategoria = filteredMenu.reduce<Record<string, MenuItem[]>>((acc, m) => {
@@ -910,6 +1084,9 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
         className={`w-full text-left rounded-xl px-4 py-3.5 transition-colors relative overflow-hidden select-none ${isPending ? 'bg-[var(--sala-srf2)] border-2 border-[#4CC8A0]' : 'bg-[var(--sala-srf)] hover:bg-[var(--sala-srf2)]'}`}>
         <span className="text-[var(--sala-txt)] text-base font-medium">{item.nombre}</span>
         {item.descripcion ? <p className="text-[var(--sala-tx3)] text-xs mt-0.5 truncate">{item.descripcion}</p> : null}
+        {item.combinable && !isPending && !isAdded && (
+          <span className="absolute right-3 inset-y-0 flex items-center text-[var(--sala-tx3)] text-sm font-bold">🥤+</span>
+        )}
         {isPending && <span className="absolute right-3 inset-y-0 flex items-center"><span className="text-[#4CC8A0] font-black text-2xl">{qtyPending!.qty}×</span></span>}
         {isAdded && (
           <span className="absolute inset-0 flex items-center justify-center bg-[var(--sala-srf)] rounded-xl" style={{ animation: 'fadeInOut 1s ease forwards' }}>
@@ -922,12 +1099,40 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end" onClick={onClose}>
-      <div ref={panelRef} className="relative w-full sm:max-w-md bg-[var(--sala-hdr)] h-full flex flex-col shadow-2xl border-l border-[var(--sala-brd)]" onClick={e => e.stopPropagation()}>
+      <div ref={panelRef} className="relative w-full sm:max-w-md bg-[var(--sala-hdr)] h-full flex flex-col shadow-2xl border-l border-[var(--sala-brd)]" onClick={e => e.stopPropagation()}
+        onTouchStart={e => { swipeCloseRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY } }}
+        onTouchEnd={e => {
+          const s = swipeCloseRef.current
+          swipeCloseRef.current = null
+          if (!s) return
+          const dx = e.changedTouches[0].clientX - s.x
+          const dy = e.changedTouches[0].clientY - s.y
+          // Cualquier dirección horizontal (como el swipe de niveles de la carta)
+          if (Math.abs(dx) <= 90 || Math.abs(dy) >= 70) return
+          // Progresión del gesto: Pedido → Carta (categorías) → Mapa
+          if (tab === 'pedido') {
+            // Entró a mirar el pedido → seguir a la carta para agregar cosas
+            setTab('menu')
+            setSelectedCat(null); setSelectedSub(null); setGrupoTab(null); setSearchMenu('')
+            return
+          }
+          // En el primer nivel de la carta (sin categoría abierta ni búsqueda) → salir al mapa
+          if (!selectedCat && grupoTab === null && !searchMenu.trim()) {
+            // Con items ingresados sin comandar → alerta de descarte (igual que la ✕)
+            if (itemsNuevos.length > 0) setConfirmarCerrar(true)
+            else onClose()
+          }
+        }}>
         {/* Header */}
         <div className="px-5 pt-5 pb-3 border-b border-[var(--sala-brd)]">
           <div className="flex items-start justify-between mb-1">
             <div>
-              <h2 className="text-[var(--sala-txt)] font-bold text-xl">Mesa {comanda.mesa.numero}</h2>
+              <h2 className="text-[var(--sala-txt)] font-bold text-xl">
+                Mesa {comanda.mesa.numero}
+                <span className="ml-2 text-sm font-bold text-amber-400 tabular-nums align-middle">
+                  🕐 {fmtHora(comanda.enviadaAt ?? comanda.createdAt)}
+                </span>
+              </h2>
               <div className="flex items-center gap-2 mt-0.5">
                 <button onClick={() => cambiarPax.mutate(Math.max(1, comanda.pax - 1))}
                   className="w-6 h-6 rounded-md bg-[var(--sala-btn)] text-[var(--sala-tx1)] text-sm font-bold hover:bg-gray-600 flex items-center justify-center leading-none">−</button>
@@ -952,13 +1157,22 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
               <button onClick={() => itemsNuevos.length > 0 ? setConfirmarCerrar(true) : onClose()} className="text-[var(--sala-tx3)] hover:text-[var(--sala-tx1)] text-xl">✕</button>
             </div>
           </div>
-          <div className="flex gap-1 mt-3">
-            {(['pedido','menu'] as const).map(t => (
-              <button key={t} onClick={() => setTab(t)}
-                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === t ? 'bg-[var(--sala-btn)] text-[var(--sala-txt)]' : 'text-[var(--sala-tx3)] hover:text-[var(--sala-tx1)]'}`}>
-                {t === 'pedido' ? `Pedido (${comanda.items.length})` : 'Añadir'}
-              </button>
-            ))}
+          <div className="flex gap-1.5 mt-3 items-stretch">
+            {/* Tabs gemelos: mismo fondo de marca + contenido blanco gordo; el activo brilla, el inactivo se atenúa */}
+            <button onClick={() => setTab('pedido')}
+              className={`flex-1 py-2 rounded-lg text-base font-black uppercase tracking-wide text-white transition-all active:scale-95 ${tab === 'pedido' ? 'shadow-lg' : 'opacity-45'}`}
+              style={{ background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)' }}>
+              Comanda ({comanda.items.length})
+            </button>
+            {/* Añadir: el + bien tocho */}
+            <button onClick={() => setTab('menu')} aria-label="Añadir items" title="Añadir items"
+              className={`flex-1 py-2 rounded-lg text-white transition-all flex items-center justify-center active:scale-95 ${tab === 'menu' ? 'shadow-lg' : 'opacity-45'}`}
+              style={{ background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)' }}>
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round">
+                <path d="M12 5v14" />
+                <path d="M5 12h14" />
+              </svg>
+            </button>
           </div>
         </div>
 
@@ -997,6 +1211,13 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
 
                 return (
                   <div className="space-y-4">
+                    {/* Reordenar niveles — mismas herramientas que el orden de salida original */}
+                    {tienenNivel && !yaFacturada && (
+                      <button onClick={() => setOrdenarFull(true)}
+                        className="w-full py-2.5 rounded-xl border-2 border-dashed border-cyan-700/50 text-cyan-400 text-sm font-bold active:scale-[0.98] transition-transform hover:border-cyan-500/70">
+                        🔀 Ordenar salidas (mover platos y niveles)
+                      </button>
+                    )}
                     {/* ── Cocina ── */}
                     {!tienenNivel ? (
                       // Comanda nueva: lista plana
@@ -1006,7 +1227,8 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                             onUpdate={cantidad => updateItem.mutate({ itemId: item.id, cantidad })}
                             onDelete={() => deleteItem.mutate(item.id)}
                             onSaveNota={v => saveNota.mutate({ itemId: item.id, value: v })}
-                            onMerma={() => setMermaItem(item)} />
+                            onMerma={() => setMermaItem(item)}
+                                    onInvitar={esEncargado ? () => invitarItem.mutate({ item }) : undefined} />
                         ))}
                       </div>
                     ) : (
@@ -1031,7 +1253,8 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                                       onUpdate={cantidad => updateItem.mutate({ itemId: item.id, cantidad })}
                                       onDelete={() => deleteItem.mutate(item.id)}
                                       onSaveNota={v => saveNota.mutate({ itemId: item.id, value: v })}
-                                      onMerma={() => setMermaItem(item)} />
+                                      onMerma={() => setMermaItem(item)}
+                                    onInvitar={esEncargado ? () => invitarItem.mutate({ item }) : undefined} />
                                   ))}
                                 </div>
                               </div>
@@ -1054,6 +1277,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                                         onDelete={() => deleteItem.mutate(item.id)}
                                         onSaveNota={v => saveNota.mutate({ itemId: item.id, value: v })}
                                         onMerma={() => setMermaItem(item)}
+                                        onInvitar={esEncargado ? () => invitarItem.mutate({ item }) : undefined}
                                         onRepeat={() => repeatItem.mutate(item)} />
                                     ))}
                                   </div>
@@ -1086,12 +1310,44 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                                 onUpdate={newQty => updateItem.mutate({ itemId: firstItem.id, cantidad: firstItem.cantidad + (newQty - cantidad) })}
                                 onDelete={() => deleteItem.mutate(firstItem.id)}
                                 onSaveNota={v => saveNota.mutate({ itemId: firstItem.id, value: v })}
-                                onMerma={() => setMermaItem(firstItem)} />
+                                onMerma={() => setMermaItem(firstItem)}
+                                onInvitar={esEncargado ? () => invitarItem.mutate({ item: firstItem }) : undefined} />
                             ))}
                           </div>
                         </div>
                       )
                     })()}
+
+                    {/* ── Mermas de esta mesa — se pueden deshacer (restituir) ── */}
+                    {comanda.mermas.length > 0 && (
+                      <div>
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-red-400 text-xs font-semibold uppercase tracking-wide">🗑 Mermas</span>
+                          <div className="flex-1 h-px bg-red-900/40" />
+                        </div>
+                        <div className="space-y-1.5">
+                          {comanda.mermas.map(m => (
+                            <div key={m.id} className="flex items-center gap-3 bg-red-900/15 border border-red-900/30 rounded-xl px-3 py-2">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-[var(--sala-tx1)] text-sm truncate">
+                                  {m.cantidad > 1 ? `${m.cantidad}× ` : ''}{m.itemNombre}
+                                </p>
+                                <p className="text-[var(--sala-tx3)] text-xs truncate">
+                                  {MOTIVO_MERMA_LABEL[m.motivo] ?? m.motivo}
+                                  {m.descripcion ? ` — ${m.descripcion}` : ''}
+                                  {m.camareroNombre ? ` · ${m.camareroNombre}` : ''}
+                                </p>
+                              </div>
+                              <button onClick={() => restituirMerma.mutate(m.id)} disabled={restituirMerma.isPending}
+                                title="Deshacer la merma: el item vuelve a la comanda y se cobra normal"
+                                className="text-xs font-bold text-red-300 bg-red-900/40 hover:bg-red-900/60 px-3 py-2 rounded-lg shrink-0 disabled:opacity-50 active:scale-95 transition-transform">
+                                ↩ Deshacer
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )
               })()}
@@ -1118,11 +1374,31 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                   </div>
                 </div>
               )}
-              {/* Search global */}
-              <div className="px-2.5 pt-2 pb-1.5 border-b border-[var(--sala-brd)]">
-                <input ref={searchInputRef} value={searchMenu} onChange={e => { setSearchMenu(e.target.value); setSelectedCat(null); setSelectedSub(null) }}
-                  placeholder="Buscar en todo el menú…"
-                  className="w-full bg-[var(--sala-btn2)] text-[var(--sala-txt)] text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-[var(--sala-tx4)]" />
+              {/* Search global + modo sin cocina (encargado) */}
+              <div className={`px-2.5 pt-2 pb-1.5 border-b border-[var(--sala-brd)] ${modoSinCocina ? 'bg-amber-500/10' : ''}`}>
+                <div className="flex items-center gap-2">
+                  <input ref={searchInputRef} value={searchMenu} onChange={e => { setSearchMenu(e.target.value); setSelectedCat(null); setSelectedSub(null) }}
+                    placeholder="Buscar en todo el menú…"
+                    className="flex-1 bg-[var(--sala-btn2)] text-[var(--sala-txt)] text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-[var(--sala-tx4)]" />
+                  {esEncargado && (
+                    <button onClick={() => setModoSinCocina(v => !v)}
+                      title={modoSinCocina
+                        ? 'Modo sin cocina ACTIVO: los items que añadas entran ya servidos (se cobran, no se imprimen en cocina). Tocá para desactivar.'
+                        : 'Añadir sin cocina: los items entran ya servidos — se cobran pero no salen por la impresora de cocina'}
+                      className={`shrink-0 text-[11px] font-black px-2.5 py-1.5 rounded-lg border transition-all ${
+                        modoSinCocina
+                          ? 'bg-amber-500 border-amber-500 text-black'
+                          : 'bg-transparent border-[var(--sala-brd2)] text-[var(--sala-tx3)]'
+                      }`}>
+                      🔇 sin cocina{modoSinCocina ? ' ON' : ''}
+                    </button>
+                  )}
+                </div>
+                {modoSinCocina && (
+                  <p className="text-amber-500 text-[11px] font-bold mt-1.5">
+                    ⚠️ Los items que añadas NO saldrán por cocina/barra — entran directo a la cuenta
+                  </p>
+                )}
               </div>
 
               {searchMenu.trim() ? (
@@ -1166,7 +1442,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                   {selectedSub ? (
                     /* ── Nivel 4: items de la subcategoría ── */
                     <div className="p-4 space-y-1.5">
-                      {menu.filter(m => m.activo && m.categoria === selectedSub).map(renderItemBtn)}
+                      {itemsDeCat(selectedSub).map(renderItemBtn)}
                     </div>
                   ) : (
                     <>
@@ -1174,7 +1450,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                       {subcatsDe(selectedCat).length > 0 && (
                         <div className="p-2 grid grid-cols-3 gap-2">
                           {subcatsDe(selectedCat).map(sc => {
-                            const count = menu.filter(m => m.activo && m.categoria === sc.nombre).length
+                            const count = itemsDeCat(sc.nombre).length
                             const esBarra = esGrupoBarra(sc.grupo || catMeta[selectedCat]?.grupo || '')
                             return (
                               <button key={sc.id} onClick={() => setSelectedSub(sc.nombre)}
@@ -1193,7 +1469,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                       )}
                       {/* Items directos de la categoría */}
                       <div className="p-4 pt-2 space-y-1.5">
-                        {menu.filter(m => m.activo && m.categoria === selectedCat).map(renderItemBtn)}
+                        {itemsDeCat(selectedCat).map(renderItemBtn)}
                       </div>
                     </>
                   )}
@@ -1306,18 +1582,78 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
           </div>
         )}
 
+        {/* Sheet de cobro (encargado, mismo flujo que el dashboard) */}
+        {showCobro && (
+          <CobroSheet comanda={comanda} onClose={() => setShowCobro(false)} onDone={onClose} />
+        )}
+
+        {/* Picker de mixer (item combinable) */}
+        {mixerPick && (
+          <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center sm:justify-center" onClick={() => setMixerPick(null)}>
+            <div className="w-full sm:max-w-md bg-[var(--sala-hdr)] border-t sm:border border-[var(--sala-brd2)] rounded-t-2xl sm:rounded-2xl p-5 shadow-2xl max-h-[75vh] flex flex-col" onClick={e => e.stopPropagation()}>
+              <p className="text-[var(--sala-tx3)] text-[11px] font-semibold uppercase tracking-wider mb-1">🥃 Combinado</p>
+              <h3 className="text-[var(--sala-txt)] font-black text-xl uppercase mb-3">{mixerPick.nombre}</h3>
+              <div className="flex-1 overflow-y-auto space-y-2">
+                <button
+                  onClick={() => { addCombinado.mutate({ item: mixerPick, mixer: null }); setMixerPick(null) }}
+                  className="w-full flex items-center justify-between rounded-xl px-4 py-4 bg-[var(--sala-srf)] hover:bg-[var(--sala-srf2)] active:scale-[0.98] transition-all">
+                  <span className="text-[var(--sala-txt)] text-base font-bold uppercase">Solo · sin mezclar</span>
+                  <span className="text-[var(--sala-tx2)] text-sm font-bold tabular-nums">{mixerPick.precio.toFixed(2)} €</span>
+                </button>
+                {menu.filter(m => m.esMixer && m.activo).map(mx => {
+                  const precioTotal = (mixerPick.precioCombinado ?? mixerPick.precio) + (mx.suplementoMixer || 0)
+                  return (
+                    <button key={mx.id}
+                      onClick={() => { addCombinado.mutate({ item: mixerPick, mixer: mx }); setMixerPick(null) }}
+                      className="w-full flex items-center justify-between rounded-xl px-4 py-4 bg-[var(--sala-srf)] hover:bg-[var(--sala-srf2)] active:scale-[0.98] transition-all">
+                      <span className="text-[var(--sala-txt)] text-base font-bold uppercase">+ {mx.nombre}</span>
+                      <span className="text-[#4CC8A0] text-sm font-bold tabular-nums">
+                        {precioTotal.toFixed(2)} €{mx.suplementoMixer ? <span className="text-amber-400 text-xs font-semibold"> ★</span> : null}
+                      </span>
+                    </button>
+                  )
+                })}
+                {menu.filter(m => m.esMixer && m.activo).length === 0 && (
+                  <p className="text-center text-[var(--sala-tx4)] text-sm py-6">
+                    No hay mixers cargados todavía.<br />Marcá los refrescos con "MIX" en el admin del menú.
+                  </p>
+                )}
+              </div>
+              <button onClick={() => setMixerPick(null)}
+                className="mt-3 w-full py-2.5 rounded-xl bg-[var(--sala-btn2)] text-[var(--sala-tx2)] text-sm font-semibold">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Footer */}
         <div className="px-3 py-2 border-t border-[var(--sala-brd)]">
           {yaFacturada ? (
             <div className="space-y-1.5">
-              <div className="flex items-center justify-center gap-2 py-1.5 bg-amber-500/10 rounded-lg">
-                <span className="text-amber-400 text-xs font-bold">🧾 Cuenta impresa — pendiente de cobro</span>
+              <div className={`flex items-center justify-center gap-2 py-1.5 rounded-lg ${comanda.cuentaDesactualizada ? 'bg-red-500/15' : 'bg-amber-500/10'}`}>
+                <span className={`text-xs font-bold ${comanda.cuentaDesactualizada ? 'text-red-400' : 'text-amber-400'}`}>
+                  {comanda.cuentaDesactualizada ? '⚠️ La cuenta cambió después de imprimirse' : '🧾 Cuenta impresa — pendiente de cobro'}
+                </span>
               </div>
               <button onClick={e => { e.stopPropagation(); onLiberar() }}
                 className="w-full py-2.5 px-4 rounded-xl bg-[#4CC8A0] text-[var(--sala-txt)] font-bold text-base active:scale-95 transition-all flex items-center justify-between">
                 <span>Mesa libre 🔓</span>
                 <span className="tabular-nums">{total.toFixed(2)} €</span>
               </button>
+              {comanda.cuentaDesactualizada ? (
+                <button
+                  onClick={e => { e.stopPropagation(); setVerCuenta(true) }}
+                  className="w-full py-2.5 rounded-xl bg-amber-500/20 border-2 border-amber-500 text-amber-400 text-sm font-black active:scale-95 transition-transform">
+                  🧾 Reimprimir cuenta ({total.toFixed(2)} €)
+                </button>
+              ) : esEncargado && (
+                <button
+                  onClick={e => { e.stopPropagation(); setShowCobro(true) }}
+                  className="w-full py-2.5 rounded-xl bg-amber-500 text-black text-sm font-black active:scale-95 transition-transform hover:bg-amber-400">
+                  💶 Cobrar mesa
+                </button>
+              )}
               <button onClick={e => { e.stopPropagation(); setVerCuenta(true) }}
                 className="w-full py-1.5 rounded-xl bg-[var(--sala-srf)] border border-[var(--sala-brd2)] text-[var(--sala-tx2)] font-medium text-xs">
                 Ver cuenta de nuevo
@@ -1378,6 +1714,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
           )}
         </div>
 
+
         {/* Lupa flotante — tap: enfoca búsqueda · long-press: arrastrar */}
         {fabPos && (
           <button
@@ -1395,32 +1732,43 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
         )}
       </div>
 
-      {ordenando && (
+      {(ordenando || ordenarFull) && (
         <OrdenarModal comanda={comanda} menu={menu} categorias={categorias}
-          marchaPasa={esMarchaPasa}
-          onClose={() => setOrdenando(false)}
-          onEnviar={niveles => { onEnviar(niveles); setOrdenando(false) }} />
+          marchaPasa={ordenarFull ? false : esMarchaPasa}
+          onClose={() => { setOrdenando(false); setOrdenarFull(false) }}
+          onEnviar={niveles => { onEnviar(niveles); setOrdenando(false); setOrdenarFull(false) }} />
       )}
       {confirmarCerrar && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 px-6">
-          <div className="bg-[var(--sala-srf)] rounded-2xl p-6 w-full max-w-xs shadow-2xl">
-            <p className="text-[var(--sala-txt)] font-bold text-base mb-1">¿Descartar cambios?</p>
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 px-6" onClick={() => setConfirmarCerrar(false)}>
+          <div className="bg-[var(--sala-srf)] rounded-2xl p-6 w-full max-w-xs shadow-2xl" onClick={e => e.stopPropagation()}>
+            <p className="text-[var(--sala-txt)] font-bold text-base mb-1">
+              {itemsNuevos.length === 1 ? 'Hay 1 item sin comandar' : `Hay ${itemsNuevos.length} items sin comandar`}
+            </p>
             <p className="text-[var(--sala-tx2)] text-sm mb-5">
-              {itemsNuevos.length === 1
-                ? 'Hay 1 item sin enviar que se eliminará.'
-                : `Hay ${itemsNuevos.length} items sin enviar que se eliminarán.`}
+              ¿Los descartás o los comandás a cocina? (tocá afuera para seguir en la mesa)
             </p>
             <div className="flex gap-3">
-              <button onClick={() => setConfirmarCerrar(false)}
-                className="flex-1 py-3 rounded-xl bg-[var(--sala-btn)] text-[var(--sala-tx1)] font-medium">
-                Cancelar
-              </button>
               <button onClick={async () => {
                 await Promise.all(itemsNuevos.map(i => api.comandas.deleteItem(comanda.id, i.id)))
                 setConfirmarCerrar(false)
                 onClose()
-              }} className="flex-1 py-3 rounded-xl bg-red-600 text-[var(--sala-txt)] font-bold">
+              }} className="flex-1 py-3 rounded-xl bg-red-600 text-white font-bold active:scale-95 transition-transform">
                 Descartar
+              </button>
+              <button onClick={() => {
+                setConfirmarCerrar(false)
+                if (itemsNuevosCocina.length > 0) {
+                  setOrdenando(true) // asignar niveles → Oído
+                } else {
+                  const toSend = [
+                    ...itemsNuevosBarra.map(i => ({ itemId: i.id, nivel: 1 })),
+                    ...autoItemsPendientes.map(i => ({ itemId: i.id, nivel: 1 })),
+                  ]
+                  if (toSend.length > 0) onEnviar(toSend, false)
+                }
+              }} className="flex-1 py-3 rounded-xl text-white font-black active:scale-95 transition-transform"
+                style={{ background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)' }}>
+                Comandar
               </button>
             </div>
           </div>
@@ -1432,6 +1780,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
           item={mermaItem}
           onClose={() => setMermaItem(null)}
           onConfirm={(motivo, descripcion, cantidad) => registrarMerma.mutate({ motivo, descripcion, cantidad: cantidad ?? mermaItem!.cantidad })}
+          onInvitar={esEncargado ? (motivo?: string) => { invitarItem.mutate({ item: mermaItem, motivo }); setMermaItem(null) } : undefined}
         />
       )}
 
@@ -1498,7 +1847,7 @@ function MoverMesaModal({ comanda, planes, comandas, onMoverALibre, onMerge, onC
 
   if (step === 'confirm-merge' && targetMesa && targetComanda) {
     const targetFacturada = targetComanda.estado === 'facturada'
-    const targetTotal = targetComanda.items.reduce((s, i) => s + i.precio * i.cantidad, 0)
+    const targetTotal = totalComanda(targetComanda.items)
     return (
       <div className="fixed inset-0 bg-black/80 flex items-end z-[60]" onClick={onClose}>
         <div className="bg-[var(--sala-hdr)] w-full rounded-t-3xl shadow-2xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
@@ -1526,7 +1875,7 @@ function MoverMesaModal({ comanda, planes, comandas, onMoverALibre, onMerge, onC
               {targetComanda.items.map(item => (
                 <div key={item.id} className="flex items-center justify-between text-xs">
                   <span className="text-[var(--sala-tx2)]">{item.cantidad > 1 ? <span className="text-cyan-600 font-bold">{item.cantidad}× </span> : null}{item.nombre}</span>
-                  <span className="text-[var(--sala-tx4)]">{(item.precio * item.cantidad).toFixed(2)} €</span>
+                  <span className="text-[var(--sala-tx4)]">{valorItem(item).toFixed(2)} €{item.invitacion ? " 🎁" : ""}</span>
                 </div>
               ))}
             </div>
@@ -1938,11 +2287,15 @@ function WikiPanel({ restaurantId, onClose }: { restaurantId: number; onClose: (
   )
 }
 
-function PerfilPanel({ camarero, onClose, onOpenWiki, onOpenChecklist }: {
+function PerfilPanel({ camarero, restaurantNombre, isDark, onToggleTheme, onClose, onOpenWiki, onOpenChecklist, onOpenProduccion }: {
   camarero: { id: number; nombre: string }
+  restaurantNombre: string
+  isDark: boolean
+  onToggleTheme: () => void
   onClose: () => void
   onOpenWiki: () => void
   onOpenChecklist: () => void
+  onOpenProduccion: () => void
 }) {
   const ahora  = new Date()
   const desde  = `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, '0')}-01`
@@ -1969,10 +2322,43 @@ function PerfilPanel({ camarero, onClose, onOpenWiki, onOpenChecklist }: {
         {/* Header */}
         <div className="px-5 pt-2 pb-4 border-b border-[var(--sala-brd)] flex items-center justify-between">
           <div>
+            <p className="text-[#4CC8A0] text-xs font-semibold">{restaurantNombre}</p>
             <h2 className="text-[var(--sala-txt)] font-bold text-lg">{camarero.nombre}</h2>
             <p className="text-[var(--sala-tx3)] text-xs mt-0.5">Propinas este mes</p>
           </div>
-          <button onClick={onClose} className="text-[var(--sala-tx3)] text-xl">✕</button>
+          <div className="flex items-center gap-4">
+            {/* Toggle claro/oscuro */}
+            <button onClick={onToggleTheme} title={isDark ? 'Modo claro' : 'Modo oscuro'}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                background: isDark ? '#1e2d45' : '#e2e8f0',
+                border: `1.5px solid ${isDark ? '#374151' : '#cbd5e1'}`,
+                borderRadius: 20, padding: '4px 8px', cursor: 'pointer',
+                transition: 'all 0.25s',
+              }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" style={{ opacity: isDark ? 1 : 0.35, transition: 'opacity 0.25s' }}>
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" fill={isDark ? '#818cf8' : '#94a3b8'} />
+              </svg>
+              <div style={{
+                width: 16, height: 16, borderRadius: '50%',
+                background: isDark ? '#818cf8' : '#f59e0b',
+                boxShadow: isDark ? '0 0 8px #818cf866' : '0 0 8px #f59e0b99',
+                transition: 'all 0.25s',
+              }} />
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" style={{ opacity: isDark ? 0.35 : 1, transition: 'opacity 0.25s' }}>
+                <circle cx="12" cy="12" r="4" fill={isDark ? '#94a3b8' : '#f59e0b'} />
+                {[0,45,90,135,180,225,270,315].map(a => (
+                  <line key={a}
+                    x1={12 + 7 * Math.cos(a * Math.PI / 180)}
+                    y1={12 + 7 * Math.sin(a * Math.PI / 180)}
+                    x2={12 + 9.5 * Math.cos(a * Math.PI / 180)}
+                    y2={12 + 9.5 * Math.sin(a * Math.PI / 180)}
+                    stroke={isDark ? '#94a3b8' : '#f59e0b'} strokeWidth="2" strokeLinecap="round" />
+                ))}
+              </svg>
+            </button>
+            <button onClick={onClose} className="text-[var(--sala-tx3)] text-xl">✕</button>
+          </div>
         </div>
 
         {/* Resumen */}
@@ -1987,8 +2373,24 @@ function PerfilPanel({ camarero, onClose, onOpenWiki, onOpenChecklist }: {
           </div>
         </div>
 
-        {/* Accesos: Wiki + Checklists */}
+        {/* Accesos: Checklists + Wiki + Producción */}
         <div className="grid grid-cols-2 gap-3 px-5 pb-2">
+          <button
+            onClick={onOpenProduccion}
+            className="group col-span-2 flex items-center gap-3 bg-[var(--sala-srf)] hover:bg-[var(--sala-btn2)] rounded-2xl px-4 py-3 transition-colors"
+          >
+            <span className="shrink-0 grid place-items-center w-10 h-10 rounded-xl bg-purple-400/15 text-purple-400 transition-transform group-active:scale-95">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 3h6" />
+                <path d="M10 3v6.5L4.8 18a2 2 0 0 0 1.7 3h11a2 2 0 0 0 1.7-3L14 9.5V3" />
+                <path d="M7.5 14h9" />
+              </svg>
+            </span>
+            <div className="text-left">
+              <p className="text-[var(--sala-txt)] text-sm font-semibold">Producción</p>
+              <p className="text-[var(--sala-tx3)] text-[11px]">Registrar premixes de sala</p>
+            </div>
+          </button>
           <button
             onClick={onOpenChecklist}
             className="group flex items-center gap-3 bg-[var(--sala-srf)] hover:bg-[var(--sala-btn2)] rounded-2xl px-4 py-3 transition-colors"
@@ -2185,6 +2587,700 @@ function ProduccionSalaModal({
   )
 }
 
+// ── Menú grupo (camarero): armar comanda desde plantilla de menú degustación ──
+function MenuGrupoSheet({
+  restaurantId,
+  mesa,
+  pax,
+  camareroNombre,
+  menu,
+  onClose,
+  onDone,
+}: {
+  restaurantId: number
+  mesa: Mesa
+  pax: number
+  camareroNombre?: string
+  menu: MenuItem[]
+  onClose: () => void
+  onDone: (comandaId: number) => void
+}) {
+  const [templateId, setTemplateId] = useState<number | null>(null)
+  const [incluyePostre, setPostre]  = useState(true)
+  const [qtys, setQtys]             = useState<Record<string, number>>({}) // key `${nivel}|${nombre}`
+  const [extras, setExtras]         = useState<Array<{ nombre: string; nivel: number }>>([])
+  const [pickerNivel, setPickerNivel] = useState<number | null>(null)
+  const [searchExtra, setSearchExtra] = useState('')
+
+  const { data: templates = [] } = useQuery<GrupoMenuTemplate[]>({
+    queryKey: ['grupo-menu', restaurantId],
+    queryFn: () => api.grupoMenu.list(restaurantId),
+  })
+  const template = templates.find(t => t.id === templateId) ?? null
+
+  const priceMap: Record<string, number> = {}
+  for (const m of menu) priceMap[m.nombre] = m.precio
+  const k = (nivel: number, nombre: string) => `${nivel}|${nombre}`
+
+  // Cantidades sugeridas: tapeo compartido, ajustadas al presupuesto (precio del menú × pax):
+  // ración base para todos + sube a la ración alta los platos más baratos mientras quepa
+  useEffect(() => {
+    if (!template) return
+    const platos = template.niveles.flatMap(nv => (nv.platos ?? []).map(nombre => ({ nombre, nivel: nv.nivel })))
+    const sugeridas = sugerirCantidadesMenu(platos, pax, template.paxPorRacion || 3, priceMap, template.precio)
+    const init: Record<string, number> = {}
+    for (const p of sugeridas) init[k(p.nivel, p.nombre)] = p.cantidad
+    setQtys(init)
+    setExtras([])
+    setPickerNivel(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [templateId])
+
+  const nivelesFiltrados = [...(template?.niveles ?? [])]
+    .filter(nv => incluyePostre || !nv.esPostre)
+    .sort((a, b) => a.nivel - b.nivel)
+  const platosDe = (nivel: number, platos: string[]) =>
+    [...platos, ...extras.filter(e => e.nivel === nivel).map(e => e.nombre)]
+  const todosPlatos = nivelesFiltrados.flatMap(nv =>
+    platosDe(nv.nivel, nv.platos ?? []).map(nombre => ({ nombre, nivel: nv.nivel })))
+
+  const budget = (template?.precio ?? 0) * pax
+  const spent = todosPlatos.reduce((s, p) => s + (priceMap[p.nombre] ?? 0) * (qtys[k(p.nivel, p.nombre)] ?? 0), 0)
+  const overBudget = spent > budget
+  const setQty = (nivel: number, nombre: string, delta: number) =>
+    setQtys(prev => ({ ...prev, [k(nivel, nombre)]: Math.max(0, (prev[k(nivel, nombre)] ?? 0) + delta) }))
+
+  const generar = useMutation({
+    mutationFn: () => api.grupoMenu.generar(template!.id, {
+      mesaId: mesa.id,
+      pax,
+      platosSeleccionados: todosPlatos
+        .filter(p => (qtys[k(p.nivel, p.nombre)] ?? 0) > 0)
+        .map(p => ({ nombre: p.nombre, nivel: p.nivel, cantidad: qtys[k(p.nivel, p.nombre)] ?? 0 })),
+      camareroNombre,
+    }),
+    onSuccess: comanda => onDone(comanda.id),
+  })
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
+      <div className="relative w-full sm:max-w-md bg-[var(--sala-hdr)] h-full flex flex-col shadow-2xl border-l border-[var(--sala-brd)]" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="px-5 pt-5 pb-3 border-b border-[var(--sala-brd)]">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-[var(--sala-tx3)] text-[11px] font-semibold uppercase tracking-wider">🍽 Menú grupo · Mesa {mesa.numero}</p>
+              <h2 className="text-[var(--sala-txt)] font-black text-xl">{pax} PAX{template ? ` · ${template.nombre}` : ''}</h2>
+            </div>
+            <button onClick={onClose} className="text-[var(--sala-tx3)] hover:text-[var(--sala-tx1)] text-xl">✕</button>
+          </div>
+          {template && (
+            <>
+              <div className="flex items-center gap-3 mt-2">
+                <button onClick={() => setTemplateId(null)} className="text-cyan-400 text-xs font-semibold">← cambiar menú</button>
+                <label className="flex items-center gap-1.5 text-xs text-[var(--sala-tx2)] ml-auto">
+                  <input type="checkbox" checked={incluyePostre} onChange={e => setPostre(e.target.checked)} className="accent-[#4CC8A0]" />
+                  incluir postre
+                </label>
+              </div>
+              {/* Presupuesto: precio del menú × pax vs coste en carta de lo seleccionado */}
+              <div className="mt-2">
+                <div className="flex justify-between text-[11px] font-bold mb-1">
+                  <span className={overBudget ? 'text-red-400' : 'text-[var(--sala-tx3)]'}>
+                    {overBudget ? '⚠️ Se pasa del menú' : 'Valor en carta'}: {spent.toFixed(2)} €
+                  </span>
+                  <span className="text-[var(--sala-tx3)]">Menú: {budget.toFixed(2)} €</span>
+                </div>
+                <div className="h-1.5 rounded-full bg-[var(--sala-btn2)] overflow-hidden">
+                  <div className={`h-full transition-all ${overBudget ? 'bg-red-500' : 'bg-[#4CC8A0]'}`}
+                    style={{ width: `${Math.min(100, budget ? (spent / budget) * 100 : 0)}%` }} />
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {/* Paso 1: elegir plantilla */}
+          {!template && (
+            <>
+              {templates.length === 0 && (
+                <p className="text-center text-[var(--sala-tx4)] text-sm py-10">Este restaurante no tiene menús de grupo configurados</p>
+              )}
+              {templates.map(t => (
+                <button key={t.id} onClick={() => setTemplateId(t.id)}
+                  className="w-full bg-[var(--sala-srf)] rounded-xl p-4 text-left active:scale-[0.98] transition-transform">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[var(--sala-txt)] font-black text-lg">{t.nombre}</p>
+                      <p className="text-[var(--sala-tx3)] text-xs">
+                        {t.precio.toFixed(2)} €/pax · 1 ración cada {t.paxPorRacion || 3} pax · {t.niveles.length} cursos
+                      </p>
+                    </div>
+                    <span className="text-[#4CC8A0] font-black text-2xl tabular-nums">{(t.precio * pax).toFixed(2)} €</span>
+                  </div>
+                </button>
+              ))}
+            </>
+          )}
+
+          {/* Paso 2: revisión por cursos con cantidades ajustables */}
+          {template && nivelesFiltrados.map(nv => (
+            <div key={nv.nivel} className="bg-[var(--sala-srf)] rounded-xl p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-6 h-6 rounded-full bg-cyan-600 flex items-center justify-center text-white text-xs font-black shrink-0">{nv.nivel}</div>
+                <span className="text-[var(--sala-tx2)] text-xs font-semibold uppercase tracking-wide">{nv.nombre || `Salida ${nv.nivel}`}</span>
+                <div className="flex-1 h-px bg-[var(--sala-btn)]" />
+                <button onClick={() => { setPickerNivel(pickerNivel === nv.nivel ? null : nv.nivel); setSearchExtra('') }}
+                  className="text-cyan-400 text-xs font-bold">+ carta</button>
+              </div>
+              <div className="space-y-1.5">
+                {platosDe(nv.nivel, nv.platos ?? []).map(nombre => {
+                  const qty = qtys[k(nv.nivel, nombre)] ?? 0
+                  return (
+                    <div key={nombre} className={`flex items-center gap-2 ${qty === 0 ? 'opacity-40' : ''}`}>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[var(--sala-txt)] text-sm font-medium truncate">{nombre}</p>
+                        {priceMap[nombre] !== undefined && (
+                          <p className="text-[var(--sala-tx4)] text-[10px]">{priceMap[nombre].toFixed(2)} € en carta</p>
+                        )}
+                      </div>
+                      <button onClick={() => setQty(nv.nivel, nombre, -1)}
+                        className="w-9 h-9 rounded-lg bg-[var(--sala-btn)] text-[var(--sala-txt)] text-lg font-bold flex items-center justify-center active:scale-90">−</button>
+                      <span className="text-[var(--sala-txt)] font-black text-lg w-7 text-center tabular-nums">{qty}</span>
+                      <button onClick={() => setQty(nv.nivel, nombre, +1)}
+                        className="w-9 h-9 rounded-lg bg-[var(--sala-btn)] text-[var(--sala-txt)] text-lg font-bold flex items-center justify-center active:scale-90">+</button>
+                    </div>
+                  )
+                })}
+              </div>
+              {/* Picker de platos extra de la carta para este curso */}
+              {pickerNivel === nv.nivel && (
+                <div className="mt-2 bg-[var(--sala-btn2)]/50 rounded-lg p-2">
+                  <input autoFocus value={searchExtra} onChange={e => setSearchExtra(e.target.value)}
+                    placeholder="Buscar en la carta…"
+                    className="w-full bg-[var(--sala-btn2)] text-[var(--sala-txt)] text-xs px-3 py-1.5 rounded-lg outline-none mb-1.5" />
+                  {searchExtra.trim() && menu
+                    .filter(m => m.activo && !m.ocultoEnCarta && normTxt(m.nombre).includes(normTxt(searchExtra)))
+                    .slice(0, 6)
+                    .map(m => (
+                      <button key={m.id}
+                        onClick={() => {
+                          setExtras(prev => [...prev, { nombre: m.nombre, nivel: nv.nivel }])
+                          setQtys(prev => ({ ...prev, [k(nv.nivel, m.nombre)]: 1 }))
+                          setPickerNivel(null)
+                        }}
+                        className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-[var(--sala-btn2)] text-left">
+                        <span className="text-[var(--sala-txt)] text-xs">{m.nombre}</span>
+                        <span className="text-[var(--sala-tx3)] text-xs">{m.precio.toFixed(2)} €</span>
+                      </button>
+                    ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Footer: confirmar */}
+        {template && (
+          <div className="px-4 py-3 border-t border-[var(--sala-brd)]">
+            {generar.isError && (
+              <p className="text-red-400 text-xs font-bold mb-2 text-center">
+                No se pudo armar el menú — ¿la mesa ya tiene una comanda abierta?
+              </p>
+            )}
+            <button
+              onClick={() => generar.mutate()}
+              disabled={generar.isPending || overBudget || todosPlatos.every(p => (qtys[k(p.nivel, p.nombre)] ?? 0) === 0)}
+              className="w-full py-4 rounded-2xl text-white font-black text-base disabled:opacity-30 active:scale-95 transition-transform"
+              style={{ background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)' }}>
+              {generar.isPending ? 'Armando…' : `🍽 Armar menú y enviar a cocina · ${budget.toFixed(2)} €`}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Panel Encargado (modo admin en sala) ─────────────────────────────────────
+const MOTIVO_MERMA_LABEL: Record<string, string> = {
+  no_servido: 'No servido', queja_cliente: 'Queja cliente', otro: 'Otro',
+}
+
+// Normaliza para búsqueda: minúsculas + sin acentos/composición Unicode ("CAÑA" con Ñ
+// descompuesta, "café"/"cafe", etc. matchean igual)
+const normTxt = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+
+const fmtHora = (iso: string) => new Date(iso).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+const transcurrido = (iso: string) => {
+  const min = Math.floor((Date.now() - new Date(iso).getTime()) / 60000)
+  return min < 60 ? `${min} min` : `${Math.floor(min / 60)}h ${String(min % 60).padStart(2, '0')}m`
+}
+
+// Reloj en vivo — componente aislado para que el tick no re-renderice el resto de la app
+function RelojSala() {
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 5_000)
+    return () => clearInterval(t)
+  }, [])
+  return (
+    <span className="text-[var(--sala-txt)] text-2xl font-black tabular-nums leading-none">
+      {now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+    </span>
+  )
+}
+
+// Sheet de cobro — misma lógica que el panel de cobro del dashboard (MesasFeedPage):
+// método de pago, importe recibido con cambio (efectivo) o propina (tarjeta = exceso sobre el total)
+function CobroSheet({ comanda, onClose, onDone }: { comanda: Comanda; onClose: () => void; onDone?: () => void }) {
+  const queryClient = useQueryClient()
+  const [metodoPago, setMetodoPago] = useState<'cash' | 'tarjeta' | null>(null)
+  const [importe, setImporte] = useState('')
+  const total = totalComanda(comanda.items)
+
+  const cobrar = useMutation({
+    mutationFn: ({ metodo, propina }: { metodo: 'cash' | 'tarjeta'; propina: number }) =>
+      api.comandas.cerrar(comanda.id, metodo, propina),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['enc-cobros'] })
+      queryClient.invalidateQueries({ queryKey: ['comandas-sala'] })
+      onDone?.()
+      onClose()
+    },
+  })
+
+  const importeNum = parseFloat(importe.replace(',', '.')) || 0
+  const cambio     = metodoPago === 'cash'    ? importeNum - total : null
+  const propina    = metodoPago === 'tarjeta' ? Math.max(0, importeNum - total) : 0
+  const canCobrar  = !!metodoPago && (importe === '' || importeNum >= total)
+
+  // Teclado numérico en pantalla (estilo TPV — no usa el teclado del sistema)
+  const tecla = (t: string) => {
+    navigator.vibrate?.(10)
+    if (t === '⌫') { setImporte(v => v.slice(0, -1)); return }
+    if (t === ',') { setImporte(v => v.includes(',') ? v : (v || '0') + ','); return }
+    setImporte(v => {
+      if (v.length >= 7) return v
+      const dec = v.split(',')[1]
+      if (dec !== undefined && dec.length >= 2) return v // máx 2 decimales
+      return v === '0' ? t : v + t
+    })
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center sm:justify-center" onClick={onClose}>
+      <div className="w-full sm:max-w-md bg-[var(--sala-hdr)] border-t sm:border border-[var(--sala-brd2)] rounded-t-2xl sm:rounded-2xl p-5 shadow-2xl max-h-[96vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex items-start justify-between">
+          <p className="text-[var(--sala-tx3)] text-xs font-semibold uppercase tracking-wider">
+            💶 Cobrar · {comanda.pax} PAX · {comanda.items.length} items
+            {comanda.camareroNombre ? <> · 👤 {comanda.camareroNombre}</> : null}
+          </p>
+          <button onClick={onClose} className="text-[var(--sala-tx3)] hover:text-[var(--sala-tx1)] text-2xl leading-none">✕</button>
+        </div>
+
+        {/* Mesa + total — gigantes, lado a lado, siempre visibles */}
+        <div className="flex items-stretch gap-3 pt-3">
+          <div className="shrink-0 rounded-2xl px-5 py-2 flex flex-col items-center justify-center text-white"
+            style={{ background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)' }}>
+            <span className="text-[11px] font-black uppercase tracking-widest opacity-80 leading-none">Mesa</span>
+            <span className="text-5xl font-black tabular-nums leading-none mt-1">{comanda.mesa.numero}</span>
+          </div>
+          <div className="flex-1 flex flex-col items-end justify-center">
+            <p className="text-[var(--sala-tx4)] text-xs font-bold uppercase tracking-widest mb-1">Total cuenta</p>
+            <p className="text-[var(--sala-txt)] text-5xl font-black tabular-nums leading-none">{total.toFixed(2)} €</p>
+          </div>
+        </div>
+
+        {/* Hora de apertura — crucial para no cobrar una comanda vieja de la misma mesa */}
+        <div className="flex items-center justify-between px-4 py-2.5 mt-3 mb-3 rounded-2xl bg-amber-500/15 border border-amber-500/40">
+          <span className="text-amber-500 text-xs font-black uppercase tracking-widest">🕐 Mesa abierta</span>
+          <span className="text-amber-400 font-black text-3xl tabular-nums leading-none">
+            {fmtHora(comanda.createdAt)}
+            <span className="text-sm font-bold text-amber-500/90 ml-2">hace {transcurrido(comanda.createdAt)}</span>
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 mb-3">
+          <button onClick={() => { setMetodoPago('cash'); setImporte('') }}
+            className={`py-3.5 rounded-xl text-base font-black transition-all ${metodoPago === 'cash' ? 'bg-green-600 text-white' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)]'}`}>
+            💵 Efectivo
+          </button>
+          <button onClick={() => { setMetodoPago('tarjeta'); setImporte('') }}
+            className={`py-3.5 rounded-xl text-base font-black transition-all ${metodoPago === 'tarjeta' ? 'bg-blue-600 text-white' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)]'}`}>
+            💳 Tarjeta
+          </button>
+        </div>
+
+        {metodoPago && (
+          <>
+            {/* Display del importe — enorme */}
+            <p className="text-[var(--sala-tx3)] text-xs font-bold uppercase tracking-widest text-center mb-1">
+              {metodoPago === 'cash' ? 'Importe recibido' : 'Importe en ticket'}
+            </p>
+            <div className={`rounded-2xl px-4 py-3 mb-2 text-center bg-[var(--sala-btn2)] border-2 ${importe ? (metodoPago === 'cash' ? 'border-green-600/60' : 'border-blue-600/60') : 'border-transparent'}`}>
+              <span className={`text-5xl font-black tabular-nums leading-none ${importe ? 'text-[var(--sala-txt)]' : 'text-[var(--sala-tx4)]'}`}>
+                {importe || total.toFixed(2).replace('.', ',')}
+              </span>
+              <span className="text-[var(--sala-tx3)] text-2xl font-bold ml-2">€</span>
+            </div>
+
+            {/* Resultado del cálculo — cambio o propina, bien grande */}
+            {metodoPago === 'cash' && importeNum > 0 && cambio !== null && (
+              <div className={`mb-2 flex items-center justify-between px-5 py-3 rounded-2xl ${cambio >= 0 ? 'bg-green-900/40' : 'bg-red-900/40'}`}>
+                <span className={`text-sm font-black uppercase tracking-wide ${cambio >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  {cambio >= 0 ? 'Cambio a devolver' : 'Falta'}
+                </span>
+                <span className={`font-black text-4xl tabular-nums ${cambio >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  {Math.abs(cambio).toFixed(2)} €
+                </span>
+              </div>
+            )}
+            {metodoPago === 'tarjeta' && importeNum > total && (
+              <div className="mb-2 flex items-center justify-between px-5 py-3 rounded-2xl bg-amber-900/40">
+                <span className="text-amber-400 text-sm font-black uppercase tracking-wide">🎉 Propina</span>
+                <span className="text-amber-400 font-black text-4xl tabular-nums">{propina.toFixed(2)} €</span>
+              </div>
+            )}
+            {metodoPago === 'tarjeta' && importeNum > 0 && importeNum < total && (
+              <div className="mb-2 flex items-center justify-between px-5 py-3 rounded-2xl bg-red-900/40">
+                <span className="text-red-400 text-sm font-black uppercase tracking-wide">Falta</span>
+                <span className="text-red-400 font-black text-4xl tabular-nums">{(total - importeNum).toFixed(2)} €</span>
+              </div>
+            )}
+
+            {/* Teclado numérico TPV */}
+            <div className="grid grid-cols-3 gap-1.5 mb-3">
+              {['1','2','3','4','5','6','7','8','9',',','0','⌫'].map(t => (
+                <button key={t} onClick={() => tecla(t)}
+                  className="h-14 rounded-xl bg-[var(--sala-btn2)] text-[var(--sala-txt)] text-2xl font-black active:scale-95 active:bg-[var(--sala-btn)] transition-all select-none">
+                  {t}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+
+        <button
+          onClick={() => metodoPago && cobrar.mutate({ metodo: metodoPago, propina })}
+          disabled={!canCobrar || cobrar.isPending}
+          className="w-full py-4 rounded-2xl bg-amber-500 text-black font-black text-xl disabled:opacity-30 hover:bg-amber-400 active:scale-[0.98] transition-all"
+        >
+          {cobrar.isPending
+            ? 'Cobrando…'
+            : !metodoPago
+              ? 'Elegí el método de pago'
+              : metodoPago === 'tarjeta' && propina > 0
+                ? `Cobrar Mesa ${comanda.mesa.numero} · +${propina.toFixed(2)} € propina`
+                : `Cobrar Mesa ${comanda.mesa.numero}`}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function EncargadoPanel({
+  restaurant,
+  camarero,
+  turnoActivo,
+  onClose,
+  onAbrirComanda,
+}: {
+  restaurant: { id: number; nombre: string }
+  camarero: { nombre: string }
+  turnoActivo: Turno | null
+  onClose: () => void
+  onAbrirComanda?: (comandaId: number) => void
+}) {
+  const queryClient = useQueryClient()
+  const rid = restaurant.id
+  const [tab, setTab] = useState<'cobros' | 'turno' | 'checklists' | 'mermas'>('cobros')
+  const [armadoCierre, setArmadoCierre] = useState(false)
+  const [resumenCierre, setResumenCierre] = useState<Turno | null>(null)
+  const [cobroDe, setCobroDe] = useState<Comanda | null>(null)
+
+  const { data: facturadas = [] } = useQuery({
+    queryKey: ['enc-cobros', rid, 'facturada'],
+    queryFn: () => api.comandas.list(rid, 'facturada'),
+    refetchInterval: 15_000,
+  })
+  const { data: liberadas = [] } = useQuery({
+    queryKey: ['enc-cobros', rid, 'liberada'],
+    queryFn: () => api.comandas.list(rid, 'liberada'),
+    refetchInterval: 15_000,
+  })
+  const pendientes = [...facturadas, ...liberadas].filter(c => c.items.length > 0)
+  const totalDe = (c: Comanda) => totalComanda(c.items)
+
+  const { data: comandasActivas = [] } = useQuery({
+    queryKey: ['comandas-sala', rid],
+    queryFn: () => api.comandas.list(rid),
+  })
+  const mesasAbiertas = comandasActivas.filter(c => c.estado === 'abierta' || c.estado === 'enviada').length
+
+  const abrirTurno = useMutation({
+    mutationFn: () => api.turnos.abrir(rid, camarero.nombre),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['turno-activo', rid] }),
+  })
+  const cerrarTurno = useMutation({
+    mutationFn: () => api.turnos.cerrar(turnoActivo!.id),
+    onSuccess: t => {
+      setArmadoCierre(false)
+      setResumenCierre(t)
+      queryClient.invalidateQueries({ queryKey: ['turno-activo', rid] })
+    },
+  })
+
+  const { data: sectores = [] } = useQuery({
+    queryKey: ['enc-checklists', rid],
+    queryFn: () => api.checklists.contenido(rid),
+    enabled: tab === 'checklists',
+    refetchInterval: 60_000,
+  })
+
+  const hoy = new Date()
+  const hoyStr = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`
+  const { data: mermasHoy } = useQuery({
+    queryKey: ['enc-mermas', rid, hoyStr],
+    queryFn: () => api.mermas.list(rid, hoyStr, hoyStr),
+    enabled: tab === 'mermas',
+    refetchInterval: 60_000,
+  })
+  const totalMermas = (mermasHoy?.mermas ?? []).reduce((s, m) => s + (m.precio ?? 0) * m.cantidad, 0)
+
+  const TABS = [
+    { key: 'cobros' as const, label: `💶 Cobros${pendientes.length ? ` (${pendientes.length})` : ''}` },
+    { key: 'turno' as const, label: '⏱ Turno' },
+    { key: 'checklists' as const, label: '✅ Checklists' },
+    { key: 'mermas' as const, label: '🗑 Mermas' },
+  ]
+
+  return (
+    <div className="fixed inset-0 z-40 flex justify-end" onClick={onClose}>
+      <div className="relative w-full sm:max-w-md bg-[var(--sala-hdr)] h-full flex flex-col shadow-2xl border-l border-[var(--sala-brd)]" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="px-5 pt-5 pb-3 border-b border-[var(--sala-brd)]">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-[var(--sala-tx3)] text-[11px] font-semibold uppercase tracking-wider">💼 Modo encargado</p>
+              <h2 className="text-[var(--sala-txt)] font-bold text-xl">{camarero.nombre}</h2>
+            </div>
+            <div className="flex items-center gap-4">
+              <RelojSala />
+              <button onClick={onClose} className="text-[var(--sala-tx3)] hover:text-[var(--sala-tx1)] text-xl">✕</button>
+            </div>
+          </div>
+          <div className="flex gap-1.5 mt-3 overflow-x-auto">
+            {TABS.map(t => (
+              <button key={t.key} onClick={() => setTab(t.key)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors ${
+                  tab === t.key ? 'bg-[var(--sala-btna)] text-[var(--sala-txt)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)]'
+                }`}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-2">
+          {/* ── Cobros pendientes ── */}
+          {tab === 'cobros' && (
+            <>
+              {pendientes.length === 0 && (
+                <p className="text-center text-[var(--sala-tx4)] text-sm py-10">No hay mesas pendientes de cobro 👌</p>
+              )}
+              {pendientes.map(c => (
+                <div key={c.id} className="bg-[var(--sala-srf)] rounded-xl p-4">
+                  {/* Zona clickeable: abre la vista completa de la mesa (mermas, invitaciones, cuenta…) */}
+                  <button type="button" onClick={() => onAbrirComanda?.(c.id)}
+                    title="Ver la mesa completa (items, mermas…)"
+                    className="w-full flex items-center justify-between mb-2 text-left active:scale-[0.99] transition-transform">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="shrink-0 rounded-xl px-4 py-2 flex flex-col items-center justify-center text-white"
+                        style={{ background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)' }}>
+                        <span className="text-[10px] font-black uppercase tracking-widest opacity-80 leading-none">Mesa</span>
+                        <span className="text-4xl font-black tabular-nums leading-none mt-0.5">{c.mesa.numero}</span>
+                      </div>
+                      <div className="shrink-0 rounded-xl px-3 py-2 flex flex-col items-center justify-center bg-amber-500/15 border border-amber-500/40">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-amber-500/80 leading-none">Abierta</span>
+                        <span className="text-2xl font-black tabular-nums leading-none mt-0.5 text-amber-400">{fmtHora(c.createdAt)}</span>
+                        <span className="text-[10px] font-bold text-amber-500/80 leading-none mt-0.5">hace {transcurrido(c.createdAt)}</span>
+                      </div>
+                      <p className="text-[var(--sala-tx3)] text-xs min-w-0">
+                        {c.pax} PAX · {c.items.length} items<br />
+                        {c.estado === 'facturada' ? '🧾 Cuenta impresa' : '🔓 Mesa liberada'}
+                      </p>
+                    </div>
+                    <span className="text-[#4CC8A0] font-black text-2xl tabular-nums shrink-0">{totalDe(c).toFixed(2)} €</span>
+                  </button>
+                  {c.cuentaDesactualizada ? (
+                    <button
+                      onClick={() => onAbrirComanda?.(c.id)}
+                      className="w-full py-2.5 rounded-xl bg-amber-500/20 border-2 border-amber-500 text-amber-400 text-sm font-black active:scale-95 transition-transform">
+                      ⚠️ El total cambió — reimprimir cuenta
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setCobroDe(c)}
+                      className="w-full py-2.5 rounded-xl bg-amber-500 text-black text-sm font-black active:scale-95 transition-transform hover:bg-amber-400">
+                      Cobrar mesa
+                    </button>
+                  )}
+                </div>
+              ))}
+            </>
+          )}
+
+          {/* ── Turno ── */}
+          {tab === 'turno' && (
+            <div className="space-y-3">
+              {resumenCierre ? (
+                <div className="bg-[var(--sala-srf)] rounded-xl p-5 space-y-2">
+                  <p className="text-[#4CC8A0] font-black text-lg">✓ Turno cerrado</p>
+                  {[
+                    ['Ventas', resumenCierre.totalVentas],
+                    ['Efectivo', resumenCierre.totalEfectivo],
+                    ['Tarjeta', resumenCierre.totalTarjeta],
+                    ['Mermas', resumenCierre.totalMermas],
+                    ['🎁 Invitaciones', resumenCierre.totalInvitaciones],
+                  ].map(([label, val]) => (
+                    <div key={label as string} className="flex justify-between text-sm">
+                      <span className="text-[var(--sala-tx3)]">{label}</span>
+                      <span className="text-[var(--sala-txt)] font-bold tabular-nums">{Number(val ?? 0).toFixed(2)} €</span>
+                    </div>
+                  ))}
+                  <div className="flex justify-between text-sm">
+                    <span className="text-[var(--sala-tx3)]">Comandas</span>
+                    <span className="text-[var(--sala-txt)] font-bold">{resumenCierre.numComandas ?? 0}</span>
+                  </div>
+                </div>
+              ) : turnoActivo ? (
+                <>
+                  <div className="bg-[var(--sala-srf)] rounded-xl p-5">
+                    <p className="text-[var(--sala-tx3)] text-xs font-semibold uppercase tracking-wider mb-1">Turno abierto</p>
+                    <p className="text-[var(--sala-txt)] font-bold text-lg">
+                      {turnoActivo.encargadoNombre ? `👤 ${turnoActivo.encargadoNombre}` : 'Sin encargado asignado'}
+                    </p>
+                    <p className="text-[var(--sala-tx2)] text-sm mt-1">
+                      Desde las {fmtHora(turnoActivo.aperturaAt)} · lleva {transcurrido(turnoActivo.aperturaAt)}
+                    </p>
+                  </div>
+                  {(mesasAbiertas > 0 || pendientes.length > 0) && (
+                    <div className="bg-amber-500/10 rounded-xl px-4 py-3">
+                      <p className="text-amber-400 text-xs font-bold">
+                        ⚠️ Antes de cerrar: {mesasAbiertas > 0 ? `${mesasAbiertas} mesa${mesasAbiertas > 1 ? 's' : ''} activa${mesasAbiertas > 1 ? 's' : ''}` : ''}
+                        {mesasAbiertas > 0 && pendientes.length > 0 ? ' y ' : ''}
+                        {pendientes.length > 0 ? `${pendientes.length} pendiente${pendientes.length > 1 ? 's' : ''} de cobro` : ''}
+                      </p>
+                    </div>
+                  )}
+                  {armadoCierre ? (
+                    <div className="flex gap-2">
+                      <button onClick={() => setArmadoCierre(false)}
+                        className="flex-1 py-3 rounded-xl bg-[var(--sala-btn2)] text-[var(--sala-tx2)] text-sm font-semibold">
+                        Cancelar
+                      </button>
+                      <button onClick={() => cerrarTurno.mutate()} disabled={cerrarTurno.isPending}
+                        className="flex-1 py-3 rounded-xl bg-red-600 text-white text-sm font-black active:scale-95 transition-transform disabled:opacity-50">
+                        {cerrarTurno.isPending ? 'Cerrando…' : '¿Seguro? Cerrar turno'}
+                      </button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setArmadoCierre(true)}
+                      className="w-full py-3 rounded-xl bg-red-600/80 text-white text-sm font-bold active:scale-95 transition-transform">
+                      🔒 Cerrar turno
+                    </button>
+                  )}
+                </>
+              ) : (
+                <button onClick={() => abrirTurno.mutate()} disabled={abrirTurno.isPending}
+                  className="w-full py-4 rounded-xl text-white font-black text-base active:scale-95 transition-transform disabled:opacity-50"
+                  style={{ background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)' }}>
+                  {abrirTurno.isPending ? 'Abriendo…' : `▶ Abrir turno como ${camarero.nombre}`}
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* ── Checklists de hoy ── */}
+          {tab === 'checklists' && (
+            <>
+              {sectores.length === 0 && (
+                <p className="text-center text-[var(--sala-tx4)] text-sm py-10">Este restaurante no tiene checklists configurados</p>
+              )}
+              {sectores.map(sector => (
+                <div key={sector.id} className="bg-[var(--sala-srf)] rounded-xl p-4">
+                  <p className="text-[var(--sala-txt)] font-bold text-sm mb-2">{sector.nombre}</p>
+                  <div className="flex flex-col gap-1.5">
+                    {(['apertura', 'cierre'] as const).map(momento => {
+                      const ej = (sector.ejecuciones ?? []).find(e => e.momento === momento)
+                      const totalItems = (sector.items ?? []).filter(i => i.momento === momento).length
+                      if (!ej) return (
+                        <div key={momento} className="flex items-center justify-between px-3 py-2 rounded-lg bg-[var(--sala-btn2)]/50">
+                          <span className="text-[var(--sala-tx3)] text-xs font-semibold">{momento === 'apertura' ? '🔓 Apertura' : '🔒 Cierre'}</span>
+                          <span className="text-[var(--sala-tx4)] text-xs">Pendiente</span>
+                        </div>
+                      )
+                      const marcados = ej.itemsMarcados.filter(m => m.marcado).length
+                      const completo = marcados === ej.itemsMarcados.length
+                      return (
+                        <div key={momento} className={`flex items-center justify-between px-3 py-2 rounded-lg ${completo ? 'bg-emerald-500/10' : 'bg-amber-500/10'}`}>
+                          <span className={`text-xs font-semibold ${completo ? 'text-emerald-400' : 'text-amber-400'}`}>
+                            {momento === 'apertura' ? '🔓 Apertura' : '🔒 Cierre'} {completo ? '✓' : '⚠️'}
+                          </span>
+                          <span className="text-[var(--sala-tx2)] text-xs">
+                            {ej.completadoPor} · {fmtHora(ej.fecha)} · {marcados}/{ej.itemsMarcados.length || totalItems}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+
+          {/* ── Mermas de hoy ── */}
+          {tab === 'mermas' && (
+            <>
+              <div className="bg-[var(--sala-srf)] rounded-xl px-4 py-3 flex items-center justify-between">
+                <span className="text-[var(--sala-tx2)] text-sm font-semibold">Mermas de hoy</span>
+                <span className="text-red-400 font-black tabular-nums">{totalMermas.toFixed(2)} €</span>
+              </div>
+              {(mermasHoy?.mermas ?? []).length === 0 && (
+                <p className="text-center text-[var(--sala-tx4)] text-sm py-10">Sin mermas hoy 👌</p>
+              )}
+              {(mermasHoy?.mermas ?? []).map(m => (
+                <div key={m.id} className="bg-[var(--sala-srf)] rounded-xl px-4 py-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[var(--sala-txt)] text-sm font-bold">
+                      {m.cantidad > 1 ? `${m.cantidad}× ` : ''}{m.itemNombre}
+                    </p>
+                    <span className="text-[var(--sala-tx2)] text-sm font-bold tabular-nums">{((m.precio ?? 0) * m.cantidad).toFixed(2)} €</span>
+                  </div>
+                  <p className="text-[var(--sala-tx3)] text-xs mt-0.5">
+                    {MOTIVO_MERMA_LABEL[m.motivo] ?? m.motivo}
+                    {m.mesaNumero ? ` · Mesa ${m.mesaNumero}` : ''}
+                    {m.camareroNombre ? ` · ${m.camareroNombre}` : ''}
+                    {' · '}{fmtHora(m.createdAt)}
+                    {m.descripcion ? ` — ${m.descripcion}` : ''}
+                  </p>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+
+        {/* Sheet de cobro (mismo flujo que el dashboard) */}
+        {cobroDe && (
+          <CobroSheet comanda={cobroDe} onClose={() => setCobroDe(null)} />
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Página principal camarero ─────────────────────────────────────────────────
 export default function SalaMesasPage() {
   const navigate   = useNavigate()
@@ -2198,6 +3294,9 @@ export default function SalaMesasPage() {
     try { return JSON.parse(sessionStorage.getItem('oidoops_camarero') ?? '') }
     catch { return null }
   })()
+  // Modo encargado: rol 'encargado' o superpoder accesoEncargadoApp (toggle 💼 en /admin/empleados,
+  // independiente de puedeEncargado que es un concepto del planning)
+  const esEncargado = camarero?.rol === 'encargado' || camarero?.accesoEncargadoApp === true
 
   useRestaurantEvents(restaurant?.id ?? null)
 
@@ -2216,6 +3315,8 @@ export default function SalaMesasPage() {
   const [showProduccion, setShowProduccion] = useState(false)
   const [showWiki, setShowWiki] = useState(false)
   const [showChecklist, setShowChecklist] = useState(false)
+  const [showEncargado, setShowEncargado] = useState(false)
+  const [menuGrupo, setMenuGrupo] = useState<{ mesa: Mesa; pax: number } | null>(null)
   const [isDark, setIsDark] = useState(() => localStorage.getItem('sala_theme') !== 'light')
   const toggleTheme = () => setIsDark(d => {
     const next = !d
@@ -2285,6 +3386,12 @@ export default function SalaMesasPage() {
     },
   })
 
+  // Encargado: abrir turno directamente desde la pantalla de bloqueo
+  const abrirTurnoEncargado = useMutation({
+    mutationFn: () => api.turnos.abrir(restaurant!.id, camarero?.nombre),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['turno-activo', restaurant?.id] }),
+  })
+
   const liberarMesa = useMutation({
     mutationFn: (id: number) => api.comandas.liberar(id),
     onSuccess: comanda => {
@@ -2303,6 +3410,9 @@ export default function SalaMesasPage() {
       if (!silent) {
         setComandaAbierta(null)
         setView('mapa')
+        // Comandada exitosa → viñeta OidoOps central con la tilde animada
+        setAnimFacturada(true)
+        setTimeout(() => setAnimFacturada(false), 1800)
       }
     },
   })
@@ -2368,7 +3478,20 @@ export default function SalaMesasPage() {
           </span>
         </div>
         <p className="text-[var(--sala-txt)] font-black text-xl mb-2">Turno no iniciado</p>
-        <p className="text-[var(--sala-tx3)] text-sm">El encargado debe abrir el turno desde el panel de sala antes de que puedas usar las mesas.</p>
+        {esEncargado ? (
+          <>
+            <p className="text-[var(--sala-tx3)] text-sm mb-6">Sos encargado — podés abrir el turno ahora mismo.</p>
+            <button
+              onClick={() => abrirTurnoEncargado.mutate()}
+              disabled={abrirTurnoEncargado.isPending}
+              className="px-8 py-4 rounded-2xl text-white font-black text-base active:scale-95 transition-transform disabled:opacity-50"
+              style={{ background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)' }}>
+              {abrirTurnoEncargado.isPending ? 'Abriendo…' : `▶ Abrir turno como ${camarero.nombre}`}
+            </button>
+          </>
+        ) : (
+          <p className="text-[var(--sala-tx3)] text-sm">El encargado debe abrir el turno desde el panel de sala antes de que puedas usar las mesas.</p>
+        )}
       </div>
     )
   }
@@ -2377,88 +3500,65 @@ export default function SalaMesasPage() {
     <ThemeCtx.Provider value={isDark}>
     <div data-sala-theme={isDark ? 'dark' : 'light'} className="flex flex-col h-screen bg-[var(--sala-bg)]">
       {/* Header */}
-      <div className="bg-[var(--sala-hdr)] border-b border-[var(--sala-brd)] px-4 py-3">
-        <div className="flex items-center justify-between mb-3">
-          <button onClick={() => setShowPerfil(true)} className="text-left group">
-            <p className="text-[#4CC8A0] text-xs font-semibold">{restaurant.nombre}</p>
-            <p className="text-[var(--sala-tx2)] text-xs group-hover:text-[var(--sala-tx1)] transition-colors">
-              👤 {camarero.nombre}
-            </p>
+      <div className="bg-[var(--sala-hdr)] border-b border-[var(--sala-brd)] px-3 py-1.5">
+        <div className="flex items-stretch gap-2">
+          {/* Perfil: viñeta OidoOps + primer nombre, ocupa toda la altura del header
+              (abre restaurante, nombre completo, propinas, producción, wiki, checklists, tema) */}
+          <button onClick={() => setShowPerfil(true)} title={`${restaurant.nombre} · ${camarero.nombre}`}
+            className="w-16 self-stretch shrink-0 rounded-xl bg-[var(--sala-btn2)] hover:bg-[var(--sala-btn)] flex flex-col items-center justify-center gap-1 active:scale-95 transition-all">
+            <svg viewBox="0 0 68 72" className="w-9 h-9">
+              <defs>
+                <linearGradient id="og-hdr" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stopColor="#4B9EDF"/>
+                  <stop offset="100%" stopColor="#4CC8A0"/>
+                </linearGradient>
+              </defs>
+              <path d="M14 2 L54 2 Q66 2 66 14 L66 52 Q66 62 54 62 L40 62 L34 70 L28 62 L14 62 Q2 62 2 52 L2 14 Q2 2 14 2 Z" fill="url(#og-hdr)" />
+              <path d="M15 34 L29 48 L55 18" fill="none" stroke="white" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span className="text-[11px] font-bold text-[var(--sala-tx2)] leading-none truncate max-w-[56px]">
+              {camarero.nombre.split(' ')[0]}
+            </span>
           </button>
-          <div className="flex items-center gap-3">
-            {/* Producción */}
-            <button
-              onClick={() => setShowProduccion(true)}
-              title="Registrar producción"
-              className="text-[var(--sala-tx2)] hover:text-[#4CC8A0] text-lg transition-colors"
-            >
-              ⚗️
-            </button>
-            {/* Theme toggle pill */}
-            <button onClick={toggleTheme} title={isDark ? 'Modo claro' : 'Modo oscuro'}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 6,
-                background: isDark ? '#1e2d45' : '#e2e8f0',
-                border: `1.5px solid ${isDark ? '#374151' : '#cbd5e1'}`,
-                borderRadius: 20, padding: '4px 8px', cursor: 'pointer',
-                transition: 'all 0.25s',
-              }}>
-              {/* Moon */}
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" style={{ opacity: isDark ? 1 : 0.35, transition: 'opacity 0.25s' }}>
-                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" fill={isDark ? '#818cf8' : '#94a3b8'} />
-              </svg>
-              {/* Sliding dot */}
-              <div style={{
-                width: 16, height: 16, borderRadius: '50%',
-                background: isDark ? '#818cf8' : '#f59e0b',
-                boxShadow: isDark ? '0 0 8px #818cf866' : '0 0 8px #f59e0b99',
-                transition: 'all 0.25s',
-              }} />
-              {/* Sun */}
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" style={{ opacity: isDark ? 0.35 : 1, transition: 'opacity 0.25s' }}>
-                <circle cx="12" cy="12" r="4" fill={isDark ? '#94a3b8' : '#f59e0b'} />
-                {[0,45,90,135,180,225,270,315].map(a => (
-                  <line key={a}
-                    x1={12 + 7 * Math.cos(a * Math.PI / 180)}
-                    y1={12 + 7 * Math.sin(a * Math.PI / 180)}
-                    x2={12 + 9.5 * Math.cos(a * Math.PI / 180)}
-                    y2={12 + 9.5 * Math.sin(a * Math.PI / 180)}
-                    stroke={isDark ? '#94a3b8' : '#f59e0b'} strokeWidth="2" strokeLinecap="round" />
-                ))}
-              </svg>
-            </button>
+          <div className="flex-1 min-w-0 flex items-center gap-1.5 flex-wrap">
+          <div className="order-2 ml-auto flex items-center gap-3">
+            {/* Modo encargado */}
+            {esEncargado && (
+              <button
+                onClick={() => setShowEncargado(true)}
+                aria-label="Modo encargado" title="Modo encargado: cobros, turno, checklists, mermas"
+                className="text-[var(--sala-tx3)] hover:text-[#4CC8A0] transition-colors active:scale-90"
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="2" y="7" width="20" height="14" rx="2" />
+                  <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" />
+                  <path d="M2 13h20" />
+                  <path d="M12 11.5v3" />
+                </svg>
+              </button>
+            )}
             <button onClick={() => { sessionStorage.removeItem('oidoops_camarero'); navigate('/sala', { replace: true }) }}
-              className="text-[var(--sala-tx4)] text-xs hover:text-[var(--sala-tx2)]">
-              Salir
+              aria-label="Salir" title="Salir (cerrar sesión)"
+              className="text-[var(--sala-tx3)] hover:text-red-400 transition-colors active:scale-90">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
             </button>
           </div>
-        </div>
-        {/* Vista tabs */}
-        <div className="flex items-center gap-2">
-          {/* Mapa */}
-          <button onClick={() => setView('mapa')}
-            aria-label="Mapa" title="Mapa"
-            className={`px-3 py-1.5 rounded-lg transition-colors inline-flex items-center justify-center ${
-              view === 'mapa' ? 'bg-[var(--sala-btna)] text-[var(--sala-txt)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)] hover:bg-gray-700'
-            }`}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="9" />
-              <path d="M3 12h18" />
-              <path d="M12 3a14 14 0 0 1 0 18" />
-              <path d="M12 3a14 14 0 0 0 0 18" />
-            </svg>
-          </button>
-
-          {/* Selector de planta — solo en vista Mapa */}
-          {view === 'mapa' && planes && planes.length > 1 && planes.map(p => {
+        {/* Vista tabs — botones cuadrados continuos */}
+        <div className="order-1 flex items-center gap-1.5">
+          {/* Plantas: siempre visibles, llevan al mapa de esa planta */}
+          {planes && planes.map(p => {
             const lower = p.nombre.toLowerCase()
             const isAlta = lower.includes('alta')
             const isBaja = lower.includes('baja')
             const showIcon = isAlta || isBaja
             return (
-              <button key={p.id} onClick={() => setPlanId(p.id)}
+              <button key={p.id} onClick={() => { setPlanId(p.id); setView('mapa') }}
                 aria-label={p.nombre} title={p.nombre}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap inline-flex items-center justify-center ${activePlan?.id === p.id ? 'bg-[var(--sala-btna)] text-[var(--sala-txt)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)]'}`}>
+                className={`w-12 h-12 rounded-xl text-xs font-medium inline-flex items-center justify-center active:scale-95 transition-all ${view === 'mapa' && activePlan?.id === p.id ? 'bg-[var(--sala-btna)] text-[var(--sala-txt)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)]'}`}>
                 {showIcon ? (
                   isAlta ? (
                     <svg width="22" height="22" viewBox="0 0 28 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
@@ -2478,7 +3578,7 @@ export default function SalaMesasPage() {
                     </svg>
                   )
                 ) : (
-                  p.nombre
+                  <span className="text-[10px] font-bold truncate px-1">{p.nombre}</span>
                 )}
               </button>
             )
@@ -2486,29 +3586,19 @@ export default function SalaMesasPage() {
 
           {/* Mesas */}
           <button onClick={() => setView('mesas')}
-            aria-label="Mesas" title="Mesas"
-            className={`px-3 py-1.5 rounded-lg transition-colors inline-flex items-center justify-center ${
+            aria-label="Mesas" title="Mesas activas"
+            className={`w-12 h-12 rounded-xl inline-flex items-center justify-center active:scale-95 transition-all ${
               view === 'mesas' ? 'bg-[var(--sala-btna)] text-[var(--sala-txt)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)] hover:bg-gray-700'
             }`}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M3 10h18" />
               <path d="M4 10V8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2" />
               <path d="M7 10v9" />
               <path d="M17 10v9" />
             </svg>
           </button>
-
-          {/* Nueva */}
-          <button onClick={() => setView('nueva')}
-            aria-label="Nueva" title="Nueva"
-            className={`px-3 py-1.5 rounded-lg transition-colors inline-flex items-center justify-center ${
-              view === 'nueva' ? 'bg-[var(--sala-btna)] text-[var(--sala-txt)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)] hover:bg-gray-700'
-            }`}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 5v14" />
-              <path d="M5 12h14" />
-            </svg>
-          </button>
+        </div>
+          </div>
         </div>
       </div>
 
@@ -2556,6 +3646,10 @@ export default function SalaMesasPage() {
           ;(el as HTMLElement & { _ro?: ResizeObserver })._ro?.disconnect()
           ;(el as HTMLElement & { _ro?: ResizeObserver })._ro = ro
         }}>
+          {/* Reloj flotante — margen superior del mapa, centrado */}
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 pointer-events-none px-4 py-1 rounded-full bg-[var(--sala-hdr)]/85 border border-[var(--sala-brd)] backdrop-blur-sm shadow-lg">
+            <RelojSala />
+          </div>
           <div className="plan-canvas" style={{
             position: 'absolute', top: 0, left: 0,
             backgroundImage: `linear-gradient(to right, var(--sala-grid) 1px, transparent 1px), linear-gradient(to bottom, var(--sala-grid) 1px, transparent 1px)`,
@@ -2643,7 +3737,24 @@ export default function SalaMesasPage() {
 
       {abrirMesa && (
         <AbrirMesaModal mesa={abrirMesa} onClose={() => setAbrirMesa(null)}
-          onConfirm={pax => abrirComanda.mutate({ mesaId: abrirMesa.id, pax })} />
+          onConfirm={pax => abrirComanda.mutate({ mesaId: abrirMesa.id, pax })}
+          onMenuGrupo={pax => { setMenuGrupo({ mesa: abrirMesa, pax }); setAbrirMesa(null) }} />
+      )}
+
+      {menuGrupo && (
+        <MenuGrupoSheet
+          restaurantId={restaurant.id}
+          mesa={menuGrupo.mesa}
+          pax={menuGrupo.pax}
+          camareroNombre={camarero?.nombre}
+          menu={menu ?? []}
+          onClose={() => setMenuGrupo(null)}
+          onDone={comandaId => {
+            setMenuGrupo(null)
+            queryClient.invalidateQueries({ queryKey: ['comandas-sala', restaurant?.id] })
+            setComandaAbierta(comandaId)
+          }}
+        />
       )}
 
       {comandaAbierta && comandaDetalle && (
@@ -2652,7 +3763,8 @@ export default function SalaMesasPage() {
           onEnviar={(niveles, silent) => enviarComanda.mutate({ id: comandaAbierta, niveles, silent })}
           onLiberar={() => liberarMesa.mutate(comandaAbierta)}
           onCambiarMesa={comandaDetalle.estado !== 'facturada' ? () => setShowMoverMesa(true) : undefined}
-          onFacturar={() => { setAnimFacturada(true); setTimeout(() => setAnimFacturada(false), 1800) }} />
+          onFacturar={() => { setAnimFacturada(true); setTimeout(() => setAnimFacturada(false), 1800) }}
+          esEncargado={esEncargado} />
       )}
 
       {animFacturada && <CheckOverlay />}
@@ -2671,9 +3783,13 @@ export default function SalaMesasPage() {
       {showPerfil && camarero && (
         <PerfilPanel
           camarero={camarero}
+          restaurantNombre={restaurant.nombre}
+          isDark={isDark}
+          onToggleTheme={toggleTheme}
           onClose={() => setShowPerfil(false)}
           onOpenWiki={() => { setShowPerfil(false); setShowWiki(true) }}
           onOpenChecklist={() => { setShowPerfil(false); setShowChecklist(true) }}
+          onOpenProduccion={() => { setShowPerfil(false); setShowProduccion(true) }}
         />
       )}
       {showProduccion && (
@@ -2688,6 +3804,15 @@ export default function SalaMesasPage() {
       )}
       {showChecklist && (
         <ChecklistPanel restaurantId={restaurant.id} camareroNombre={camarero.nombre} onClose={() => setShowChecklist(false)} />
+      )}
+      {showEncargado && esEncargado && (
+        <EncargadoPanel
+          restaurant={restaurant}
+          camarero={camarero}
+          turnoActivo={turnoActivo ?? null}
+          onClose={() => setShowEncargado(false)}
+          onAbrirComanda={id => { setShowEncargado(false); setComandaAbierta(id) }}
+        />
       )}
     </div>
     </ThemeCtx.Provider>

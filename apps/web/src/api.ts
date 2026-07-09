@@ -33,6 +33,7 @@ export interface Turno {
   totalVentas?:    number
   totalMermas?:    number
   totalPropinas?:  number
+  totalInvitaciones?: number
   numComandas?:    number
   propina?:        PropinaDia | null
 }
@@ -47,6 +48,7 @@ export interface Empleado {
   horasSemanales: number
   rol?: string | null
   puedeEncargado?: boolean
+  accesoEncargadoApp?: boolean
   puedeJefeCocina?: boolean
   excluirPlanning?: boolean
   restaurantId?: number | null
@@ -197,6 +199,7 @@ export interface MenuCategoria {
   nombre: string
   icono: string
   orden: number
+  ordenAlfabetico: boolean
   parentId: number | null
   itemCount: number
 }
@@ -210,8 +213,13 @@ export interface MenuItem {
   precio: number
   activo: boolean
   autoPorPax: boolean
+  ocultoEnCarta: boolean
   orden: number
   alergenos: number
+  combinable: boolean
+  precioCombinado: number | null
+  esMixer: boolean
+  suplementoMixer: number
 }
 
 export interface Mesa {
@@ -245,6 +253,49 @@ export interface ComandaItem {
   nivel:        number | null
   ronda:        number  // 0=pendiente, 1=comanda original, 2+=marcha pasa
   autoGenerado: boolean
+  invitacion:   boolean         // 🎁 invitación de la casa: en cuenta a 0 €, no suma a ventas
+  invitadoPor:  string | null   // quién la marcó
+  invitacionMotivo: string | null // por qué se invitó (opcional)
+}
+
+// Valor cobrable de un item — las invitaciones de la casa van a 0 €
+export const valorItem = (i: Pick<ComandaItem, 'precio' | 'cantidad' | 'invitacion'>) =>
+  i.invitacion ? 0 : i.precio * i.cantidad
+
+export const totalComanda = (items: Pick<ComandaItem, 'precio' | 'cantidad' | 'invitacion'>[]) =>
+  items.reduce((s, i) => s + valorItem(i), 0)
+
+// Cantidades sugeridas para un menú de grupo (tapeo compartido, todo al centro).
+// Arranca con la ración base floor(pax/ratio) por plato y sube +1 a los platos más
+// baratos mientras el valor en carta no supere el presupuesto (precio del menú × pax).
+// Ej: 8 pax, menú 27 € (216 €), ratio 3 → base 2 de cada; los que quepan suben a 3.
+export function sugerirCantidadesMenu(
+  platos: Array<{ nombre: string; nivel: number }>,
+  pax: number,
+  paxPorRacion: number,
+  precioCarta: Record<string, number>,
+  precioMenu: number,
+): Array<{ nombre: string; nivel: number; cantidad: number }> {
+  const ratio = paxPorRacion > 0 ? paxPorRacion : 3
+  const lo = Math.max(1, Math.floor(pax / ratio))
+  const hi = Math.max(1, Math.ceil(pax / ratio))
+  const budget = precioMenu * pax
+
+  const res = platos.map(p => ({ ...p, cantidad: lo }))
+  let spent = res.reduce((s, p) => s + (precioCarta[p.nombre] ?? 0) * p.cantidad, 0)
+
+  if (hi > lo) {
+    // Subir a `hi` los platos más baratos primero, mientras el presupuesto lo permita
+    const porPrecio = [...res].sort((a, b) => (precioCarta[a.nombre] ?? 0) - (precioCarta[b.nombre] ?? 0))
+    for (const p of porPrecio) {
+      const precio = precioCarta[p.nombre] ?? 0
+      if (spent + precio <= budget) {
+        p.cantidad = hi
+        spent += precio
+      }
+    }
+  }
+  return res
 }
 
 export interface ComandaMerma {
@@ -266,6 +317,8 @@ export interface Comanda {
   metodoPago:     'cash' | 'tarjeta' | null
   propina:        number
   camareroNombre: string | null
+  cuentaDesactualizada: boolean // items cambiados tras imprimir la cuenta → reimprimir antes de cobrar
+  enviadaAt:      string | null // primera vez que se comandó a cocina
   items:          ComandaItem[]
   mermas:         ComandaMerma[]
   createdAt:      string
@@ -282,6 +335,7 @@ export interface Merma {
   comandaId:      number | null
   itemNombre:     string
   cantidad:       number
+  precio:         number
   camareroNombre: string | null
   motivo:         MermaMotivo
   descripcion:    string | null
@@ -313,6 +367,7 @@ export interface GrupoMenuTemplate {
   restaurantId: number
   nombre:       string
   precio:       number
+  paxPorRacion: number   // tapeo compartido: 1 ración de cada plato cada X pax
   niveles:      GrupoMenuNivel[]
   activo:       boolean
   createdAt:    string
@@ -654,8 +709,8 @@ export const api = {
   empleados: {
     list:   (tipo?: 'cocina' | 'sala') => get<Empleado[]>(`/empleados${tipo ? `?tipo=${tipo}` : ''}`),
     auth:   (pin: string) => post<Empleado>('/empleados/auth', { pin }),
-    create: (body: { nombre: string; tipo: 'cocina' | 'sala'; pin?: string; telefono?: string; email?: string; horasSemanales?: number; rol?: string; puedeEncargado?: boolean; puedeJefeCocina?: boolean; excluirPlanning?: boolean; diasLibresFijos?: number[]; restaurantId?: number | null }) => post<Empleado>('/empleados', body),
-    update: (id: number, body: { nombre?: string; tipo?: string; pin?: string; telefono?: string | null; email?: string | null; horasSemanales?: number; rol?: string | null; puedeEncargado?: boolean; puedeJefeCocina?: boolean; excluirPlanning?: boolean; diasLibresFijos?: number[]; restaurantId?: number | null; activo?: boolean }) =>
+    create: (body: { nombre: string; tipo: 'cocina' | 'sala'; pin?: string; telefono?: string; email?: string; horasSemanales?: number; rol?: string; puedeEncargado?: boolean; accesoEncargadoApp?: boolean; puedeJefeCocina?: boolean; excluirPlanning?: boolean; diasLibresFijos?: number[]; restaurantId?: number | null }) => post<Empleado>('/empleados', body),
+    update: (id: number, body: { nombre?: string; tipo?: string; pin?: string; telefono?: string | null; email?: string | null; horasSemanales?: number; rol?: string | null; puedeEncargado?: boolean; accesoEncargadoApp?: boolean; puedeJefeCocina?: boolean; excluirPlanning?: boolean; diasLibresFijos?: number[]; restaurantId?: number | null; activo?: boolean }) =>
       put<Empleado>(`/empleados/${id}`, body),
     desactivar: (id: number) => patch<Empleado>(`/empleados/${id}/desactivar`, {}),
     delete: (id: number) => del(`/empleados/${id}`),
@@ -731,7 +786,7 @@ export const api = {
     list:   (restaurantId: number | null) => get<MenuCategoria[]>(`/menu/categorias${restaurantId !== null ? `?restaurantId=${restaurantId}` : ''}`),
     create: (body: { restaurantId: number | null; grupo?: string; nombre: string; icono?: string; orden?: number; parentId?: number | null }) =>
       post<MenuCategoria>('/menu/categorias', body),
-    update: (id: number, body: Partial<{ grupo: string; nombre: string; icono: string; orden: number }>) =>
+    update: (id: number, body: Partial<{ grupo: string; nombre: string; icono: string; orden: number; ordenAlfabetico: boolean }>) =>
       put<MenuCategoria>(`/menu/categorias/${id}`, body),
     delete: (id: number) => del(`/menu/categorias/${id}`),
     anidar: (id: number, parentId: number | null) =>
@@ -748,7 +803,7 @@ export const api = {
   menu: {
     list:   (restaurantId: number | null, categoria?: string) =>
       get<MenuItem[]>(`/menu${restaurantId !== null ? `?restaurantId=${restaurantId}` : ''}${categoria ? `${restaurantId !== null ? '&' : '?'}categoria=${encodeURIComponent(categoria)}` : ''}`),
-    create: (body: Omit<MenuItem, 'id' | 'activo' | 'autoPorPax'>) => post<MenuItem>('/menu', body),
+    create: (body: Omit<MenuItem, 'id' | 'activo' | 'autoPorPax' | 'ocultoEnCarta' | 'combinable' | 'precioCombinado' | 'esMixer' | 'suplementoMixer'> & Partial<Pick<MenuItem, 'ocultoEnCarta' | 'combinable' | 'precioCombinado' | 'esMixer' | 'suplementoMixer'>>) => post<MenuItem>('/menu', body),
     update: (id: number, body: Partial<Omit<MenuItem, 'id' | 'restaurantId' | 'activo'>>) => put<MenuItem>(`/menu/${id}`, body),
     toggle:           (id: number) => patch<MenuItem>(`/menu/${id}/toggle`, {}),
     toggleAutoPorPax: (id: number) => patch<MenuItem>(`/menu/${id}/toggleAutoPorPax`, {}),
@@ -769,9 +824,9 @@ export const api = {
     abrir:     (restaurantId: number, mesaId: number, pax: number, camareroNombre?: string) =>
       post<Comanda>('/comandas', { restaurantId, mesaId, pax, camareroNombre }),
     get:       (id: number) => get<Comanda>(`/comandas/${id}`),
-    addItem:   (id: number, item: { nombre: string; precio: number; cantidad: number; nota?: string; tipo?: 'cocina' | 'barra' }) =>
+    addItem:   (id: number, item: { nombre: string; precio: number; cantidad: number; nota?: string; tipo?: 'cocina' | 'barra'; directo?: boolean }) =>
       post<ComandaItem>(`/comandas/${id}/items`, item),
-    updateItem:(id: number, itemId: number, data: { cantidad?: number; nota?: string }) =>
+    updateItem:(id: number, itemId: number, data: { cantidad?: number; nota?: string; invitacion?: boolean; invitadoPor?: string; invitacionMotivo?: string }) =>
       patch<ComandaItem>(`/comandas/${id}/items/${itemId}`, data),
     deleteItem:(id: number, itemId: number) => del(`/comandas/${id}/items/${itemId}`),
     enviar:    (id: number, niveles: { itemId: number; nivel: number; nota?: string }[]) =>
@@ -824,9 +879,9 @@ export const api = {
   },
   grupoMenu: {
     list:   (restaurantId: number) => get<GrupoMenuTemplate[]>(`/grupo-menu?restaurantId=${restaurantId}`),
-    create: (body: { restaurantId: number; nombre: string; precio: number; niveles: GrupoMenuNivel[] }) =>
+    create: (body: { restaurantId: number; nombre: string; precio: number; paxPorRacion?: number; niveles: GrupoMenuNivel[] }) =>
       post<GrupoMenuTemplate>('/grupo-menu', body),
-    update: (id: number, body: Partial<{ nombre: string; precio: number; niveles: GrupoMenuNivel[] }>) =>
+    update: (id: number, body: Partial<{ restaurantId: number; nombre: string; precio: number; paxPorRacion: number; niveles: GrupoMenuNivel[] }>) =>
       put<GrupoMenuTemplate>(`/grupo-menu/${id}`, body),
     delete: (id: number) => del(`/grupo-menu/${id}`),
     generar: (id: number, body: {

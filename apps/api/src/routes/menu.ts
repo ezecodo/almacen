@@ -9,6 +9,7 @@ const catSchema = z.object({
   nombre:       z.string().min(1),
   icono:        z.string().default(''),
   orden:        z.number().int().default(0),
+  ordenAlfabetico: z.boolean().default(false),
   parentId:     z.number().int().positive().nullable().optional(),
 })
 
@@ -22,6 +23,12 @@ const itemSchema = z.object({
   precio:       z.number().min(0),
   orden:        z.number().int().default(0),
   alergenos:    z.number().int().min(0).default(0),
+  ocultoEnCarta: z.boolean().default(false),
+  // Combinados
+  combinable:      z.boolean().default(false),
+  precioCombinado: z.number().min(0).nullable().optional(),
+  esMixer:         z.boolean().default(false),
+  suplementoMixer: z.number().min(0).default(0),
 })
 
 const updateSchema = itemSchema.partial().omit({ restaurantId: true })
@@ -100,6 +107,7 @@ export async function menuRoutes(app: FastifyInstance) {
       nombre:       result.data.nombre,
       icono:        result.data.icono,
       orden:        result.data.orden,
+      ordenAlfabetico: result.data.ordenAlfabetico,
       parentId,
     }})
     return reply.status(201).send({ ...cat, itemCount: 0 })
@@ -204,6 +212,11 @@ export async function menuRoutes(app: FastifyInstance) {
       precio:       result.data.precio,
       orden:        result.data.orden,
       alergenos:    result.data.alergenos,
+      ocultoEnCarta: result.data.ocultoEnCarta,
+      combinable:      result.data.combinable,
+      precioCombinado: result.data.precioCombinado ?? null,
+      esMixer:         result.data.esMixer,
+      suplementoMixer: result.data.suplementoMixer,
     }})
     return reply.status(201).send(item)
   })
@@ -299,7 +312,7 @@ export async function menuRoutes(app: FastifyInstance) {
       })
       if (!catExiste) {
         await prisma.menuCategoria.create({
-          data: { restaurantId: rid, nombre: cat.nombre, icono: cat.icono, grupo: cat.grupo, orden: cat.orden },
+          data: { restaurantId: rid, nombre: cat.nombre, icono: cat.icono, grupo: cat.grupo, orden: cat.orden, ordenAlfabetico: cat.ordenAlfabetico },
         })
       }
 
@@ -316,7 +329,10 @@ export async function menuRoutes(app: FastifyInstance) {
           if (nombresExistentes.has(item.nombre)) { omitidos++; continue }
           await prisma.menuItem.create({
             data: { restaurantId: rid, categoria: item.categoria, nombre: item.nombre,
-                    descripcion: item.descripcion, precio: item.precio, orden: item.orden },
+                    descripcion: item.descripcion, precio: item.precio, orden: item.orden,
+                    alergenos: item.alergenos, ocultoEnCarta: item.ocultoEnCarta,
+                    combinable: item.combinable, precioCombinado: item.precioCombinado,
+                    esMixer: item.esMixer, suplementoMixer: item.suplementoMixer },
           })
           copiados++
         }
@@ -408,7 +424,10 @@ export async function menuRoutes(app: FastifyInstance) {
 
     const nuevo = await prisma.menuItem.create({
       data: { restaurantId: result.data.restaurantId, categoria: result.data.categoria,
-              nombre: item.nombre, descripcion: item.descripcion, precio: item.precio, orden: item.orden },
+              nombre: item.nombre, descripcion: item.descripcion, precio: item.precio, orden: item.orden,
+              alergenos: item.alergenos, ocultoEnCarta: item.ocultoEnCarta,
+              combinable: item.combinable, precioCombinado: item.precioCombinado,
+              esMixer: item.esMixer, suplementoMixer: item.suplementoMixer },
     })
     return reply.status(201).send(nuevo)
   })

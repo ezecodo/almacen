@@ -62,6 +62,11 @@ export async function mermaRoutes(app: FastifyInstance) {
             }),
         prisma.merma.delete({ where: { id } }),
       ])
+      // Si la cuenta ya estaba impresa, restituir el item la deja vieja → forzar reimpresión
+      const comanda = await prisma.comanda.findUnique({ where: { id: merma.comandaId }, select: { estado: true } })
+      if (comanda && (comanda.estado === 'facturada' || comanda.estado === 'liberada')) {
+        await prisma.comanda.update({ where: { id: merma.comandaId }, data: { cuentaDesactualizada: true } })
+      }
     } else {
       await prisma.merma.delete({ where: { id } })
     }

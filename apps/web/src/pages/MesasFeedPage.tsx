@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
-import { api, Comanda, ComandaItem, ComandaMerma, FloorPlan, Mesa, Restaurante, MermaMotivo, Turno } from '../api'
+import { api, Comanda, ComandaItem, ComandaMerma, FloorPlan, Mesa, Restaurante, MermaMotivo, Turno, totalComanda, valorItem } from '../api'
 
 function timeAgo(iso: string) {
   const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000)
@@ -133,7 +133,7 @@ function ComandaDetalleModal({ comanda, planNombre, onClose, onCobrar, onRestitu
   const [importe, setImporte] = useState('')
   const [mermaItem, setMermaItem] = useState<ComandaItem | null>(null)
   const cfg = ESTADO_CONFIG[comanda.estado as keyof typeof ESTADO_CONFIG] ?? ESTADO_CONFIG.abierta
-  const total = comanda.items.reduce((s, i) => s + i.precio * i.cantidad, 0)
+  const total = totalComanda(comanda.items)
   const cocina = comanda.items.filter(i => i.tipo !== 'barra')
   const tienenNivel = cocina.some(i => i.nivel != null)
   const maxNivel = tienenNivel ? Math.max(...cocina.filter(i => i.nivel != null).map(i => i.nivel!)) : 1
@@ -445,7 +445,7 @@ function ItemLine({ item, onMerma }: { item: ComandaItem; onMerma?: (item: Coman
         </div>
       </div>
       <div className="flex items-center gap-2 shrink-0 ml-3">
-        <span className="text-gray-400 text-sm">{fmt(item.precio * item.cantidad)} €</span>
+        <span className="text-gray-400 text-sm">{item.invitacion && <span title="Invitación de la casa">🎁 <s className="opacity-50">{fmt(item.precio * item.cantidad)}</s> </span>}{fmt(valorItem(item))} €</span>
         {onMerma && (
           <button
             onClick={e => { e.stopPropagation(); onMerma(item) }}
@@ -482,8 +482,8 @@ function MesaCard({ mesa, onClick }: { mesa: MesaConPlan; onClick?: () => void }
   const cfg = ESTADO_CONFIG[comanda.estado as keyof typeof ESTADO_CONFIG] ?? ESTADO_CONFIG.abierta
   const sentItems  = comanda.items.filter(i => i.nivel != null)
   const total      = sentItems.length > 0
-    ? sentItems.reduce((s, i) => s + i.precio * i.cantidad, 0)
-    : comanda.items.reduce((s, i) => s + i.precio * i.cantidad, 0)
+    ? totalComanda(sentItems)
+    : totalComanda(comanda.items)
   const hasPending = sentItems.length > 0 && comanda.items.some(i => i.nivel == null)
 
   return (
@@ -882,19 +882,19 @@ export default function MesasFeedPage() {
 
   const numActivas      = todasMesas.filter(m => m.estado.tipo === 'activa').length
   const numCerradas     = cerradasHoy.length
-  const totalCobrado    = cerradasHoy.reduce((s, c) => s + c.items.reduce((ss, i) => ss + i.precio * i.cantidad, 0), 0)
+  const totalCobrado    = cerradasHoy.reduce((s, c) => s + totalComanda(c.items), 0)
 
   // Preview live para el modal de cierre de turno
   const turnoPreview: TurnoPreview = {
-    efectivo:    cerradasHoy.filter(c => c.metodoPago === 'cash').reduce((s, c) => s + c.items.reduce((ss, i) => ss + i.precio * i.cantidad, 0), 0),
-    tarjeta:     cerradasHoy.filter(c => c.metodoPago === 'tarjeta').reduce((s, c) => s + c.items.reduce((ss, i) => ss + i.precio * i.cantidad, 0), 0),
-    ventas:      cerradasHoy.reduce((s, c) => s + c.items.reduce((ss, i) => ss + i.precio * i.cantidad, 0), 0),
+    efectivo:    cerradasHoy.filter(c => c.metodoPago === 'cash').reduce((s, c) => s + totalComanda(c.items), 0),
+    tarjeta:     cerradasHoy.filter(c => c.metodoPago === 'tarjeta').reduce((s, c) => s + totalComanda(c.items), 0),
+    ventas:      cerradasHoy.reduce((s, c) => s + totalComanda(c.items), 0),
     propinas:    cerradasHoy.reduce((s, c) => s + (c.propina ?? 0), 0),
     numComandas: cerradasHoy.length,
   }
   const liberadasConItems = (liberadas ?? []).filter(c => c.items.length > 0)
   const numLiberadas    = liberadasConItems.length
-  const totalLiberadas  = liberadasConItems.reduce((s, c) => s + c.items.reduce((ss, i) => ss + i.precio * i.cantidad, 0), 0)
+  const totalLiberadas  = liberadasConItems.reduce((s, c) => s + totalComanda(c.items), 0)
 
   return (
     <div className="max-w-2xl mx-auto p-4">
@@ -970,7 +970,7 @@ export default function MesasFeedPage() {
           </div>
           <div className="space-y-2">
             {liberadasConItems.map(c => {
-              const total = c.items.reduce((s, i) => s + i.precio * i.cantidad, 0)
+              const total = totalComanda(c.items)
               return (
                 <div key={c.id} className="bg-[#2d1200] border border-orange-700/60 rounded-2xl overflow-hidden">
                   <button

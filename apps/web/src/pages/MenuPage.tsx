@@ -172,16 +172,27 @@ function ItemForm({
   const [descripcion, setDesc]    = useState(initial?.descripcion ?? '')
   const [precio, setPrecio]       = useState(initial?.precio?.toString() ?? '')
   const [alergenos, setAlergenos] = useState(initial?.alergenos ?? 0)
+  const [combinable, setCombinable]     = useState(initial?.combinable ?? false)
+  const [precioComb, setPrecioComb]     = useState(initial?.precioCombinado?.toString() ?? '')
+  const [esMixer, setEsMixer]           = useState(initial?.esMixer ?? false)
+  const [suplemento, setSuplemento]     = useState(initial?.suplementoMixer ? initial.suplementoMixer.toString() : '')
   // destino solo aplica al crear desde contexto global (restaurantes prop presente)
   const [destino, setDestino]     = useState<number | null>(null) // null = Global
 
   // El restaurantId efectivo para crear: si hay selector de destino, usa destino; si no, usa el prop
   const ridEfectivo = restaurantes && !initial ? destino : restaurantId
 
+  const camposCombinado = {
+    combinable,
+    precioCombinado: combinable && precioComb.trim() ? parseFloat(precioComb.replace(',', '.')) : null,
+    esMixer,
+    suplementoMixer: esMixer && suplemento.trim() ? parseFloat(suplemento.replace(',', '.')) : 0,
+  }
+
   const save = useMutation({
     mutationFn: () => initial
-      ? api.menu.update(initial.id, { nombre, descripcion, precio: parseFloat(precio), alergenos })
-      : api.menu.create({ restaurantId: ridEfectivo, categoria, nombre, descripcion, precio: parseFloat(precio), orden: 0, alergenos }),
+      ? api.menu.update(initial.id, { nombre, descripcion, precio: parseFloat(precio), alergenos, ...camposCombinado })
+      : api.menu.create({ restaurantId: ridEfectivo, categoria, nombre, descripcion, precio: parseFloat(precio), orden: 0, alergenos, ...camposCombinado }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['menu-items', restaurantId, categoria] })
       qc.invalidateQueries({ queryKey: ['menu-cats', restaurantId] })
@@ -226,6 +237,30 @@ function ItemForm({
       <input value={descripcion} onChange={e => setDesc(e.target.value)}
         className={inputCls} placeholder="Descripción / ingredientes (opcional)" />
       <AlergenosPicker value={alergenos} onChange={setAlergenos} />
+      {/* Combinados */}
+      <div className="space-y-2 pt-1">
+        <label className="block text-xs font-medium text-gray-500">Combinados</label>
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700 w-36 shrink-0">
+            <input type="checkbox" checked={combinable} onChange={e => setCombinable(e.target.checked)} className="w-4 h-4 accent-purple-500" />
+            🥃 Combinable
+          </label>
+          {combinable && (
+            <input type="number" step="0.01" min="0" value={precioComb} onChange={e => setPrecioComb(e.target.value)}
+              className={inputCls} placeholder={`€ combinado (vacío = ${precio || 'precio normal'})`} />
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700 w-36 shrink-0">
+            <input type="checkbox" checked={esMixer} onChange={e => setEsMixer(e.target.checked)} className="w-4 h-4 accent-emerald-500" />
+            🥤 Mixer
+          </label>
+          {esMixer && (
+            <input type="number" step="0.01" min="0" value={suplemento} onChange={e => setSuplemento(e.target.value)}
+              className={inputCls} placeholder="+€ suplemento (vacío = sin suplemento)" />
+          )}
+        </div>
+      </div>
       <div className="flex justify-end gap-3">
         <button onClick={onDone} className="text-sm text-gray-400 hover:text-gray-600">Cancelar</button>
         <button
@@ -305,6 +340,82 @@ function MoverItemModal({
   )
 }
 
+// ── Modal: mover item a otra categoría (tipo "mover a carpeta") ──────────────
+function CatDestinoBtn({ cat, actual, onMove }: { cat: MenuCategoria; actual: string; onMove: (categoria: string) => void }) {
+  const esActual = cat.nombre === actual
+  return (
+    <button
+      onClick={() => !esActual && onMove(cat.nombre)}
+      disabled={esActual}
+      className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-left text-sm transition-colors ${
+        esActual ? 'bg-cyan-50 text-cyan-600 cursor-default' : 'hover:bg-gray-50 active:bg-cyan-50 text-gray-700'
+      }`}
+    >
+      {cat.icono ? <span className="text-base">{cat.icono}</span> : <span className="text-gray-300">📁</span>}
+      <span className="flex-1 truncate font-medium">{cat.nombre}</span>
+      {esActual
+        ? <span className="text-[10px] uppercase font-bold text-cyan-400">Actual</span>
+        : <span className="text-gray-300">→</span>}
+    </button>
+  )
+}
+
+function MoverACategoriaModal({
+  item,
+  categorias,
+  onClose,
+  onMove,
+}: {
+  item: MenuItem
+  categorias: MenuCategoria[]
+  onClose: () => void
+  onMove: (categoria: string) => void
+}) {
+  const hijasDe = (id: number) => categorias.filter(c => c.parentId === id)
+  const gruposUnicos = ['', ...new Set(categorias.filter(c => c.grupo).map(c => c.grupo))]
+  const grupos = gruposUnicos
+    .map(g => ({
+      nombre: g,
+      cats: categorias.filter(c => !c.parentId && (g === '' ? !c.grupo : c.grupo === g)),
+    }))
+    .filter(g => g.cats.length > 0)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-gray-100">
+          <h3 className="font-bold text-gray-800">Mover "{item.nombre}"</h3>
+          <p className="text-xs text-gray-400 mt-0.5">Tocá la categoría destino</p>
+        </div>
+        <div className="px-3 py-3 overflow-y-auto space-y-3">
+          {grupos.map(({ nombre: grupoNombre, cats }) => (
+            <div key={grupoNombre || '__sin_grupo'}>
+              <p className="text-[10px] uppercase tracking-wide font-bold text-gray-400 px-3 pb-1">
+                {grupoNombre || 'Sin sección'}
+              </p>
+              <div className="space-y-0.5">
+                {cats.map(c => (
+                  <div key={c.id}>
+                    <CatDestinoBtn cat={c} actual={item.categoria} onMove={onMove} />
+                    {hijasDe(c.id).map(sub => (
+                      <div key={sub.id} className="ml-5 pl-2 border-l-2 border-cyan-100">
+                        <CatDestinoBtn cat={sub} actual={item.categoria} onMove={onMove} />
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="px-5 py-3 border-t border-gray-100 flex justify-end">
+          <button onClick={onClose} className="text-sm text-gray-400 hover:text-gray-600 px-3 py-1.5">Cancelar</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // Chip de subcategoría: zona de drop para mover items arrastrándolos
 function SubDropChip({ sub, onDropItem }: { sub: MenuCategoria; onDropItem: (payload: { id: number; categoria: string }) => void }) {
   const [over, setOver] = useState(false)
@@ -344,6 +455,7 @@ function CategoriaPanel({
   onClose,
   onCopiarItem,
   onMoverItem,
+  onMoverACategoria,
   onMoveItemToCat,
   restaurantes,
 }: {
@@ -354,11 +466,13 @@ function CategoriaPanel({
   onClose: () => void
   onCopiarItem: (item: MenuItem) => void
   onMoverItem?: (item: MenuItem) => void
+  onMoverACategoria?: (item: MenuItem) => void
   restaurantes?: Restaurante[]
 }) {
   const qc = useQueryClient()
-  const [creando, setCreando]   = useState(false)
-  const [editando, setEditando] = useState<MenuItem | null>(null)
+  const [creando, setCreando]       = useState(false)
+  const [creandoSub, setCreandoSub] = useState(false)
+  const [editando, setEditando]     = useState<MenuItem | null>(null)
 
   const { data: items = [] } = useQuery({
     queryKey: ['menu-items', restaurantId, cat.nombre],
@@ -377,10 +491,38 @@ function CategoriaPanel({
     onSuccess: () => qc.invalidateQueries({ queryKey: ['menu-items', restaurantId, cat.nombre] }),
   })
 
+  // Combinados: toggles rápidos COMB (combinable) y MIX (mixer)
+  const updateFlags = useMutation({
+    mutationFn: ({ id, body }: { id: number; body: Partial<Pick<MenuItem, 'combinable' | 'precioCombinado' | 'esMixer' | 'ocultoEnCarta'>> }) =>
+      api.menu.update(id, body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['menu-items', restaurantId, cat.nombre] }),
+  })
+
+  const toggleCombinable = (item: MenuItem) => {
+    if (item.combinable) {
+      updateFlags.mutate({ id: item.id, body: { combinable: false } })
+      return
+    }
+    const raw = prompt(`Precio del combinado "${item.nombre}" (€)\n\nVacío = usar su precio normal (${formatEur(item.precio)})`, item.precioCombinado?.toString() ?? '')
+    if (raw === null) return
+    const p = raw.trim() ? parseFloat(raw.replace(',', '.')) : null
+    if (p !== null && isNaN(p)) return
+    updateFlags.mutate({ id: item.id, body: { combinable: true, precioCombinado: p } })
+  }
+
   const hacerEspecifico = useMutation({
     mutationFn: (id: number) => api.menu.moverARestaurante(id, restaurantId as number),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['menu-items', restaurantId, cat.nombre] }),
   })
+
+  // Orden alfabético opcional por categoría (apagado = orden manual de la carta física)
+  const toggleAlfabetico = useMutation({
+    mutationFn: () => api.menuCategorias.update(cat.id, { ordenAlfabetico: !cat.ordenAlfabetico }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['menu-cats'] }),
+  })
+  const itemsOrdenados = cat.ordenAlfabetico
+    ? [...items].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
+    : items
 
   const eliminar = useMutation({
     mutationFn: (id: number) => api.menu.delete(id),
@@ -392,19 +534,36 @@ function CategoriaPanel({
 
   return (
     <div className="bg-white rounded-2xl border-2 border-cyan-200 shadow-sm overflow-hidden">
-      <div className="px-5 py-4 border-b border-gray-100 bg-cyan-50 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          {cat.icono && <span className="text-xl">{cat.icono}</span>}
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="font-bold text-gray-800">{cat.nombre}</h3>
-              {esGlobalCat && <GlobalBadge />}
-            </div>
-            <p className="text-xs text-gray-400">{items.length} items</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          {!creando && !editando && (
+      <div className="px-4 py-2.5 border-b border-gray-100 bg-cyan-50/60 flex items-center justify-between gap-2">
+        <p className="text-xs font-semibold text-gray-500">
+          {items.length} item{items.length !== 1 ? 's' : ''} directo{items.length !== 1 ? 's' : ''}
+          {esGlobalCat && restaurantId !== null && (
+            <span className="text-indigo-400 font-normal"> · categoría global: para editarla o borrarla usá la vista 🌐 Global</span>
+          )}
+        </p>
+        <div className="flex items-center gap-3 shrink-0">
+          {!creando && !editando && !creandoSub && !(esGlobalCat && restaurantId !== null) && (
+            <button onClick={() => toggleAlfabetico.mutate()}
+              disabled={toggleAlfabetico.isPending}
+              className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
+                cat.ordenAlfabetico
+                  ? 'bg-cyan-500 border-cyan-500 text-white'
+                  : 'border-gray-200 text-gray-400 hover:border-gray-300'
+              }`}
+              title={cat.ordenAlfabetico
+                ? 'Orden alfabético activado — tocá para volver al orden manual (carta física)'
+                : 'Mostrar los items en orden alfabético (ayuda al camarero en categorías largas)'}>
+              A→Z
+            </button>
+          )}
+          {!creando && !editando && !creandoSub && !cat.parentId && !(esGlobalCat && restaurantId !== null) && (
+            <button onClick={() => setCreandoSub(true)}
+              className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-cyan-300 text-cyan-600 hover:bg-cyan-100"
+              title="Crear una subcategoría dentro de esta categoría">
+              + Sub
+            </button>
+          )}
+          {!creando && !editando && !creandoSub && (
             <button onClick={() => setCreando(true)}
               className="bg-cyan-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-cyan-400">
               + Añadir item
@@ -413,6 +572,13 @@ function CategoriaPanel({
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-lg">✕</button>
         </div>
       </div>
+
+      {/* Formulario de nueva subcategoría dentro del panel */}
+      {creandoSub && (
+        <div className="px-4 pt-4">
+          <CategoriaForm restaurantId={restaurantId} parent={cat} onDone={() => setCreandoSub(false)} />
+        </div>
+      )}
 
       {/* Zonas de drop: arrastrar un item de la lista a una subcategoría */}
       {subcats.length > 0 && onMoveItemToCat && (
@@ -429,9 +595,13 @@ function CategoriaPanel({
           <ItemForm restaurantId={restaurantId} categoria={cat.nombre} restaurantes={restaurantes} onDone={() => setCreando(false)} />
         )}
         {items.length === 0 && !creando && (
-          <p className="text-center text-gray-400 text-sm py-6">Sin items todavía</p>
+          <p className="text-center text-gray-400 text-sm py-6">
+            {!cat.parentId && subcats.length > 0
+              ? 'Esta categoría no tiene items sueltos — su contenido está en las subcategorías de abajo ↓'
+              : 'Sin items todavía'}
+          </p>
         )}
-        {items.map((item: MenuItem) => {
+        {itemsOrdenados.map((item: MenuItem) => {
           const esItemGlobal = item.restaurantId === null
           // En vista de restaurante, items globales son solo lectura
           const itemSoloLectura = restaurantId !== null && esItemGlobal
@@ -454,6 +624,21 @@ function CategoriaPanel({
                       {item.autoPorPax && (
                         <span className="text-xs bg-amber-100 text-amber-700 font-semibold px-1.5 py-0.5 rounded">×pax</span>
                       )}
+                      {item.ocultoEnCarta && (
+                        <span className="text-xs bg-slate-200 text-slate-600 font-semibold px-1.5 py-0.5 rounded" title="No aparece en el picker del camarero (sigue activo: se cobra y se auto-añade)">
+                          🙈 oculto
+                        </span>
+                      )}
+                      {item.combinable && (
+                        <span className="text-xs bg-purple-100 text-purple-700 font-semibold px-1.5 py-0.5 rounded" title="Combinable — precio del combinado">
+                          🥃 {formatEur(item.precioCombinado ?? item.precio)}
+                        </span>
+                      )}
+                      {item.esMixer && (
+                        <span className="text-xs bg-emerald-100 text-emerald-700 font-semibold px-1.5 py-0.5 rounded" title="Mixer — sirve de mezcla en combinados">
+                          🥤 mix{item.suplementoMixer ? ` +${formatEur(item.suplementoMixer)}` : ''}
+                        </span>
+                      )}
                       {esItemGlobal && restaurantId !== null && <GlobalBadge />}
                     </div>
                     {item.descripcion && <p className="text-xs text-gray-400 mt-0.5">{item.descripcion}</p>}
@@ -462,9 +647,16 @@ function CategoriaPanel({
                   <span className="text-sm font-bold text-cyan-600 shrink-0">{formatEur(item.precio)}</span>
                   <div className="flex items-center gap-2 shrink-0">
                     {!itemSoloLectura && <button onClick={() => setEditando(item)} className="text-xs text-cyan-500 hover:text-cyan-700">Editar</button>}
+                    {!itemSoloLectura && onMoverACategoria && (
+                      <button onClick={() => onMoverACategoria(item)}
+                        className="text-xs text-gray-400 hover:text-cyan-600 font-medium"
+                        title="Mover a otra categoría">
+                        📁 Mover
+                      </button>
+                    )}
                     {!esItemGlobal && <button onClick={() => onCopiarItem(item)} className="text-xs text-gray-400 hover:text-indigo-500">Copiar</button>}
                     {esItemGlobal && restaurantId === null && onMoverItem && (
-                      <button onClick={() => onMoverItem(item)} className="text-xs text-indigo-400 hover:text-indigo-600 font-medium">Mover</button>
+                      <button onClick={() => onMoverItem(item)} className="text-xs text-indigo-400 hover:text-indigo-600 font-medium" title="Mover a un restaurante específico">→ Rest.</button>
                     )}
                     {esItemGlobal && restaurantId !== null && (
                       <button
@@ -481,6 +673,29 @@ function CategoriaPanel({
                         className={`text-xs font-medium ${item.autoPorPax ? 'text-amber-600 hover:text-amber-800' : 'text-gray-300 hover:text-amber-500'}`}
                         title="Auto-añadir al abrir mesa (×pax)">
                         ×pax
+                      </button>
+                    )}
+                    {!itemSoloLectura && (
+                      <button onClick={() => toggleCombinable(item)}
+                        className={`text-xs font-medium ${item.combinable ? 'text-purple-600 hover:text-purple-800' : 'text-gray-300 hover:text-purple-500'}`}
+                        title="Combinable: se puede pedir con refresco (combinado)">
+                        COMB
+                      </button>
+                    )}
+                    {!itemSoloLectura && (
+                      <button onClick={() => updateFlags.mutate({ id: item.id, body: { esMixer: !item.esMixer } })}
+                        className={`text-xs font-medium ${item.esMixer ? 'text-emerald-600 hover:text-emerald-800' : 'text-gray-300 hover:text-emerald-500'}`}
+                        title="Mixer: sirve de mezcla para combinados (refrescos, tónicas…)">
+                        MIX
+                      </button>
+                    )}
+                    {!itemSoloLectura && (
+                      <button onClick={() => updateFlags.mutate({ id: item.id, body: { ocultoEnCarta: !item.ocultoEnCarta } })}
+                        className={`text-xs font-medium ${item.ocultoEnCarta ? 'text-slate-600 hover:text-slate-800 line-through' : 'text-gray-300 hover:text-slate-500'}`}
+                        title={item.ocultoEnCarta
+                          ? 'Oculto en la carta del camarero — tocá para volver a mostrarlo'
+                          : 'Ocultar del picker del camarero (sigue activo: se cobra y se auto-añade, ej. Servicio de pan ×pax)'}>
+                        carta
                       </button>
                     )}
                     {!itemSoloLectura && (
@@ -754,6 +969,9 @@ function CategoriaCard({
         >▼</button>
       </div>
 
+      {/* Chevron: indica que se despliega en acordeón */}
+      <span className={`text-[10px] shrink-0 transition-transform duration-200 ${selected ? 'rotate-90 text-cyan-500' : 'text-gray-300'}`}>▶</span>
+
       {cat.icono ? (
         <span className="text-xl shrink-0">{cat.icono}</span>
       ) : (
@@ -828,6 +1046,7 @@ export default function MenuPage() {
   const [copiandoCat, setCopiandoCat]   = useState<MenuCategoria | null>(null)
   const [copiandoItem, setCopiandoItem] = useState<MenuItem | null>(null)
   const [moviendoItem, setMoviendoItem] = useState<MenuItem | null>(null)
+  const [moviendoACat, setMoviendoACat] = useState<MenuItem | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [modoGlobal, setModoGlobal] = useState(true) // true = vista Global al inicio
   const [confirmMigrar, setConfirmMigrar] = useState(false)
@@ -901,6 +1120,30 @@ export default function MenuPage() {
 
   const resetNav = () => { setCatSeleccionada(null); setCreandoCat(null); setEditandoCat(null) }
 
+  // Acordeón: clic en una card expande su contenido inline; segundo clic colapsa
+  const toggleCat = (c: MenuCategoria) => {
+    setCatSeleccionada(prev => prev?.id === c.id ? null : c)
+    setCreandoCat(null)
+    setEditandoCat(null)
+  }
+
+  // Panel de items renderizado inline debajo de la card expandida
+  const panelInline = (c: MenuCategoria) => (
+    <CategoriaPanel
+      restaurantId={rid}
+      cat={c}
+      subcats={c.parentId
+        ? categorias.filter(x => x.id === c.parentId || (x.parentId === c.parentId && x.id !== c.id))
+        : hijasDe(c.id)}
+      onMoveItemToCat={(payload, destino) => moverItemACat.mutate({ id: payload.id, categoria: destino.nombre })}
+      onClose={() => setCatSeleccionada(null)}
+      onCopiarItem={item => setCopiandoItem(item)}
+      onMoverItem={modoGlobal ? item => setMoviendoItem(item) : undefined}
+      onMoverACategoria={item => setMoviendoACat(item)}
+      restaurantes={modoGlobal ? restaurantes : undefined}
+    />
+  )
+
   const migrarAGlobal = useMutation({
     mutationFn: () => api.menuCategorias.migrarAGlobal(restaurantId as number),
     onSuccess: (res) => {
@@ -963,22 +1206,6 @@ export default function MenuPage() {
           )}
         </div>
 
-        {/* Panel detalle categoría seleccionada */}
-        {catSeleccionada && (
-          <CategoriaPanel
-            restaurantId={rid}
-            cat={catSeleccionada}
-            subcats={catSeleccionada.parentId
-              ? categorias.filter(c => c.id === catSeleccionada.parentId || (c.parentId === catSeleccionada.parentId && c.id !== catSeleccionada.id))
-              : hijasDe(catSeleccionada.id)}
-            onMoveItemToCat={(payload, destino) => moverItemACat.mutate({ id: payload.id, categoria: destino.nombre })}
-            onClose={() => setCatSeleccionada(null)}
-            onCopiarItem={item => setCopiandoItem(item)}
-            onMoverItem={modoGlobal ? item => setMoviendoItem(item) : undefined}
-            restaurantes={modoGlobal ? restaurantes : undefined}
-          />
-        )}
-
         {/* Formulario crear/editar categoría */}
         {(creandoCat !== null || editandoCat) && (
           <CategoriaForm
@@ -1006,7 +1233,7 @@ export default function MenuPage() {
                 </button>
               </div>
 
-              <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="p-3 space-y-1.5">
                 {cats.map((cat, idx) => {
                   const esGlobal = cat.restaurantId === null
                   // En vista de restaurante, las globales no se pueden mover ni editar desde aquí
@@ -1018,7 +1245,7 @@ export default function MenuPage() {
                         cat={cat}
                         esGlobal={esGlobal}
                         selected={catSeleccionada?.id === cat.id}
-                        onSelect={() => { setCatSeleccionada(cat); setCreandoCat(null); setEditandoCat(null) }}
+                        onSelect={() => toggleCat(cat)}
                         onEdit={soloLectura ? undefined : () => { setEditandoCat(cat); setCatSeleccionada(null); setCreandoCat(null) }}
                         onDelete={soloLectura ? undefined : () => { if (confirm(`¿Eliminar "${cat.nombre}"?\n\nSe eliminarán también todos sus items.${hijas.length ? '\nSus subcategorías volverán al nivel superior.' : ''}`)) eliminarCat.mutate(cat.id) }}
                         onCopiar={esGlobal ? undefined : () => setCopiandoCat(cat)}
@@ -1032,6 +1259,12 @@ export default function MenuPage() {
                         onAddSub={soloLectura ? undefined : () => { setCreandoSubDe(cat); setCreandoCat(null); setEditandoCat(null); setCatSeleccionada(null) }}
                         canDrag={!soloLectura}
                       />
+                      {/* Contenido de la categoría desplegado inline (acordeón) */}
+                      {catSeleccionada?.id === cat.id && (
+                        <div className="ml-6 pl-2 border-l-2 border-cyan-200">
+                          {panelInline(cat)}
+                        </div>
+                      )}
                       {creandoSubDe?.id === cat.id && (
                         <div className="ml-6 pl-2 border-l-2 border-cyan-100">
                           <CategoriaForm restaurantId={rid} parent={cat} onDone={() => setCreandoSubDe(null)} />
@@ -1041,12 +1274,12 @@ export default function MenuPage() {
                         const subGlobal = sub.restaurantId === null
                         const subSoloLectura = !modoGlobal && subGlobal
                         return (
-                          <div key={sub.id} className="ml-6 pl-2 border-l-2 border-cyan-100">
+                          <div key={sub.id} className="ml-6 pl-2 border-l-2 border-cyan-100 space-y-1.5">
                             <CategoriaCard
                               cat={sub}
                               esGlobal={subGlobal}
                               selected={catSeleccionada?.id === sub.id}
-                              onSelect={() => { setCatSeleccionada(sub); setCreandoCat(null); setEditandoCat(null) }}
+                              onSelect={() => toggleCat(sub)}
                               onEdit={subSoloLectura ? undefined : () => { setEditandoCat(sub); setCatSeleccionada(null); setCreandoCat(null) }}
                               onDelete={subSoloLectura ? undefined : () => { if (confirm(`¿Eliminar "${sub.nombre}"?\n\nSe eliminarán también todos sus items.`)) eliminarCat.mutate(sub.id) }}
                               onCopiar={subGlobal ? undefined : () => setCopiandoCat(sub)}
@@ -1054,6 +1287,12 @@ export default function MenuPage() {
                               onUnnest={subSoloLectura ? undefined : () => anidarCat.mutate({ id: sub.id, parentId: null })}
                               canDrag={!subSoloLectura}
                             />
+                            {/* Contenido de la subcategoría desplegado inline */}
+                            {catSeleccionada?.id === sub.id && (
+                              <div className="ml-4 pl-2 border-l-2 border-cyan-200">
+                                {panelInline(sub)}
+                              </div>
+                            )}
                           </div>
                         )
                       })}
@@ -1102,6 +1341,19 @@ export default function MenuPage() {
           onDone={msg => {
             setCopiandoItem(null)
             showToast(msg)
+          }}
+        />
+      )}
+
+      {/* Modal mover item a otra categoría (tipo "mover a carpeta") */}
+      {moviendoACat && (
+        <MoverACategoriaModal
+          item={moviendoACat}
+          categorias={categorias}
+          onClose={() => setMoviendoACat(null)}
+          onMove={categoria => {
+            moverItemACat.mutate({ id: moviendoACat.id, categoria })
+            setMoviendoACat(null)
           }}
         />
       )}

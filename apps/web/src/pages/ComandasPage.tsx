@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, Comanda, ComandaItem, Mesa, MenuItem, Restaurante } from '../api'
+import { api, Comanda, ComandaItem, Mesa, MenuItem, Restaurante, totalComanda } from '../api'
 import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
 
 const SQUARE_SIZE = 80
@@ -351,7 +351,7 @@ function ComandaPanel({
   const yaEnviada   = comanda.estado === 'enviada'
   const yaFacturada = comanda.estado === 'facturada'
 
-  const total = comanda.items.reduce((s, i) => s + i.precio * i.cantidad, 0)
+  const total = totalComanda(comanda.items)
 
   const addItem = useMutation({
     mutationFn: ({ item, cantidad }: { item: MenuItem; cantidad: number }) =>
@@ -501,7 +501,7 @@ function ComandaPanel({
                     </div>
 
                     <div className="text-right shrink-0">
-                      <p className="text-[#4CC8A0] text-sm font-bold">{formatEur(item.precio * item.cantidad)}</p>
+                      <p className="text-[#4CC8A0] text-sm font-bold">{item.invitacion ? <>🎁 0,00 €</> : formatEur(item.precio * item.cantidad)}</p>
                       <button
                         onClick={() => setNota({ itemId: item.id, value: item.nota })}
                         className="text-gray-600 text-xs hover:text-gray-400"
@@ -911,7 +911,7 @@ export default function ComandasPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {comandas.map(c => {
                 const badge = estadoBadge(c)
-                const total = c.items.reduce((s, i) => s + i.precio * i.cantidad, 0)
+                const total = totalComanda(c.items)
                 return (
                   <button key={c.id} onClick={() => setComandaAbierta(c.id)}
                     className="bg-[#1e2d45] hover:bg-[#263a55] rounded-2xl p-4 text-left transition-colors">

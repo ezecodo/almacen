@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { api, Comanda } from '../api'
+import { api, Comanda, totalComanda } from '../api'
 
 
 function fmt(n: number) {
@@ -13,7 +13,7 @@ function fmtHora(iso: string) {
 
 
 function ComandaCard({ comanda }: { comanda: Comanda }) {
-  const total = comanda.items.reduce((s, i) => s + i.precio * i.cantidad, 0)
+  const total = totalComanda(comanda.items)
   const isPago = comanda.metodoPago === 'cash'
 
   return (
@@ -54,7 +54,7 @@ function ComandaCard({ comanda }: { comanda: Comanda }) {
               {item.nombre}
               {item.nota && <span className="text-gray-400 ml-1 text-xs">({item.nota})</span>}
             </span>
-            <span className="text-gray-500">{fmt(item.precio * item.cantidad)} €</span>
+            <span className="text-gray-500">{item.invitacion ? <>🎁 <s className="opacity-60">{fmt(item.precio * item.cantidad)}</s> 0,00</> : fmt(item.precio * item.cantidad)} €</span>
           </div>
         ))}
       </div>
@@ -87,9 +87,9 @@ export default function TurnoDetallePage() {
 
   // Aggregate stats from comandas
   const efectivo = comandas?.filter(c => c.metodoPago === 'cash').reduce((s, c) =>
-    s + c.items.reduce((ss, i) => ss + i.precio * i.cantidad, 0), 0) ?? 0
+    s + totalComanda(c.items), 0) ?? 0
   const tarjeta = comandas?.filter(c => c.metodoPago === 'tarjeta').reduce((s, c) =>
-    s + c.items.reduce((ss, i) => ss + i.precio * i.cantidad, 0), 0) ?? 0
+    s + totalComanda(c.items), 0) ?? 0
   const propinas = comandas?.reduce((s, c) => s + (c.propina ?? 0), 0) ?? 0
 
   // Group by mesa

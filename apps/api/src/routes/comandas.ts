@@ -9,6 +9,9 @@ const itemSchema = z.object({
   cantidad: z.number().int().positive().default(1),
   nota:     z.string().default(''),
   tipo:     z.enum(['cocina', 'barra']).default('cocina'),
+  // directo (encargado): el item entra ya "servido" — se cobra pero NO pasa por el flujo
+  // de envío a cocina/barra (no imprime, no marcha pasa, no cambia el estado de la comanda)
+  directo:  z.boolean().default(false),
 })
 
 export async function comandaRoutes(app: FastifyInstance) {
@@ -83,19 +86,49 @@ export async function comandaRoutes(app: FastifyInstance) {
     return comanda
   })
 
+  // Si la comanda ya tiene la cuenta impresa (facturada/liberada) y sus items cambian
+  // (merma, invitación, restitución, item directo…), la cuenta en papel queda vieja → reimprimir antes de cobrar
+  const marcarCuentaDesactualizada = async (comandaId: number) => {
+    const c = await prisma.comanda.findUnique({ where: { id: comandaId }, select: { estado: true } })
+    if (c && (c.estado === 'facturada' || c.estado === 'liberada')) {
+      await prisma.comanda.update({ where: { id: comandaId }, data: { cuentaDesactualizada: true } })
+    }
+  }
+
   // Añadir item a comanda (si estaba enviada, vuelve a abierta para re-enviar)
   app.post('/comandas/:id/items', async (req, reply) => {
     const comandaId = Number((req.params as { id: string }).id)
     const result = itemSchema.safeParse(req.body)
     if (!result.success) return reply.status(400).send({ error: result.error.flatten() })
+    const { directo, ...itemData } = result.data
+
+    const { restaurantId: rId } = (await prisma.comanda.findUnique({ where: { id: comandaId }, select: { restaurantId: true } }))!
+
+    // Item directo (encargado): entra ya servido — autoGenerado lo excluye de cocina/barra
+    // y nivel/ronda preasignados evitan que el flujo de envío lo recoja. No toca el estado.
+    if (directo) {
+      // Taps repetidos del mismo item acumulan cantidad en la misma fila
+      const existingDirecto = await prisma.comandaItem.findFirst({
+        where: { comandaId, nombre: itemData.nombre, autoGenerado: true, nivel: 1, invitacion: false },
+      })
+      const item = existingDirecto
+        ? await prisma.comandaItem.update({
+            where: { id: existingDirecto.id },
+            data: { cantidad: existingDirecto.cantidad + itemData.cantidad },
+          })
+        : await prisma.comandaItem.create({
+            data: { ...itemData, comandaId, autoGenerado: true, nivel: 1, ronda: 1 },
+          })
+      await marcarCuentaDesactualizada(comandaId)
+      broadcast(rId, 'update')
+      return reply.status(201).send(item)
+    }
 
     // Si ya existe un item igual sin enviar (nivel null) y con la misma nota, incrementar cantidad en vez de crear uno nuevo
     // (un item con comentario distinto va en fila aparte para que cocina lo vea claro)
     const existing = await prisma.comandaItem.findFirst({
       where: { comandaId, nombre: result.data.nombre, tipo: result.data.tipo, nivel: null, nota: result.data.nota },
     })
-
-    const { restaurantId: rId } = (await prisma.comanda.findUnique({ where: { id: comandaId }, select: { restaurantId: true } }))!
 
     if (existing) {
       const [item] = await prisma.$transaction([
@@ -110,7 +143,7 @@ export async function comandaRoutes(app: FastifyInstance) {
     }
 
     const [item] = await prisma.$transaction([
-      prisma.comandaItem.create({ data: { ...result.data, comandaId } }),
+      prisma.comandaItem.create({ data: { ...itemData, comandaId } }),
       prisma.comanda.update({ where: { id: comandaId }, data: { estado: 'abierta' } }),
     ])
     broadcast(rId, 'update')
@@ -121,7 +154,9 @@ export async function comandaRoutes(app: FastifyInstance) {
   app.patch('/comandas/:id/items/:itemId', async (req, reply) => {
     const comandaId = Number((req.params as { id: string; itemId: string }).id)
     const itemId    = Number((req.params as { id: string; itemId: string }).itemId)
-    const { cantidad, nota } = req.body as { cantidad?: number; nota?: string }
+    const { cantidad, nota, invitacion, invitadoPor, invitacionMotivo } = req.body as {
+      cantidad?: number; nota?: string; invitacion?: boolean; invitadoPor?: string; invitacionMotivo?: string
+    }
 
     // Si es un item de barra ya enviado (nivel != null) y se incrementa la cantidad,
     // resetear nivel a null y la comanda a 'abierta' para activar "Enviar a barra"
@@ -187,8 +222,18 @@ export async function comandaRoutes(app: FastifyInstance) {
 
     const item = await prisma.comandaItem.update({
       where: { id: itemId },
-      data: { ...(cantidad !== undefined && { cantidad }), ...(nota !== undefined && { nota }) },
+      data: {
+        ...(cantidad !== undefined && { cantidad }),
+        ...(nota !== undefined && { nota }),
+        // 🎁 Invitación de la casa: al desmarcar, se limpia quién la marcó y el motivo
+        ...(invitacion !== undefined && {
+          invitacion,
+          invitadoPor: invitacion ? (invitadoPor ?? null) : null,
+          invitacionMotivo: invitacion ? (invitacionMotivo?.trim() || null) : null,
+        }),
+      },
     })
+    if (cantidad !== undefined || invitacion !== undefined) await marcarCuentaDesactualizada(comandaId)
     const { restaurantId: rId } = (await prisma.comanda.findUnique({ where: { id: comandaId }, select: { restaurantId: true } }))!
     broadcast(rId, 'update')
     return item
@@ -199,6 +244,7 @@ export async function comandaRoutes(app: FastifyInstance) {
     const comandaId = Number((req.params as { id: string; itemId: string }).id)
     const itemId    = Number((req.params as { id: string; itemId: string }).itemId)
     await prisma.comandaItem.delete({ where: { id: itemId } })
+    await marcarCuentaDesactualizada(comandaId)
     const c = await prisma.comanda.findUnique({ where: { id: comandaId }, select: { restaurantId: true } })
     if (c) broadcast(c.restaurantId, 'update')
     return reply.status(204).send()
@@ -225,9 +271,11 @@ export async function comandaRoutes(app: FastifyInstance) {
       )
     )
 
+    // Primera comandada → registrar la hora ("hora de comandada"); re-envíos no la pisan
+    const previa = await prisma.comanda.findUnique({ where: { id }, select: { enviadaAt: true } })
     const comanda = await prisma.comanda.update({
       where: { id },
-      data: { estado: 'enviada' },
+      data: { estado: 'enviada', ...(previa?.enviadaAt ? {} : { enviadaAt: new Date() }) },
       include: { items: true, mesa: true },
     })
     broadcast(comanda.restaurantId, 'update')
@@ -265,7 +313,7 @@ export async function comandaRoutes(app: FastifyInstance) {
     const id = Number((req.params as { id: string }).id)
     const comanda = await prisma.comanda.update({
       where: { id },
-      data: { estado: 'facturada' },
+      data: { estado: 'facturada', cuentaDesactualizada: false }, // (re)imprimir deja la cuenta al día
       include: { items: true, mesa: true },
     })
     broadcast(comanda.restaurantId, 'update')
@@ -289,9 +337,21 @@ export async function comandaRoutes(app: FastifyInstance) {
     const id = Number((req.params as { id: string }).id)
     const { metodoPago, propina = 0 } = req.body as { metodoPago?: 'cash' | 'tarjeta'; propina?: number }
 
+    if (metodoPago !== 'cash' && metodoPago !== 'tarjeta')
+      return reply.status(400).send({ error: 'metodoPago requerido (cash | tarjeta)' })
+
+    const actual = await prisma.comanda.findUnique({ where: { id } })
+    if (!actual) return reply.status(404).send({ error: 'Comanda no encontrada' })
+    if (actual.estado === 'cerrada')
+      return reply.status(409).send({ error: 'La comanda ya está cobrada' })
+    if (actual.estado !== 'facturada' && actual.estado !== 'liberada')
+      return reply.status(409).send({ error: `No se puede cobrar una comanda en estado "${actual.estado}" — primero hay que facturarla` })
+    if (actual.cuentaDesactualizada)
+      return reply.status(409).send({ error: 'La cuenta cambió después de imprimirse — reimprimí la cuenta antes de cobrar' })
+
     const comanda = await prisma.comanda.update({
       where: { id },
-      data: { estado: 'cerrada', closedAt: new Date(), metodoPago: metodoPago ?? null, propina },
+      data: { estado: 'cerrada', closedAt: new Date(), metodoPago, propina },
       include: { items: true, mesa: true },
     })
     broadcast(comanda.restaurantId, 'update')

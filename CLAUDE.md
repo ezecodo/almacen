@@ -14,6 +14,12 @@ Módulos activos:
 8. **Wiki**: base de conocimiento por restaurante (speeches, protocolos, conceptos) — el personal de sala consulta/escucha el speech, cargado desde el admin
 9. **Checklists**: listas de apertura y cierre por sector (Barra 1, Sala 2, Paso…) — el personal las completa desde la app de sala, con histórico para el encargado
 
+## Roadmap (acordado con Eze, pendiente de implementar)
+
+1. **Restricción por red WiFi del restaurante** (para usar Handys del personal): allowlist de IPs públicas por restaurante en el servidor — tabla `RedAutorizada` + middleware Fastify sobre las rutas de sala (comandas/cobros). El PIN sigue siendo *quién sos*; la IP es *dónde estás*. Botón **"Autorizar esta red"** en el panel 💼 del encargado (guarda la IP pública actual con etiqueta + caducidad ~90 días; si el ISP rota la IP, el encargado re-autoriza en segundos). El admin/dashboard queda FUERA de la restricción (accesible desde cualquier lado). Nunca validar en el cliente — solo server-side vía `X-Forwarded-For` de Nginx.
+2. **Kit de local (hardware llave en mano por restaurante)**: router propio con SSID dedicado (los PADs/Handys se conectan ahí → su IP pública es la autorizada del punto 1) + switch + **Raspberry Pi 4 (4GB) con monitor** + impresoras térmicas ESC/POS Ethernet (cocina y barra). La Pi: (a) servicio de impresión — conexión *saliente* al VPS (SSE/polling), imprime por TCP 9100, sin abrir puertos; (b) **puesto fijo del encargado** — Chromium en kiosco con la app abierta (dashboard de mesas / modo encargado): visión panorámica del salón para cerrar mesas, armar menús de grupos, etc. Reemplaza los ordenadores que hoy tienen en cada sala (abajo y arriba). **Confirmado: 2 Pi + 2 monitores táctiles por local** (una por planta; solo una Pi lleva el servicio de impresión + heartbeat, la otra es puro kiosco). **Cajón de efectivo**: se conecta por RJ11 al puerto DK de la térmica (no a la Pi); se abre con comando ESC/POS `ESC p` → al cobrar en efectivo desde el CobroSheet, el servicio de impresión imprime el ticket y abre el cajón; con tarjeta no se abre; (c) heartbeat al VPS que refresca automáticamente la IP autorizada (elimina el botón manual del punto 1). Gotcha hardware: Pi 4 usa micro-HDMI; comprar microSD nueva o boot USB; fuente USB-C 3A de calidad. Eze prototipa con Pi + 2 impresoras usadas.
+3. **RBAC en dashboard** (ver memoria): encargado sin precios de coste, chef con costes, admin total.
+
 ## Contexto de negocio
 
 - Cliente: grupo de 5 restaurantes en Barcelona
@@ -136,6 +142,7 @@ abierta → enviada → facturada → liberada → cerrada
 ```
 
 - **abierta**: mesa con items pendientes de enviar a cocina
+- `Comanda.enviadaAt DateTime?` — hora de la **primera** comandada a cocina (los re-envíos/marcha pasa no la pisan; los menús de grupo la fijan al generarse). Se muestra junto al nº de mesa en el header del `ComandaPanel` (🕐 ámbar; si aún no se comandó, "abierta HH:MM" en gris)
 - **enviada**: todos los items tienen nivel asignado y fueron enviados
 - **facturada**: camarero imprimió la cuenta (botón "Imprimir cuenta")
 - **liberada**: camarero confirmó entrega de cuenta — mesa libre, pendiente de cobro por el encargado
@@ -157,12 +164,13 @@ Al enviar (`PATCH /comandas/:id/enviar`), se calcula `nextRonda = max(ronda exis
 - PIN de autenticación por camarero
 - Abrir mesa → añadir items del menú → OrdenarModal (asignar niveles de salida) → Enviar a cocina
 - Puede re-enviar (marcha pasa), imprimir cuenta, registrar mermas, cambiar mesa, fusionar mesas
-- Botón ⚗️ en el header para registrar producción de premixes (solo categorías `personalProduccion = 'sala'`)
-- Panel de perfil (`PerfilPanel`, tocar el nombre): propinas del mes + accesos a Wiki y Checklists (iconos SVG de línea con tinte de color, no emoji)
+- **Swipe horizontal = progresión Pedido → Carta → Mapa**: en la vista Pedido lleva al primer nivel de la carta (el caso "miro la mesa y agrego algo"); en el primer nivel de la carta sale al mapa; más adentro de la carta sigue navegando niveles. Al salir al mapa con items sin comandar, alerta con dos acciones: **Descartar** (elimina los pendientes y sale) o **Comandar** (abre el orden de salida → Oído; si solo hay barra/auto, envía directo); tocar el fondo = quedarse (misma alerta para la ✕). Comandada exitosa → `CheckOverlay` (viñeta OidoOps) al volver al mapa.
+- **Header**: `[viñeta OidoOps + primer nombre]` grande (w-16, `self-stretch` — ocupa toda la altura del header, abre el `PerfilPanel`) + cuadrados de 48px: `[planta ↓] [planta ↑]` (siempre visibles, llevan al mapa de esa planta) + `[mesas]`. A la derecha: 💼 (encargado) y el icono de logout (SVG puerta+flecha). El **reloj en vivo** flota sobre el mapa (píldora centrada en el margen superior, `pointer-events-none`); también está en el header del panel 💼. NO hay botón de mapa (las plantas lo cubren), ni "+" (vista 'nueva' sin acceso), ni ⚗️, ni toggle de tema en el header.
+- Panel de perfil (`PerfilPanel`, tocar la viñeta): nombre del restaurante + nombre completo, **toggle claro/oscuro** (junto a la ✕), propinas del mes + accesos a **Producción (⚗️ premixes)**, Wiki y Checklists (iconos SVG de línea con tinte de color, no emoji)
 
 ### Añadir items — navegación por niveles (tiles, accesibilidad visual)
 
-Pestaña "Añadir" del `ComandaPanel`. Navegación por **tiles cuadrados grandes** (texto uppercase 18px font-black, pensado para camareros con dificultades visuales):
+Pestaña "Añadir" del `ComandaPanel` (tabs mitad y mitad estilo marca: **"COMANDA (n)"** uppercase y el **+** gordo en SVG; el activo lleva el gradiente azul→verde, el inactivo va en verde de marca sobre fondo sutil). **Pestaña inicial al abrir una mesa**: si la comanda está toda enviada (sin pendientes) → entra directo a la carta ("Añadir" — el caso típico: vuelven a pedir una bebida); con items pendientes de enviar o cuenta impresa/liberada → vista del pedido. Navegación por **tiles cuadrados grandes** (texto uppercase 18px font-black, pensado para camareros con dificultades visuales):
 
 ```
 Nivel 1: grupos (🍽️ COMIDA / 🍹 BEBIDAS…) — cards full-width h-24
@@ -174,7 +182,7 @@ Nivel 4: items de la subcategoría
 - Si solo hay un grupo se entra directo al nivel 2. Categoría sin subcategorías va directa a sus items.
 - **Tinte ámbar** en tiles de grupos de barra (detectados con `esGrupoBarra(g)` = regex `/vino|bebida/i` — NO lista hardcodeada; cubre "Vinos Botella", "VINOS", etc.). Determina también el `tipo` cocina/barra del item.
 - **Volver un nivel**: FAB circular centrado (64px, gradiente azul→verde de marca, `bottom-24`) + swipe horizontal en cualquier dirección (>80px) + botón "← nombre" arriba. Los tres conviven porque el swipe falla en algunos teléfonos.
-- **Búsqueda global**: el campo de búsqueda (y la lupa flotante) ignora el nivel/grupo activo y matchea por nombre de item **o de categoría** en todo el menú.
+- **Búsqueda global**: el campo de búsqueda (y la lupa flotante arrastrable) ignora el nivel/grupo activo y matchea por nombre de item **o de categoría** en todo el menú. Todas las búsquedas de sala usan `normTxt` (NFD + sin diacríticos + lowercase): insensible a mayúsculas, acentos y composición Unicode (el bug "CAÑA" no encontrada).
 - **Cantidad**: taps repetidos sobre un item acumulan (`qtyPending`, commit a los 1.5s).
 - **Comentario por item (long-press)**: mantener apretado un plato (~450ms, con vibración) abre un box de comentario ("sin cebolla…"); al confirmar se añade el item con la `nota` puesta. Absorbe la cantidad pendiente de taps previos del mismo plato. Backend: `POST /comandas/:id/items` solo fusiona con un item pendiente existente si tiene **la misma nota** (notas distintas = filas separadas para cocina).
 
@@ -188,6 +196,20 @@ Mueve items de una comanda (source) a otra (target):
 
 **Regla importante**: nunca usar una comanda `facturada` como SOURCE del merge (el botón "Cambiar mesa" está deshabilitado para comandas facturadas en SalaMesasPage).
 
+### Modo encargado en /sala
+
+Un empleado con `rol='encargado'` **o** `accesoEncargadoApp=true` ve la app de sala igual que un camarero + herramientas admin. `accesoEncargadoApp` es el "superpoder" temporal: se configura en **Editar empleado → sección "TPV"** (`/admin/empleados`, visible solo para tipo sala con rol ≠ encargado) — pensado para emergencias a mitad de turno. En la lista se ve con el badge **💼 TPV**. Es **independiente** de `puedeEncargado`, que es solo un concepto del auto-planning. El empleado debe re-logearse con su PIN para que el cambio surta efecto (el flag viaja en la sesión).
+
+- **Login** (`SalaLoginPage`): la sesión `sessionStorage['oidoops_camarero']` guarda también `rol` y `accesoEncargadoApp`. `esEncargado` se deriva en `SalaMesasPage`.
+- **Botón 💼 en el header** → `EncargadoPanel` (sheet lateral, tema sala) con 4 tabs:
+  - **💶 Cobros**: comandas `facturada`+`liberada` con items → botón "Cobrar mesa" abre el **`CobroSheet`**: mismo flujo que el dashboard (método de pago, importe recibido con **cambio** en efectivo, **propina** = exceso sobre el total con tarjeta) → `PATCH /comandas/:id/cerrar` con `propina`. El mismo sheet se usa desde el botón "💶 Cobrar mesa" del `ComandaPanel` (mesa facturada, solo encargado).
+  - **⏱ Turno**: abrir turno (`POST /turnos` con su nombre) / cerrar con doble confirmación (aviso ámbar si hay mesas activas o cobros pendientes) → muestra resumen de totales al cerrar.
+  - **✅ Checklists**: estado de hoy por sector (apertura/cierre, quién, hora, marcados/total) via `GET /checklists?restaurantId`.
+  - **🗑 Mermas**: mermas del día con total € via `GET /mermas?desde=hoy&hasta=hoy`.
+- **Pantalla "Turno no iniciado"**: si es encargado muestra botón "▶ Abrir turno" en vez del mensaje pasivo.
+- **Cobro directo en `ComandaPanel`**: prop `esEncargado` — en mesas `facturada` aparecen botones "💶 Cobrar efectivo / 💳 Cobrar tarjeta" junto a "Mesa libre".
+- **Backend endurecido**: `PATCH /comandas/:id/cerrar` ahora exige `metodoPago` (cash|tarjeta) y estado previo `facturada`|`liberada` (409 si no; antes no validaba nada).
+
 ### Dashboard encargado (MesasFeedPage)
 
 - Vista en tiempo real (SSE) de todas las mesas
@@ -198,7 +220,19 @@ Mueve items de una comanda (source) a otra (target):
 ### Mermas
 
 Registrar items no servidos o con queja. Motivos: `no_servido`, `queja_cliente`, `otro`.
-Una merma se puede restituir (eliminar) desde el panel de detalle de comanda.
+Una merma se puede restituir (deshacer) desde el panel de detalle de comanda del admin **y desde la app de sala**: sección "🗑 Mermas" al final de la pestaña Pedido del `ComandaPanel`, con botón "↩ Deshacer" por merma (`DELETE /mermas/:id` — el item vuelve a la comanda y se cobra normal; si la cuenta estaba impresa, marca `cuentaDesactualizada`).
+
+### Cuenta desactualizada (reimprimir antes de cobrar)
+
+`Comanda.cuentaDesactualizada Boolean` — se enciende **en el backend** cuando cambian los items de una comanda `facturada`/`liberada` (merma → PATCH/DELETE item, invitación, restituir merma) y se apaga al volver a facturar (`PATCH /comandas/:id/facturar`). Mientras está encendido: `PATCH /comandas/:id/cerrar` devuelve 409, y en la UI el botón "Cobrar mesa" se reemplaza por **"🧾 Reimprimir cuenta"** (en `ComandaPanel` abre `VerCuentaModal` → "Entregar cuenta" re-factura; en la card de Cobros del panel 💼 abre la mesa) + aviso rojo "⚠️ La cuenta cambió después de imprimirse". Tras reimprimir, "Cobrar mesa" reaparece.
+
+### Invitaciones de la casa
+
+`ComandaItem.invitacion Boolean` + `invitadoPor String?` + `invitacionMotivo String?`. Solo el **encargado** puede marcarla: opción ámbar **"🎁 Invitación de la casa"** dentro del **`MermaModal`** (el desplegable ▼ de cada item; la opción solo aparece si `esEncargado`). Al seleccionarla aparece un input opcional "¿Por qué se invita?" y el botón de confirmación ámbar. Aplica a la línea entera y registra quién + motivo (visible en el `ItemRow`). Para quitarla: mismo modal (acción directa "Quitar invitación") o el 🎁 del `ItemRow`.
+
+### Item directo / "sin cocina" (encargado)
+
+`POST /comandas/:id/items` acepta `directo: true` → crea el item con `autoGenerado: true, nivel: 1, ronda: 1` **sin tocar el estado de la comanda**: se cobra normalmente pero nunca pasa por el flujo de envío (no imprime en cocina/barra, no aparece en OrdenarModal, no dispara "Oído"). Si la comanda estaba facturada/liberada, marca `cuentaDesactualizada`. UI: toggle **"🔇 sin cocina"** junto al buscador del menú en `ComandaPanel` (solo encargado) — mientras está ON, todo item añadido (tap, cantidad, combinados) entra directo; la barra se tiñe ámbar con aviso. Los items directos muestran el badge "🔇 sin cocina" en el `ItemRow` (igual que los autoPorPax, que comparten el flag `autoGenerado`). El item **queda visible en la cuenta a 0 €** con precio original tachado y badge "🎁 Invitación" — no desaparece (a diferencia de la merma). **No suma a ventas**: helpers compartidos `valorItem`/`totalComanda` en `apps/web/src/api.ts` (usados en todas las vistas) y exclusión server-side en los totales de turno (`turnos.ts` cierre + stats). El cierre de turno guarda `Turno.totalInvitaciones` y el resumen del panel encargado lo muestra. `PATCH /comandas/:id/items/:itemId` acepta `{ invitacion, invitadoPor }`.
 
 ### Propinas
 
@@ -289,6 +323,10 @@ En vista de restaurante se muestran globales + específicos del restaurante. Los
 
 Al cambiar `nombre`, actualiza los items que apuntaban al nombre viejo. Si la categoría es **global**, actualiza también los items específicos de restaurante que conviven bajo ella (si no, quedan huérfanos e invisibles — bug histórico ya corregido).
 
+### Navegación acordeón en el admin (MenuPage)
+
+Las categorías se listan en **una columna** con chevron ▶. Clic en una card **despliega su contenido inline debajo** (el `CategoriaPanel` con items, toolbar y chips de subcategorías); segundo clic (o ✕) colapsa. Las subcategorías anidadas también se expanden con su propio panel. Solo hay una categoría expandida a la vez (`catSeleccionada`). No existe más el panel fijo arriba de la página.
+
 ### Drag & drop en el admin (MenuPage)
 
 - **Item → card de categoría**: mueve el item a esa categoría (`PUT /menu/:id` con `categoria`). DataTransfer type `application/x-menu-item`.
@@ -298,17 +336,32 @@ Al cambiar `nombre`, actualiza los items que apuntaban al nombre viejo. Si la ca
 
 ### Categorías
 - **Orden**: cada categoría tiene campo `orden`. Botones ▲▼ en la card para reordenar dentro del mismo `grupo` (intercambia valores `orden` con la categoría adyacente via dos `PUT /menu/categorias/:id`).
-- **Subcategorías**: botón **"+ Sub"** en la card crea una subcategoría dentro (`POST /menu/categorias` con `parentId`; el form oculta la sección porque se hereda). Botón **"↖ Sacar"** en la card hija la devuelve al nivel superior. `POST /menu/categorias/:id/anidar` con `{ parentId: number | null }` hace ambas cosas (valida: no a sí misma, no >1 nivel, no anidar una que tiene hijas).
+- **Orden alfabético opcional**: `MenuCategoria.ordenAlfabetico Boolean` — toggle **A→Z** en el header del `CategoriaPanel`. Activado = los items se muestran A→Z (admin y app camarero, `localeCompare 'es'`); apagado = orden manual `orden asc, nombre asc` (carta física). Se preserva al copiar la categoría.
+- **Subcategorías**: botón **"+ Sub"** en la card crea una subcategoría dentro (`POST /menu/categorias` con `parentId`; el form oculta la sección porque se hereda). El mismo botón está también en el **header del `CategoriaPanel`** (categoría abierta), junto a "+ Añadir item" — solo para categorías de nivel superior y no de solo lectura. Botón **"↖ Sacar"** en la card hija la devuelve al nivel superior. `POST /menu/categorias/:id/anidar` con `{ parentId: number | null }` hace ambas cosas (valida: no a sí misma, no >1 nivel, no anidar una que tiene hijas).
 - **Copiar categoría** (`POST /menu/categorias/:id/copiar`): copia una categoría (con o sin sus items) a uno o varios restaurantes. Omite items duplicados por nombre.
 - **Eliminar**: borrado en cascada — elimina todos los items del mismo scope primero, luego la categoría. Las subcategorías NO se borran: vuelven al nivel superior.
 
 ### Items
+- **📁 Mover** (botón por item en el panel de categoría): abre `MoverACategoriaModal` con el árbol de categorías (secciones + subcategorías indentadas, estilo "mover a carpeta") — tocar el destino hace `PUT /menu/:id` con `categoria`. Es la alternativa táctil al drag & drop (que no funciona en tablets). El botón del item global "Mover" (a restaurante) se renombró a "→ Rest." para no confundir.
 - **Copiar item** (`POST /menu/items/:id/copiar`): copia un item a un restaurante + categoría destino.
 - **Mover item** (`PATCH /menu/:id/mover-restaurante`): desde vista Global, mueve un item global a un restaurante específico.
 - **Hacer específico** (botón "→ Específico"): desde vista restaurante, convierte un item global en específico del restaurante actual.
 - **Toggle activo** (`PATCH /menu/:id/toggle`): activa/desactiva un item.
 - **Toggle autoPorPax** (`PATCH /menu/:id/toggleAutoPorPax`): marca si el item se cobra automáticamente por comensal.
+- **Oculto en carta**: `MenuItem.ocultoEnCarta Boolean` — botón "carta" en la fila del item (badge 🙈). El item sigue activo (se cobra y se auto-añade con ×pax, ej. Servicio de pan) pero NO aparece en el picker del camarero: ni en la navegación por niveles, ni en las búsquedas, ni en los contadores de tiles. Distinto de "Ocultar" (`activo=false`), que desactiva el item por completo. Se preserva al copiar.
 - **Alérgenos**: campo `alergenos Int` — bitmask de los 14 alérgenos EU (Reglamento 1169/2011). Bit 0=Gluten, 1=Crustáceos, 2=Huevos, 3=Pescado, 4=Cacahuetes, 5=Soja, 6=Lácteos, 7=Frutos secos, 8=Apio, 9=Mostaza, 10=Sésamo, 11=Sulfitos, 12=Altramuces, 13=Moluscos.
+
+### Combinados (destilado + refresco)
+
+Modelo **pool global de mixers** con **precio combinado fijo**. Campos en `MenuItem`:
+- `combinable Boolean` — el item se puede pedir combinado (destilados). Toggle rápido **COMB** en la fila del item (al activar pide el precio con `prompt`; vacío = usar precio normal).
+- `precioCombinado Float?` — precio del combinado con refresco incluido (`null` = fallback a `precio`).
+- `esMixer Boolean` — el item sirve de mezcla (refrescos, tónicas). Toggle rápido **MIX**.
+- `suplementoMixer Float` — extra si el mixer es premium (ej. Red Bull +1,50). Default 0.
+
+Los 4 campos también se editan en el `ItemForm` (sección "Combinados") y se preservan al copiar items/categorías. Badges en el admin: 🥃 precio combinado (púrpura) y 🥤 mix +supl (esmeralda).
+
+**App camarero**: tocar un item `combinable` NO acumula cantidad — abre un picker bottom-sheet ("🥃 Combinado") con la opción **Solo · sin mezclar** (precio normal) + todos los items `esMixer` activos del menú con el precio resultante (`precioCombinado ?? precio` + `suplementoMixer`). Al elegir, añade **un solo renglón** a la comanda: `"Vodka Absolut + Coca-Cola"` con el precio del combinado y el `tipo` (barra/cocina) del destilado. Los tiles combinables muestran el hint `🥤+`. El long-press (comentario) sigue añadiendo el item solo. No hubo cambios de backend en comandas (los items viajan con nombre/precio libres).
 
 ---
 
@@ -414,7 +467,8 @@ Gestionado desde `/admin/empleados`. Ficha completa de personal del grupo.
 
 - `tipo`: `'cocina'` | `'sala'`
 - `rol`: cocina → `'jefe_cocina'` | `'cocinero'` | `'produccion'` | `'friegaplatos'`; sala → `'camarero'` | `'encargado'`
-- `puedeEncargado`: camarero que puede cubrir turno de encargado
+- `puedeEncargado`: camarero que puede cubrir turno de encargado (solo planning)
+- `accesoEncargadoApp`: superpoder que desbloquea el modo encargado 💼 en la app de sala (Editar → sección "TPV"; independiente del planning)
 - `puedeJefeCocina`: cocinero que puede cubrir turno de jefe de cocina
 - `excluirPlanning`: no incluir en auto-planning
 - `restaurantId`: restaurante habitual (null = rotativo entre varios)
@@ -437,7 +491,13 @@ GrupoMenuTemplate  restaurantId, nombre, precio (€/pax), niveles (Json), activ
 GrupoAgendado      restaurantId, templateId, fecha, pax, restricciones (Json), estado, comandaId?
 ```
 
-### GrupoMenuNivel (JSON en `niveles`)
+### Raciones sugeridas (`paxPorRacion`)
+
+`GrupoMenuTemplate.paxPorRacion Int @default(3)` — tapeo compartido (todo al centro): al armar el menú se sugiere **1 ración de cada plato cada X pax** (`Math.max(1, Math.round(pax / paxPorRacion))`). Se configura en el editor de plantillas ("1 ración cada X pax"). El GenerarModal del admin y el MenuGrupoSheet de sala inicializan las cantidades con esta regla; el usuario ajusta a mano (restricciones alimentarias, tope de presupuesto).
+
+### Menú grupo desde la app del camarero (`MenuGrupoSheet` en SalaMesasPage)
+
+En el `AbrirMesaModal` (mesa **libre**, con el pax ya puesto) botón **"🍽 Menú grupo"** → sheet con: (1) selector de plantilla (precio×pax grande); (2) revisión por cursos con cantidades sugeridas por `paxPorRacion`, ajustables +/−, toggle postre, "+ carta" para añadir platos de la carta a un curso (caso vegetariano/intolerancias), y barra de presupuesto (valor en carta vs precio×pax; **bloquea** si se pasa); (3) confirmar → `POST /grupo-menu/:id/generar` (requiere mesa libre; el backend crea la comanda `enviada` con niveles asignados + item único de cobro "Menú X" a precio×pax **con `autoGenerado: true`** — se cobra pero queda fuera de OrdenarModal y de los flujos de envío, como el pan ×pax — y los platos a 0 €) → se abre el `ComandaPanel` de la mesa. Después la mesa se comporta como cualquier otra: añadir items = marcha pasa normal, y para reasignar niveles hay un botón **"🔀 Ordenar salidas"** arriba de los cursos en la pestaña Pedido (visible en cualquier comanda con niveles no facturada) que abre el `OrdenarModal` completo (`ordenarFull` fuerza `marchaPasa=false`: muestra TODOS los items con ▲▼ por plato y por nivel entero, cantidades y notas). El link "re-enviar comanda" del footer sigue existiendo.
 
 ```ts
 { nivel: number, nombre: string, platos: string[], esPostre: boolean }
@@ -461,7 +521,7 @@ GrupoAgendado      restaurantId, templateId, fecha, pax, restricciones (Json), e
 
 - `GET /grupo-menu?restaurantId=X`
 - `POST /grupo-menu` — crear plantilla
-- `PUT /grupo-menu/:id` — editar plantilla
+- `PUT /grupo-menu/:id` — editar plantilla (acepta `restaurantId` → botón **"Mover"** en la card de plantilla del dashboard: modal para pasarla a otro restaurante; los platos se referencian por nombre)
 - `DELETE /grupo-menu/:id` — desactivar plantilla
 - `GET /grupo-menu/agendados?restaurantId=X&fecha=YYYY-MM-DD`
 - `POST /grupo-menu/agendados` — agendar grupo

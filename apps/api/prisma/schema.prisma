@@ -122,6 +122,7 @@ model Turno {
   totalVentas     Float?
   totalMermas     Float?
   totalPropinas   Float?
+  totalInvitaciones Float?  // valor de items marcados como invitación de la casa (no suman a ventas)
   numComandas     Int?
   propina         PropinaDia?
   createdAt       DateTime   @default(now())
@@ -163,7 +164,8 @@ model Empleado {
   telefono         String?
   email            String?
   rol              String?          // cocina: 'friegaplatos'|'cocinero'|'produccion' / sala: 'camarero'|'encargado'
-  puedeEncargado   Boolean          @default(false) // camarero que puede cubrir turno de encargado
+  puedeEncargado   Boolean          @default(false) // camarero que puede cubrir turno de encargado (concepto de planning)
+  accesoEncargadoApp Boolean        @default(false) // superpoder: desbloquea el modo encargado 💼 en la app de sala (independiente del planning)
   puedeJefeCocina  Boolean          @default(false) // cocinero que puede cubrir turno de jefe de cocina
   excluirPlanning  Boolean          @default(false) // no incluir en auto-planning
   restaurantId     Int?             // restaurante habitual (null = rotativo)
@@ -233,6 +235,7 @@ model MenuCategoria {
   nombre       String
   icono        String     @default("")
   orden        Int        @default(0)
+  ordenAlfabetico Boolean @default(false) // mostrar los items A→Z en vez del orden manual (carta física)
   parentId     Int?       // subcategoría: id de la categoría contenedora (1 solo nivel)
   parent       MenuCategoria?  @relation("SubCategorias", fields: [parentId], references: [id])
   children     MenuCategoria[] @relation("SubCategorias")
@@ -249,8 +252,14 @@ model MenuItem {
   precio       Float
   activo       Boolean    @default(true)
   autoPorPax   Boolean    @default(false)
+  ocultoEnCarta Boolean   @default(false) // no se muestra en el picker del camarero (sigue activo: se cobra y se auto-añade)
   orden        Int        @default(0)
   alergenos    Int        @default(0)
+  // Combinados: destilado marcado combinable + pool global de mixers
+  combinable      Boolean @default(false)  // se puede pedir combinado (destilados)
+  precioCombinado Float?                   // precio del combinado, refresco incluido (null = usar precio)
+  esMixer         Boolean @default(false)  // sirve de mezcla (refrescos, tónicas…)
+  suplementoMixer Float   @default(0)      // extra si el mixer es premium (Red Bull +1.50)
   createdAt    DateTime   @default(now())
 }
 
@@ -290,6 +299,8 @@ model Comanda {
   metodoPago     String?       // 'cash' | 'tarjeta' | null
   propina        Float         @default(0)
   camareroNombre String?
+  cuentaDesactualizada Boolean @default(false) // los items cambiaron tras imprimir la cuenta → reimprimir antes de cobrar
+  enviadaAt      DateTime?     // primera vez que la comanda se envió a cocina ("hora de comandada")
   items        ComandaItem[]
   mermas       Merma[]
   createdAt    DateTime      @default(now())
@@ -308,6 +319,9 @@ model ComandaItem {
   ronda      Int     @default(0) // 0=pendiente, 1=comanda original, 2+=marcha pasa
   tipo         String  @default("cocina") // 'cocina' | 'barra'
   autoGenerado Boolean @default(false)   // true = auto-añadido al abrir mesa (no va a cocina/barra)
+  invitacion   Boolean @default(false)   // 🎁 invitación de la casa: visible en cuenta a 0 €, no suma a ventas
+  invitadoPor  String?                   // quién la marcó
+  invitacionMotivo String?               // por qué se invitó (opcional) (accountability)
 }
 
 model Producto {
@@ -437,6 +451,7 @@ model GrupoMenuTemplate {
   restaurant     Restaurant       @relation(fields: [restaurantId], references: [id])
   nombre         String           // "Estándar" | "Premium" | "Deluxe"
   precio         Float            // precio por persona
+  paxPorRacion   Int              @default(3) // tapeo compartido: 1 ración de cada plato cada X pax (sugerencia de cantidades)
   niveles        Json             // GrupoMenuNivel[]
   activo         Boolean          @default(true)
   agendados      GrupoAgendado[]

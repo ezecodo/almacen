@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   api,
+  sugerirCantidadesMenu,
   GrupoMenuTemplate,
   GrupoMenuRestricciones,
   GrupoAgendado,
@@ -181,6 +182,7 @@ function TemplateModal({
   const qc = useQueryClient()
   const [nombre, setNombre]       = useState(initial?.nombre ?? '')
   const [precio, setPrecio]       = useState(initial?.precio ?? 27)
+  const [paxPorRacion, setPaxPorRacion] = useState(initial?.paxPorRacion ?? 3)
   const [showCatPicker, setShowCatPicker] = useState(false)
 
   const { data: menuItems = [] } = useQuery({
@@ -258,7 +260,7 @@ function TemplateModal({
         platos:   c.platos,
         esPostre: c.esPostre,
       }))
-      const body = { restaurantId, nombre, precio, niveles }
+      const body = { restaurantId, nombre, precio, paxPorRacion, niveles }
       return initial
         ? api.grupoMenu.update(initial.id, body)
         : api.grupoMenu.create(body)
@@ -301,6 +303,19 @@ function TemplateModal({
                   className="flex-1 px-3 py-2 text-sm outline-none w-0"
                 />
                 <span className="px-2 text-gray-400 text-sm">€</span>
+              </div>
+            </div>
+            <div className="w-32">
+              <label className="text-sm font-medium text-gray-700" title="Tapeo compartido: al armar el menú se sugiere 1 ración de cada plato por cada X comensales">1 ración cada</label>
+              <div className="flex items-center mt-1 border border-gray-300 rounded-xl overflow-hidden">
+                <input
+                  type="number"
+                  min={1}
+                  value={paxPorRacion}
+                  onChange={e => setPaxPorRacion(Math.max(1, Number(e.target.value)))}
+                  className="flex-1 px-3 py-2 text-sm outline-none w-0"
+                />
+                <span className="px-2 text-gray-400 text-sm">pax</span>
               </div>
             </div>
           </div>
@@ -419,15 +434,19 @@ function GenerarWizard({
   const priceMap: Record<string, number> = {}
   for (const item of menuItems as MenuItem[]) priceMap[item.nombre] = item.precio
 
-  // Inicializar cantidades al cambiar de plantilla (1 por defecto)
+  // Inicializar cantidades al cambiar de plantilla o pax: tapeo compartido ajustado
+  // al presupuesto (precio del menú × pax) — ración base + sube los platos más baratos
   useEffect(() => {
     if (!template) return
+    const platos = template.niveles.flatMap(nv => (nv.platos ?? []).map(nombre => ({ nombre, nivel: nv.nivel })))
+    const sugeridas = sugerirCantidadesMenu(platos, pax, template.paxPorRacion || 3, priceMap, template.precio)
     const init: Record<string, number> = {}
-    for (const nv of template.niveles) for (const p of nv.platos ?? []) init[p] = 1
+    for (const p of sugeridas) init[p.nombre] = p.cantidad
     setQtys(init)
     setExtraItems([])
     setPickerNivel(null)
-  }, [templateId])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [templateId, pax])
 
   const addExtra = (nombre: string, nivel: number) => {
     setExtraItems(prev => [...prev, { nombre, nivel }])
@@ -1173,6 +1192,7 @@ export default function GrupoMenuPage() {
   const qc = useQueryClient()
   const [restaurantId, setRestaurantId] = useState<number | null>(null)
   const [editando, setEditando]         = useState<GrupoMenuTemplate | null | 'new'>(null)
+  const [moviendo, setMoviendo]         = useState<GrupoMenuTemplate | null>(null)
   const [tab, setTab]                   = useState<'plantillas' | 'programados'>('plantillas')
 
   const { data: restaurantes } = useQuery({
@@ -1199,6 +1219,16 @@ export default function GrupoMenuPage() {
   const deleteTemplate = useMutation({
     mutationFn: (id: number) => api.grupoMenu.delete(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['grupo-menu', restaurantId] }),
+  })
+
+  // Mover plantilla a otro restaurante (los platos se referencian por nombre)
+  const moverTemplate = useMutation({
+    mutationFn: ({ id, destino }: { id: number; destino: number }) =>
+      api.grupoMenu.update(id, { restaurantId: destino }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['grupo-menu'] })
+      setMoviendo(null)
+    },
   })
 
   return (
@@ -1277,6 +1307,13 @@ export default function GrupoMenuPage() {
                           Editar
                         </button>
                         <button
+                          onClick={() => setMoviendo(t)}
+                          title="Mover la plantilla a otro restaurante"
+                          className="text-xs px-3 py-1.5 bg-indigo-50 text-indigo-500 rounded-lg hover:bg-indigo-100"
+                        >
+                          Mover
+                        </button>
+                        <button
                           onClick={() => { if (confirm(`¿Eliminar plantilla "${t.nombre}"?`)) deleteTemplate.mutate(t.id) }}
                           className="text-xs px-3 py-1.5 bg-red-50 text-red-500 rounded-lg hover:bg-red-100"
                         >
@@ -1348,6 +1385,36 @@ export default function GrupoMenuPage() {
           initial={editando === 'new' ? undefined : editando}
           onClose={() => setEditando(null)}
         />
+      )}
+
+      {/* Modal mover plantilla a otro restaurante */}
+      {moviendo && restaurantes && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" onClick={() => setMoviendo(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-4" onClick={e => e.stopPropagation()}>
+            <div>
+              <h3 className="font-bold text-gray-900">Mover "{moviendo.nombre}"</h3>
+              <p className="text-sm text-gray-500 mt-1">
+                La plantilla dejará de estar en este restaurante y pasará al que elijas.
+              </p>
+              <p className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2 mt-2">
+                Los platos se referencian por nombre: verificá que existan en la carta del destino (con carta global no hay problema).
+              </p>
+            </div>
+            <div className="space-y-2">
+              {restaurantes.filter((r: Restaurante) => r.id !== restaurantId).map((r: Restaurante) => (
+                <button key={r.id}
+                  onClick={() => moverTemplate.mutate({ id: moviendo.id, destino: r.id })}
+                  disabled={moverTemplate.isPending}
+                  className="w-full text-left px-4 py-3 rounded-xl border border-gray-200 hover:border-cyan-400 hover:bg-cyan-50 text-sm font-semibold text-gray-700 disabled:opacity-50 transition-colors">
+                  {r.nombre}
+                </button>
+              ))}
+            </div>
+            <button onClick={() => setMoviendo(null)} className="w-full py-2 text-sm text-gray-400 hover:text-gray-600">
+              Cancelar
+            </button>
+          </div>
+        </div>
       )}
     </div>
   )

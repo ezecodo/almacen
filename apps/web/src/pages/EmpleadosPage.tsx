@@ -47,7 +47,7 @@ const DIAS_LABEL = ['L', 'M', 'X', 'J', 'V', 'S', 'D']
 const DIAS_NOMBRE = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
 
 const BLANK: Omit<Empleado, 'id' | 'activo'> = {
-  nombre: '', tipo: 'cocina', pin: generarPin(), telefono: '', email: '', horasSemanales: 40, rol: null, puedeEncargado: false, puedeJefeCocina: false, excluirPlanning: false, restaurantId: null, diasLibresFijos: [], faseLibreRotacion: 0,
+  nombre: '', tipo: 'cocina', pin: generarPin(), telefono: '', email: '', horasSemanales: 40, rol: null, puedeEncargado: false, accesoEncargadoApp: false, puedeJefeCocina: false, excluirPlanning: false, restaurantId: null, diasLibresFijos: [], faseLibreRotacion: 0,
 }
 
 function EmpleadoModal({
@@ -139,7 +139,7 @@ function EmpleadoModal({
               </span>
               <div>
                 <p className="text-sm font-semibold text-gray-700">Puede hacer de encargado/a</p>
-                <p className="text-xs text-gray-400">El planning lo usará como encargado si hay déficit</p>
+                <p className="text-xs text-gray-400">El planning lo usará como encargado si hay déficit (solo afecta al planning — el acceso 💼 de la app se da con el botón de la lista)</p>
               </div>
             </button>
           )}
@@ -163,6 +163,30 @@ function EmpleadoModal({
                 <p className="text-xs text-gray-400">El planning lo usará como jefe si hay déficit</p>
               </div>
             </button>
+          )}
+
+          {/* TPV — permisos en la app de sala (solo personal de sala, no encargados: ellos lo tienen por rol) */}
+          {form.tipo === 'sala' && form.rol !== 'encargado' && (
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide">TPV</label>
+              <button
+                type="button"
+                onClick={() => set('accesoEncargadoApp', !form.accesoEncargadoApp)}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all text-left ${
+                  form.accesoEncargadoApp ? 'border-violet-400 bg-violet-50' : 'border-gray-200 bg-white hover:border-gray-300'
+                }`}
+              >
+                <span className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${
+                  form.accesoEncargadoApp ? 'bg-violet-500 border-violet-500' : 'border-gray-300'
+                }`}>
+                  {form.accesoEncargadoApp && <span className="text-white text-xs font-bold">✓</span>}
+                </span>
+                <div>
+                  <p className="text-sm font-semibold text-gray-700">💼 Modo encargado en la app</p>
+                  <p className="text-xs text-gray-400">Puede cobrar mesas, abrir/cerrar turno y ver checklists y mermas desde la app de sala. Tendrá que volver a entrar con su PIN.</p>
+                </div>
+              </button>
+            </div>
           )}
 
           {/* Excluir del auto-planning */}
@@ -380,6 +404,7 @@ export default function EmpleadosPage() {
       ...(data.email          ? { email:          data.email          } : {}),
       ...(data.rol            ? { rol:            data.rol            } : {}),
       puedeEncargado:  data.puedeEncargado  ?? false,
+      accesoEncargadoApp: data.accesoEncargadoApp ?? false,
       puedeJefeCocina: data.puedeJefeCocina ?? false,
       excluirPlanning: data.excluirPlanning  ?? false,
       diasLibresFijos: data.diasLibresFijos ?? [],
@@ -403,6 +428,7 @@ export default function EmpleadosPage() {
         horasSemanales: data.horasSemanales,
         rol:            data.rol      || null,
         puedeEncargado:  data.puedeEncargado  ?? false,
+        accesoEncargadoApp: data.accesoEncargadoApp ?? false,
         puedeJefeCocina: data.puedeJefeCocina ?? false,
         excluirPlanning: data.excluirPlanning  ?? false,
         diasLibresFijos: data.diasLibresFijos ?? [],
@@ -482,161 +508,118 @@ export default function EmpleadosPage() {
           {activos.length === 0 ? (
             <p className="py-8 text-center text-gray-400 text-sm">Sin empleados de {TIPO_LABEL[tab].toLowerCase()}</p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-50 bg-gray-50/60">
-                    <th className="text-left px-5 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">Nombre</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">Rol</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">Contrato</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">PIN</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">Restaurante</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">Teléfono</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">Email</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">Libra</th>
-                    <th className="px-4 py-2.5" />
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {activos.map(emp => (
-                      <tr key={emp.id} className="hover:bg-gray-50/50 transition-colors">
-                        {/* Nombre */}
-                        <td className="px-5 py-3.5">
-                          <span className="font-medium text-gray-900">{emp.nombre}</span>
-                        </td>
+            <div className="divide-y divide-gray-50">
+              {activos.map(emp => (
+                <div key={emp.id} className="px-5 py-3.5 hover:bg-gray-50/50 transition-colors">
+                  {/* Línea 1: nombre + badges + acciones */}
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div className="flex items-center gap-2 flex-wrap min-w-0">
+                      <span className="font-medium text-gray-900">{emp.nombre}</span>
+                      {emp.rol && (
+                        <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold ${ROL_COLOR[emp.rol] ?? 'bg-gray-100 text-gray-500'}`}>
+                          {ROLES[emp.tipo as Tipo]?.find(r => r.value === emp.rol)?.label ?? emp.rol}
+                        </span>
+                      )}
+                      {emp.puedeEncargado && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-100 text-indigo-600" title="Puede hacer de encargado (planning)">
+                          +ENC
+                        </span>
+                      )}
+                      {emp.accesoEncargadoApp && emp.rol !== 'encargado' && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-violet-100 text-violet-600" title="Tiene el modo encargado en la app de sala (se configura en Editar → TPV)">
+                          💼 TPV
+                        </span>
+                      )}
+                      {emp.puedeJefeCocina && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-orange-100 text-orange-600" title="Puede hacer de jefe de cocina">
+                          +JEFE
+                        </span>
+                      )}
+                      {emp.excluirPlanning && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-red-100 text-red-500" title="Excluido del auto-planning">
+                          Sin planning
+                        </span>
+                      )}
+                      <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${HORAS_COLOR[emp.horasSemanales] ?? 'bg-gray-100 text-gray-500'}`}>
+                        {emp.horasSemanales}h
+                      </span>
+                      <span className="font-mono text-xs font-semibold text-gray-700 bg-gray-100 px-2.5 py-1 rounded-lg tracking-widest" title="PIN de acceso a la sala">
+                        {emp.pin ?? '—'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <button
+                        onClick={() => setModal({ mode: 'edit', emp })}
+                        className="text-xs text-cyan-500 hover:text-cyan-700 font-medium"
+                      >
+                        Editar
+                      </button>
+                      <button
+                        onClick={() => { if (confirm(`¿Desactivar a ${emp.nombre}?`)) desactivar.mutate(emp.id) }}
+                        className="text-xs text-gray-400 hover:text-gray-600"
+                      >
+                        Desactivar
+                      </button>
+                      <button
+                        onClick={() => { if (confirm(`¿Eliminar a ${emp.nombre} permanentemente?`)) eliminar.mutate(emp.id) }}
+                        className="text-xs text-red-400 hover:text-red-600"
+                      >
+                        Eliminar
+                      </button>
+                    </div>
+                  </div>
 
-                        {/* Rol */}
-                        <td className="px-4 py-3.5">
-                          <div className="flex items-center gap-1.5">
-                            {emp.rol ? (
-                              <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold ${ROL_COLOR[emp.rol] ?? 'bg-gray-100 text-gray-500'}`}>
-                                {ROLES[emp.tipo as Tipo]?.find(r => r.value === emp.rol)?.label ?? emp.rol}
-                              </span>
-                            ) : (
-                              <span className="text-gray-300 text-xs">—</span>
-                            )}
-                            {emp.puedeEncargado && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-100 text-indigo-600" title="Puede hacer de encargado">
-                                +ENC
-                              </span>
-                            )}
-                            {emp.puedeJefeCocina && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-orange-100 text-orange-600" title="Puede hacer de jefe de cocina">
-                                +JEFE
-                              </span>
-                            )}
-                            {emp.excluirPlanning && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-red-100 text-red-500" title="Excluido del auto-planning">
-                                Sin planning
-                              </span>
-                            )}
-                          </div>
-                        </td>
-
-                        {/* Contrato */}
-                        <td className="px-4 py-3.5">
-                          <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${HORAS_COLOR[emp.horasSemanales] ?? 'bg-gray-100 text-gray-500'}`}>
-                            {emp.horasSemanales}h
-                          </span>
-                        </td>
-
-                        {/* PIN */}
-                        <td className="px-4 py-3.5">
-                          <span className="font-mono text-sm font-semibold text-gray-700 bg-gray-100 px-2.5 py-1 rounded-lg tracking-widest">
-                            {emp.pin ?? '—'}
-                          </span>
-                        </td>
-
-                        {/* Restaurante */}
-                        <td className="px-4 py-3.5 max-w-[140px]">
-                          {emp.restaurant ? (
-                            <span className="text-xs text-gray-700 font-medium truncate block">{emp.restaurant.nombre}</span>
-                          ) : (
-                            <span className="text-xs text-gray-400 italic">Rotativo</span>
-                          )}
-                        </td>
-
-                        {/* Teléfono */}
-                        <td className="px-4 py-3.5">
-                          {emp.telefono ? (
-                            <div className="flex items-center gap-2">
-                              <span className="text-gray-600 text-xs">{emp.telefono}</span>
-                              {emp.pin && (
-                                <a
-                                  href={`https://wa.me/${emp.telefono.replace(/\D/g, '')}?text=${encodeURIComponent(`Hola ${emp.nombre.split(' ')[0]}, tu PIN es: *${emp.pin}*`)}`}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  title="Enviar PIN por WhatsApp"
-                                  className="text-emerald-500 hover:text-emerald-600 shrink-0"
-                                >
-                                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                                    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
-                                  </svg>
-                                </a>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-gray-300 text-xs">—</span>
-                          )}
-                        </td>
-
-                        {/* Email */}
-                        <td className="px-4 py-3.5">
-                          {emp.email ? (
-                            <a
-                              href={`mailto:${emp.email}`}
-                              className="text-xs text-indigo-500 hover:text-indigo-700 hover:underline"
-                            >
-                              {emp.email}
-                            </a>
-                          ) : (
-                            <span className="text-gray-300 text-xs">—</span>
-                          )}
-                        </td>
-
-                        {/* Días libres fijos */}
-                        <td className="px-4 py-3.5">
-                          {(emp.diasLibresFijos ?? []).length > 0 ? (
-                            <div className="flex gap-0.5">
-                              {(emp.diasLibresFijos ?? []).map(d => (
-                                <span key={d} className="w-5 h-5 rounded-md bg-rose-100 text-rose-500 text-[10px] font-bold flex items-center justify-center">
-                                  {DIAS_LABEL[d]}
-                                </span>
-                              ))}
-                            </div>
-                          ) : (
-                            <span className="text-gray-300 text-xs">—</span>
-                          )}
-                        </td>
-
-                        {/* Acciones */}
-                        <td className="px-4 py-3.5">
-                          <div className="flex items-center justify-end gap-3">
-                            <button
-                              onClick={() => setModal({ mode: 'edit', emp })}
-                              className="text-xs text-cyan-500 hover:text-cyan-700 font-medium"
-                            >
-                              Editar
-                            </button>
-                            <button
-                              onClick={() => { if (confirm(`¿Desactivar a ${emp.nombre}?`)) desactivar.mutate(emp.id) }}
-                              className="text-xs text-gray-400 hover:text-gray-600"
-                            >
-                              Desactivar
-                            </button>
-                            <button
-                              onClick={() => { if (confirm(`¿Eliminar a ${emp.nombre} permanentemente?`)) eliminar.mutate(emp.id) }}
-                              className="text-xs text-red-400 hover:text-red-600"
-                            >
-                              Eliminar
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                  {/* Línea 2: restaurante · contacto · días libres */}
+                  <div className="flex items-center gap-x-4 gap-y-1.5 flex-wrap mt-1.5">
+                    <span className="text-xs text-gray-500">
+                      🏠 {emp.restaurant ? (
+                        <span className="text-gray-700 font-medium">{emp.restaurant.nombre}</span>
+                      ) : (
+                        <span className="text-gray-400 italic">Rotativo</span>
+                      )}
+                    </span>
+                    {emp.telefono && (
+                      <span className="flex items-center gap-1.5 text-xs text-gray-600">
+                        📞 {emp.telefono}
+                        {emp.pin && (
+                          <a
+                            href={`https://wa.me/${emp.telefono.replace(/\D/g, '')}?text=${encodeURIComponent(`Hola ${emp.nombre.split(' ')[0]}, tu PIN es: *${emp.pin}*`)}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            title="Enviar PIN por WhatsApp"
+                            className="text-emerald-500 hover:text-emerald-600 shrink-0"
+                          >
+                            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                            </svg>
+                          </a>
+                        )}
+                      </span>
+                    )}
+                    {emp.email && (
+                      <a
+                        href={`mailto:${emp.email}`}
+                        className="text-xs text-indigo-500 hover:text-indigo-700 hover:underline"
+                      >
+                        ✉️ {emp.email}
+                      </a>
+                    )}
+                    {(emp.diasLibresFijos ?? []).length > 0 && (
+                      <span className="flex items-center gap-1 text-xs text-gray-500">
+                        Libra:
+                        <span className="flex gap-0.5">
+                          {(emp.diasLibresFijos ?? []).map(d => (
+                            <span key={d} className="w-5 h-5 rounded-md bg-rose-100 text-rose-500 text-[10px] font-bold flex items-center justify-center">
+                              {DIAS_LABEL[d]}
+                            </span>
+                          ))}
+                        </span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
             )}
           </div>
 
@@ -686,7 +669,7 @@ export default function EmpleadosPage() {
         <EmpleadoModal
           initial={
             modal.mode === 'edit'
-              ? { nombre: modal.emp.nombre, tipo: modal.emp.tipo, pin: modal.emp.pin ?? generarPin(), telefono: modal.emp.telefono ?? '', email: modal.emp.email ?? '', horasSemanales: modal.emp.horasSemanales, rol: modal.emp.rol ?? null, puedeEncargado: modal.emp.puedeEncargado ?? false, puedeJefeCocina: modal.emp.puedeJefeCocina ?? false, excluirPlanning: modal.emp.excluirPlanning ?? false, restaurantId: modal.emp.restaurantId ?? null, diasLibresFijos: modal.emp.diasLibresFijos ?? [], faseLibreRotacion: modal.emp.faseLibreRotacion ?? 0 }
+              ? { nombre: modal.emp.nombre, tipo: modal.emp.tipo, pin: modal.emp.pin ?? generarPin(), telefono: modal.emp.telefono ?? '', email: modal.emp.email ?? '', horasSemanales: modal.emp.horasSemanales, rol: modal.emp.rol ?? null, puedeEncargado: modal.emp.puedeEncargado ?? false, accesoEncargadoApp: modal.emp.accesoEncargadoApp ?? false, puedeJefeCocina: modal.emp.puedeJefeCocina ?? false, excluirPlanning: modal.emp.excluirPlanning ?? false, restaurantId: modal.emp.restaurantId ?? null, diasLibresFijos: modal.emp.diasLibresFijos ?? [], faseLibreRotacion: modal.emp.faseLibreRotacion ?? 0 }
               : { ...BLANK, pin: generarPin() }
           }
           restaurantes={restaurantes}

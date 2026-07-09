@@ -23,6 +23,7 @@ const templateSchema = z.object({
   restaurantId: z.number().int().positive(),
   nombre:       z.string().min(1),
   precio:       z.number().min(0),
+  paxPorRacion: z.number().int().positive().default(3), // 1 ración de cada plato cada X pax
   niveles:      z.array(nivelSchema).min(1),
 })
 
@@ -105,6 +106,7 @@ export async function grupoMenuRoutes(app: FastifyInstance) {
         mesaId,
         pax: totalPax,
         estado: 'enviada',
+        enviadaAt: new Date(),
         camareroNombre: camareroNombre ?? null,
       },
     })
@@ -112,6 +114,7 @@ export async function grupoMenuRoutes(app: FastifyInstance) {
     const niveles = template.niveles as z.infer<typeof nivelSchema>[]
 
     // Añadir item de facturación (tipo barra, precio × pax)
+    // autoGenerado: se cobra pero queda fuera de los flujos de envío/ordenar (como el pan ×pax)
     await prisma.comandaItem.create({
       data: {
         comandaId: comanda.id,
@@ -122,6 +125,7 @@ export async function grupoMenuRoutes(app: FastifyInstance) {
         nivel:     1,
         ronda:     1,
         nota:      'Precio por persona',
+        autoGenerado: true,
       },
     })
 
@@ -302,6 +306,7 @@ export async function grupoMenuRoutes(app: FastifyInstance) {
         mesaId,
         pax:            totalPax,
         estado:         'enviada',
+        enviadaAt:      new Date(),
         camareroNombre: camareroNombre ?? null,
       },
     })
@@ -316,6 +321,7 @@ export async function grupoMenuRoutes(app: FastifyInstance) {
         nivel:     1,
         ronda:     1,
         nota:      'Precio por persona',
+        autoGenerado: true,
       },
     })
 
