@@ -9,17 +9,19 @@ export default function CheckOverlay() {
   return (
     <div
       className="fixed inset-0 z-[60] bg-[#0a1628]/90 flex flex-col items-center justify-center gap-5"
-      style={{ animation: 'checkOverlayFade 2s ease forwards' }}
+      style={{ animation: "checkOverlayFade 2s ease forwards" }}
     >
       <svg
         width="160"
         height="172"
         viewBox="0 0 68 72"
         style={{
-          animation: 'checkBadgeIn 0.4s cubic-bezier(0.34,1.56,0.64,1) forwards',
-          filter: 'drop-shadow(0 0 24px #4CC8A088)',
+          animation:
+            "checkBadgeIn 0.4s cubic-bezier(0.34,1.56,0.64,1) forwards",
+          filter: "drop-shadow(0 0 24px #4CC8A088)",
         }}
       >
+        y
         <defs>
           <linearGradient id="og" x1="0" y1="0" x2="1" y2="1">
             <stop offset="0%" stopColor="#4B9EDF" />
@@ -41,15 +43,22 @@ export default function CheckOverlay() {
           strokeLinejoin="round"
           strokeDasharray="61"
           strokeDashoffset="61"
-          style={{ animation: 'drawCheckStroke 0.5s cubic-bezier(0.4,0,0.2,1) 0.35s forwards' }}
+          style={{
+            animation:
+              "drawCheckStroke 0.5s cubic-bezier(0.4,0,0.2,1) 0.35s forwards",
+          }}
         />
       </svg>
       <p
         className="text-3xl font-extrabold tracking-tight"
-        style={{ animation: 'checkTextIn 0.4s ease 0.7s both', fontFamily: "'Helvetica Neue', Arial, sans-serif" }}
+        style={{
+          animation: "checkTextIn 0.4s ease 0.7s both",
+          fontFamily: "'Helvetica Neue', Arial, sans-serif",
+        }}
       >
-        <span className="text-white">Oido</span><span className="text-[#4CC8A0]">Ops</span>
+        <span className="text-white">Oido</span>
+        <span className="text-[#4CC8A0]">Ops</span>
       </p>
     </div>
-  )
+  );
 }
