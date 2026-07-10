@@ -131,6 +131,23 @@ scp apps/api/oidoops-c9b6d1f8f3da.json root@82.165.93.34:/root/almacen/apps/api/
 
 El archivo vive en `/root/almacen/apps/api/` en el servidor — solo accesible por el proceso Node, no expuesto públicamente por Nginx.
 
+### Sincronizar DATOS local → prod (`sync-db.sh`)
+
+El deploy (`git push`) sincroniza **schema** (tablas/modelos vía `prisma db push`) pero **NO los datos**. Para llevar los datos de la DB local al VPS existe **`./sync-db.sh`** (en la raíz del repo). Se corre desde el **Mac** (no desde el SSH; el script se conecta solo al VPS):
+
+```bash
+./sync-db.sh
+```
+
+Es un **replace total**: prod queda espejo exacto del local (mismos IDs, sin duplicados) — **lo que esté solo en prod se borra**. Por eso el orden correcto es: primero `git push` (que actualiza el schema en prod), y después `./sync-db.sh` (que carga los datos).
+
+Cómo funciona (todo en una transacción en el VPS → si algo falla, rollback y prod queda intacto):
+1. Backup previo de prod en `/root/almacen_prod_backup_FECHA.sql`.
+2. `pm2 stop almacen-api` (un `trap` lo vuelve a levantar siempre, aunque falle).
+3. Suelta todos los FKs → trunca todas las tablas (dinámico, menos `_prisma_migrations`) → carga `pg_dump --data-only` del local → recrea los FKs. Restaura `search_path` a `public` antes de recrear FKs (pg_dump lo deja vacío).
+
+El script **está en `.gitignore`** (tiene credenciales de DB hardcodeadas) — vive solo en local, no viaja al repo. Si se clona el proyecto en otra máquina hay que recrearlo.
+
 ---
 
 ## Módulo: Sala (TPV)
