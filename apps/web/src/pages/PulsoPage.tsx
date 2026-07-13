@@ -110,7 +110,7 @@ function RestauranteCard({
   )
 }
 
-export default function DuenoPage() {
+export default function PulsoPage() {
   const navigate = useNavigate()
   const { data: restaurantes = [] } = useQuery({ queryKey: ['restaurantes'], queryFn: api.restaurantes.list })
   const [montos, setMontos] = useState<Record<number, number>>({})
@@ -147,7 +147,7 @@ export default function DuenoPage() {
   }, [])
 
   const salir = () => {
-    sessionStorage.removeItem('dueno_auth')
+    sessionStorage.removeItem('pulso_auth')
     navigate('/')
   }
 
@@ -160,14 +160,14 @@ export default function DuenoPage() {
           <div className="min-w-0">
             <svg viewBox="0 0 300 70" className="h-5 sm:h-7 w-auto mb-1 sm:mb-2">
               <defs>
-                <linearGradient id="dueno-logo-g" x1="0" y1="0" x2="1" y2="1">
+                <linearGradient id="pulso-logo-g" x1="0" y1="0" x2="1" y2="1">
                   <stop offset="0%" stopColor="#4B9EDF" />
                   <stop offset="100%" stopColor="#4CC8A0" />
                 </linearGradient>
               </defs>
               <path
                 d="M14 2 L54 2 Q66 2 66 14 L66 52 Q66 62 54 62 L40 62 L34 70 L28 62 L14 62 Q2 62 2 52 L2 14 Q2 2 14 2 Z"
-                fill="url(#dueno-logo-g)"
+                fill="url(#pulso-logo-g)"
               />
               <path d="M15 34 L29 48 L55 18" stroke="white" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" fill="none" />
               <text x="80" y="51" fontFamily="'Helvetica Neue', Arial, sans-serif" fontWeight="800" fontSize="44">

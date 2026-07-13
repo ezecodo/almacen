@@ -10,8 +10,8 @@ import ProductosPage from './pages/ProductosPage'
 import EmpleadosPage from './pages/EmpleadosPage'
 import StatsPage from './pages/StatsPage'
 import AdminGuard from './components/AdminGuard'
-import DuenoGuard from './components/DuenoGuard'
-import DuenoPage from './pages/DuenoPage'
+import PulsoGuard from './components/PulsoGuard'
+import PulsoPage from './pages/PulsoPage'
 import AdminLayout from './components/AdminLayout'
 import VerificarPage from './pages/VerificarPage'
 import ValidarPage from './pages/ValidarPage'
@@ -60,8 +60,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           <Route path="/verificar/:id" element={<VerificarPage />} />
           <Route path="/mis-propinas" element={<MisPropinasPage />} />
           <Route path="/reservas/:slug" element={<ReservaPublicaPage />} />
-          <Route element={<DuenoGuard />}>
-            <Route path="/dueno" element={<DuenoPage />} />
+          <Route element={<PulsoGuard />}>
+            <Route path="/pulso" element={<PulsoPage />} />
           </Route>
           <Route element={<AdminGuard />}>
             <Route element={<AdminLayout />}>

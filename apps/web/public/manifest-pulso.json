@@ -1,0 +1,13 @@
+{
+  "id": "/pulso",
+  "name": "OidoOps Pulso",
+  "short_name": "Pulso",
+  "start_url": "/pulso",
+  "scope": "/pulso",
+  "display": "standalone",
+  "background_color": "#1a2235",
+  "theme_color": "#1a2235",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

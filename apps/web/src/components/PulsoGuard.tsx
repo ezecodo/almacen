@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { Link, Outlet } from 'react-router-dom'
 
-const DUENO_PIN = import.meta.env.VITE_DUENO_PIN as string
-const STORAGE_KEY = 'dueno_auth'
+const PULSO_PIN = import.meta.env.VITE_PULSO_PIN as string
+const STORAGE_KEY = 'pulso_auth'
 
 function isAuthenticated() {
   return sessionStorage.getItem(STORAGE_KEY) === 'true'
@@ -14,7 +14,7 @@ function PinGate({ onSuccess }: { onSuccess: () => void }) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (pin === DUENO_PIN) {
+    if (pin === PULSO_PIN) {
       sessionStorage.setItem(STORAGE_KEY, 'true')
       onSuccess()
     } else {
@@ -57,7 +57,7 @@ function PinGate({ onSuccess }: { onSuccess: () => void }) {
   )
 }
 
-export default function DuenoGuard() {
+export default function PulsoGuard() {
   const [auth, setAuth] = useState(isAuthenticated())
 
   if (!auth) return <PinGate onSuccess={() => setAuth(true)} />

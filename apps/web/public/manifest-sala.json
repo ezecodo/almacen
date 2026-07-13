@@ -1,0 +1,13 @@
+{
+  "id": "/sala",
+  "name": "OidoOps Sala",
+  "short_name": "Sala",
+  "start_url": "/sala",
+  "scope": "/sala",
+  "display": "standalone",
+  "background_color": "#111827",
+  "theme_color": "#111827",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
