@@ -10,6 +10,8 @@ import ProductosPage from './pages/ProductosPage'
 import EmpleadosPage from './pages/EmpleadosPage'
 import StatsPage from './pages/StatsPage'
 import AdminGuard from './components/AdminGuard'
+import DuenoGuard from './components/DuenoGuard'
+import DuenoPage from './pages/DuenoPage'
 import AdminLayout from './components/AdminLayout'
 import VerificarPage from './pages/VerificarPage'
 import ValidarPage from './pages/ValidarPage'
@@ -34,6 +36,7 @@ import LogoLabPage from './pages/LogoLabPage'
 import StaffingPage from './pages/StaffingPage'
 import WikiPage from './pages/WikiPage'
 import ChecklistsPage from './pages/ChecklistsPage'
+import TicketsPage from './pages/TicketsPage'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -57,6 +60,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           <Route path="/verificar/:id" element={<VerificarPage />} />
           <Route path="/mis-propinas" element={<MisPropinasPage />} />
           <Route path="/reservas/:slug" element={<ReservaPublicaPage />} />
+          <Route element={<DuenoGuard />}>
+            <Route path="/dueno" element={<DuenoPage />} />
+          </Route>
           <Route element={<AdminGuard />}>
             <Route element={<AdminLayout />}>
               <Route path="/admin" element={<AdminHomePage />} />
@@ -79,6 +85,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               <Route path="/admin/staffing" element={<StaffingPage />} />
               <Route path="/admin/wiki" element={<WikiPage />} />
               <Route path="/admin/checklists" element={<ChecklistsPage />} />
+              <Route path="/admin/tickets" element={<TicketsPage />} />
             </Route>
           </Route>
         </Routes>

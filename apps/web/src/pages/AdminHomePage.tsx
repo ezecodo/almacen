@@ -98,9 +98,23 @@ function ReviewsWidget() {
     queryFn: () => api.reviews.list(),
     refetchInterval: 60_000,
   })
+  // Mismo query key que TurnosWidget — comparten caché, no duplica el fetch
+  const { data: turnosActivos = [] } = useQuery({
+    queryKey: ['turnos-activos-global'],
+    queryFn: () => api.turnos.getActivos(),
+    refetchInterval: 30_000,
+  })
   const [modalOpen, setModalOpen] = useState(false)
   const [objetivos, setObjetivos] = useState<Record<number, string>>({})
   const [saving, setSaving] = useState(false)
+  const [liveResults, setLiveResults] = useState<Record<number, { total: number; diff: number; baselineFecha: string; usados: number; restantes: number; esNuevaBase: boolean }>>({})
+
+  const liveCheck = useMutation({
+    mutationFn: (restaurantId: number) => api.reviews.live(restaurantId),
+    onSuccess: (data, restaurantId) => {
+      setLiveResults(prev => ({ ...prev, [restaurantId]: data }))
+    },
+  })
 
   const openModal = () => {
     const initial: Record<number, string> = {}
@@ -153,6 +167,9 @@ function ReviewsWidget() {
               const pct = r.objetivoDinamico && r.totalMes !== null
                 ? Math.min(100, Math.round((r.totalMes / r.objetivoDinamico) * 100))
                 : null
+              const turnoAbierto = turnosActivos.find(t => t.restaurantId === r.restaurantId)
+              const live = liveResults[r.restaurantId]
+              const restantes = live?.restantes ?? (turnoAbierto ? 3 - (turnoAbierto.reviewChecksUsados ?? 0) : null)
               return (
                 <div key={r.restaurantId} className={`px-5 py-3 ${ratingBajo ? 'bg-red-50' : ''}`}>
                   <div className="flex items-center justify-between">
@@ -178,6 +195,24 @@ function ReviewsWidget() {
                     <p className="text-xs text-red-500 mt-0.5">
                       ⚠️ Rating bajó {r.ratingDiff} desde ayer ({r.ratingAnterior?.toFixed(1)} → {r.rating?.toFixed(1)}) — revisar Google Maps
                     </p>
+                  )}
+                  {turnoAbierto && (
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <button
+                        onClick={() => liveCheck.mutate(r.restaurantId)}
+                        disabled={liveCheck.isPending || (restantes !== null && restantes <= 0)}
+                        className="text-xs font-medium text-cyan-700 bg-cyan-50 hover:bg-cyan-100 disabled:opacity-40 px-2 py-1 rounded-lg transition-colors"
+                      >
+                        🔄 Actualizar ahora {restantes !== null && `(quedan ${Math.max(restantes, 0)}/3)`}
+                      </button>
+                      {live && (
+                        <span className="text-xs text-gray-500">
+                          {live.esNuevaBase
+                            ? `${live.total} reviews — quedó como base de hoy`
+                            : `${live.diff > 0 ? '+' : ''}${live.diff} desde las ${new Date(live.baselineFecha).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}`}
+                        </span>
+                      )}
+                    </div>
                   )}
                   {pct !== null && (
                     <div className="mt-1.5">

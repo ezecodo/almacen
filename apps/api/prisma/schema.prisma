@@ -38,6 +38,8 @@ model Restaurant {
   wikiArticulos          WikiArticulo[]
   checklistSectores      ChecklistSector[]
   checklistEjecuciones   ChecklistEjecucion[]
+  ticketConfig           TicketConfig?
+  impresoras             Impresora[]
   createdAt              DateTime              @default(now())
 }
 
@@ -125,6 +127,8 @@ model Turno {
   totalInvitaciones Float?  // valor de items marcados como invitación de la casa (no suman a ventas)
   numComandas     Int?
   propina         PropinaDia?
+  reviewChecksUsados Int     @default(0) // cuota de consultas en vivo a Google Reviews durante este turno (máx 3)
+  reviewLastCheck Json?      // último resultado de /reviews/live: { total, rating, diff, baselineFecha, esNuevaBase } — sobrevive a cerrar la app
   createdAt       DateTime   @default(now())
 }
 
@@ -264,12 +268,13 @@ model MenuItem {
 }
 
 model FloorPlan {
-  id           Int        @id @default(autoincrement())
+  id           Int             @id @default(autoincrement())
   restaurantId Int
-  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  restaurant   Restaurant      @relation(fields: [restaurantId], references: [id])
   nombre       String
   mesas        Mesa[]
-  createdAt    DateTime   @default(now())
+  rutas        ImpresionRuta[]
+  createdAt    DateTime        @default(now())
 }
 
 model Mesa {
@@ -550,4 +555,53 @@ model StaffingNecesidadFecha {
   notas        String?
 
   @@unique([restaurantId, fecha])
+}
+
+// ── Tickets (impresión térmica 80mm) ─────────────────────────────────────────
+// Datos de empresa (una sola fila, compartida por los 5 restaurantes) +
+// datos específicos por local (nombre comercial, dirección, teléfono).
+
+model EmpresaConfig {
+  id          Int      @id @default(autoincrement())
+  razonSocial String   @default("")
+  nif         String?
+  tasaIva     Float    @default(10)
+  mensajePie  String?  // pie por defecto del ticket de cobro, ej "Servicio no incluido"
+  updatedAt   DateTime @updatedAt
+}
+
+model TicketConfig {
+  id                 Int        @id @default(autoincrement())
+  restaurantId       Int        @unique
+  restaurant         Restaurant @relation(fields: [restaurantId], references: [id])
+  nombreComercial    String     // nombre del local en el ticket, ej "Sensi Tapas - Gòtic"
+  direccion          String?
+  telefono           String?
+  mensajePieOverride String?    // null = usa el de EmpresaConfig
+  updatedAt          DateTime   @updatedAt
+}
+
+// Impresora física ESC/POS (IP en la red del local). Un restaurante puede tener
+// varias (Cocina, Barra, Arriba…) — el nombre es libre, lo define el encargado.
+model Impresora {
+  id           Int             @id @default(autoincrement())
+  restaurantId Int
+  restaurant   Restaurant      @relation(fields: [restaurantId], references: [id])
+  nombre       String          // "Cocina", "Barra", "Arriba"…
+  ip           String
+  rutas        ImpresionRuta[]
+  createdAt    DateTime        @default(now())
+}
+
+// Ruta de impresión: qué tipo de ticket, comandado desde qué sala (FloorPlan),
+// sale por cuál impresora y cuántas copias. Permite que un mismo ticket (ej. comida)
+// salga duplicado en varias impresoras (jefe de cocina + camarero de pase + refuerzo arriba).
+model ImpresionRuta {
+  id          Int       @id @default(autoincrement())
+  floorPlanId Int
+  floorPlan   FloorPlan @relation(fields: [floorPlanId], references: [id], onDelete: Cascade)
+  tipoTicket  String    // 'cocina' | 'barra' | 'cobro'
+  impresoraId Int
+  impresora   Impresora @relation(fields: [impresoraId], references: [id], onDelete: Cascade)
+  copias      Int       @default(1)
 }

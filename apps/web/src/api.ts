@@ -36,6 +36,8 @@ export interface Turno {
   totalInvitaciones?: number
   numComandas?:    number
   propina?:        PropinaDia | null
+  reviewChecksUsados?: number
+  reviewLastCheck?: { total: number; rating: number; diff: number; baselineFecha: string; esNuevaBase: boolean } | null
 }
 
 export interface Empleado {
@@ -323,6 +325,43 @@ export interface Comanda {
   mermas:         ComandaMerma[]
   createdAt:      string
   closedAt:       string | null
+}
+
+// ── Tickets (impresión térmica 80mm) ──────────────────────────────────────────
+
+export interface EmpresaConfig {
+  id:          number
+  razonSocial: string
+  nif:         string | null
+  tasaIva:     number
+  mensajePie:  string | null
+}
+
+export interface TicketConfig {
+  id:                 number
+  restaurantId:       number
+  nombreComercial:    string
+  direccion:          string | null
+  telefono:           string | null
+  mensajePieOverride: string | null
+}
+
+export interface Impresora {
+  id:           number
+  restaurantId: number
+  nombre:       string
+  ip:           string
+}
+
+export type TipoTicket = 'cocina' | 'barra' | 'cobro'
+
+export interface ImpresionRuta {
+  id:          number
+  floorPlanId: number
+  tipoTicket:  TipoTicket
+  impresoraId: number
+  impresora:   Impresora
+  copias:      number
 }
 
 export type MermaMotivo = 'no_servido' | 'queja_cliente' | 'otro'
@@ -817,6 +856,8 @@ export const api = {
     list: () => get<{ restaurantId: number; nombre: string; total: number | null; rating: number | null; ratingAnterior: number | null; ratingDiff: number | null; diff: number | null; fecha: string | null; totalMes: number | null; tasa: number | null; paxMes: number; objetivoDinamico: number | null }[]>('/reviews'),
     sync: () => post<{ synced: number }>('/reviews/sync', {}),
     setObjetivo: (restaurantId: number, tasa: number) => patch<{ restaurantId: number; tasa: number | null }>('/reviews/objetivo', { restaurantId, tasa }),
+    live: (restaurantId: number) =>
+      post<{ total: number; rating: number; diff: number; baselineFecha: string; esNuevaBase: boolean; usados: number; restantes: number }>('/reviews/live', { restaurantId }),
   },
   comandas: {
     list:      (restaurantId: number, estado?: string) =>
@@ -1048,5 +1089,30 @@ export const api = {
     listEjecuciones: (restaurantId: number, fecha?: string) =>
       get<ChecklistEjecucion[]>(`/checklists/ejecuciones?restaurantId=${restaurantId}${fecha ? `&fecha=${fecha}` : ''}`),
     deleteEjecucion: (id: number) => del(`/checklists/ejecuciones/${id}`),
+  },
+  tickets: {
+    getEmpresa:    () => get<EmpresaConfig>('/empresa-config'),
+    updateEmpresa: (body: Partial<{ razonSocial: string; nif: string | null; tasaIva: number; mensajePie: string | null }>) =>
+      put<EmpresaConfig>('/empresa-config', body),
+    getConfig:     (restaurantId: number) =>
+      get<TicketConfig | null>(`/tickets/config?restaurantId=${restaurantId}`),
+    updateConfig:  (body: { restaurantId: number; nombreComercial: string; direccion?: string | null; telefono?: string | null; mensajePieOverride?: string | null }) =>
+      put<TicketConfig>('/tickets/config', body),
+    // Impresoras
+    listImpresoras:   (restaurantId: number) =>
+      get<Impresora[]>(`/tickets/impresoras?restaurantId=${restaurantId}`),
+    createImpresora:  (body: { restaurantId: number; nombre: string; ip: string }) =>
+      post<Impresora>('/tickets/impresoras', body),
+    updateImpresora:  (id: number, body: Partial<{ nombre: string; ip: string }>) =>
+      put<Impresora>(`/tickets/impresoras/${id}`, body),
+    deleteImpresora:  (id: number) => del(`/tickets/impresoras/${id}`),
+    // Rutas de impresión (por sala)
+    listRutas:  (floorPlanId: number) =>
+      get<ImpresionRuta[]>(`/tickets/rutas?floorPlanId=${floorPlanId}`),
+    createRuta: (body: { floorPlanId: number; tipoTicket: TipoTicket; impresoraId: number; copias?: number }) =>
+      post<ImpresionRuta>('/tickets/rutas', body),
+    updateRuta: (id: number, body: Partial<{ impresoraId: number; copias: number }>) =>
+      put<ImpresionRuta>(`/tickets/rutas/${id}`, body),
+    deleteRuta: (id: number) => del(`/tickets/rutas/${id}`),
   },
 }

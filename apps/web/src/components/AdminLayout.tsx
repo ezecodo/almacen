@@ -12,6 +12,7 @@ const NAV_GROUPS = [
       { to: '/admin/mermas',   label: 'Mermas' },
       { to: '/admin/propinas', label: 'Propinas' },
       { to: '/admin/checklists', label: 'Checklists' },
+      { to: '/admin/tickets',    label: 'Tickets' },
     ],
   },
   {
