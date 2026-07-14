@@ -19,6 +19,8 @@ Módulos activos:
 1. **Restricción por red WiFi del restaurante** (para usar Handys del personal): allowlist de IPs públicas por restaurante en el servidor — tabla `RedAutorizada` + middleware Fastify sobre las rutas de sala (comandas/cobros). El PIN sigue siendo *quién sos*; la IP es *dónde estás*. Botón **"Autorizar esta red"** en el panel 💼 del encargado (guarda la IP pública actual con etiqueta + caducidad ~90 días; si el ISP rota la IP, el encargado re-autoriza en segundos). El admin/dashboard queda FUERA de la restricción (accesible desde cualquier lado). Nunca validar en el cliente — solo server-side vía `X-Forwarded-For` de Nginx.
 2. **Kit de local (hardware llave en mano por restaurante)**: router propio con SSID dedicado (los PADs/Handys se conectan ahí → su IP pública es la autorizada del punto 1) + switch + **Raspberry Pi 4 (4GB) con monitor** + impresoras térmicas ESC/POS Ethernet (cocina y barra). La Pi: (a) servicio de impresión — conexión *saliente* al VPS (SSE/polling), imprime por TCP 9100, sin abrir puertos; (b) **puesto fijo del encargado** — Chromium en kiosco con la app abierta (dashboard de mesas / modo encargado): visión panorámica del salón para cerrar mesas, armar menús de grupos, etc. Reemplaza los ordenadores que hoy tienen en cada sala (abajo y arriba). **Confirmado: 2 Pi + 2 monitores táctiles por local** (una por planta; solo una Pi lleva el servicio de impresión + heartbeat, la otra es puro kiosco). **Cajón de efectivo**: se conecta por RJ11 al puerto DK de la térmica (no a la Pi); se abre con comando ESC/POS `ESC p` → al cobrar en efectivo desde el CobroSheet, el servicio de impresión imprime el ticket y abre el cajón; con tarjeta no se abre; (c) heartbeat al VPS que refresca automáticamente la IP autorizada (elimina el botón manual del punto 1). Gotcha hardware: Pi 4 usa micro-HDMI; comprar microSD nueva o boot USB; fuente USB-C 3A de calidad. Eze prototipa con Pi + 2 impresoras usadas.
 3. **RBAC en dashboard** (ver memoria): encargado sin precios de coste, chef con costes, admin total.
+4. **Monitoreo/alertas + Dockerizar el deploy** (idea 2026-07-13, sin definir alcance todavía): hoy nadie se entera si el VPS o la API se caen hasta que avisa el cliente — falta un chequeo de uptime con alerta al teléfono. Dockerizar el deploy (hoy es `git pull` + `pm2 restart` directo sobre el VPS) daría rollback rápido y un entorno reproducible; se evaluaría dejando la Postgres nativa fuera del contenedor (no tocar cómo vive hoy).
+5. **VeriFactu** (⚠️ importante, obligatorio desde el **1 de enero de 2027**, sin diseñar todavía): sistema antifraude español (RD 1007/2021 + Ley Antifraude) — el software de facturación tiene que generar un registro por cada factura/ticket **encadenado por hash** (SHA-256, cada registro referencia el hash del anterior, tipo mini-blockchain — cualquier alteración/borrado rompe la cadena y se detecta), con **QR** impreso para verificación, y modalidad **VERI\*FACTU** (envío casi en tiempo real a la AEAT) o no-VERI\*FACTU (se guarda local con la misma cadena, disponible ante una inspección). Choca de frente con el flujo actual de "cuenta desactualizada" (hoy una comanda `facturada` se puede seguir editando — merma, invitación — y se reimprime; con VeriFactu una factura emitida no se edita, se corrige con una **rectificativa** nueva). **Pendiente clave antes de diseñar nada**: confirmar con la gestoría de la clienta si el ticket de OidoOps es la factura simplificada fiscal real del negocio, o si la contabilidad formal corre por otro software aparte (común en hostelería) — de eso depende si esto aplica a la app o no.
 
 ## Contexto de negocio
 
@@ -61,7 +63,8 @@ almacen_app/
 │   │   │       ├── events.ts       ← SSE por restaurante + global
 │   │   │       ├── reservas.ts     ← sistema de reservas (OidoPerso)
 │   │   │       ├── wiki.ts         ← base de conocimiento (speeches/protocolos)
-│   │   │       └── checklists.ts   ← checklists de apertura/cierre por sector
+│   │   │       ├── checklists.ts   ← checklists de apertura/cierre por sector
+│   │   │       └── tickets.ts      ← config de tickets (empresa/local) + impresoras + rutas de impresión
 │   │   ├── prisma/
 │   │   │   ├── schema.prisma
 │   │   │   └── seed.ts
@@ -81,11 +84,19 @@ almacen_app/
 │           │   ├── StaffingPage.tsx      ← planificación semanal de turnos
 │           │   ├── WikiPage.tsx          ← admin de la wiki (categorías + artículos)
 │           │   ├── ChecklistsPage.tsx    ← admin checklists (sectores + ítems + registro)
+│           │   ├── TicketsPage.tsx       ← admin de tickets (empresa/local, impresoras, rutas, preview)
+│           │   ├── PulsoPage.tsx         ← /pulso: facturación en vivo por restaurante (dueño)
 │           │   ├── ReservasAdminPage.tsx ← admin de reservas (OidoPerso)
 │           │   ├── ReservaPublicaPage.tsx← formulario público /reservas/:slug
 │           │   ├── ValidarPage.tsx       ← escaneo QR para validar retiros
 │           │   ├── VerificarPage.tsx     ← vista pública de un retiro /verificar/:id
 │           │   └── LogoLabPage.tsx       ← herramienta interna exploración logo
+│           ├── components/
+│           │   ├── AdminGuard.tsx        ← PIN gate del panel admin (`VITE_ADMIN_PIN`)
+│           │   ├── PulsoGuard.tsx        ← PIN gate de /pulso (`VITE_PULSO_PIN`, independiente del admin)
+│           │   └── tickets/
+│           │       ├── TicketCobro.tsx   ← preview ticket de cobro (80mm)
+│           │       └── TicketComanda.tsx ← preview comanda cocina/barra (80mm, agrupado por nivel)
 │           ├── hooks/
 │           │   ├── useRestaurantEvents.ts ← SSE por restaurante → invalida React Query cache
 │           │   ├── useAdminEvents.ts      ← SSE global → invalida cache del admin
@@ -101,6 +112,17 @@ JWT_SECRET="dev-secret-local"
 FRONTEND_URL="http://localhost:5173"
 PORT=3001
 ```
+
+### Variables de entorno (apps/web/.env)
+
+PINs de acceso, uno por gate — no van en git (`.env` está en `.gitignore`), hay que crearlas a mano la primera vez tanto en local como en el VPS (`apps/web/.env` en `/root/almacen`):
+
+```
+VITE_ADMIN_PIN=xxxx    # gate de /admin (AdminGuard)
+VITE_PULSO_PIN=xxxx    # gate de /pulso (PulsoGuard) — independiente del admin
+```
+
+**Gotcha**: son variables de *build* de Vite (se graban adentro del JS compilado), no las lee ningún proceso en runtime — cambiar el `.env` en el VPS no alcanza, hay que reconstruir: `cd apps/web && npm run build && cp -r dist/* /var/www/almacen/`.
 
 ## Comandos útiles
 
@@ -277,6 +299,15 @@ Widget en el dashboard admin (`AdminHomePage`) que muestra por restaurante:
 **Campo en Restaurant**: `reviewObjetivoTasa Int?` — tasa de objetivo. `PATCH /reviews/objetivo` para actualizarlo.
 
 **Prisma db push**: en local usar `npx prisma db push` (no `migrate dev`) ya que las migraciones tienen conflictos con la shadow DB.
+
+### Consulta de reviews en vivo (`POST /reviews/live`)
+
+Complementa el snapshot diario del cron con una consulta **en vivo** a Google, limitada a **3 por turno abierto** (`Turno.reviewChecksUsados`) para no disparar el gasto de la API de Places.
+
+- **Ventana del "día" del negocio**: 17:44 (hora del cron) de hoy → 17:44 de mañana, anclada a **Europe/Madrid explícitamente** vía `Intl.DateTimeFormat` (no usar `Date.setHours` a secas — depende del huso del proceso, que puede no ser Madrid). El corte se hizo coincidir con la hora exacta del cron (no 18:00 en punto) para que la propia foto diaria siempre caiga dentro de su propia ventana.
+- **Base de comparación**: el snapshot más reciente dentro de esa ventana. Si todavía no hay ninguno (cron no corrió aún, o gap), la propia consulta en vivo se guarda como nueva base (`esNuevaBase: true`, diff 0) — autocorrectivo, no requiere intervención manual.
+- **Persistencia**: cada resultado (`total`, `rating`, `diff`, `baselineFecha`, `esNuevaBase`) se guarda en `Turno.reviewLastCheck` (Json) además de incrementar `reviewChecksUsados` — así el último resultado sobrevive a cerrar/reabrir la app (no vive solo en memoria del componente).
+- **Frontend**: botón "🔄 Actualizar ahora (quedan N/3)" en dos lugares que comparten la misma cuota (vive en el turno, no en la pantalla): el widget de Reviews del dashboard admin, y la pestaña **⭐ Reviews** del panel del encargado en `/sala` (💼 → Reviews) — este último es el uso real en el día a día, con el número de reviews nuevas como elemento grande (`text-8xl`).
 
 ### Turnos
 
@@ -782,6 +813,51 @@ ChecklistEjecucion   sectorId, restaurantId, momento, completadoPor, itemsMarcad
   - **Configurar**: sectores con dos columnas (🔓 Apertura / 🔒 Cierre), cada una con sus ítems editables inline. Añadir sector con input + Enter.
   - **Registro**: histórico por fecha. Cada ejecución muestra sector, momento, quién, hora y `marcados/total` (verde ✓ si completo, ámbar ⚠️ con los ítems sin marcar).
 - **Sala** (`ChecklistPanel` en `SalaMesasPage.tsx`, se abre desde el `PerfilPanel`): bottom-sheet de 2 vistas — (1) lista de sectores, cada uno con chips Apertura/Cierre (verde con nombre+hora si ya se completó hoy); (2) al elegir sector+momento, ítems como checkboxes grandes (tablet) + botón "Completar (n/total)" que registra la ejecución con el nombre del camarero logueado.
+
+---
+
+## Módulo: Tickets (impresión térmica 80mm)
+
+Preparación para cuando llegue la impresora ESC/POS del roadmap (punto 2): configuración de qué sale en cada ticket y a qué impresora, más un preview en pantalla (sin hardware todavía — se imprime a PDF desde el navegador con Cmd+P, CSS ya ajustado a 80mm).
+
+### Modelos
+
+```
+EmpresaConfig   razonSocial, nif, tasaIva, mensajePie   ← singleton, una sola fila, común a los 5 restaurantes
+TicketConfig    restaurantId (único), nombreComercial, direccion, telefono, mensajePieOverride (null = hereda el de EmpresaConfig)
+Impresora       restaurantId, nombre ("Cocina", "Barra", "Arriba"…), ip
+ImpresionRuta   floorPlanId, tipoTicket ('cocina'|'barra'|'cobro'), impresoraId, copias
+```
+
+- **Empresa vs Local**: mismo patrón conceptual que "global vs restaurante" del resto de la app, pero con dos tablas distintas en vez de scope null/id, porque los campos no se superponen (razón social/NIF/IVA son de la empresa; nombre comercial/dirección son del local).
+- **Rutas de impresión, por sala (`FloorPlan`) y no por restaurante**: un mismo restaurante puede tener varias salas (ej. Planta Baja / Planta Alta) con impresoras distintas, y un mismo tipo de ticket puede salir en **varios destinos a la vez con distinta cantidad de copias** (ej: la comida de la sala de arriba sale 1 copia arriba + 2 copias en la cocina de abajo — jefe de cocina + camarero de pase). `copias` por fila de `ImpresionRuta` cubre ese caso sin necesitar lógica especial.
+- El envío real por ESC/POS a la IP configurada (puerto 9100) todavía no está implementado — eso es el siguiente paso cuando esté la Raspberry Pi del roadmap corriendo el servicio de impresión.
+
+### API (`/tickets`, `/empresa-config`)
+
+- `GET/PUT /empresa-config` — GET crea la fila con defaults si no existe todavía (singleton)
+- `GET /tickets/config?restaurantId=X` / `PUT /tickets/config` — upsert por restaurante
+- `GET /tickets/impresoras?restaurantId=X` / `POST/PUT/DELETE /tickets/impresoras/:id`
+- `GET /tickets/rutas?floorPlanId=X` / `POST/PUT/DELETE /tickets/rutas/:id`
+
+### Frontend (`/admin/tickets`, `TicketsPage.tsx`)
+
+Secciones: **Empresa** (sin selector, se edita una sola vez) → **Local** (selector de restaurante: nombre comercial, dirección, teléfono, mensaje pie propio) → **Impresoras** (nombre + IP, editable inline) → **¿A dónde sale cada ticket?** (selector de sala + por tipo Cocina/Barra/Cobro, lista de destinos con impresora+copias, botón "+ Destino") → **Vista previa** (elegís una comanda cerrada real, tabs Ticket cobro / Comanda cocina / Comanda barra, botón imprimir).
+
+**Plantillas de ticket** (`components/tickets/`):
+- `TicketCobro.tsx`: nombre comercial, dirección/NIF, mesa/camarero/hora, items con invitaciones a 0€, desglose base+IVA (`tasaIva` de `EmpresaConfig`), total, propina, método de pago, mensaje pie.
+- `TicketComanda.tsx`: **agrupado por `nivel`** (no por ronda) con un divisor de línea completa "NIVEL N" — así cocina ve el orden de salida claro. Cocina agrupa por nivel; **barra no** (las bebidas no siguen orden de cursos, van todas seguidas). Todo el ticket en mayúsculas (`text-transform` en el contenedor, no hace falta `.toUpperCase()` manual). Tipografía base del ticket: Arial bold (no monoespaciada — se probó Courier y no convenció).
+
+---
+
+## Módulo: Pulso (dashboard en vivo para el dueño)
+
+Ruta standalone `/pulso` (fuera del layout de `/admin`, con su propio PIN vía `PulsoGuard` — independiente del PIN de admin) pensada para que el dueño del grupo vea la facturación de todos los restaurantes en tiempo real desde el celular.
+
+- **Hoy es simulado**: cada card arranca en 0€ y sube sola con incrementos que imitan mesas pagando (pax random × ticket medio, con ruido) en intervalos independientes por restaurante — todavía no está conectada a datos reales. El reemplazo natural es `GET /turnos/activos/stats` (la misma fuente que usa `FacturacionWidget` en el admin), sin tocar la parte visual.
+- **Animación**: al entrar se ve el `CheckOverlay` (viñeta OidoOps) ~2s, después aparece el board con fade-in. Los números usan un efecto "odómetro" (`RollingNumber`, cada dígito se remonta con `key={char}` para retriggerear la animación CSS `digitUp` — solo los dígitos que cambian suben).
+- **Mobile-first de verdad**: cards en fila horizontal compacta en mobile (nombre+monto en una sola línea, sin scroll), layout apilado más grande en desktop.
+- **PWA instalable por separado de `/sala`**: `manifest-sala.json` y `manifest-pulso.json` en `public/`, cada uno con su propio `start_url`/`scope`/`id` — sin esto, Android/iOS reconocían "Añadir a inicio" de ambas rutas como la misma app. `index.html` tiene un script inline que, según el pathname, inyecta el `<link rel="manifest">` correcto y cambia el título/`apple-mobile-web-app-title` antes de que el usuario le dé a instalar.
 
 ---
 

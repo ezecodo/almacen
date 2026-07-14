@@ -14,6 +14,7 @@ export default function CheckOverlay() {
       <svg
         width="160"
         height="172"
+        
         viewBox="0 0 68 72"
         style={{
           animation:
