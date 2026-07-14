@@ -36,8 +36,6 @@ export interface Turno {
   totalInvitaciones?: number
   numComandas?:    number
   propina?:        PropinaDia | null
-  reviewChecksUsados?: number
-  reviewLastCheck?: { total: number; rating: number; diff: number; baselineFecha: string; esNuevaBase: boolean } | null
 }
 
 export interface Empleado {
@@ -853,11 +851,16 @@ export const api = {
     delete: (id: number) => del(`/menu/${id}`),
   },
   reviews: {
-    list: () => get<{ restaurantId: number; nombre: string; total: number | null; rating: number | null; ratingAnterior: number | null; ratingDiff: number | null; diff: number | null; fecha: string | null; totalMes: number | null; tasa: number | null; paxMes: number; objetivoDinamico: number | null }[]>('/reviews'),
-    sync: () => post<{ synced: number }>('/reviews/sync', {}),
+    list: () => get<{
+      restaurantId: number; nombre: string; activo: boolean
+      total: number | null; rating: number | null; ratingAnterior: number | null; ratingDiff: number | null
+      diff: number | null; fecha: string | null
+      negativasNuevas: { rating: number; text: string; author: string; time: number }[]
+      posibleOculta: boolean
+      totalMes: number | null; tasa: number | null; paxMes: number; objetivoDinamico: number | null
+    }[]>('/reviews'),
     setObjetivo: (restaurantId: number, tasa: number) => patch<{ restaurantId: number; tasa: number | null }>('/reviews/objetivo', { restaurantId, tasa }),
-    live: (restaurantId: number) =>
-      post<{ total: number; rating: number; diff: number; baselineFecha: string; esNuevaBase: boolean; usados: number; restantes: number }>('/reviews/live', { restaurantId }),
+    setActivo: (restaurantId: number, activo: boolean) => patch<{ restaurantId: number; activo: boolean }>('/reviews/activo', { restaurantId, activo }),
   },
   comandas: {
     list:      (restaurantId: number, estado?: string) =>

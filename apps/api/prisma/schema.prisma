@@ -12,6 +12,7 @@ model Restaurant {
   nombre                 String
   placeId                String?
   reviewObjetivoTasa     Int?
+  reviewsCheckActivo     Boolean               @default(false)
   retiros                Retiro[]
   reviews                ReviewSnapshot[]
   propinas               PropinaDia[]
@@ -127,8 +128,6 @@ model Turno {
   totalInvitaciones Float?  // valor de items marcados como invitación de la casa (no suman a ventas)
   numComandas     Int?
   propina         PropinaDia?
-  reviewChecksUsados Int     @default(0) // cuota de consultas en vivo a Google Reviews durante este turno (máx 3)
-  reviewLastCheck Json?      // último resultado de /reviews/live: { total, rating, diff, baselineFecha, esNuevaBase } — sobrevive a cerrar la app
   createdAt       DateTime   @default(now())
 }
 
@@ -152,12 +151,15 @@ model Merma {
 }
 
 model ReviewSnapshot {
-  id           Int        @id @default(autoincrement())
-  restaurantId Int
-  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
-  total        Int
-  rating       Float
-  fecha        DateTime   @default(now())
+  id              Int        @id @default(autoincrement())
+  restaurantId    Int
+  restaurant      Restaurant @relation(fields: [restaurantId], references: [id])
+  total           Int
+  rating          Float
+  reviewsData     Json?      // hasta 5 reviews más recientes tal cual las devuelve Google (rating, texto, autor, time)
+  negativasNuevas Json?      // subset de reviewsData nuevas desde el snapshot anterior con rating <= 3
+  posibleOculta   Boolean    @default(false) // el total subió más de lo identificable en detalle (>5 reviews nuevas entre chequeos)
+  fecha           DateTime   @default(now())
 }
 
 model Empleado {

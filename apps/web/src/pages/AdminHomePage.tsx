@@ -98,22 +98,13 @@ function ReviewsWidget() {
     queryFn: () => api.reviews.list(),
     refetchInterval: 60_000,
   })
-  // Mismo query key que TurnosWidget — comparten caché, no duplica el fetch
-  const { data: turnosActivos = [] } = useQuery({
-    queryKey: ['turnos-activos-global'],
-    queryFn: () => api.turnos.getActivos(),
-    refetchInterval: 30_000,
-  })
   const [modalOpen, setModalOpen] = useState(false)
   const [objetivos, setObjetivos] = useState<Record<number, string>>({})
   const [saving, setSaving] = useState(false)
-  const [liveResults, setLiveResults] = useState<Record<number, { total: number; diff: number; baselineFecha: string; usados: number; restantes: number; esNuevaBase: boolean }>>({})
 
-  const liveCheck = useMutation({
-    mutationFn: (restaurantId: number) => api.reviews.live(restaurantId),
-    onSuccess: (data, restaurantId) => {
-      setLiveResults(prev => ({ ...prev, [restaurantId]: data }))
-    },
+  const toggleActivo = useMutation({
+    mutationFn: ({ restaurantId, activo }: { restaurantId: number; activo: boolean }) => api.reviews.setActivo(restaurantId, activo),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['reviews-dashboard'] }),
   })
 
   const openModal = () => {
@@ -167,14 +158,22 @@ function ReviewsWidget() {
               const pct = r.objetivoDinamico && r.totalMes !== null
                 ? Math.min(100, Math.round((r.totalMes / r.objetivoDinamico) * 100))
                 : null
-              const turnoAbierto = turnosActivos.find(t => t.restaurantId === r.restaurantId)
-              const live = liveResults[r.restaurantId]
-              const restantes = live?.restantes ?? (turnoAbierto ? 3 - (turnoAbierto.reviewChecksUsados ?? 0) : null)
+              const hayNegativas = r.negativasNuevas.length > 0
               return (
-                <div key={r.restaurantId} className={`px-5 py-3 ${ratingBajo ? 'bg-red-50' : ''}`}>
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold text-gray-800">{r.nombre}</p>
-                    <div className="flex items-center gap-3">
+                <div key={r.restaurantId} className={`px-5 py-3 ${hayNegativas ? 'bg-red-50' : ratingBajo ? 'bg-amber-50' : ''}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <p className="text-sm font-semibold text-gray-800 truncate">{r.nombre}</p>
+                      <label className="flex items-center gap-1 shrink-0" title="Consulta automática de reviews activada">
+                        <input
+                          type="checkbox"
+                          checked={r.activo}
+                          onChange={e => toggleActivo.mutate({ restaurantId: r.restaurantId, activo: e.target.checked })}
+                          className="w-3.5 h-3.5 accent-cyan-500"
+                        />
+                      </label>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
                       {r.diff !== null && r.diff !== 0 && (
                         <span className={`text-xs font-medium ${r.diff > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
                           {r.diff > 0 ? `+${r.diff}` : r.diff} hoy
@@ -191,28 +190,32 @@ function ReviewsWidget() {
                       )}
                     </div>
                   </div>
-                  {ratingBajo && (
-                    <p className="text-xs text-red-500 mt-0.5">
-                      ⚠️ Rating bajó {r.ratingDiff} desde ayer ({r.ratingAnterior?.toFixed(1)} → {r.rating?.toFixed(1)}) — revisar Google Maps
+                  {r.activo && r.fecha && (
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      Última consulta: {new Date(r.fecha).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
                     </p>
                   )}
-                  {turnoAbierto && (
-                    <div className="mt-1.5 flex items-center gap-2">
-                      <button
-                        onClick={() => liveCheck.mutate(r.restaurantId)}
-                        disabled={liveCheck.isPending || (restantes !== null && restantes <= 0)}
-                        className="text-xs font-medium text-cyan-700 bg-cyan-50 hover:bg-cyan-100 disabled:opacity-40 px-2 py-1 rounded-lg transition-colors"
-                      >
-                        🔄 Actualizar ahora {restantes !== null && `(quedan ${Math.max(restantes, 0)}/3)`}
-                      </button>
-                      {live && (
-                        <span className="text-xs text-gray-500">
-                          {live.esNuevaBase
-                            ? `${live.total} reviews — quedó como base de hoy`
-                            : `${live.diff > 0 ? '+' : ''}${live.diff} desde las ${new Date(live.baselineFecha).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}`}
-                        </span>
-                      )}
+                  {ratingBajo && (
+                    <p className="text-xs text-red-500 mt-0.5">
+                      ⚠️ Rating bajó {r.ratingDiff} desde el chequeo anterior ({r.ratingAnterior?.toFixed(1)} → {r.rating?.toFixed(1)}) — revisar Google Maps
+                    </p>
+                  )}
+                  {hayNegativas && (
+                    <div className="mt-1.5 space-y-1.5">
+                      {r.negativasNuevas.map((n, i) => (
+                        <div key={i} className="bg-red-100 border border-red-200 rounded-lg px-2.5 py-2">
+                          <p className="text-xs font-bold text-red-700">
+                            {'★'.repeat(n.rating)}{'☆'.repeat(5 - n.rating)} · {n.author}
+                          </p>
+                          {n.text && <p className="text-xs text-red-600 mt-0.5 line-clamp-2">"{n.text}"</p>}
+                        </div>
+                      ))}
                     </div>
+                  )}
+                  {r.posibleOculta && (
+                    <p className="text-xs text-amber-600 mt-1">
+                      ⚠️ Entraron más reviews de las que se pueden mostrar en detalle — revisá Google Maps directamente
+                    </p>
                   )}
                   {pct !== null && (
                     <div className="mt-1.5">

@@ -2999,30 +2999,14 @@ function EncargadoPanel({
   const [armadoCierre, setArmadoCierre] = useState(false)
   const [resumenCierre, setResumenCierre] = useState<Turno | null>(null)
   const [cobroDe, setCobroDe] = useState<Comanda | null>(null)
-  const [reviewLive, setReviewLive] = useState<{ total: number; rating: number; diff: number; baselineFecha: string; esNuevaBase: boolean } | null>(null)
-  const [reviewError, setReviewError] = useState<string | null>(null)
 
-  // Recupera el último resultado guardado en el turno — así no se pierde si salís de la app
-  useEffect(() => {
-    setReviewLive(turnoActivo?.reviewLastCheck ?? null)
-  }, [turnoActivo?.id, turnoActivo?.reviewLastCheck])
-
-  const reviewCheck = useMutation({
-    mutationFn: () => api.reviews.live(rid),
-    onSuccess: data => {
-      setReviewLive(data)
-      setReviewError(null)
-      queryClient.invalidateQueries({ queryKey: ['turno-activo', rid] })
-    },
-    onError: (err: Error) => {
-      const status = err.message.match(/(\d{3})$/)?.[1]
-      setReviewError(
-        status === '429' ? 'Ya usaste las 3 consultas de este turno'
-        : status === '400' ? 'No se pudo consultar (revisá que el turno esté abierto)'
-        : 'Error al consultar Google Reviews'
-      )
-    },
+  const { data: reviewsList = [] } = useQuery({
+    queryKey: ['reviews-dashboard'],
+    queryFn: () => api.reviews.list(),
+    enabled: tab === 'reviews',
+    refetchInterval: 60_000,
   })
+  const reviewData = reviewsList.find(r => r.restaurantId === rid) ?? null
 
   const { data: facturadas = [] } = useQuery({
     queryKey: ['enc-cobros', rid, 'facturada'],
@@ -3299,60 +3283,52 @@ function EncargadoPanel({
           {/* ── Google Reviews en vivo ── */}
           {tab === 'reviews' && (
             <div className="space-y-3">
-              {(() => {
-                const usados = turnoActivo?.reviewChecksUsados ?? 0
-                const restantes = Math.max(3 - usados, 0)
-                return (
-                  <>
-                    <div className="bg-[var(--sala-srf)] rounded-3xl p-6 text-center">
-                      <p className="text-[var(--sala-tx3)] text-xs font-semibold uppercase tracking-wider">Reviews nuevas</p>
+              {!reviewData?.activo ? (
+                <p className="text-center text-[var(--sala-tx4)] text-sm py-6">La consulta automática de reviews no está activada para este restaurante</p>
+              ) : (
+                <>
+                  <div className="bg-[var(--sala-srf)] rounded-3xl p-6 text-center">
+                    <p className="text-[var(--sala-tx3)] text-xs font-semibold uppercase tracking-wider">Reviews nuevas</p>
 
-                      {reviewLive ? (
-                        <>
-                          {reviewLive.esNuevaBase ? (
-                            <>
-                              <p className="text-[var(--sala-tx4)] font-black text-6xl leading-none my-3">—</p>
-                              <p className="text-[var(--sala-tx2)] text-sm">Primera consulta de hoy, quedó como referencia</p>
-                            </>
-                          ) : (
-                            <>
-                              <p className={`font-black text-8xl leading-none my-2 tabular-nums ${reviewLive.diff > 0 ? 'text-[#4CC8A0]' : 'text-[var(--sala-tx3)]'}`}>
-                                {reviewLive.diff > 0 ? `+${reviewLive.diff}` : reviewLive.diff}
-                              </p>
-                              <p className="text-[var(--sala-tx2)] text-sm">desde las {fmtHora(reviewLive.baselineFecha)}</p>
-                            </>
-                          )}
-                          <div className="flex items-center justify-center gap-4 mt-4 pt-4 border-t border-[var(--sala-brd)]">
-                            <span className="text-[var(--sala-tx1)] text-sm font-bold">{reviewLive.total} total</span>
-                            <div className="flex items-center gap-1">
-                              <span className="text-amber-400">★</span>
-                              <span className="text-[var(--sala-tx1)] text-sm font-bold">{reviewLive.rating.toFixed(1)}</span>
-                            </div>
+                    {reviewData?.fecha ? (
+                      <>
+                        <p className={`font-black text-8xl leading-none my-2 tabular-nums ${reviewData.diff && reviewData.diff > 0 ? 'text-[#4CC8A0]' : 'text-[var(--sala-tx3)]'}`}>
+                          {reviewData.diff !== null ? (reviewData.diff > 0 ? `+${reviewData.diff}` : reviewData.diff) : '—'}
+                        </p>
+                        <p className="text-[var(--sala-tx2)] text-sm">última consulta {fmtHora(reviewData.fecha)}</p>
+                        <div className="flex items-center justify-center gap-4 mt-4 pt-4 border-t border-[var(--sala-brd)]">
+                          <span className="text-[var(--sala-tx1)] text-sm font-bold">{reviewData.total} total</span>
+                          <div className="flex items-center gap-1">
+                            <span className="text-amber-400">★</span>
+                            <span className="text-[var(--sala-tx1)] text-sm font-bold">{reviewData.rating?.toFixed(1)}</span>
                           </div>
-                        </>
-                      ) : (
-                        <p className="text-[var(--sala-tx4)] text-sm py-6">Todavía no consultaste este turno</p>
-                      )}
+                        </div>
+                      </>
+                    ) : (
+                      <p className="text-[var(--sala-tx4)] text-sm py-6">Todavía no hay ninguna consulta registrada</p>
+                    )}
+                  </div>
+
+                  {reviewData && reviewData.negativasNuevas.length > 0 && (
+                    <div className="space-y-2">
+                      {reviewData.negativasNuevas.map((n, i) => (
+                        <div key={i} className="bg-red-500/10 border border-red-500/30 rounded-2xl px-4 py-3">
+                          <p className="text-sm font-bold text-red-400">
+                            {'★'.repeat(n.rating)}{'☆'.repeat(5 - n.rating)} · {n.author}
+                          </p>
+                          {n.text && <p className="text-xs text-red-300 mt-1">"{n.text}"</p>}
+                        </div>
+                      ))}
                     </div>
+                  )}
 
-                    {reviewError && (
-                      <p className="text-center text-red-400 text-xs">{reviewError}</p>
-                    )}
-
-                    <button
-                      onClick={() => reviewCheck.mutate()}
-                      disabled={!turnoActivo || reviewCheck.isPending || restantes <= 0}
-                      className="w-full py-3 rounded-xl text-white font-black text-sm active:scale-95 transition-transform disabled:opacity-40"
-                      style={{ background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)' }}
-                    >
-                      {reviewCheck.isPending ? 'Consultando…' : `🔄 Actualizar ahora (quedan ${restantes}/3)`}
-                    </button>
-                    {!turnoActivo && (
-                      <p className="text-center text-[var(--sala-tx4)] text-xs">Necesitás el turno abierto para consultar</p>
-                    )}
-                  </>
-                )
-              })()}
+                  {reviewData?.posibleOculta && (
+                    <p className="text-center text-amber-400 text-xs">
+                      ⚠️ Entraron más reviews de las que se pueden mostrar en detalle — revisá Google Maps directamente
+                    </p>
+                  )}
+                </>
+              )}
             </div>
           )}
         </div>
