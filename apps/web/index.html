@@ -8,18 +8,21 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="OidoOps" />
-    <link rel="apple-touch-icon" href="/icon.svg" />
+    <link rel="apple-touch-icon" id="apple-touch-icon" href="/icon.svg" />
     <script>
-      // Manifest y título por app instalable (/sala, /pulso) — cada una necesita su propio
-      // start_url/scope para que Android/iOS la reconozcan como una app separada al "Añadir a inicio".
+      // Manifest, título e ícono por app instalable (/sala, /pulso, /admin) — cada una necesita su
+      // propio start_url/scope/ícono para que Android/iOS la reconozcan como una app separada.
       (function () {
         var path = window.location.pathname
-        var app = path.startsWith('/pulso') ? 'pulso' : path.startsWith('/sala') ? 'sala' : null
+        var app = path.startsWith('/pulso') ? 'pulso' : path.startsWith('/sala') ? 'sala' : path.startsWith('/admin') ? 'admin' : null
         if (!app) return
-        var title = app === 'pulso' ? 'OidoOps Pulso' : 'OidoOps Sala'
+        var titles = { pulso: 'OidoOps Pulso', sala: 'OidoOps Sala', admin: 'OidoOps Admin' }
+        var title = titles[app]
         document.title = title
         var appleTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]')
         if (appleTitle) appleTitle.setAttribute('content', title)
+        var appleIcon = document.getElementById('apple-touch-icon')
+        if (appleIcon) appleIcon.setAttribute('href', '/icon-' + app + '.svg')
         var link = document.createElement('link')
         link.rel = 'manifest'
         link.href = '/manifest-' + app + '.json'
