@@ -197,7 +197,7 @@ function ReviewsWidget() {
                   )}
                   {ratingBajo && (
                     <p className="text-xs text-red-500 mt-0.5">
-                      ⚠️ Rating bajó {r.ratingDiff} desde el chequeo anterior ({r.ratingAnterior?.toFixed(1)} → {r.rating?.toFixed(1)}) — revisar Google Maps
+                      ⚠️ Rating bajó {r.ratingDiff} hoy ({r.ratingAnterior?.toFixed(1)} → {r.rating?.toFixed(1)}) — revisar Google Maps
                     </p>
                   )}
                   {hayNegativas && (

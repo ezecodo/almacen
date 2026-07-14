@@ -3008,6 +3008,22 @@ function EncargadoPanel({
   })
   const reviewData = reviewsList.find(r => r.restaurantId === rid) ?? null
 
+  const { data: reviewHistorial = [] } = useQuery({
+    queryKey: ['reviews-historial', rid],
+    queryFn: () => api.reviews.historial(rid),
+    enabled: tab === 'reviews' && !!reviewData?.activo,
+  })
+
+  // Progreso del objetivo — pax y reviews desde que se abrió ESTE turno, no desde las 17:44
+  const { data: reviewTurno } = useQuery({
+    queryKey: ['reviews-turno', rid, turnoActivo?.id],
+    queryFn: () => api.reviews.turno(rid, turnoActivo!.aperturaAt),
+    enabled: tab === 'reviews' && !!reviewData?.activo && !!turnoActivo,
+    refetchInterval: 60_000,
+  })
+  const fmtDiaHora = (iso: string) => new Date(iso).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+  const fmtDia = (iso: string) => new Date(iso).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
+
   const { data: facturadas = [] } = useQuery({
     queryKey: ['enc-cobros', rid, 'facturada'],
     queryFn: () => api.comandas.list(rid, 'facturada'),
@@ -3295,7 +3311,9 @@ function EncargadoPanel({
                         <p className={`font-black text-8xl leading-none my-2 tabular-nums ${reviewData.diff && reviewData.diff > 0 ? 'text-[#4CC8A0]' : 'text-[var(--sala-tx3)]'}`}>
                           {reviewData.diff !== null ? (reviewData.diff > 0 ? `+${reviewData.diff}` : reviewData.diff) : '—'}
                         </p>
-                        <p className="text-[var(--sala-tx2)] text-sm">última consulta {fmtHora(reviewData.fecha)}</p>
+                        <p className="text-[var(--sala-tx2)] text-sm">
+                          {reviewData.ventanaInicio ? `desde ${fmtDiaHora(reviewData.ventanaInicio)}` : ''} · última consulta {fmtHora(reviewData.fecha)}
+                        </p>
                         <div className="flex items-center justify-center gap-4 mt-4 pt-4 border-t border-[var(--sala-brd)]">
                           <span className="text-[var(--sala-tx1)] text-sm font-bold">{reviewData.total} total</span>
                           <div className="flex items-center gap-1">
@@ -3308,6 +3326,31 @@ function EncargadoPanel({
                       <p className="text-[var(--sala-tx4)] text-sm py-6">Todavía no hay ninguna consulta registrada</p>
                     )}
                   </div>
+
+                  {reviewTurno?.objetivo !== null && reviewTurno?.objetivo !== undefined && reviewTurno.diff !== null && (
+                    <div className="bg-[var(--sala-srf)] rounded-2xl p-4">
+                      {(() => {
+                        const pct = Math.min(100, Math.round((reviewTurno.diff! / reviewTurno.objetivo!) * 100))
+                        return (
+                          <>
+                            <div className="flex items-center justify-between mb-1.5">
+                              <span className="text-[var(--sala-tx3)] text-xs font-semibold uppercase tracking-wider">Cómo va el turno</span>
+                              <span className={`text-xs font-bold ${pct >= 100 ? 'text-[#4CC8A0]' : 'text-[var(--sala-tx2)]'}`}>{pct}%</span>
+                            </div>
+                            <div className="h-1.5 bg-black/10 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all ${pct >= 100 ? 'bg-[#4CC8A0]' : 'bg-[#4B9EDF]'}`}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                            <p className="text-[var(--sala-tx3)] text-xs mt-1.5">
+                              {reviewTurno.diff} / {reviewTurno.objetivo} reviews ({reviewTurno.pax} pax en este turno)
+                            </p>
+                          </>
+                        )
+                      })()}
+                    </div>
+                  )}
 
                   {reviewData && reviewData.negativasNuevas.length > 0 && (
                     <div className="space-y-2">
@@ -3326,6 +3369,22 @@ function EncargadoPanel({
                     <p className="text-center text-amber-400 text-xs">
                       ⚠️ Entraron más reviews de las que se pueden mostrar en detalle — revisá Google Maps directamente
                     </p>
+                  )}
+
+                  {reviewHistorial.length > 0 && (
+                    <div className="bg-[var(--sala-srf)] rounded-2xl p-4">
+                      <p className="text-[var(--sala-tx3)] text-xs font-semibold uppercase tracking-wider mb-2">Días anteriores</p>
+                      <div className="space-y-1.5">
+                        {reviewHistorial.map(h => (
+                          <div key={h.fecha} className="flex items-center justify-between text-sm">
+                            <span className="text-[var(--sala-tx2)]">{fmtDia(h.fecha)}</span>
+                            <span className={`font-bold tabular-nums ${h.diff > 0 ? 'text-[#4CC8A0]' : 'text-[var(--sala-tx3)]'}`}>
+                              {h.diff > 0 ? `+${h.diff}` : h.diff}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </>
               )}

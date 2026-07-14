@@ -854,11 +854,14 @@ export const api = {
     list: () => get<{
       restaurantId: number; nombre: string; activo: boolean
       total: number | null; rating: number | null; ratingAnterior: number | null; ratingDiff: number | null
-      diff: number | null; fecha: string | null
+      diff: number | null; fecha: string | null; ventanaInicio: string | null
       negativasNuevas: { rating: number; text: string; author: string; time: number }[]
       posibleOculta: boolean
       totalMes: number | null; tasa: number | null; paxMes: number; objetivoDinamico: number | null
     }[]>('/reviews'),
+    historial: (restaurantId: number) => get<{ fecha: string; diff: number }[]>(`/reviews/historial?restaurantId=${restaurantId}`),
+    turno: (restaurantId: number, desde: string) =>
+      get<{ pax: number; diff: number | null; objetivo: number | null; tasa: number | null; total: number | null; rating: number | null }>(`/reviews/turno?restaurantId=${restaurantId}&desde=${encodeURIComponent(desde)}`),
     setObjetivo: (restaurantId: number, tasa: number) => patch<{ restaurantId: number; tasa: number | null }>('/reviews/objetivo', { restaurantId, tasa }),
     setActivo: (restaurantId: number, activo: boolean) => patch<{ restaurantId: number; activo: boolean }>('/reviews/activo', { restaurantId, activo }),
   },
