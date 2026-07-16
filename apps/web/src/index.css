@@ -2,6 +2,23 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── SalaMesasPage — escala según ancho real de pantalla ──────────────────────
+   Casi todo el sizing de Tailwind (text-*, w-*, h-*, p-*, gap-*) usa rem, es decir
+   relativo a este font-size raíz — así que reescalarlo acá reescala en cascada TODA
+   la app de sala sin tocar cada componente. En rango teléfono queda igual que hoy
+   (16px, sin cambios); a partir de ancho tablet se achica para que los tiles/textos
+   no queden gigantes en pantallas grandes tipo SUNMI. Valores provisorios — afinar
+   cuando tengamos la resolución real del dispositivo. */
+[data-sala-theme] {
+  font-size: 16px;
+}
+@media (min-width: 700px) {
+  [data-sala-theme] { font-size: 13px; }
+}
+@media (min-width: 1400px) {
+  [data-sala-theme] { font-size: 11px; }
+}
+
 /* ── SalaMesasPage — sistema de temas ─────────────────────────────────────── */
 [data-sala-theme="dark"] {
   --sala-bg:    #111827;

@@ -59,6 +59,16 @@ const COLD_KEYWORDS = ['tartare','tatar','tártar','burrata','stracciatella','ca
 // cubre 'Bebidas', 'Vinos', 'Vinos Botella', 'VINOS'… sin depender del nombre exacto.
 const esGrupoBarra = (g: string) => /vino|bebida/i.test(g)
 
+// Umbrales de swipe relativos al tamaño real de pantalla (no px fijos) — un mismo gesto
+// físico cubre una fracción de pantalla muy distinta en un teléfono que en una tablet
+// grande tipo SUNMI, así que un valor fijo (ej: 80px) queda mal calibrado en una u otra.
+function swipeThresholds() {
+  return {
+    dx: Math.max(60, window.innerWidth * 0.12),
+    dy: Math.max(50, window.innerHeight * 0.08),
+  }
+}
+
 function suggestNivel(nombre: string, menu: MenuItem[]): number {
   const categoria = menu.find(m => m.nombre === nombre)?.categoria ?? ''
   const base = NIVEL_PATTERNS.find(([re]) => re.test(categoria))?.[1] ?? 3
@@ -322,7 +332,8 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
           if (!st) return
           const dx = e.changedTouches[0].clientX - st.x
           const dy = e.changedTouches[0].clientY - st.y
-          if (Math.abs(dx) > 90 && Math.abs(dy) < 70) onClose()
+          const th = swipeThresholds()
+          if (Math.abs(dx) > th.dx && Math.abs(dy) < th.dy) onClose()
         }}>
         <div className="px-5 pt-5 pb-3 border-b border-[var(--sala-brd)]">
           <div className="flex items-center justify-between mb-3">
@@ -1107,8 +1118,9 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
           if (!s) return
           const dx = e.changedTouches[0].clientX - s.x
           const dy = e.changedTouches[0].clientY - s.y
+          const th = swipeThresholds()
           // Cualquier dirección horizontal (como el swipe de niveles de la carta)
-          if (Math.abs(dx) <= 90 || Math.abs(dy) >= 70) return
+          if (Math.abs(dx) <= th.dx || Math.abs(dy) >= th.dy) return
           // Progresión del gesto: Pedido → Carta (categorías) → Mapa
           if (tab === 'pedido') {
             // Entró a mirar el pedido → seguir a la carta para agregar cosas
@@ -1431,7 +1443,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                   onTouchStart={e => { swipeRef.current = e.touches[0].clientX }}
                   onTouchEnd={e => {
                     // Swipe horizontal en cualquier dirección → un nivel atrás
-                    if (swipeRef.current !== null && Math.abs(e.changedTouches[0].clientX - swipeRef.current) > 80)
+                    if (swipeRef.current !== null && Math.abs(e.changedTouches[0].clientX - swipeRef.current) > swipeThresholds().dx)
                       selectedSub ? setSelectedSub(null) : setSelectedCat(null)
                     swipeRef.current = null
                   }}>
@@ -1479,7 +1491,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                 <div className="flex-1 overflow-y-auto p-2"
                   onTouchStart={e => { swipeRef.current = e.touches[0].clientX }}
                   onTouchEnd={e => {
-                    if (swipeRef.current !== null && Math.abs(e.changedTouches[0].clientX - swipeRef.current) > 80 && grupos.length > 1)
+                    if (swipeRef.current !== null && Math.abs(e.changedTouches[0].clientX - swipeRef.current) > swipeThresholds().dx && grupos.length > 1)
                       setGrupoTab(null)
                     swipeRef.current = null
                   }}>
