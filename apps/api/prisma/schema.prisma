@@ -447,6 +447,15 @@ model Reserva {
   estado       String        @default("confirmada")
   origen       String        @default("web")
   createdAt    DateTime      @default(now())
+
+  // Pool de reservas entre restaurantes: cuando el restaurante que la recibió no tiene espacio,
+  // la ofrece al resto del grupo (ver roadmap en CLAUDE.md, punto 6)
+  enPool               Boolean   @default(false)
+  poolMotivo           String?
+  poolDesde            DateTime?
+  poolGestionandoPor   String? // lock blando: nombre del encargado que está llamando al cliente
+  poolGestionandoDesde DateTime?
+  restaurantIdOrigen   Int? // restaurante donde entró originalmente (se conserva aunque ya la haya tomado otro)
 }
 
 // Plantillas de menú cerrado para grupos

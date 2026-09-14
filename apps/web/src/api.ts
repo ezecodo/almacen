@@ -1,8 +1,17 @@
 const BASE = '/api'
 
+// Si el backend responde con { error: "..." } lo usamos como mensaje; si no, el fallback genérico.
+async function errorMessage(res: Response, fallback: string): Promise<string> {
+  try {
+    const data = await res.clone().json()
+    if (data && typeof data.error === 'string') return data.error
+  } catch {}
+  return fallback
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`)
-  if (!res.ok) throw new Error(`GET ${path} failed: ${res.status}`)
+  if (!res.ok) throw new Error(await errorMessage(res, `GET ${path} failed: ${res.status}`))
   return res.json() as Promise<T>
 }
 
@@ -12,7 +21,7 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  if (!res.ok) throw new Error(`POST ${path} failed: ${res.status}`)
+  if (!res.ok) throw new Error(await errorMessage(res, `POST ${path} failed: ${res.status}`))
   return res.json() as Promise<T>
 }
 
@@ -173,13 +182,13 @@ async function patch<T>(path: string, body: unknown): Promise<T> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  if (!res.ok) throw new Error(`PATCH ${path} failed: ${res.status}`)
+  if (!res.ok) throw new Error(await errorMessage(res, `PATCH ${path} failed: ${res.status}`))
   return res.json() as Promise<T>
 }
 
 async function del(path: string): Promise<void> {
   const res = await fetch(`${BASE}${path}`, { method: 'DELETE' })
-  if (!res.ok) throw new Error(`DELETE ${path} failed: ${res.status}`)
+  if (!res.ok) throw new Error(await errorMessage(res, `DELETE ${path} failed: ${res.status}`))
 }
 
 async function put<T>(path: string, body: unknown): Promise<T> {
@@ -188,7 +197,7 @@ async function put<T>(path: string, body: unknown): Promise<T> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  if (!res.ok) throw new Error(`PUT ${path} failed: ${res.status}`)
+  if (!res.ok) throw new Error(await errorMessage(res, `PUT ${path} failed: ${res.status}`))
   return res.json() as Promise<T>
 }
 
@@ -564,6 +573,13 @@ export interface Reserva {
   estado: string
   origen: string
   createdAt: string
+  enPool: boolean
+  poolMotivo: string | null
+  poolDesde: string | null
+  poolGestionandoPor: string | null
+  poolGestionandoDesde: string | null
+  restaurantIdOrigen: number | null
+  restaurant?: { nombre: string }
 }
 
 export interface SlotDisponible {
@@ -975,6 +991,12 @@ export const api = {
     getPublicConfig: (slug: string) => get<{ restaurantNombre: string; slug: string; activo: boolean; maxPaxPorSlot: number; duracionMin: number; diasAntelacion: number; horarios: ReservaHorario[] }>(`/reservas/publica/config?slug=${slug}`),
     getSlots: (slug: string, fecha: string, pax: number) => get<SlotDisponible[]>(`/reservas/publica/slots?slug=${slug}&fecha=${fecha}&pax=${pax}`),
     createPublica: (body: { slug: string; fecha: string; hora: string; pax: number; nombre: string; telefono: string; email?: string; notas?: string }) => post<Reserva>('/reservas/publica', body),
+    poolList: () => get<Reserva[]>('/reservas/pool'),
+    poolEnviar: (id: number, motivo?: string) => patch<Reserva>(`/reservas/${id}/pool`, { motivo }),
+    poolCancelar: (id: number) => patch<Reserva>(`/reservas/${id}/pool/cancelar`, {}),
+    poolGestionar: (id: number, encargado: string) => patch<Reserva>(`/reservas/${id}/pool/gestionar`, { encargado }),
+    poolLiberar: (id: number) => patch<Reserva>(`/reservas/${id}/pool/liberar`, {}),
+    poolTomar: (id: number, restaurantId: number, encargado: string) => patch<Reserva>(`/reservas/${id}/pool/tomar`, { restaurantId, encargado }),
   },
   staffing: {
     getTipos: (restaurantId: number) => get<TurnoTipo[]>(`/staffing/tipos?restaurantId=${restaurantId}`),

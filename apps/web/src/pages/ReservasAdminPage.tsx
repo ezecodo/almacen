@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, Restaurante, ReservaHorario, Reserva } from '../api'
+import { useAdminEvents } from '../hooks/useAdminEvents'
+
+const POOL_LOCK_TIMEOUT_MS = 10 * 60 * 1000 // debe coincidir con POOL_LOCK_TIMEOUT_MS del backend
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -70,6 +73,16 @@ function TabReservas({ restaurantes }: { restaurantes: Restaurante[] }) {
 
   const deleteMut = useMutation({
     mutationFn: (id: number) => api.reservas.delete(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['reservas', restaurantId] }),
+  })
+
+  const poolEnviarMut = useMutation({
+    mutationFn: ({ id, motivo }: { id: number; motivo?: string }) => api.reservas.poolEnviar(id, motivo),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['reservas', restaurantId] }),
+  })
+
+  const poolCancelarMut = useMutation({
+    mutationFn: (id: number) => api.reservas.poolCancelar(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['reservas', restaurantId] }),
   })
 
@@ -248,6 +261,28 @@ function TabReservas({ restaurantes }: { restaurantes: Restaurante[] }) {
                   {r.origen === 'manual' && (
                     <span className="text-xs bg-yellow-900 text-yellow-300 px-1.5 py-0.5 rounded">Manual</span>
                   )}
+                  {r.enPool ? (
+                    <>
+                      <span className="text-xs bg-amber-900 text-amber-300 px-1.5 py-0.5 rounded">🔄 En pool</span>
+                      <button
+                        onClick={() => poolCancelarMut.mutate(r.id)}
+                        className="text-xs px-2 py-1 rounded bg-gray-700 text-gray-300 hover:bg-gray-600 transition-colors"
+                      >
+                        Sacar del pool
+                      </button>
+                    </>
+                  ) : r.estado === 'confirmada' ? (
+                    <button
+                      onClick={() => {
+                        if (!confirm(`¿Ofrecer la reserva de ${r.nombre} (${r.hora}) al resto de restaurantes?`)) return
+                        const motivo = prompt('Motivo (opcional, para que el que la tome sepa por qué no entró acá):') ?? ''
+                        poolEnviarMut.mutate({ id: r.id, motivo: motivo || undefined })
+                      }}
+                      className="text-xs px-2 py-1 rounded bg-cyan-800 text-cyan-200 hover:bg-cyan-700 transition-colors"
+                    >
+                      🔄 Enviar al pool
+                    </button>
+                  ) : null}
                   <select
                     value={r.estado}
                     onChange={(e) => updateEstadoMut.mutate({ id: r.id, estado: e.target.value })}
@@ -270,6 +305,176 @@ function TabReservas({ restaurantes }: { restaurantes: Restaurante[] }) {
             </div>
           )}
         </>
+      )}
+    </div>
+  )
+}
+
+// ─── Tab Pool (reservas ofrecidas entre restaurantes) ─────────────────────────
+
+function useEncargadoNombre() {
+  const [nombre, setNombre] = useState(() => localStorage.getItem('reservas_pool_nombre') || '')
+  const cambiar = () => {
+    const n = prompt('¿Cómo te llamás? (para que los demás encargados sepan quién está gestionando cada reserva)', nombre)
+    if (n && n.trim()) {
+      localStorage.setItem('reservas_pool_nombre', n.trim())
+      setNombre(n.trim())
+    }
+  }
+  return { nombre, cambiar }
+}
+
+function lockActivo(r: Reserva) {
+  if (!r.poolGestionandoPor || !r.poolGestionandoDesde) return false
+  return Date.now() - new Date(r.poolGestionandoDesde).getTime() < POOL_LOCK_TIMEOUT_MS
+}
+
+function TabPool({ restaurantes }: { restaurantes: Restaurante[] }) {
+  const qc = useQueryClient()
+  const { nombre, cambiar } = useEncargadoNombre()
+  const [tomandoId, setTomandoId] = useState<number | null>(null)
+  const [restauranteDestino, setRestauranteDestino] = useState<number | ''>('')
+
+  useAdminEvents()
+
+  const { data: pool = [], isLoading } = useQuery({
+    queryKey: ['reservas-pool'],
+    queryFn: () => api.reservas.poolList(),
+    refetchInterval: 30_000, // fallback si se corta la conexión SSE
+  })
+
+  const invalidar = () => {
+    qc.invalidateQueries({ queryKey: ['reservas-pool'] })
+    qc.invalidateQueries({ queryKey: ['reservas'] })
+  }
+
+  const gestionarMut = useMutation({
+    mutationFn: (id: number) => api.reservas.poolGestionar(id, nombre),
+    onSuccess: invalidar,
+    onError: (e: Error) => alert(e.message || 'No se pudo tomar la gestión de esta reserva'),
+  })
+
+  const liberarMut = useMutation({
+    mutationFn: (id: number) => api.reservas.poolLiberar(id),
+    onSuccess: invalidar,
+  })
+
+  const tomarMut = useMutation({
+    mutationFn: ({ id, restaurantId }: { id: number; restaurantId: number }) => api.reservas.poolTomar(id, restaurantId, nombre),
+    onSuccess: () => {
+      invalidar()
+      setTomandoId(null)
+      setRestauranteDestino('')
+    },
+    onError: (e: Error) => alert(e.message || 'No se pudo tomar la reserva — puede que ya no esté disponible'),
+  })
+
+  const nombreRestaurante = (id: number) => restaurantes.find((r) => r.id === id)?.nombre ?? `Restaurante #${id}`
+
+  return (
+    <div className="p-6 max-w-3xl mx-auto">
+      <div className="flex items-start justify-between gap-3 mb-6">
+        <p className="text-gray-400 text-sm">
+          Reservas que otros restaurantes no pudieron aceptar. Llamá al cliente, confirmá el cambio y tomala para el tuyo.
+        </p>
+        <button
+          onClick={cambiar}
+          className="shrink-0 px-3 py-1.5 rounded-lg bg-gray-800 text-gray-300 text-xs hover:bg-gray-700 transition-colors"
+        >
+          {nombre ? `👤 ${nombre}` : '👤 Poner mi nombre'}
+        </button>
+      </div>
+
+      {isLoading ? (
+        <div className="text-gray-400">Cargando...</div>
+      ) : pool.length === 0 ? (
+        <div className="bg-gray-800 rounded-xl p-8 text-center text-gray-400">No hay reservas en el pool ahora mismo.</div>
+      ) : (
+        <div className="space-y-3">
+          {pool.map((r) => {
+            const locked = lockActivo(r)
+            const esMiLock = locked && r.poolGestionandoPor === nombre
+
+            return (
+              <div key={r.id} className="bg-gray-800 rounded-xl p-4 border border-gray-700">
+                <div className="flex flex-wrap items-center gap-3 mb-2">
+                  <span className="text-white font-mono font-medium">
+                    {new Date(r.fecha).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })} · {r.hora}
+                  </span>
+                  <span className="text-gray-300 text-sm">{r.pax} pax</span>
+                  <span className="text-white font-medium flex-1 min-w-[120px]">{r.nombre}</span>
+                  <span className="text-xs bg-cyan-900 text-cyan-300 px-2 py-0.5 rounded">
+                    de {r.restaurant?.nombre ?? nombreRestaurante(r.restaurantId)}
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3 mb-3">
+                  <a href={`tel:${r.telefono}`} className="text-cyan-400 text-sm underline">📞 {r.telefono}</a>
+                  {r.poolMotivo && <span className="text-gray-500 text-xs italic">· {r.poolMotivo}</span>}
+                </div>
+
+                {locked && !esMiLock && (
+                  <div className="text-amber-400 text-sm">🔒 {r.poolGestionandoPor} la está gestionando</div>
+                )}
+
+                {!locked && (
+                  <button
+                    onClick={() => (nombre ? gestionarMut.mutate(r.id) : cambiar())}
+                    disabled={gestionarMut.isPending}
+                    className="px-3 py-1.5 rounded-lg bg-cyan-600 text-white text-sm font-medium hover:bg-cyan-700 disabled:opacity-50 transition-colors"
+                  >
+                    📞 Voy a gestionarla
+                  </button>
+                )}
+
+                {esMiLock && tomandoId !== r.id && (
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => setTomandoId(r.id)}
+                      className="px-3 py-1.5 rounded-lg bg-green-700 text-white text-sm font-medium hover:bg-green-600 transition-colors"
+                    >
+                      ✓ Cliente confirmó — tomar
+                    </button>
+                    <button
+                      onClick={() => liberarMut.mutate(r.id)}
+                      className="px-3 py-1.5 rounded-lg bg-gray-700 text-gray-300 text-sm hover:bg-gray-600 transition-colors"
+                    >
+                      Soltar
+                    </button>
+                  </div>
+                )}
+
+                {esMiLock && tomandoId === r.id && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      value={restauranteDestino}
+                      onChange={(e) => setRestauranteDestino(e.target.value ? parseInt(e.target.value, 10) : '')}
+                      className="bg-gray-700 text-white rounded-lg px-3 py-2 text-sm border border-gray-600 focus:outline-none focus:border-cyan-500"
+                    >
+                      <option value="">Mi restaurante...</option>
+                      {restaurantes.filter((rt) => rt.id !== r.restaurantId).map((rt) => (
+                        <option key={rt.id} value={rt.id}>{rt.nombre}</option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={() => restauranteDestino && tomarMut.mutate({ id: r.id, restaurantId: restauranteDestino })}
+                      disabled={!restauranteDestino || tomarMut.isPending}
+                      className="px-3 py-1.5 rounded-lg bg-green-700 text-white text-sm font-medium hover:bg-green-600 disabled:opacity-50 transition-colors"
+                    >
+                      {tomarMut.isPending ? 'Tomando...' : 'Confirmar'}
+                    </button>
+                    <button
+                      onClick={() => setTomandoId(null)}
+                      className="px-3 py-1.5 rounded-lg bg-gray-700 text-gray-300 text-sm hover:bg-gray-600 transition-colors"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
       )}
     </div>
   )
@@ -624,7 +829,7 @@ function TabConfiguracion({ restaurantes }: { restaurantes: Restaurante[] }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ReservasAdminPage() {
-  const [tab, setTab] = useState<'reservas' | 'config'>('reservas')
+  const [tab, setTab] = useState<'reservas' | 'pool' | 'config'>('reservas')
 
   const { data: restaurantes = [] } = useQuery({
     queryKey: ['restaurantes'],
@@ -648,6 +853,16 @@ export default function ReservasAdminPage() {
             Reservas
           </button>
           <button
+            onClick={() => setTab('pool')}
+            className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+              tab === 'pool'
+                ? 'bg-gray-800 text-white border-b-2 border-cyan-500'
+                : 'text-gray-400 hover:text-gray-200'
+            }`}
+          >
+            🔄 Pool
+          </button>
+          <button
             onClick={() => setTab('config')}
             className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
               tab === 'config'
@@ -662,6 +877,8 @@ export default function ReservasAdminPage() {
 
       {tab === 'reservas' ? (
         <TabReservas restaurantes={restaurantes} />
+      ) : tab === 'pool' ? (
+        <TabPool restaurantes={restaurantes} />
       ) : (
         <TabConfiguracion restaurantes={restaurantes} />
       )}

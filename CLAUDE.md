@@ -17,10 +17,11 @@ Módulos activos:
 ## Roadmap (acordado con Eze, pendiente de implementar)
 
 1. **Restricción por red WiFi del restaurante** (para usar Handys del personal): allowlist de IPs públicas por restaurante en el servidor — tabla `RedAutorizada` + middleware Fastify sobre las rutas de sala (comandas/cobros). El PIN sigue siendo *quién sos*; la IP es *dónde estás*. Botón **"Autorizar esta red"** en el panel 💼 del encargado (guarda la IP pública actual con etiqueta + caducidad ~90 días; si el ISP rota la IP, el encargado re-autoriza en segundos). El admin/dashboard queda FUERA de la restricción (accesible desde cualquier lado). Nunca validar en el cliente — solo server-side vía `X-Forwarded-For` de Nginx.
-2. **Kit de local (hardware llave en mano por restaurante)**: router propio con SSID dedicado (los PADs/Handys se conectan ahí → su IP pública es la autorizada del punto 1) + switch + **Raspberry Pi 4 (4GB) con monitor** + impresoras térmicas ESC/POS Ethernet (cocina y barra). La Pi: (a) servicio de impresión — conexión *saliente* al VPS (SSE/polling), imprime por TCP 9100, sin abrir puertos; (b) **puesto fijo del encargado** — Chromium en kiosco con la app abierta (dashboard de mesas / modo encargado): visión panorámica del salón para cerrar mesas, armar menús de grupos, etc. Reemplaza los ordenadores que hoy tienen en cada sala (abajo y arriba). **Confirmado: 2 Pi + 2 monitores táctiles por local** (una por planta; solo una Pi lleva el servicio de impresión + heartbeat, la otra es puro kiosco). **Cajón de efectivo**: se conecta por RJ11 al puerto DK de la térmica (no a la Pi); se abre con comando ESC/POS `ESC p` → al cobrar en efectivo desde el CobroSheet, el servicio de impresión imprime el ticket y abre el cajón; con tarjeta no se abre; (c) heartbeat al VPS que refresca automáticamente la IP autorizada (elimina el botón manual del punto 1). Gotcha hardware: Pi 4 usa micro-HDMI; comprar microSD nueva o boot USB; fuente USB-C 3A de calidad. Eze prototipa con Pi + 2 impresoras usadas.
+2. **Kit de local (hardware llave en mano por restaurante)**: router propio con SSID dedicado (los PADs/Handys se conectan ahí → su IP pública es la autorizada del punto 1) + switch + **Raspberry Pi 4 (4GB) con monitor** + impresoras térmicas ESC/POS Ethernet (cocina y barra). La Pi: (a) servicio de impresión — conexión *saliente* al VPS (SSE/polling), imprime por TCP 9100, sin abrir puertos; (b) **puesto fijo del encargado** — Chromium en kiosco con la app abierta (dashboard de mesas / modo encargado): visión panorámica del salón para cerrar mesas, armar menús de grupos, etc. Reemplaza los ordenadores que hoy tienen en cada sala (abajo y arriba). **Confirmado: 2 Pi + 2 monitores táctiles por local** (una por planta; solo una Pi lleva el servicio de impresión + heartbeat, la otra es puro kiosco). **Cajón de efectivo**: se conecta por RJ11 al puerto DK de la térmica (no a la Pi); se abre con comando ESC/POS `ESC p` → al cobrar en efectivo desde el CobroSheet, el servicio de impresión imprime el ticket y abre el cajón; con tarjeta no se abre; (c) heartbeat al VPS que refresca automáticamente la IP autorizada (elimina el botón manual del punto 1). Gotcha hardware: Pi 4 usa micro-HDMI; comprar microSD nueva o boot USB; fuente USB-C 3A de calidad. Eze prototipa con Pi + 2 impresoras usadas (**Epson TM-T20II**, modelo (003) con USB + Ethernet integrados simultáneos — no hay que elegir interfaz, ambas funcionan a la vez). **Gotcha probado en Mac (2026-07-24)**: conectar la impresora por Ethernet directo a un hub USB-C (sin pasar por el router) crea un enlace aislado Mac↔impresora — la impresora cae en su IP fija de fábrica `192.168.192.168` (o auto-IP `169.254.x.x` si eso falla), y macOS trata esa ruta como *scoped* a la interfaz del hub: el ARP resuelve pero el tráfico real (ping/TCP) sigue fallando con "no route to host" incluso forzando la interfaz — no vale la pena pelearlo. Para el kit final, la impresora tiene que estar en la misma LAN que la Pi vía switch, igual que cualquier otro dispositivo. Para probar rápido sin acercar cable al router: iba por **USB directo** (cable USB-B de la impresora, sin el hub intermediando) — al reinstalarla eligiendo la interfaz USB en el instalador de Epson, macOS la reconoció sola (`system_profiler SPUSBDataType` la mostró como `TM-T20II`, `CLS:PRINTER`) y quedó andando por CUPS (`lp -d EPSON_TM_T20II`) sin más configuración.
 3. **RBAC en dashboard** (ver memoria): encargado sin precios de coste, chef con costes, admin total.
 4. **Monitoreo/alertas + Dockerizar el deploy** (idea 2026-07-13, sin definir alcance todavía): hoy nadie se entera si el VPS o la API se caen hasta que avisa el cliente — falta un chequeo de uptime con alerta al teléfono. Dockerizar el deploy (hoy es `git pull` + `pm2 restart` directo sobre el VPS) daría rollback rápido y un entorno reproducible; se evaluaría dejando la Postgres nativa fuera del contenedor (no tocar cómo vive hoy).
 5. **VeriFactu** (⚠️ importante, obligatorio desde el **1 de enero de 2027**, sin diseñar todavía): sistema antifraude español (RD 1007/2021 + Ley Antifraude) — el software de facturación tiene que generar un registro por cada factura/ticket **encadenado por hash** (SHA-256, cada registro referencia el hash del anterior, tipo mini-blockchain — cualquier alteración/borrado rompe la cadena y se detecta), con **QR** impreso para verificación, y modalidad **VERI\*FACTU** (envío casi en tiempo real a la AEAT) o no-VERI\*FACTU (se guarda local con la misma cadena, disponible ante una inspección). Choca de frente con el flujo actual de "cuenta desactualizada" (hoy una comanda `facturada` se puede seguir editando — merma, invitación — y se reimprime; con VeriFactu una factura emitida no se edita, se corrige con una **rectificativa** nueva). **Pendiente clave antes de diseñar nada**: confirmar con la gestoría de la clienta si el ticket de OidoOps es la factura simplificada fiscal real del negocio, o si la contabilidad formal corre por otro software aparte (común en hostelería) — de eso depende si esto aplica a la app o no.
+6. ~~Pool de reservas entre restaurantes~~ — **implementado 2026-09-14** en `/admin/reservas` y en `/sala` (panel 💼 → "📅 Reservas"), ver sección "Pool de reservas entre restaurantes" dentro de **Módulo: Reservas** más abajo. Pendiente: notificación proactiva al entrar algo al pool (hoy hay que tener la pestaña abierta).
 
 ## Contexto de negocio
 
@@ -240,11 +241,13 @@ Mueve items de una comanda (source) a otra (target):
 Un empleado con `rol='encargado'` **o** `accesoEncargadoApp=true` ve la app de sala igual que un camarero + herramientas admin. `accesoEncargadoApp` es el "superpoder" temporal: se configura en **Editar empleado → sección "TPV"** (`/admin/empleados`, visible solo para tipo sala con rol ≠ encargado) — pensado para emergencias a mitad de turno. En la lista se ve con el badge **💼 TPV**. Es **independiente** de `puedeEncargado`, que es solo un concepto del auto-planning. El empleado debe re-logearse con su PIN para que el cambio surta efecto (el flag viaja en la sesión).
 
 - **Login** (`SalaLoginPage`): la sesión `sessionStorage['oidoops_camarero']` guarda también `rol` y `accesoEncargadoApp`. `esEncargado` se deriva en `SalaMesasPage`.
-- **Botón 💼 en el header** → `EncargadoPanel` (sheet lateral, tema sala) con 4 tabs:
+- **Botón 💼 en el header** → `EncargadoPanel` (sheet lateral, tema sala) con varias tabs (fila con scroll horizontal, no todas caben en pantalla a la vez):
   - **💶 Cobros**: comandas `facturada`+`liberada` con items → botón "Cobrar mesa" abre el **`CobroSheet`**: mismo flujo que el dashboard (método de pago, importe recibido con **cambio** en efectivo, **propina** = exceso sobre el total con tarjeta) → `PATCH /comandas/:id/cerrar` con `propina`. El mismo sheet se usa desde el botón "💶 Cobrar mesa" del `ComandaPanel` (mesa facturada, solo encargado).
   - **⏱ Turno**: abrir turno (`POST /turnos` con su nombre) / cerrar con doble confirmación (aviso ámbar si hay mesas activas o cobros pendientes) → muestra resumen de totales al cerrar.
   - **✅ Checklists**: estado de hoy por sector (apertura/cierre, quién, hora, marcados/total) via `GET /checklists?restaurantId`.
   - **🗑 Mermas**: mermas del día con total € via `GET /mermas?desde=hoy&hasta=hoy`.
+  - **📅 Reservas** (implementado 2026-09-14): sub-tabs "Hoy" / "🔄 Pool" — ver detalle completo en el pool de reservas dentro de **Módulo: Reservas**. Usa la identidad real del camarero logueado (`camarero.nombre`, sin pedir nombre a mano como en `/admin`) y sin diálogos nativos (`prompt`/`confirm`): el motivo al enviar al pool es un input inline, siguiendo la convención del resto de `/sala`.
+  - **⭐ Reviews**: ver sección Google Reviews más abajo.
 - **Pantalla "Turno no iniciado"**: si es encargado muestra botón "▶ Abrir turno" en vez del mensaje pasivo.
 - **Cobro directo en `ComandaPanel`**: prop `esEncargado` — en mesas `facturada` aparecen botones "💶 Cobrar efectivo / 💳 Cobrar tarjeta" junto a "Mesa libre".
 - **Backend endurecido**: `PATCH /comandas/:id/cerrar` ahora exige `metodoPago` (cash|tarjeta) y estado previo `facturada`|`liberada` (409 si no; antes no validaba nada).
@@ -288,26 +291,30 @@ Sistema de reparto de propinas por turno. Registro de efectivo + tarjeta del dí
 
 ### Google Reviews
 
-Widget en el dashboard admin (`AdminHomePage`) que muestra por restaurante:
-- Rating actual ★ + total de reseñas
-- Diferencial diario (`diff` hoy)
-- **Alerta ⚠️** si el rating bajó respecto al snapshot anterior (`ratingDiff < 0`) — fondo rojo, manager debe revisar Google Maps
-- **Barra de progreso mensual**: objetivo dinámico = `floor(paxMes / tasa)`. La tasa (1 review cada X comensales) se configura por restaurante con el ⚙️ del widget.
+Sistema de monitoreo automático por restaurante, con activación individual (`Restaurant.reviewsCheckActivo Boolean`) — hoy solo **Sensi Tapas** lo tiene prendido; el resto se activa con un checkbox, sin tocar código. Se apaga por defecto para restaurantes nuevos.
 
-**Snapshots**: cron diario a las 17:44 en VPS (`44 17 * * * curl ... POST /api/reviews/sync`). Un snapshot por restaurante por día. Se conservan todos — el diff usa `take: 2 orderBy fecha desc`. El progreso mensual usa el primer snapshot del mes vs el último.
+**Cron horario** (`44 * * * *` en el VPS, `POST /reviews/sync` con `Authorization: Bearer $SYNC_SECRET`): corre cada hora, no una vez al día — pensado así específicamente para no perderse reviews negativas si entran varias entre chequeos (ver más abajo). Solo procesa restaurantes con `reviewsCheckActivo=true`. Por restaurante:
+1. Guardia anti-doble-disparo: si ya hay un snapshot de los últimos 50 min, lo saltea.
+2. Pide a Google `rating`, `user_ratings_total` y **`reviews`** (hasta 5, `reviews_sort=newest` — límite duro de la API, no se puede pedir más ni paginar).
+3. Compara esas reviews contra el snapshot anterior por `time` (timestamp) para detectar cuáles son **nuevas desde el último chequeo**. De esas, las que tengan `rating <= 3` se guardan en `negativasNuevas` (Json en `ReviewSnapshot`) — dispara alerta roja en la UI con estrellas + autor + texto.
+4. Si el total subió más de lo que se pudo identificar en detalle (entraron más de 5 nuevas entre chequeos), marca `posibleOculta: true` → aviso ámbar "revisá Google Maps directamente".
+5. Guarda todo en un nuevo `ReviewSnapshot` (`total`, `rating`, `reviewsData` — las hasta-5 crudas —, `negativasNuevas`, `posibleOculta`).
 
-**Campo en Restaurant**: `reviewObjetivoTasa Int?` — tasa de objetivo. `PATCH /reviews/objetivo` para actualizarlo.
+**Ventana de negocio "17:44 → 17:44"** (no confundir con día calendario): el contador de "reviews nuevas" y el `ratingDiff` (⚠️ si bajó el rating) se calculan contra el **primer snapshot dentro de esa ventana** (`inicioVentanaMadrid()`, anclada a Europe/Madrid explícitamente vía `Intl.DateTimeFormat` — no usar `Date.setHours` a secas, depende del huso del proceso). Mientras la ventana de hoy sigue abierta (no llegaron las 17:44 todavía), el número es **parcial, no el total final del día** — importante para no confundir con un conteo manual hecho mirando Google Maps por fecha/hora relativa, que no respeta ese mismo corte. `GET /reviews` devuelve `ventanaInicio` (fecha real del inicio, para mostrar "desde tal hora" en vez de asumir "hoy").
+
+**Gotcha real detectado en producción**: el `total` de Google (`user_ratings_total`) es la fuente de verdad para el diff — verificado en vivo que coincide siempre con lo guardado. Si un conteo manual en la app de Maps del celular da un número mayor al de acá, sospechar primero de **reviews editadas** (Google las resurfacea con fecha reciente en la lista visual sin sumar al total, porque no son nuevas) antes de asumir un bug.
+
+**Endpoints** (`apps/api/src/routes/reviews.ts`):
+- `GET /reviews` — snapshot actual por restaurante + `activo`, `diff`, `ratingDiff`, `ventanaInicio`, `negativasNuevas`, `posibleOculta`, objetivo mensual (`totalMes`/`objetivoDinamico` = `floor(paxMes/tasa)`)
+- `GET /reviews/historial?restaurantId=X` — reviews ganadas por día de negocio (ventana 17:44→17:44), acotado a ~30 días, excluye la ventana en curso (esa ya se ve como contador en vivo)
+- `GET /reviews/turno?restaurantId=X&desde=ISO` — progreso del objetivo **durante el turno abierto**: pax cerrados y reviews nuevas desde `turno.aperturaAt` (no desde las 17:44 — el turno puede abrir más tarde), misma tasa que el objetivo mensual. Usado por la barra "Cómo va el turno" en el panel de sala.
+- `PATCH /reviews/activo` — toggle `reviewsCheckActivo` por restaurante
+- `PATCH /reviews/objetivo` — tasa de objetivo (`reviewObjetivoTasa Int?`, 1 review cada X pax)
+- `POST /reviews/sync` — el cron
+
+**Frontend**: sin botón manual, todo pasivo/automático — el widget del dashboard admin (`⭐ Google Reviews`) y la pestaña **⭐ Reviews** del panel encargado en `/sala` (💼 → Reviews) muestran: contador grande de reviews nuevas de la ventana en curso + hora de última consulta, tarjetas rojas de negativas nuevas, aviso ámbar de posible oculta, barra "Cómo va el turno", e historial de días anteriores (solo en `/sala`). El dashboard admin además tiene el checkbox de activar/desactivar por restaurante.
 
 **Prisma db push**: en local usar `npx prisma db push` (no `migrate dev`) ya que las migraciones tienen conflictos con la shadow DB.
-
-### Consulta de reviews en vivo (`POST /reviews/live`)
-
-Complementa el snapshot diario del cron con una consulta **en vivo** a Google, limitada a **3 por turno abierto** (`Turno.reviewChecksUsados`) para no disparar el gasto de la API de Places.
-
-- **Ventana del "día" del negocio**: 17:44 (hora del cron) de hoy → 17:44 de mañana, anclada a **Europe/Madrid explícitamente** vía `Intl.DateTimeFormat` (no usar `Date.setHours` a secas — depende del huso del proceso, que puede no ser Madrid). El corte se hizo coincidir con la hora exacta del cron (no 18:00 en punto) para que la propia foto diaria siempre caiga dentro de su propia ventana.
-- **Base de comparación**: el snapshot más reciente dentro de esa ventana. Si todavía no hay ninguno (cron no corrió aún, o gap), la propia consulta en vivo se guarda como nueva base (`esNuevaBase: true`, diff 0) — autocorrectivo, no requiere intervención manual.
-- **Persistencia**: cada resultado (`total`, `rating`, `diff`, `baselineFecha`, `esNuevaBase`) se guarda en `Turno.reviewLastCheck` (Json) además de incrementar `reviewChecksUsados` — así el último resultado sobrevive a cerrar/reabrir la app (no vive solo en memoria del componente).
-- **Frontend**: botón "🔄 Actualizar ahora (quedan N/3)" en dos lugares que comparten la misma cuota (vive en el turno, no en la pantalla): el widget de Reviews del dashboard admin, y la pestaña **⭐ Reviews** del panel del encargado en `/sala` (💼 → Reviews) — este último es el uso real en el día a día, con el número de reviews nuevas como elemento grande (`text-8xl`).
 
 ### Turnos
 
@@ -324,6 +331,13 @@ Gestionados desde `/admin/turnos`. Cada turno tiene estado `abierto` o `cerrado`
 ### Modo visual camarero (SalaMesasPage)
 
 Toggle claro/oscuro persistido en `localStorage('sala_theme')`. El tema se aplica mediante `data-sala-theme="dark|light"` en el div raíz, con CSS custom properties definidas en `index.css` (`--sala-bg`, `--sala-hdr`, `--sala-srf`, `--sala-txt`, etc.). `ThemeCtx` context pasa `isDark` a componentes hijos como `MesaBtn`. El toggle es un pill SVG luna/sol en el header del camarero.
+
+### Compatibilidad con tablets no-Android-estándar (SUNMI)
+
+El personal usa además de teléfonos personales unos PADs de marca **SUNMI** (sin impresora integrada) para la app de sala — pantalla y densidad distintas a un teléfono, dos ajustes hechos para eso:
+
+- **Swipe relativo a pantalla, no en px fijos**: `swipeThresholds()` (helper a nivel de módulo en `SalaMesasPage.tsx`) calcula el umbral horizontal como 12% del ancho de pantalla (mínimo 60px) y el vertical como 8% del alto (mínimo 50px), en vez de valores fijos (antes `80`/`90`/`70` px). Usado en los 4 puntos de swipe: cerrar `OrdenarModal`, progresión Pedido→Carta→Mapa, y navegación entre niveles de la carta.
+- **Escalado de tamaño por ancho de viewport**: en `index.css`, `[data-sala-theme] { font-size: ... }` con media queries en 700px/1400px que achican la base (16px → 13px → 11px). Como casi todo el sizing de Tailwind (`text-*`, `w-*`, `h-*`, `p-*`, `gap-*`) es `rem`, esto reescala toda la app de sala en cascada sin tocar cada componente. Escopeado solo a `[data-sala-theme]` — no afecta `/admin` ni `/pulso`. **Valores provisorios**: no se conoce todavía la resolución/PPI exacta del SUNMI — pendiente afinar los breakpoints con el dato real (`Ajustes → Pantalla` del dispositivo). Nota conceptual: esto corrige el ancho de viewport, pero no puede corregir solo una mala calibración de densidad (DPR) del panel — si el SUNMI no tiene el DPR bien calibrado, hace falta el PPI real (pulgadas + resolución) para un ajuste fino adicional.
 
 ---
 
@@ -711,6 +725,7 @@ Sistema de reservas online por restaurante. Cada restaurante tiene una config co
 ReservaConfig   restaurantId @unique, slug @unique, activo, maxPaxPorSlot, duracionMin, diasAntelacion
 ReservaHorario  configId, nombre, diasSemana (Json), horaInicio, horaFin, intervaloMin, maxPax, activo
 Reserva         restaurantId, configId, fecha, hora, pax, nombre, telefono, email?, notas?, estado, origen
+                + campos del pool: enPool, poolMotivo?, poolDesde?, poolGestionandoPor?, poolGestionandoDesde?, restaurantIdOrigen?
 ```
 
 ### Estados de Reserva
@@ -737,6 +752,24 @@ Reserva         restaurantId, configId, fecha, hora, pax, nombre, telefono, emai
 - `GET /reservas/config/admin?restaurantId=X` — config admin
 - `PUT /reservas/config` — actualizar config
 - `POST /reservas/horarios`, `PUT /reservas/horarios/:id`, `DELETE /reservas/horarios/:id`
+
+### Pool de reservas entre restaurantes (implementado 2026-09-14)
+
+Resuelve el problema de "Zenchef no ofrece esto": cuando una reserva no entra en el restaurante que la recibió, el encargado la manda a un **pool compartido** en vez de coordinar por WhatsApp — cualquier encargado de los otros restaurantes del grupo la ve, llama al cliente, y si confirma se la lleva al suyo. La llamada al cliente la sigue haciendo un humano; lo que se elimina es el ida y vuelta entre WhatsApp/Zenchef y copiar el teléfono a mano.
+
+Vive en **dos lugares** (mismos endpoints, dos frontends):
+- **`/admin/reservas`** (`TabReservas` + `TabPool` en `ReservasAdminPage.tsx`): panel de escritorio, PIN único compartido de admin. Como no hay login individual ahí, el nombre del encargado se pide una vez con `prompt()` y se guarda en `localStorage` (`reservas_pool_nombre`). Al tomar una reserva hay que elegir el restaurante destino a mano (un select) porque cualquier admin puede estar mirando cualquier restaurante.
+- **`/sala` → panel 💼 → pestaña "📅 Reservas"** (`EncargadoPanel` en `SalaMesasPage.tsx`, sub-tabs "Hoy" / "🔄 Pool"): la app real que usan los encargados en los Handys, con PIN individual. Acá la identidad ya se conoce (`camarero.nombre`, sin pedir nombre a mano) y "tomar" siempre es para el restaurante donde está logueado ese dispositivo (sin selector). Sigue la convención del resto de `/sala`: **nada de `prompt()`/`confirm()` nativos** — el motivo al enviar al pool es un input inline con botones "Confirmar envío"/"Cancelar", igual que el resto del panel.
+
+- **Enviar al pool**: botón "🔄 Enviar al pool", solo sobre reservas `confirmada`. Motivo opcional (por qué no entra). La reserva sigue perteneciendo a su restaurante original mientras está en el pool (no desaparece de su lista de "Hoy", solo queda marcada "🔄 En pool" y visible además en la pestaña compartida).
+- **Vista del pool**: lista todas las reservas `enPool=true` de **todos** los restaurantes (no filtra por restaurante seleccionado), con teléfono tap-to-call (`tel:`), motivo y restaurante de origen. Se actualiza en vivo vía SSE (canal global `/api/events/global`, tipo de evento `'reservas-pool'` — `useAdminEvents` en admin, `usePoolEvents` dedicado en sala) + polling de respaldo cada 30s.
+- **Lock blando** (`poolGestionandoPor` + `poolGestionandoDesde`, timeout 10 min — `POOL_LOCK_TIMEOUT_MS` duplicado en ambos frontends y en el backend): al tocar "📞 Voy a gestionarla" queda lockeada a nombre del encargado — evita que dos personas llamen al mismo cliente a la vez. Vencido el timeout (por si alguien se cuelga o no llega a nadie), cualquiera puede volver a tomarla. Botón "Soltar" libera el lock manualmente si no se pudo confirmar.
+- **Tomar** (`PATCH /reservas/:id/pool/tomar`): reasignación atómica server-side (`updateMany` con `where: { id, enPool: true, OR: [sin lock | lockeada por este mismo encargado] }`) — si otro ya la tomó o la lockeó primero, devuelve 409 (mensaje mostrado en admin con `alert`, en sala inline debajo del botón). Al tomarla se reescribe `restaurantId` + `configId` (busca el `ReservaConfig` del restaurante destino) y se limpian los campos de pool.
+- `restaurantIdOrigen` se fija la primera vez que la reserva entra al pool y **no se borra** al tomarla — queda como registro de dónde entró originalmente aunque ya haya cambiado de restaurante.
+
+**Endpoints**: `GET /reservas/pool` (lista global) · `PATCH /reservas/:id/pool` (enviar) · `PATCH /reservas/:id/pool/cancelar` (sacar del pool sin tomarla) · `PATCH /reservas/:id/pool/gestionar` (lock) · `PATCH /reservas/:id/pool/liberar` (soltar lock) · `PATCH /reservas/:id/pool/tomar` (reasignar).
+
+**Pendiente / no cubierto en esta primera versión**: no hay push notification cuando algo entra al pool — el encargado tiene que tener la pestaña Reservas abierta (o el badge de número en la pestaña, que sí se actualiza solo vía SSE) para enterarse.
 
 ---
 
@@ -857,7 +890,9 @@ Ruta standalone `/pulso` (fuera del layout de `/admin`, con su propio PIN vía `
 - **Hoy es simulado**: cada card arranca en 0€ y sube sola con incrementos que imitan mesas pagando (pax random × ticket medio, con ruido) en intervalos independientes por restaurante — todavía no está conectada a datos reales. El reemplazo natural es `GET /turnos/activos/stats` (la misma fuente que usa `FacturacionWidget` en el admin), sin tocar la parte visual.
 - **Animación**: al entrar se ve el `CheckOverlay` (viñeta OidoOps) ~2s, después aparece el board con fade-in. Los números usan un efecto "odómetro" (`RollingNumber`, cada dígito se remonta con `key={char}` para retriggerear la animación CSS `digitUp` — solo los dígitos que cambian suben).
 - **Mobile-first de verdad**: cards en fila horizontal compacta en mobile (nombre+monto en una sola línea, sin scroll), layout apilado más grande en desktop.
-- **PWA instalable por separado de `/sala`**: `manifest-sala.json` y `manifest-pulso.json` en `public/`, cada uno con su propio `start_url`/`scope`/`id` — sin esto, Android/iOS reconocían "Añadir a inicio" de ambas rutas como la misma app. `index.html` tiene un script inline que, según el pathname, inyecta el `<link rel="manifest">` correcto y cambia el título/`apple-mobile-web-app-title` antes de que el usuario le dé a instalar.
+- **PWA instalable por separado de `/sala` y `/admin`**: `manifest-sala.json`, `manifest-pulso.json` y `manifest-admin.json` en `public/`, cada uno con su propio `start_url`/`scope`/`id` — sin esto, Android/iOS reconocían "Añadir a inicio" de las tres rutas como la misma app. `index.html` tiene un script inline que, según el pathname, inyecta el `<link rel="manifest">` correcto, cambia el título/`apple-mobile-web-app-title`, y cambia el `apple-touch-icon` — todo antes de que el usuario le dé a instalar.
+- **Ícono propio por app**: `icon-sala.svg`, `icon-pulso.svg`, `icon-admin.svg` en `public/` — mismo logo/gradiente base que `icon.svg`, con una letra (S/P/A) centrada dentro de la viñeta (`dominant-baseline="central"` para que quede bien centrada verticalmente, no solo por baseline) para poder distinguir los íconos en el home screen del teléfono.
+- **Gotcha de reinstalación en Android**: una PWA instalada no es solo un acceso directo — Chrome genera un **WebAPK** registrado a nivel sistema (`Ajustes → Apps`). Borrar el ícono del home screen no siempre desinstala el WebAPK; si Chrome dice "esta aplicación ya está instalada" al reinstalar, hay que desinstalarla desde `Ajustes → Apps`, no solo sacar el ícono.
 
 ---
 

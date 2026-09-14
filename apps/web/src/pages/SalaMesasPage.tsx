@@ -4,9 +4,16 @@ const ThemeCtx = createContext<boolean>(true) // true = dark
 import CheckOverlay from '../components/CheckOverlay'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, Comanda, ComandaItem, FloorPlan, GrupoAgendado, GrupoMenuTemplate, InventarioCategoria, Mesa, MenuCategoria, MenuItem, MermaMotivo, MiTurno, Turno, WikiCategoria, WikiArticulo, ChecklistSector, sugerirCantidadesMenu, totalComanda, valorItem } from '../api'
+import { api, Comanda, ComandaItem, FloorPlan, GrupoAgendado, GrupoMenuTemplate, InventarioCategoria, Mesa, MenuCategoria, MenuItem, MermaMotivo, MiTurno, Reserva, Turno, WikiCategoria, WikiArticulo, ChecklistSector, sugerirCantidadesMenu, totalComanda, valorItem } from '../api'
 import { speak, VozSelector, LANGS, Lang } from '../lib/tts'
 import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
+import { usePoolEvents } from '../hooks/usePoolEvents'
+
+const POOL_LOCK_TIMEOUT_MS = 10 * 60 * 1000 // debe coincidir con POOL_LOCK_TIMEOUT_MS del backend
+function lockActivoPool(r: Reserva) {
+  if (!r.poolGestionandoPor || !r.poolGestionandoDesde) return false
+  return Date.now() - new Date(r.poolGestionandoDesde).getTime() < POOL_LOCK_TIMEOUT_MS
+}
 
 const SQUARE_SIZE = 80
 const RECT_W = 160
@@ -3007,10 +3014,16 @@ function EncargadoPanel({
 }) {
   const queryClient = useQueryClient()
   const rid = restaurant.id
-  const [tab, setTab] = useState<'cobros' | 'turno' | 'checklists' | 'mermas' | 'reviews'>('cobros')
+  const [tab, setTab] = useState<'cobros' | 'turno' | 'checklists' | 'mermas' | 'reviews' | 'reservas'>('cobros')
   const [armadoCierre, setArmadoCierre] = useState(false)
   const [resumenCierre, setResumenCierre] = useState<Turno | null>(null)
   const [cobroDe, setCobroDe] = useState<Comanda | null>(null)
+  const [reservasSub, setReservasSub] = useState<'hoy' | 'pool'>('hoy')
+  const [enviandoPoolId, setEnviandoPoolId] = useState<number | null>(null)
+  const [motivoPool, setMotivoPool] = useState('')
+  const [poolError, setPoolError] = useState<{ id: number; msg: string } | null>(null)
+
+  usePoolEvents(rid)
 
   const { data: reviewsList = [] } = useQuery({
     queryKey: ['reviews-dashboard'],
@@ -3085,11 +3098,54 @@ function EncargadoPanel({
   })
   const totalMermas = (mermasHoy?.mermas ?? []).reduce((s, m) => s + (m.precio ?? 0) * m.cantidad, 0)
 
+  // ── Reservas + pool entre restaurantes ──
+  // "Hoy" solo se pide al abrir esa sub-vista; el pool se pide siempre para el badge de la pestaña (como Cobros)
+  const { data: reservasHoy = [] } = useQuery({
+    queryKey: ['reservas', rid, hoyStr],
+    queryFn: () => api.reservas.list(rid, hoyStr),
+    enabled: tab === 'reservas' && reservasSub === 'hoy',
+    refetchInterval: 30_000,
+  })
+  const { data: pool = [] } = useQuery({
+    queryKey: ['reservas-pool'],
+    queryFn: () => api.reservas.poolList(),
+    refetchInterval: 30_000,
+  })
+
+  const invalidarReservas = () => {
+    queryClient.invalidateQueries({ queryKey: ['reservas', rid, hoyStr] })
+    queryClient.invalidateQueries({ queryKey: ['reservas-pool'] })
+  }
+
+  const poolEnviarMut = useMutation({
+    mutationFn: ({ id, motivo }: { id: number; motivo?: string }) => api.reservas.poolEnviar(id, motivo),
+    onSuccess: () => { invalidarReservas(); setEnviandoPoolId(null); setMotivoPool('') },
+  })
+  const poolCancelarMut = useMutation({
+    mutationFn: (id: number) => api.reservas.poolCancelar(id),
+    onSuccess: invalidarReservas,
+  })
+  const gestionarPoolMut = useMutation({
+    mutationFn: (id: number) => api.reservas.poolGestionar(id, camarero.nombre),
+    onSuccess: () => { setPoolError(null); queryClient.invalidateQueries({ queryKey: ['reservas-pool'] }) },
+    onError: (e: Error, id) => setPoolError({ id, msg: e.message }),
+  })
+  const liberarPoolMut = useMutation({
+    mutationFn: (id: number) => api.reservas.poolLiberar(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['reservas-pool'] }),
+  })
+  const tomarPoolMut = useMutation({
+    mutationFn: (id: number) => api.reservas.poolTomar(id, rid, camarero.nombre),
+    onSuccess: () => { setPoolError(null); invalidarReservas() },
+    onError: (e: Error, id) => setPoolError({ id, msg: e.message }),
+  })
+
   const TABS = [
     { key: 'cobros' as const, label: `💶 Cobros${pendientes.length ? ` (${pendientes.length})` : ''}` },
     { key: 'turno' as const, label: '⏱ Turno' },
     { key: 'checklists' as const, label: '✅ Checklists' },
     { key: 'mermas' as const, label: '🗑 Mermas' },
+    { key: 'reservas' as const, label: `📅 Reservas${pool.length ? ` (${pool.length})` : ''}` },
     { key: 'reviews' as const, label: '⭐ Reviews' },
   ]
 
@@ -3305,6 +3361,127 @@ function EncargadoPanel({
                   </p>
                 </div>
               ))}
+            </>
+          )}
+
+          {/* ── Reservas de hoy + pool entre restaurantes ── */}
+          {tab === 'reservas' && (
+            <>
+              <div className="flex gap-1.5 mb-1">
+                <button onClick={() => setReservasSub('hoy')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${reservasSub === 'hoy' ? 'bg-[var(--sala-btna)] text-[var(--sala-txt)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)]'}`}>
+                  Hoy
+                </button>
+                <button onClick={() => setReservasSub('pool')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${reservasSub === 'pool' ? 'bg-[var(--sala-btna)] text-[var(--sala-txt)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)]'}`}>
+                  🔄 Pool{pool.length ? ` (${pool.length})` : ''}
+                </button>
+              </div>
+
+              {reservasSub === 'hoy' ? (
+                <>
+                  {reservasHoy.length === 0 && (
+                    <p className="text-center text-[var(--sala-tx4)] text-sm py-10">No hay reservas para hoy</p>
+                  )}
+                  {reservasHoy.map(r => (
+                    <div key={r.id} className="bg-[var(--sala-srf)] rounded-xl p-4">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[var(--sala-txt)] font-mono font-bold">{r.hora}</span>
+                        <span className="text-[var(--sala-tx3)] text-xs">{r.pax} pax</span>
+                        <span className="text-[var(--sala-txt)] font-bold flex-1 truncate">{r.nombre}</span>
+                      </div>
+                      <p className="text-[var(--sala-tx3)] text-xs mb-2">
+                        {r.telefono}{r.notas ? ` · ${r.notas}` : ''}
+                      </p>
+
+                      {r.enPool ? (
+                        <div className="flex items-center gap-2">
+                          <span className="text-amber-400 text-xs font-bold">🔄 En pool</span>
+                          <button onClick={() => poolCancelarMut.mutate(r.id)}
+                            className="px-2.5 py-1 rounded-lg bg-[var(--sala-btn2)] text-[var(--sala-tx2)] text-xs font-bold">
+                            Sacar del pool
+                          </button>
+                        </div>
+                      ) : r.estado !== 'confirmada' ? null : enviandoPoolId === r.id ? (
+                        <div className="space-y-2">
+                          <input value={motivoPool} onChange={e => setMotivoPool(e.target.value)}
+                            placeholder="Motivo (opcional)"
+                            className="w-full bg-[var(--sala-btn2)] text-[var(--sala-txt)] placeholder-[var(--sala-tx4)] rounded-lg px-3 py-2 text-sm outline-none" />
+                          <div className="flex gap-2">
+                            <button onClick={() => poolEnviarMut.mutate({ id: r.id, motivo: motivoPool || undefined })}
+                              disabled={poolEnviarMut.isPending}
+                              className="px-3 py-1.5 rounded-lg bg-[var(--sala-btna)] text-[var(--sala-txt)] text-xs font-bold disabled:opacity-50">
+                              {poolEnviarMut.isPending ? 'Enviando...' : 'Confirmar envío'}
+                            </button>
+                            <button onClick={() => { setEnviandoPoolId(null); setMotivoPool('') }}
+                              className="px-3 py-1.5 rounded-lg bg-[var(--sala-btn2)] text-[var(--sala-tx2)] text-xs font-bold">
+                              Cancelar
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button onClick={() => setEnviandoPoolId(r.id)}
+                          className="px-3 py-1.5 rounded-lg bg-[var(--sala-btn2)] text-[var(--sala-tx2)] text-xs font-bold">
+                          🔄 Enviar al pool
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <>
+                  <p className="text-[var(--sala-tx3)] text-xs px-1 mb-1">
+                    Reservas que otros restaurantes no pudieron aceptar. Llamá, confirmá con el cliente y tomala para {restaurant.nombre}.
+                  </p>
+                  {pool.length === 0 && (
+                    <p className="text-center text-[var(--sala-tx4)] text-sm py-10">No hay reservas en el pool ahora mismo</p>
+                  )}
+                  {pool.map(r => {
+                    const locked = lockActivoPool(r)
+                    const esMiLock = locked && r.poolGestionandoPor === camarero.nombre
+                    const errorAqui = poolError?.id === r.id ? poolError.msg : null
+                    return (
+                      <div key={r.id} className="bg-[var(--sala-srf)] rounded-xl p-4">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-[var(--sala-txt)] font-mono font-bold">{r.hora}</span>
+                          <span className="text-[var(--sala-tx3)] text-xs">{r.pax} pax</span>
+                          <span className="text-[var(--sala-txt)] font-bold flex-1 truncate">{r.nombre}</span>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[var(--sala-btn2)] text-[var(--sala-tx3)] whitespace-nowrap">
+                            de {r.restaurant?.nombre ?? '?'}
+                          </span>
+                        </div>
+                        <a href={`tel:${r.telefono}`} className="text-[#4B9EDF] text-sm font-bold">📞 {r.telefono}</a>
+                        {r.poolMotivo && <p className="text-[var(--sala-tx4)] text-xs italic mt-0.5">{r.poolMotivo}</p>}
+
+                        <div className="mt-2">
+                          {locked && !esMiLock && (
+                            <p className="text-amber-400 text-xs font-bold">🔒 {r.poolGestionandoPor} la está gestionando</p>
+                          )}
+                          {!locked && (
+                            <button onClick={() => gestionarPoolMut.mutate(r.id)} disabled={gestionarPoolMut.isPending}
+                              className="px-3 py-1.5 rounded-lg bg-[var(--sala-btna)] text-[var(--sala-txt)] text-xs font-bold disabled:opacity-50">
+                              📞 Voy a gestionarla
+                            </button>
+                          )}
+                          {esMiLock && (
+                            <div className="flex gap-2">
+                              <button onClick={() => tomarPoolMut.mutate(r.id)} disabled={tomarPoolMut.isPending}
+                                className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold disabled:opacity-50">
+                                {tomarPoolMut.isPending ? 'Tomando...' : `✓ Cliente confirmó, tomar`}
+                              </button>
+                              <button onClick={() => liberarPoolMut.mutate(r.id)}
+                                className="px-3 py-1.5 rounded-lg bg-[var(--sala-btn2)] text-[var(--sala-tx2)] text-xs font-bold">
+                                Soltar
+                              </button>
+                            </div>
+                          )}
+                          {errorAqui && <p className="text-red-400 text-xs font-bold mt-1.5">{errorAqui}</p>}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </>
+              )}
             </>
           )}
 

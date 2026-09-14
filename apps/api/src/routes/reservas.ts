@@ -1,5 +1,8 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../server'
+import { broadcast } from '../sse'
+
+const POOL_LOCK_TIMEOUT_MS = 10 * 60 * 1000 // 10 min — pasado esto, otro encargado puede tomar el lock
 
 export async function reservasRoutes(app: FastifyInstance) {
   // ─── PUBLIC ROUTES (no auth) — must be registered BEFORE parameterized routes ───
@@ -363,6 +366,137 @@ export async function reservasRoutes(app: FastifyInstance) {
     })
 
     return reply.status(201).send(reserva)
+  })
+
+  // ─── POOL DE RESERVAS ENTRE RESTAURANTES ───
+  // Cuando un restaurante no tiene espacio para una reserva, la ofrece al resto del grupo.
+  // Cualquier encargado la ve, la "gestiona" (lock blando mientras llama al cliente) y,
+  // si el cliente confirma, la toma para su restaurante. Ver roadmap CLAUDE.md punto 6.
+
+  // GET /reservas/pool — todas las reservas ofrecidas, de cualquier restaurante
+  app.get('/reservas/pool', async (_req, reply) => {
+    const reservas = await prisma.reserva.findMany({
+      where: { enPool: true },
+      include: { restaurant: { select: { nombre: true } } },
+      orderBy: [{ fecha: 'asc' }, { hora: 'asc' }],
+    })
+    return reservas
+  })
+
+  // PATCH /reservas/:id/pool — enviar al pool
+  app.patch('/reservas/:id/pool', async (req, reply) => {
+    const id = parseInt((req.params as { id: string }).id, 10)
+    const { motivo } = req.body as { motivo?: string }
+
+    const actual = await prisma.reserva.findUnique({ where: { id } })
+    if (!actual) return reply.status(404).send({ error: 'Reserva no encontrada' })
+    if (actual.estado === 'cancelada') return reply.status(409).send({ error: 'La reserva está cancelada' })
+
+    const reserva = await prisma.reserva.update({
+      where: { id },
+      data: {
+        enPool: true,
+        poolMotivo: motivo || null,
+        poolDesde: new Date(),
+        poolGestionandoPor: null,
+        poolGestionandoDesde: null,
+        restaurantIdOrigen: actual.restaurantIdOrigen ?? actual.restaurantId,
+      },
+    })
+
+    broadcast(reserva.restaurantId, 'reservas-pool')
+    return reserva
+  })
+
+  // PATCH /reservas/:id/pool/cancelar — el restaurante origen se arrepiente, la saca del pool
+  app.patch('/reservas/:id/pool/cancelar', async (req, reply) => {
+    const id = parseInt((req.params as { id: string }).id, 10)
+
+    const reserva = await prisma.reserva.update({
+      where: { id },
+      data: { enPool: false, poolMotivo: null, poolDesde: null, poolGestionandoPor: null, poolGestionandoDesde: null },
+    })
+
+    broadcast(reserva.restaurantId, 'reservas-pool')
+    return reserva
+  })
+
+  // PATCH /reservas/:id/pool/gestionar — lock blando: "voy a llamar al cliente"
+  app.patch('/reservas/:id/pool/gestionar', async (req, reply) => {
+    const id = parseInt((req.params as { id: string }).id, 10)
+    const { encargado } = req.body as { encargado?: string }
+    if (!encargado) return reply.status(400).send({ error: 'encargado requerido' })
+
+    const cutoff = new Date(Date.now() - POOL_LOCK_TIMEOUT_MS)
+
+    const { count } = await prisma.reserva.updateMany({
+      where: {
+        id,
+        enPool: true,
+        OR: [
+          { poolGestionandoPor: null },
+          { poolGestionandoDesde: { lt: cutoff } },
+          { poolGestionandoPor: encargado }, // re-confirmar el propio lock extiende el timeout
+        ],
+      },
+      data: { poolGestionandoPor: encargado, poolGestionandoDesde: new Date() },
+    })
+
+    const reserva = await prisma.reserva.findUnique({ where: { id } })
+    if (count === 0) {
+      if (!reserva?.enPool) return reply.status(409).send({ error: 'La reserva ya no está en el pool' })
+      return reply.status(409).send({ error: `${reserva.poolGestionandoPor} ya la está gestionando` })
+    }
+
+    broadcast(reserva!.restaurantId, 'reservas-pool')
+    return reserva
+  })
+
+  // PATCH /reservas/:id/pool/liberar — soltar el lock sin tomarla (no se pudo confirmar con el cliente)
+  app.patch('/reservas/:id/pool/liberar', async (req, reply) => {
+    const id = parseInt((req.params as { id: string }).id, 10)
+
+    const reserva = await prisma.reserva.update({
+      where: { id },
+      data: { poolGestionandoPor: null, poolGestionandoDesde: null },
+    })
+
+    broadcast(reserva.restaurantId, 'reservas-pool')
+    return reserva
+  })
+
+  // PATCH /reservas/:id/pool/tomar — el cliente confirmó: la reserva pasa a este restaurante
+  app.patch('/reservas/:id/pool/tomar', async (req, reply) => {
+    const id = parseInt((req.params as { id: string }).id, 10)
+    const { restaurantId, encargado } = req.body as { restaurantId?: number; encargado?: string }
+    if (!restaurantId) return reply.status(400).send({ error: 'restaurantId requerido' })
+
+    const config = await prisma.reservaConfig.findUnique({ where: { restaurantId } })
+    if (!config) return reply.status(404).send({ error: 'El restaurante destino no tiene configuración de reservas' })
+
+    // Solo si sigue en el pool y (si está lockeada) la tiene lockeada este mismo encargado
+    const { count } = await prisma.reserva.updateMany({
+      where: {
+        id,
+        enPool: true,
+        OR: [{ poolGestionandoPor: null }, { poolGestionandoPor: encargado }],
+      },
+      data: {
+        restaurantId,
+        configId: config.id,
+        enPool: false,
+        poolMotivo: null,
+        poolDesde: null,
+        poolGestionandoPor: null,
+        poolGestionandoDesde: null,
+      },
+    })
+
+    if (count === 0) return reply.status(409).send({ error: 'La reserva ya no está disponible en el pool' })
+
+    const reserva = await prisma.reserva.findUnique({ where: { id } })
+    broadcast(restaurantId, 'reservas-pool')
+    return reserva
   })
 
   // PATCH /reservas/:id — update estado
