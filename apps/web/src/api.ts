@@ -160,6 +160,14 @@ export function retiroNombreEmpleado(r: Pick<RetiroResumen, 'empleado' | 'emplea
   return r.empleado?.nombre ?? r.empleadoNombre ?? '(eliminado)'
 }
 
+// Link de WhatsApp a partir de un teléfono en cualquier formato (espacios, guiones, +34...).
+// Si no trae prefijo de país, asume España (todos los restaurantes están en Barcelona).
+export function waLink(telefono: string): string {
+  const digits = telefono.replace(/[^\d]/g, '')
+  const conPrefijo = digits.startsWith('34') || telefono.trim().startsWith('+') ? digits : `34${digits}`
+  return `https://wa.me/${conPrefijo}`
+}
+
 export interface RetirosResponse {
   retiros: RetiroResumen[]
   total: number

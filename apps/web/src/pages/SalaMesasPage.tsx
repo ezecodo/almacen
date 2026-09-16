@@ -4,7 +4,7 @@ const ThemeCtx = createContext<boolean>(true) // true = dark
 import CheckOverlay from '../components/CheckOverlay'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, Comanda, ComandaItem, FloorPlan, GrupoAgendado, GrupoMenuTemplate, InventarioCategoria, Mesa, MenuCategoria, MenuItem, MermaMotivo, MiTurno, Reserva, Turno, WikiCategoria, WikiArticulo, ChecklistSector, sugerirCantidadesMenu, totalComanda, valorItem } from '../api'
+import { api, Comanda, ComandaItem, FloorPlan, GrupoAgendado, GrupoMenuTemplate, InventarioCategoria, Mesa, MenuCategoria, MenuItem, MermaMotivo, MiTurno, Reserva, Turno, WikiCategoria, WikiArticulo, ChecklistSector, sugerirCantidadesMenu, totalComanda, valorItem, waLink } from '../api'
 import { speak, VozSelector, LANGS, Lang } from '../lib/tts'
 import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
 import { usePoolEvents } from '../hooks/usePoolEvents'
@@ -3415,9 +3415,11 @@ function EncargadoPanel({
                         <span className="text-[var(--sala-tx3)] text-xs">{r.pax} pax</span>
                         <span className="text-[var(--sala-txt)] font-bold flex-1 truncate">{r.nombre}</span>
                       </div>
-                      <p className="text-[var(--sala-tx3)] text-xs mb-2">
-                        {r.telefono}{r.notas ? ` · ${r.notas}` : ''}
-                      </p>
+                      <div className="flex items-center gap-3 mb-2">
+                        <a href={`tel:${r.telefono}`} className="text-[#4B9EDF] text-xs font-bold">📞 {r.telefono}</a>
+                        <a href={waLink(r.telefono)} target="_blank" rel="noopener noreferrer" className="text-emerald-400 text-xs font-bold">💬 WhatsApp</a>
+                        {r.notas && <span className="text-[var(--sala-tx3)] text-xs">· {r.notas}</span>}
+                      </div>
 
                       {r.enPool ? (
                         <div className="flex items-center gap-2">
@@ -3538,7 +3540,10 @@ function EncargadoPanel({
                             de {r.restaurant?.nombre ?? '?'}
                           </span>
                         </div>
-                        <a href={`tel:${r.telefono}`} className="text-[#4B9EDF] text-sm font-bold">📞 {r.telefono}</a>
+                        <div className="flex items-center gap-3">
+                          <a href={`tel:${r.telefono}`} className="text-[#4B9EDF] text-sm font-bold">📞 {r.telefono}</a>
+                          <a href={waLink(r.telefono)} target="_blank" rel="noopener noreferrer" className="text-emerald-400 text-sm font-bold">💬 WhatsApp</a>
+                        </div>
                         {r.poolMotivo && <p className="text-[var(--sala-tx4)] text-xs italic mt-0.5">{r.poolMotivo}</p>}
 
                         <div className="mt-2">
