@@ -292,6 +292,7 @@ model Mesa {
   ancho       Int?      // ancho px personalizado (barra)
   alto        Int?      // alto px personalizado (barra)
   comandas    Comanda[]
+  reservas    Reserva[]
   createdAt   DateTime  @default(now())
 }
 
@@ -310,6 +311,7 @@ model Comanda {
   enviadaAt      DateTime?     // primera vez que la comanda se envió a cocina ("hora de comandada")
   items        ComandaItem[]
   mermas       Merma[]
+  reserva      Reserva?
   createdAt    DateTime      @default(now())
   closedAt     DateTime?
 }
@@ -444,9 +446,17 @@ model Reserva {
   telefono     String
   email        String?
   notas        String?
-  estado       String        @default("confirmada")
+  estado       String        @default("confirmada") // 'confirmada' | 'sentada' | 'cancelada' | 'no_show'
   origen       String        @default("web")
   createdAt    DateTime      @default(now())
+
+  // Asignación de mesa (informativa, no bloquea el mapa) + activación al llegar el cliente:
+  // "sentar" crea la Comanda en esa mesa con el pax de la reserva y linkea comandaId.
+  mesaId       Int?
+  mesa         Mesa?     @relation(fields: [mesaId], references: [id])
+  comandaId    Int?      @unique
+  comanda      Comanda?  @relation(fields: [comandaId], references: [id])
+  sentadaAt    DateTime?
 
   // Pool de reservas entre restaurantes: cuando el restaurante que la recibió no tiene espacio,
   // la ofrece al resto del grupo (ver roadmap en CLAUDE.md, punto 6)

@@ -573,6 +573,9 @@ export interface Reserva {
   estado: string
   origen: string
   createdAt: string
+  mesaId: number | null
+  comandaId: number | null
+  sentadaAt: string | null
   enPool: boolean
   poolMotivo: string | null
   poolDesde: string | null
@@ -987,6 +990,9 @@ export const api = {
     list: (restaurantId: number, fecha?: string) => get<Reserva[]>(`/reservas?restaurantId=${restaurantId}${fecha ? `&fecha=${fecha}` : ''}`),
     create: (body: { restaurantId: number; fecha: string; hora: string; pax: number; nombre: string; telefono: string; email?: string; notas?: string }) => post<Reserva>('/reservas', body),
     updateEstado: (id: number, estado: string) => patch<Reserva>(`/reservas/${id}`, { estado }),
+    asignarMesa: (id: number, mesaId: number | null) => patch<Reserva>(`/reservas/${id}/mesa`, { mesaId }),
+    sentar: (id: number, mesaId: number | undefined, camareroNombre?: string) =>
+      patch<{ reserva: Reserva; comanda: Comanda }>(`/reservas/${id}/sentar`, { mesaId, camareroNombre }),
     delete: (id: number) => del(`/reservas/${id}`),
     getPublicConfig: (slug: string) => get<{ restaurantNombre: string; slug: string; activo: boolean; maxPaxPorSlot: number; duracionMin: number; diasAntelacion: number; horarios: ReservaHorario[] }>(`/reservas/publica/config?slug=${slug}`),
     getSlots: (slug: string, fecha: string, pax: number) => get<SlotDisponible[]>(`/reservas/publica/slots?slug=${slug}&fecha=${fecha}&pax=${pax}`),

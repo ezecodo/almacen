@@ -3140,6 +3140,31 @@ function EncargadoPanel({
     onError: (e: Error, id) => setPoolError({ id, msg: e.message }),
   })
 
+  // Asignar mesa (informativo) + sentar (activa la mesa con el pax de la reserva)
+  const { data: planesReserva } = useQuery({
+    queryKey: ['salon-planes', rid],
+    queryFn: () => api.salon.list(rid),
+    enabled: tab === 'reservas' && reservasSub === 'hoy',
+  })
+  const mesasReserva = (planesReserva ?? []).flatMap(p => p.mesas.map(m => ({ ...m, planNombre: p.nombre })))
+  const [eligiendoMesaId, setEligiendoMesaId] = useState<number | null>(null)
+  const [sentarError, setSentarError] = useState<{ id: number; msg: string } | null>(null)
+
+  const asignarMesaMut = useMutation({
+    mutationFn: ({ id, mesaId }: { id: number; mesaId: number | null }) => api.reservas.asignarMesa(id, mesaId),
+    onSuccess: () => { invalidarReservas(); setEligiendoMesaId(null) },
+  })
+  const sentarMut = useMutation({
+    mutationFn: ({ id, mesaId }: { id: number; mesaId?: number }) => api.reservas.sentar(id, mesaId, camarero.nombre),
+    onSuccess: ({ comanda }) => {
+      setSentarError(null)
+      invalidarReservas()
+      queryClient.invalidateQueries({ queryKey: ['comandas-sala', rid] })
+      onAbrirComanda?.(comanda.id)
+    },
+    onError: (e: Error, { id }) => setSentarError({ id, msg: e.message }),
+  })
+
   const TABS = [
     { key: 'cobros' as const, label: `💶 Cobros${pendientes.length ? ` (${pendientes.length})` : ''}` },
     { key: 'turno' as const, label: '⏱ Turno' },
@@ -3402,28 +3427,91 @@ function EncargadoPanel({
                             Sacar del pool
                           </button>
                         </div>
-                      ) : r.estado !== 'confirmada' ? null : enviandoPoolId === r.id ? (
-                        <div className="space-y-2">
-                          <input value={motivoPool} onChange={e => setMotivoPool(e.target.value)}
-                            placeholder="Motivo (opcional)"
-                            className="w-full bg-[var(--sala-btn2)] text-[var(--sala-txt)] placeholder-[var(--sala-tx4)] rounded-lg px-3 py-2 text-sm outline-none" />
-                          <div className="flex gap-2">
-                            <button onClick={() => poolEnviarMut.mutate({ id: r.id, motivo: motivoPool || undefined })}
-                              disabled={poolEnviarMut.isPending}
-                              className="px-3 py-1.5 rounded-lg bg-[var(--sala-btna)] text-[var(--sala-txt)] text-xs font-bold disabled:opacity-50">
-                              {poolEnviarMut.isPending ? 'Enviando...' : 'Confirmar envío'}
+                      ) : r.estado === 'sentada' ? (
+                        <div className="flex items-center gap-2">
+                          <span className="text-emerald-400 text-xs font-bold">
+                            ✅ Sentados{r.mesaId ? ` · Mesa ${mesasReserva.find(m => m.id === r.mesaId)?.numero ?? r.mesaId}` : ''}
+                          </span>
+                          {r.comandaId && (
+                            <button onClick={() => onAbrirComanda?.(r.comandaId!)}
+                              className="px-2.5 py-1 rounded-lg bg-[var(--sala-btn2)] text-[var(--sala-tx2)] text-xs font-bold">
+                              Ver mesa
                             </button>
-                            <button onClick={() => { setEnviandoPoolId(null); setMotivoPool('') }}
-                              className="px-3 py-1.5 rounded-lg bg-[var(--sala-btn2)] text-[var(--sala-tx2)] text-xs font-bold">
-                              Cancelar
+                          )}
+                        </div>
+                      ) : r.estado === 'cancelada' ? (
+                        <span className="text-[var(--sala-tx4)] text-xs font-bold">Cancelada</span>
+                      ) : r.estado === 'no_show' ? (
+                        <span className="text-red-400 text-xs font-bold">No show</span>
+                      ) : (
+                        <>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <button onClick={() => setEligiendoMesaId(eligiendoMesaId === r.id ? null : r.id)}
+                              className="px-2.5 py-1 rounded-lg bg-[var(--sala-btn2)] text-[var(--sala-tx2)] text-xs font-bold">
+                              {r.mesaId ? `🪑 Mesa ${mesasReserva.find(m => m.id === r.mesaId)?.numero ?? r.mesaId}` : '🪑 Asignar mesa'}
+                            </button>
+                            <button onClick={() => sentarMut.mutate({ id: r.id, mesaId: r.mesaId ?? undefined })}
+                              disabled={!r.mesaId || sentarMut.isPending}
+                              className="px-3 py-1.5 rounded-lg bg-[var(--sala-btna)] text-[var(--sala-txt)] text-xs font-bold disabled:opacity-40">
+                              {sentarMut.isPending && sentarMut.variables?.id === r.id ? 'Sentando...' : '✅ Sentar'}
                             </button>
                           </div>
-                        </div>
-                      ) : (
-                        <button onClick={() => setEnviandoPoolId(r.id)}
-                          className="px-3 py-1.5 rounded-lg bg-[var(--sala-btn2)] text-[var(--sala-tx2)] text-xs font-bold">
-                          🔄 Enviar al pool
-                        </button>
+                          {sentarError?.id === r.id && (
+                            <p className="text-red-400 text-xs mt-1">{sentarError.msg}</p>
+                          )}
+
+                          {eligiendoMesaId === r.id && (
+                            <div className="mt-2 bg-[var(--sala-btn2)] rounded-lg p-2 space-y-1.5 max-h-48 overflow-y-auto">
+                              {mesasReserva.length === 0 && (
+                                <p className="text-[var(--sala-tx4)] text-xs px-1">No hay mesas configuradas</p>
+                              )}
+                              {Object.entries(
+                                mesasReserva.reduce<Record<string, typeof mesasReserva>>((acc, m) => {
+                                  (acc[m.planNombre] ??= []).push(m)
+                                  return acc
+                                }, {})
+                              ).map(([plan, mesas]) => (
+                                <div key={plan}>
+                                  <p className="text-[var(--sala-tx4)] text-[10px] font-bold uppercase px-1">{plan}</p>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {mesas.map(m => (
+                                      <button key={m.id} onClick={() => asignarMesaMut.mutate({ id: r.id, mesaId: m.id })}
+                                        className={`px-2.5 py-1 rounded-lg text-xs font-bold ${r.mesaId === m.id ? 'bg-[var(--sala-btna)] text-[var(--sala-txt)]' : 'bg-[var(--sala-srf)] text-[var(--sala-tx2)]'}`}>
+                                        {m.numero} <span className="opacity-60">· {m.capacidad}p</span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          <div className="mt-2">
+                            {enviandoPoolId === r.id ? (
+                              <div className="space-y-2">
+                                <input value={motivoPool} onChange={e => setMotivoPool(e.target.value)}
+                                  placeholder="Motivo (opcional)"
+                                  className="w-full bg-[var(--sala-btn2)] text-[var(--sala-txt)] placeholder-[var(--sala-tx4)] rounded-lg px-3 py-2 text-sm outline-none" />
+                                <div className="flex gap-2">
+                                  <button onClick={() => poolEnviarMut.mutate({ id: r.id, motivo: motivoPool || undefined })}
+                                    disabled={poolEnviarMut.isPending}
+                                    className="px-3 py-1.5 rounded-lg bg-[var(--sala-btna)] text-[var(--sala-txt)] text-xs font-bold disabled:opacity-50">
+                                    {poolEnviarMut.isPending ? 'Enviando...' : 'Confirmar envío'}
+                                  </button>
+                                  <button onClick={() => { setEnviandoPoolId(null); setMotivoPool('') }}
+                                    className="px-3 py-1.5 rounded-lg bg-[var(--sala-btn2)] text-[var(--sala-tx2)] text-xs font-bold">
+                                    Cancelar
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <button onClick={() => setEnviandoPoolId(r.id)}
+                                className="text-[var(--sala-tx4)] text-xs font-bold">
+                                🔄 Enviar al pool
+                              </button>
+                            )}
+                          </div>
+                        </>
                       )}
                     </div>
                   ))}

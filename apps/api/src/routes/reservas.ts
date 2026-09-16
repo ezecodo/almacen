@@ -499,6 +499,86 @@ export async function reservasRoutes(app: FastifyInstance) {
     return reserva
   })
 
+  // PATCH /reservas/:id/mesa — asignar (o desasignar) una mesa a la reserva. Es solo informativo:
+  // no bloquea la mesa en el mapa, el encargado la sigue viendo libre hasta que la "sienta".
+  app.patch('/reservas/:id/mesa', async (req, reply) => {
+    const id = parseInt((req.params as { id: string }).id, 10)
+    const { mesaId } = req.body as { mesaId: number | null }
+
+    const actual = await prisma.reserva.findUnique({ where: { id } })
+    if (!actual) return reply.status(404).send({ error: 'Reserva no encontrada' })
+    if (actual.estado !== 'confirmada') return reply.status(409).send({ error: 'La reserva no está confirmada' })
+
+    if (mesaId != null) {
+      const mesa = await prisma.mesa.findUnique({ where: { id: mesaId }, include: { floorPlan: true } })
+      if (!mesa || mesa.floorPlan.restaurantId !== actual.restaurantId) {
+        return reply.status(400).send({ error: 'La mesa no pertenece a este restaurante' })
+      }
+    }
+
+    const reserva = await prisma.reserva.update({ where: { id }, data: { mesaId } })
+    return reserva
+  })
+
+  // PATCH /reservas/:id/sentar — llegó el cliente: activa la mesa (crea la Comanda con el pax
+  // de la reserva) y linkea comandaId. Acepta mesaId por si no se había pre-asignado.
+  app.patch('/reservas/:id/sentar', async (req, reply) => {
+    const id = parseInt((req.params as { id: string }).id, 10)
+    const { mesaId: mesaIdBody, camareroNombre } = req.body as { mesaId?: number; camareroNombre?: string }
+
+    const actual = await prisma.reserva.findUnique({ where: { id } })
+    if (!actual) return reply.status(404).send({ error: 'Reserva no encontrada' })
+    if (actual.estado !== 'confirmada') return reply.status(409).send({ error: 'La reserva no está confirmada' })
+
+    const mesaId = mesaIdBody ?? actual.mesaId
+    if (!mesaId) return reply.status(400).send({ error: 'Asigná una mesa primero' })
+
+    const mesa = await prisma.mesa.findUnique({ where: { id: mesaId }, include: { floorPlan: true } })
+    if (!mesa || mesa.floorPlan.restaurantId !== actual.restaurantId) {
+      return reply.status(400).send({ error: 'La mesa no pertenece a este restaurante' })
+    }
+
+    const mesaOcupada = await prisma.comanda.findFirst({
+      where: { mesaId, estado: { in: ['abierta', 'enviada', 'facturada'] } },
+    })
+    if (mesaOcupada) return reply.status(409).send({ error: 'La mesa ya tiene una comanda activa' })
+
+    const autoItems = await prisma.menuItem.findMany({
+      where: { restaurantId: actual.restaurantId, autoPorPax: true, activo: true },
+    })
+
+    const comanda = await prisma.comanda.create({
+      data: {
+        restaurantId: actual.restaurantId,
+        mesaId,
+        pax: actual.pax,
+        estado: 'abierta',
+        camareroNombre: camareroNombre ?? null,
+        items: autoItems.length > 0 ? {
+          create: autoItems.map(item => ({
+            nombre:       item.nombre,
+            precio:       item.precio,
+            cantidad:     actual.pax,
+            tipo:         'barra' as const,
+            nota:         '',
+            nivel:        null,
+            ronda:        0,
+            autoGenerado: true,
+          })),
+        } : undefined,
+      },
+      include: { items: true, mesa: true },
+    })
+
+    const reserva = await prisma.reserva.update({
+      where: { id },
+      data: { mesaId, comandaId: comanda.id, estado: 'sentada', sentadaAt: new Date() },
+    })
+
+    broadcast(actual.restaurantId, 'update')
+    return { reserva, comanda }
+  })
+
   // PATCH /reservas/:id — update estado
   app.patch('/reservas/:id', async (req, reply) => {
     const id = parseInt((req.params as { id: string }).id, 10)
