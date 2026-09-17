@@ -3166,12 +3166,12 @@ function EncargadoPanel({
   })
 
   const TABS = [
-    { key: 'cobros' as const, label: `💶 Cobros${pendientes.length ? ` (${pendientes.length})` : ''}` },
-    { key: 'turno' as const, label: '⏱ Turno' },
-    { key: 'checklists' as const, label: '✅ Checklists' },
-    { key: 'mermas' as const, label: '🗑 Mermas' },
-    { key: 'reservas' as const, label: `📅 Reservas${pool.length ? ` (${pool.length})` : ''}` },
-    { key: 'reviews' as const, label: '⭐ Reviews' },
+    { key: 'cobros' as const, icon: '💶', label: 'Cobros', badge: pendientes.length },
+    { key: 'turno' as const, icon: '⏱', label: 'Turno', badge: 0 },
+    { key: 'checklists' as const, icon: '✅', label: 'Checklists', badge: 0 },
+    { key: 'mermas' as const, icon: '🗑', label: 'Mermas', badge: 0 },
+    { key: 'reservas' as const, icon: '📅', label: 'Reservas', badge: pool.length },
+    { key: 'reviews' as const, icon: '⭐', label: 'Reviews', badge: 0 },
   ]
 
   return (
@@ -3189,13 +3189,19 @@ function EncargadoPanel({
               <button onClick={onClose} className="text-[var(--sala-tx3)] hover:text-[var(--sala-tx1)] text-xl">✕</button>
             </div>
           </div>
-          <div className="flex gap-1.5 mt-3 overflow-x-auto">
+          <div className="grid grid-cols-3 gap-1.5 mt-3">
             {TABS.map(t => (
               <button key={t.key} onClick={() => setTab(t.key)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors ${
+                className={`relative flex flex-col items-center justify-center gap-0.5 py-2 rounded-lg text-[11px] font-bold transition-colors ${
                   tab === t.key ? 'bg-[var(--sala-btna)] text-[var(--sala-txt)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)]'
                 }`}>
-                {t.label}
+                <span className="text-base leading-none">{t.icon}</span>
+                <span className="truncate max-w-full px-1">{t.label}</span>
+                {t.badge > 0 && (
+                  <span className="absolute -top-1.5 -right-1 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-amber-500 text-[var(--sala-txt)] text-[10px] font-black">
+                    {t.badge}
+                  </span>
+                )}
               </button>
             ))}
           </div>
