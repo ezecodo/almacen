@@ -28,22 +28,30 @@ export default function TicketComanda({
 
   return (
     <div className="ticket-80mm mx-auto px-2 py-3 uppercase">
-      <div className="flex justify-between text-[10px]">
-        <span>Mesa {comanda.mesa?.numero ?? '-'}</span>
-        <span>{comanda.pax} pax</span>
+      <div className="flex flex-col items-center leading-none">
+        <span
+          className="font-black leading-none"
+          style={{
+            fontSize: '64px',
+            color: '#fff',
+            WebkitTextStroke: '3px #000',
+            paintOrder: 'stroke fill',
+          }}
+        >
+          {comanda.mesa?.numero ?? '-'}
+        </span>
+        <span className="text-[11px] font-black tracking-[0.2em] -mt-1">MESA</span>
       </div>
-      <div className="flex justify-between text-[10px]">
+      <div className="flex justify-between text-[10px] mt-1">
         <span>{primerNombre}</span>
-        <span>{fmtHora(comanda.enviadaAt)}</span>
+        <span>{comanda.pax} pax · {fmtHora(comanda.enviadaAt)}</span>
       </div>
 
       {tipo === 'cocina' ? (
         niveles.map(nivel => (
-          <div key={nivel} className="mt-2">
-            <div className="flex items-center gap-2">
-              <span className="flex-1 border-t-2 border-black" />
-              <span className="font-black text-[13px] tracking-wide shrink-0">Nivel {nivel}</span>
-              <span className="flex-1 border-t-2 border-black" />
+          <div key={nivel} className="mt-3">
+            <div className="border-2 border-black text-center py-0.5">
+              <span className="font-black text-[20px] tracking-wide">NIVEL {nivel}</span>
             </div>
             {items.filter(i => i.nivel === nivel).map(i => <ItemLine key={i.id} item={i} />)}
           </div>
