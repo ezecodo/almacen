@@ -33,7 +33,7 @@ function getClient(): MqttClient | null {
   return client
 }
 
-type TicketItem = { nombre: string; cantidad: number; tipo: 'Bebida' | 'Comida'; notas: string | null }
+type TicketItem = { nombre: string; cantidad: number; tipo: 'Bebida' | 'Comida'; notas: string | null; nivel: number | null }
 
 // Nunca debe tirar abajo el flujo de comandas: cualquier fallo de MQTT queda
 // contenido acá adentro (broker caído, credenciales mal, lo que sea).

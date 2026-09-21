@@ -35,6 +35,7 @@ function imprimirTicketComanda(comanda: ComandaConMesa, items: ComandaItem[], ne
       cantidad: i.cantidad,
       tipo: i.tipo === 'barra' ? 'Bebida' : 'Comida',
       notas: i.nota || null,
+      nivel: i.nivel,
     })),
   })
 }
