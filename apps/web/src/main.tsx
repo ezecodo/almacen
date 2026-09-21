@@ -37,7 +37,6 @@ import StaffingPage from './pages/StaffingPage'
 import WikiPage from './pages/WikiPage'
 import ChecklistsPage from './pages/ChecklistsPage'
 import TicketsPage from './pages/TicketsPage'
-import PrintComandaPage from './pages/PrintComandaPage'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -61,7 +60,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           <Route path="/verificar/:id" element={<VerificarPage />} />
           <Route path="/mis-propinas" element={<MisPropinasPage />} />
           <Route path="/reservas/:slug" element={<ReservaPublicaPage />} />
-          <Route path="/print/comanda/:id/:tipo" element={<PrintComandaPage />} />
           <Route element={<PulsoGuard />}>
             <Route path="/pulso" element={<PulsoPage />} />
           </Route>
