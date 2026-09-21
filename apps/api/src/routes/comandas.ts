@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../server'
 import { broadcast } from '../sse'
+import { publicarTicket } from '../mqtt'
 
 const itemSchema = z.object({
   nombre:   z.string().min(1),
@@ -276,9 +277,30 @@ export async function comandaRoutes(app: FastifyInstance) {
     const comanda = await prisma.comanda.update({
       where: { id },
       data: { estado: 'enviada', ...(previa?.enviadaAt ? {} : { enviadaAt: new Date() }) },
-      include: { items: true, mesa: true },
+      include: { items: true, mesa: { include: { floorPlan: true } } },
     })
     broadcast(comanda.restaurantId, 'update')
+
+    // Imprimir ticket (Pi del local, vía printer-server/MQTT) — solo los items recién
+    // enviados en esta ronda, sin los autoGenerado (pan x pax, etc.) que no van a cocina/barra.
+    const idsEnviados = new Set((niveles ?? []).map((n) => n.itemId))
+    const itemsParaImprimir = comanda.items.filter((i) => idsEnviados.has(i.id) && !i.autoGenerado)
+    if (itemsParaImprimir.length > 0) {
+      const zona = /alta/i.test(comanda.mesa?.floorPlan?.nombre ?? '') ? 'PA' : 'PB'
+      publicarTicket(process.env.MQTT_RESTAURANTE_ID || 'sensi-tapas-pb', {
+        ticket_id: `cmd-${comanda.id}-r${nextRonda}`,
+        zona,
+        mesa: String(comanda.mesa?.numero ?? '?'),
+        camarero: comanda.camareroNombre ?? '',
+        items: itemsParaImprimir.map((i) => ({
+          nombre: i.nombre,
+          cantidad: i.cantidad,
+          tipo: i.tipo === 'barra' ? 'Bebida' : 'Comida',
+          notas: i.nota || null,
+        })),
+      })
+    }
+
     return comanda
   })
 
