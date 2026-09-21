@@ -54,7 +54,11 @@ async function start() {
   app.get('/health', async () => ({ status: 'ok', timestamp: new Date() }))
 
   const port = Number(process.env.PORT) || 3001
-  await app.listen({ port, host: '0.0.0.0' })
+  // Nginx le habla por localhost:3001 (ver /etc/nginx/sites-available/almacen) — en producción
+  // debe ir a loopback (HOST=127.0.0.1 en .env) para no exponer la API directo a internet.
+  // 0.0.0.0 por defecto para que en dev se pueda probar desde otros dispositivos de la LAN (tablets/celus).
+  const host = process.env.HOST || '0.0.0.0'
+  await app.listen({ port, host })
 }
 
 start().catch(console.error)
