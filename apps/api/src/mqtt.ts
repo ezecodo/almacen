@@ -43,6 +43,9 @@ export function publicarTicket(restauranteId: string, ticket: {
   mesa: string
   camarero: string
   items: TicketItem[]
+  // PNG en base64 del ticket ya renderizado (Puppeteer, en el VPS), por tipo — opcional.
+  // Si el printer-server no encuentra imagen para un tipo, cae al dibujo Pillow de respaldo.
+  imagenes?: { Comida?: string; Bebida?: string }
 }) {
   try {
     const c = getClient()

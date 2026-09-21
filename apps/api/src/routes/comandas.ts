@@ -1,8 +1,10 @@
 import { FastifyInstance } from 'fastify'
+import { Prisma, ComandaItem } from '@prisma/client'
 import { z } from 'zod'
 import { prisma } from '../server'
 import { broadcast } from '../sse'
 import { publicarTicket } from '../mqtt'
+import { renderTicketComandaPng } from '../ticketRender'
 
 const itemSchema = z.object({
   nombre:   z.string().min(1),
@@ -14,6 +16,41 @@ const itemSchema = z.object({
   // de envío a cocina/barra (no imprime, no marcha pasa, no cambia el estado de la comanda)
   directo:  z.boolean().default(false),
 })
+
+type ComandaConMesa = Prisma.ComandaGetPayload<{
+  include: { items: true; mesa: { include: { floorPlan: true } } }
+}>
+
+// Renderiza (en el VPS, vía Puppeteer) el ticket bonito de cocina/barra para esta ronda
+// y lo publica por MQTT. Si el render falla, igual manda el ticket en texto plano —
+// el printer-server de la Pi tiene su propio dibujo de respaldo con Pillow.
+async function imprimirTicketComanda(comanda: ComandaConMesa, items: ComandaItem[], nextRonda: number) {
+  const cocinaIds = items.filter((i) => i.tipo === 'cocina').map((i) => i.id)
+  const barraIds = items.filter((i) => i.tipo === 'barra').map((i) => i.id)
+
+  const [imgCocina, imgBarra] = await Promise.all([
+    cocinaIds.length > 0 ? renderTicketComandaPng(comanda.id, 'cocina', cocinaIds) : Promise.resolve(null),
+    barraIds.length > 0 ? renderTicketComandaPng(comanda.id, 'barra', barraIds) : Promise.resolve(null),
+  ])
+
+  const zona = /alta/i.test(comanda.mesa?.floorPlan?.nombre ?? '') ? 'PA' : 'PB'
+  publicarTicket(process.env.MQTT_RESTAURANTE_ID || 'sensi-tapas-pb', {
+    ticket_id: `cmd-${comanda.id}-r${nextRonda}`,
+    zona,
+    mesa: String(comanda.mesa?.numero ?? '?'),
+    camarero: comanda.camareroNombre ?? '',
+    items: items.map((i) => ({
+      nombre: i.nombre,
+      cantidad: i.cantidad,
+      tipo: i.tipo === 'barra' ? 'Bebida' : 'Comida',
+      notas: i.nota || null,
+    })),
+    imagenes: {
+      ...(imgCocina && { Comida: imgCocina.toString('base64') }),
+      ...(imgBarra && { Bebida: imgBarra.toString('base64') }),
+    },
+  })
+}
 
 export async function comandaRoutes(app: FastifyInstance) {
 
@@ -283,22 +320,12 @@ export async function comandaRoutes(app: FastifyInstance) {
 
     // Imprimir ticket (Pi del local, vía printer-server/MQTT) — solo los items recién
     // enviados en esta ronda, sin los autoGenerado (pan x pax, etc.) que no van a cocina/barra.
+    // No se espera acá (fire-and-forget) para no demorarle la respuesta al camarero por
+    // el renderizado del ticket — mismo criterio que el resto de la app con la impresión.
     const idsEnviados = new Set((niveles ?? []).map((n) => n.itemId))
     const itemsParaImprimir = comanda.items.filter((i) => idsEnviados.has(i.id) && !i.autoGenerado)
     if (itemsParaImprimir.length > 0) {
-      const zona = /alta/i.test(comanda.mesa?.floorPlan?.nombre ?? '') ? 'PA' : 'PB'
-      publicarTicket(process.env.MQTT_RESTAURANTE_ID || 'sensi-tapas-pb', {
-        ticket_id: `cmd-${comanda.id}-r${nextRonda}`,
-        zona,
-        mesa: String(comanda.mesa?.numero ?? '?'),
-        camarero: comanda.camareroNombre ?? '',
-        items: itemsParaImprimir.map((i) => ({
-          nombre: i.nombre,
-          cantidad: i.cantidad,
-          tipo: i.tipo === 'barra' ? 'Bebida' : 'Comida',
-          notas: i.nota || null,
-        })),
-      })
+      void imprimirTicketComanda(comanda, itemsParaImprimir, nextRonda)
     }
 
     return comanda
