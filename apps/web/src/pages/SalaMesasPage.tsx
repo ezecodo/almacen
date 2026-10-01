@@ -8,6 +8,7 @@ import { api, Comanda, ComandaItem, FloorPlan, GrupoAgendado, GrupoMenuTemplate,
 import { speak, VozSelector, LANGS, Lang } from '../lib/tts'
 import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
 import { usePoolEvents } from '../hooks/usePoolEvents'
+import FacturasSala from '../components/FacturasSala'
 
 const POOL_LOCK_TIMEOUT_MS = 10 * 60 * 1000 // debe coincidir con POOL_LOCK_TIMEOUT_MS del backend
 function lockActivoPool(r: Reserva) {
@@ -3007,14 +3008,14 @@ function EncargadoPanel({
   onAbrirComanda,
 }: {
   restaurant: { id: number; nombre: string }
-  camarero: { nombre: string }
+  camarero: { id?: number; nombre: string }
   turnoActivo: Turno | null
   onClose: () => void
   onAbrirComanda?: (comandaId: number) => void
 }) {
   const queryClient = useQueryClient()
   const rid = restaurant.id
-  const [tab, setTab] = useState<'cobros' | 'turno' | 'checklists' | 'mermas' | 'reviews' | 'reservas'>('cobros')
+  const [tab, setTab] = useState<'cobros' | 'turno' | 'checklists' | 'mermas' | 'reviews' | 'reservas' | 'facturas'>('cobros')
   const [armadoCierre, setArmadoCierre] = useState(false)
   const [resumenCierre, setResumenCierre] = useState<Turno | null>(null)
   const [cobroDe, setCobroDe] = useState<Comanda | null>(null)
@@ -3172,6 +3173,7 @@ function EncargadoPanel({
     { key: 'mermas' as const, icon: '🗑', label: 'Mermas', badge: 0 },
     { key: 'reservas' as const, icon: '📅', label: 'Reservas', badge: pool.length },
     { key: 'reviews' as const, icon: '⭐', label: 'Reviews', badge: 0 },
+    { key: 'facturas' as const, icon: '🧾', label: 'Facturas', badge: 0 },
   ]
 
   return (
@@ -3364,6 +3366,9 @@ function EncargadoPanel({
               ))}
             </>
           )}
+
+          {/* ── Facturas de proveedor ── */}
+          {tab === 'facturas' && <FacturasSala restaurantId={rid} empleadoId={camarero.id} />}
 
           {/* ── Mermas de hoy ── */}
           {tab === 'mermas' && (

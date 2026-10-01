@@ -15,6 +15,9 @@ export function useAdminEvents() {
           queryClient.invalidateQueries({ queryKey: ['facturacion-dia'] })
           queryClient.invalidateQueries({ queryKey: ['turnos-activos-global'] })
         }
+        if (type === 'facturas') {
+          queryClient.invalidateQueries({ queryKey: ['facturas'] })
+        }
         if (type === 'reservas-pool') {
           queryClient.invalidateQueries({ queryKey: ['reservas-pool'] })
           queryClient.invalidateQueries({ queryKey: ['reservas'] })

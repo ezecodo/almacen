@@ -1,5 +1,7 @@
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
+import jwt from '@fastify/jwt'
+import { randomBytes } from 'crypto'
 import { PrismaClient } from '@prisma/client'
 import { retiroRoutes } from './routes/retiros'
 import { productoRoutes } from './routes/productos'
@@ -21,6 +23,8 @@ import { staffingRoutes } from './routes/staffing'
 import { wikiRoutes } from './routes/wiki'
 import { checklistRoutes } from './routes/checklists'
 import { ticketRoutes } from './routes/tickets'
+import { authRoutes } from './routes/auth'
+import { facturaRoutes } from './routes/facturas'
 
 const app = Fastify({ logger: true })
 export const prisma = new PrismaClient()
@@ -29,6 +33,11 @@ async function start() {
   await app.register(cors, {
     origin: process.env.FRONTEND_URL || 'http://localhost:5173'
   })
+
+  // Sin JWT_SECRET en el .env se usa uno aleatorio: todo sigue funcionando, pero las
+  // sesiones firmadas se invalidan en cada reinicio de la API.
+  if (!process.env.JWT_SECRET) app.log.warn('JWT_SECRET no configurado — usando secreto efímero')
+  await app.register(jwt, { secret: process.env.JWT_SECRET || randomBytes(32).toString('hex') })
 
   await app.register(retiroRoutes, { prefix: '/api' })
   await app.register(productoRoutes, { prefix: '/api' })
@@ -50,6 +59,8 @@ async function start() {
   await app.register(wikiRoutes, { prefix: '/api' })
   await app.register(checklistRoutes, { prefix: '/api' })
   await app.register(ticketRoutes, { prefix: '/api' })
+  await app.register(authRoutes, { prefix: '/api' })
+  await app.register(facturaRoutes, { prefix: '/api' })
 
   app.get('/health', async () => ({ status: 'ok', timestamp: new Date() }))
 

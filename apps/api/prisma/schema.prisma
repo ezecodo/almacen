@@ -41,6 +41,7 @@ model Restaurant {
   checklistEjecuciones   ChecklistEjecucion[]
   ticketConfig           TicketConfig?
   impresoras             Impresora[]
+  facturas               Factura[]
   createdAt              DateTime              @default(now())
 }
 
@@ -625,4 +626,36 @@ model ImpresionRuta {
   impresoraId Int
   impresora   Impresora @relation(fields: [impresoraId], references: [id], onDelete: Cascade)
   copias      Int       @default(1)
+}
+
+// ── Facturas de proveedor ─────────────────────────────────────────────────────
+// Catálogo de proveedores: común a todos los restaurantes, se gestiona en /admin/facturas.
+model Proveedor {
+  id        Int       @id @default(autoincrement())
+  nombre    String    @unique
+  activo    Boolean   @default(true) // false = quitado del catálogo pero con facturas históricas
+  facturas  Factura[]
+  createdAt DateTime  @default(now())
+}
+
+// El encargado fotografía la factura al recibir el pedido (panel 💼 de /sala) y
+// llega a la bandeja de /admin/facturas. Las páginas (JPEG) viven en disco
+// (uploads/facturas/<id>/<n>.jpg), no en la DB — acá solo va la metadata.
+model Factura {
+  id           Int        @id @default(autoincrement())
+  restaurantId Int
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  proveedor    String     // nombre (snapshot; se actualiza si se renombra el proveedor del catálogo)
+  proveedorId  Int?       // null = "Otro": escrito a mano por el encargado, aún sin catalogar
+  proveedorRef Proveedor? @relation(fields: [proveedorId], references: [id])
+  numero       String?    // nº de factura/albarán tal como figura en el papel
+  nota         String?    // "faltaron 2 botellas"…
+  subidoPor    String
+  subidoPorId  Int?
+  paginas      Int        @default(0)
+  estado       String     @default("subiendo") // 'subiendo' (aún cargando páginas) | 'pendiente' | 'revisada'
+  revisadaAt   DateTime?
+  createdAt    DateTime   @default(now())
+
+  @@index([restaurantId, createdAt])
 }

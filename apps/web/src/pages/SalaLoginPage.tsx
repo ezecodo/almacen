@@ -45,6 +45,7 @@ export default function SalaLoginPage() {
           nombre: empleado.nombre,
           rol: empleado.rol ?? null,
           accesoEncargadoApp: empleado.accesoEncargadoApp ?? false,
+          token: empleado.token ?? null,
         }))
         navigate('/sala/mesas', { replace: true })
       }

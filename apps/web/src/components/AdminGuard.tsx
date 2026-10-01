@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link, Outlet } from 'react-router-dom'
+import { api, ADMIN_TOKEN_KEY } from '../api'
 
 const ADMIN_PIN = import.meta.env.VITE_ADMIN_PIN as string
 const STORAGE_KEY = 'admin_auth'
@@ -16,6 +17,9 @@ function PinGate({ onSuccess }: { onSuccess: () => void }) {
     e.preventDefault()
     if (pin === ADMIN_PIN) {
       sessionStorage.setItem(STORAGE_KEY, 'true')
+      // Sesión firmada para las rutas protegidas del backend (facturas). Si el servidor
+      // no tiene ADMIN_PIN configurado, el resto del admin sigue funcionando igual.
+      api.auth.admin(pin).then(({ token }) => sessionStorage.setItem(ADMIN_TOKEN_KEY, token)).catch(() => {})
       onSuccess()
     } else {
       setError(true)

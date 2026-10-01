@@ -49,7 +49,16 @@ export async function empleadoRoutes(app: FastifyInstance) {
       return reply.status(401).send({ error: 'PIN incorrecto' })
     }
 
-    return empleado
+    // Sesión firmada para las rutas protegidas (hoy: facturas). Mismo criterio de
+    // encargado que la app de sala: rol 'encargado' o superpoder accesoEncargadoApp.
+    const token = app.jwt.sign({
+      tipo: 'sala',
+      nombre: empleado.nombre,
+      empleadoId: empleado.id,
+      encargado: empleado.tipo === 'sala' && (empleado.rol === 'encargado' || empleado.accesoEncargadoApp),
+    }, { expiresIn: '16h' })
+
+    return { ...empleado, token }
   })
 
   // Listar empleados con filtro opcional por tipo

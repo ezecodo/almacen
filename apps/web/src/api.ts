@@ -766,13 +766,93 @@ export interface ChecklistSector {
   ejecuciones?: ChecklistEjecucion[] // ejecuciones de hoy (vista sala)
 }
 
+// ── Facturas de proveedor ───────────────────────────────────────────────────
+export interface Proveedor {
+  id:      number
+  nombre:  string
+  activo:  boolean
+  _count?: { facturas: number }
+}
+
+export interface Factura {
+  id:           number
+  restaurantId: number
+  restaurant?:  { id: number; nombre: string }
+  proveedor:    string
+  proveedorId?: number | null   // null = escrito a mano, sin catalogar
+  numero?:      string | null
+  nota?:        string | null
+  subidoPor:    string
+  subidoPorId?: number | null
+  paginas:      number
+  estado:       'subiendo' | 'pendiente' | 'revisada'
+  revisadaAt?:  string | null
+  createdAt:    string
+}
+
+// Las rutas de facturas exigen sesión firmada: el token de admin (POST /admin/auth)
+// dentro de /admin, o el del empleado (login por PIN) en la app de sala.
+export const ADMIN_TOKEN_KEY = 'admin_token'
+function authHeaders(): Record<string, string> {
+  let token: string | null = null
+  if (location.pathname.startsWith('/admin')) {
+    token = sessionStorage.getItem(ADMIN_TOKEN_KEY)
+  } else {
+    try { token = JSON.parse(sessionStorage.getItem('oidoops_camarero') ?? '').token ?? null } catch {}
+  }
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
+async function authFetch(path: string, init: { method?: string; json?: unknown; body?: Blob; contentType?: string } = {}): Promise<Response> {
+  const headers = authHeaders()
+  if (init.json !== undefined) headers['Content-Type'] = 'application/json'
+  if (init.contentType) headers['Content-Type'] = init.contentType
+  const res = await fetch(`${BASE}${path}`, {
+    method: init.method ?? 'GET',
+    headers,
+    body: init.json !== undefined ? JSON.stringify(init.json) : init.body,
+  })
+  if (!res.ok) throw new Error(await errorMessage(res, `${init.method ?? 'GET'} ${path} failed: ${res.status}`))
+  return res
+}
+
 export const api = {
+  auth: {
+    admin: (pin: string) => post<{ token: string }>('/admin/auth', { pin }),
+  },
+  facturas: {
+    list: (params: { restaurantId?: number; estado?: 'pendiente' | 'revisada'; mes?: string; proveedorId?: number } = {}) => {
+      const q = new URLSearchParams()
+      if (params.restaurantId) q.set('restaurantId', String(params.restaurantId))
+      if (params.estado) q.set('estado', params.estado)
+      if (params.mes) q.set('mes', params.mes)
+      if (params.proveedorId) q.set('proveedorId', String(params.proveedorId))
+      return authFetch(`/facturas?${q}`).then(r => r.json() as Promise<Factura[]>)
+    },
+    proveedores: () => authFetch('/facturas/proveedores').then(r => r.json() as Promise<Proveedor[]>),
+    crearProveedor: (nombre: string) =>
+      authFetch('/facturas/proveedores', { method: 'POST', json: { nombre } }).then(r => r.json() as Promise<Proveedor>),
+    renombrarProveedor: (id: number, nombre: string) =>
+      authFetch(`/facturas/proveedores/${id}`, { method: 'PUT', json: { nombre } }).then(r => r.json() as Promise<Proveedor>),
+    quitarProveedor: (id: number) => authFetch(`/facturas/proveedores/${id}`, { method: 'DELETE' }).then(() => undefined),
+    crear: (body: { restaurantId: number; proveedorId?: number; proveedor?: string; numero?: string; nota?: string }) =>
+      authFetch('/facturas', { method: 'POST', json: body }).then(r => r.json() as Promise<Factura>),
+    subirPagina: (id: number, jpeg: Blob) =>
+      authFetch(`/facturas/${id}/paginas`, { method: 'POST', body: jpeg, contentType: 'image/jpeg' }).then(r => r.json() as Promise<Factura>),
+    enviar: (id: number) =>
+      authFetch(`/facturas/${id}/enviar`, { method: 'PATCH', json: {} }).then(r => r.json() as Promise<Factura>),
+    setEstado: (id: number, estado: 'pendiente' | 'revisada') =>
+      authFetch(`/facturas/${id}`, { method: 'PATCH', json: { estado } }).then(r => r.json() as Promise<Factura>),
+    delete: (id: number) => authFetch(`/facturas/${id}`, { method: 'DELETE' }).then(() => undefined),
+    pagina: (id: number, n: number) => authFetch(`/facturas/${id}/paginas/${n}`).then(r => r.blob()),
+    pdf: (id: number) => authFetch(`/facturas/${id}/pdf`).then(r => r.blob()),
+  },
   restaurantes: {
     list: () => get<Restaurante[]>('/restaurantes'),
   },
   empleados: {
     list:   (tipo?: 'cocina' | 'sala') => get<Empleado[]>(`/empleados${tipo ? `?tipo=${tipo}` : ''}`),
-    auth:   (pin: string) => post<Empleado>('/empleados/auth', { pin }),
+    auth:   (pin: string) => post<Empleado & { token?: string }>('/empleados/auth', { pin }),
     create: (body: { nombre: string; tipo: 'cocina' | 'sala'; pin?: string; telefono?: string; email?: string; horasSemanales?: number; rol?: string; puedeEncargado?: boolean; accesoEncargadoApp?: boolean; puedeJefeCocina?: boolean; excluirPlanning?: boolean; diasLibresFijos?: number[]; restaurantId?: number | null }) => post<Empleado>('/empleados', body),
     update: (id: number, body: { nombre?: string; tipo?: string; pin?: string; telefono?: string | null; email?: string | null; horasSemanales?: number; rol?: string | null; puedeEncargado?: boolean; accesoEncargadoApp?: boolean; puedeJefeCocina?: boolean; excluirPlanning?: boolean; diasLibresFijos?: number[]; restaurantId?: number | null; activo?: boolean }) =>
       put<Empleado>(`/empleados/${id}`, body),

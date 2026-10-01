@@ -29,7 +29,8 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,svg,png,ico}'],
         runtimeCaching: [
           {
-            urlPattern: /^\/api\/(?!events).*/i,
+            // events (SSE) y facturas (documentos privados) no pasan por la caché
+            urlPattern: /^\/api\/(?!events|facturas).*/i,
             handler: 'NetworkFirst',
             options: {
               cacheName: 'api-cache',

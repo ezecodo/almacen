@@ -39,6 +39,13 @@ const NAV_GROUPS = [
     ],
   },
   {
+    label: 'Compras',
+    icon: '🧾',
+    items: [
+      { to: '/admin/facturas', label: 'Facturas' },
+    ],
+  },
+  {
     label: 'Almacén',
     icon: '🏭',
     items: [
@@ -64,6 +71,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
   const handleLogout = () => {
     sessionStorage.removeItem('admin_auth')
+    sessionStorage.removeItem('admin_token')
     navigate('/')
   }
 

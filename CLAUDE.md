@@ -13,6 +13,7 @@ Módulos activos:
 7. **Reservas** (OidoPerso, en desarrollo): sistema de reservas online por restaurante con formulario público
 8. **Wiki**: base de conocimiento por restaurante (speeches, protocolos, conceptos) — el personal de sala consulta/escucha el speech, cargado desde el admin
 9. **Checklists**: listas de apertura y cierre por sector (Barra 1, Sala 2, Paso…) — el personal las completa desde la app de sala, con histórico para el encargado
+10. **Facturas**: el encargado fotografía la factura del proveedor al recibir el pedido (panel 💼 de `/sala`) y llega a la bandeja de `/admin/facturas` para directivos/contable
 
 ## Roadmap (acordado con Eze, pendiente de implementar)
 
@@ -124,6 +125,7 @@ DATABASE_URL="postgresql://ezequielangeloni@localhost:5432/almacen_dev"
 JWT_SECRET="dev-secret-local"
 FRONTEND_URL="http://localhost:5173"
 PORT=3001
+ADMIN_PIN=xxxx   # mismo valor que VITE_ADMIN_PIN — lo valida el servidor (POST /admin/auth) para las rutas protegidas (facturas)
 ```
 
 ### Variables de entorno (apps/web/.env)
@@ -858,6 +860,49 @@ ChecklistEjecucion   sectorId, restaurantId, momento, completadoPor, itemsMarcad
   - **Configurar**: sectores con dos columnas (🔓 Apertura / 🔒 Cierre), cada una con sus ítems editables inline. Añadir sector con input + Enter.
   - **Registro**: histórico por fecha. Cada ejecución muestra sector, momento, quién, hora y `marcados/total` (verde ✓ si completo, ámbar ⚠️ con los ítems sin marcar).
 - **Sala** (`ChecklistPanel` en `SalaMesasPage.tsx`, se abre desde el `PerfilPanel`): bottom-sheet de 2 vistas — (1) lista de sectores, cada uno con chips Apertura/Cierre (verde con nombre+hora si ya se completó hoy); (2) al elegir sector+momento, ítems como checkboxes grandes (tablet) + botón "Completar (n/total)" que registra la ejecución con el nombre del camarero logueado.
+
+---
+
+## Módulo: Facturas (de proveedor)
+
+Reemplaza el flujo "escanear con ScanCam + mandar el PDF por mail". Implementado 2026-10-01 (v1: foto comprimida, sin recorte de bordes ni OCR).
+
+### Sesión firmada (primer módulo con auth real en el servidor)
+
+El resto de la API sigue sin validar identidad; las rutas `/facturas*` sí, vía `@fastify/jwt` (`apps/api/src/auth.ts`, guards `requireEncargado` / `requireAdmin`):
+- **Sala**: `POST /empleados/auth` devuelve además `token` (16h) con `encargado = rol 'encargado' || accesoEncargadoApp` — mismo criterio que `esEncargado` en `/sala`. Se guarda dentro de `sessionStorage['oidoops_camarero']`. Un encargado logueado desde antes del deploy no tiene token → tiene que volver a entrar con su PIN.
+- **Admin**: `POST /admin/auth { pin }` valida contra `ADMIN_PIN` del `.env` de la API (no el `VITE_ADMIN_PIN` del build) y devuelve token (12h) → `sessionStorage['admin_token']`. `AdminGuard` lo pide solo al entrar; si falta o caducó, `FacturasPage` muestra su propio PIN. Sin `ADMIN_PIN` en el servidor el endpoint devuelve 503 y el resto del admin sigue igual.
+- `authFetch` en `api.ts` elige el token según la ruta (`/admin*` → admin, resto → sala). Las imágenes/PDF se bajan como blob (un `<img src>` directo no puede mandar el header).
+- Sin `JWT_SECRET` la API arranca igual con un secreto efímero (las sesiones se caen en cada reinicio).
+
+### Modelo y archivos
+
+```
+Proveedor  nombre @unique, activo   ← catálogo común a todos los restaurantes, gestionado en /admin/facturas → pestaña Proveedores
+Factura  restaurantId, proveedor (nombre, snapshot), proveedorId? (null = "Otro…" escrito a mano), numero? (nº de factura, opcional), nota?, subidoPor, subidoPorId?, paginas, estado ('subiendo'|'pendiente'|'revisada'), revisadaAt?
+```
+
+Las páginas son JPEG en disco: `apps/api/uploads/facturas/<id>/<n>.jpg` (override con env `FACTURAS_DIR`; en `.gitignore`; Nginx no lo sirve). El PDF se arma al vuelo con `pdf-lib`. **No entran en el backup de la DB** y **`sync-db.sh` borra las filas de prod** (deja los archivos huérfanos) — pendiente resolver backup.
+
+### Flujo de subida (3 pasos, una request por página)
+
+`POST /facturas` (queda `subiendo`, invisible en listados) → `POST /facturas/:id/paginas` con el JPEG crudo en el body (`Content-Type: image/jpeg`) → `PATCH /facturas/:id/enviar` (pasa a `pendiente` + SSE `'facturas'`). Una request por página porque **Nginx corta en 1 MB por defecto**: `lib/imagen.ts` (`comprimirFoto`) reduce cada foto a ≤1800px y <850 KB en el dispositivo. Las subidas a medias de más de 1 día se limpian solas al crear la siguiente.
+
+### API (`/facturas`)
+
+- `GET /facturas?restaurantId=&estado=&mes=YYYY-MM` — admin: todas; encargado: `restaurantId` obligatorio
+- `GET /facturas/proveedores` — catálogo activo (con `_count.facturas`) · `POST` (admin; reactiva si existía y vincula las facturas escritas a mano con ese nombre) · `PUT /:id` (renombrar; actualiza el nombre en sus facturas) · `DELETE /:id` (borra si no tiene facturas, si no lo desactiva)
+- `GET /facturas/:id/paginas/:n` (JPEG) · `GET /facturas/:id/pdf`
+- `PATCH /facturas/:id { estado }` — solo admin (pendiente ↔ revisada)
+- `DELETE /facturas/:id` — admin cualquiera; encargado solo las suyas y no revisadas
+
+### Frontend
+
+- **Sala**: pestaña **🧾 Facturas** del `EncargadoPanel` → `components/FacturasSala.tsx` (proveedor: chips del catálogo + "Otro…" para escribir uno que no está — queda marcado "sin catalogar" en el admin con botón para añadirlo —, nº de factura, nota, fotos con `<input capture="environment">`, lista de las del restaurante con estado Enviada/✓ Revisada).
+- **Admin**: `/admin/facturas` (`FacturasPage.tsx`, grupo "Compras"): pestañas Bandeja / Proveedores; filtros restaurante / proveedor / estado / mes, ver páginas, descargar PDF, marcar revisada, eliminar.
+- `/api/facturas*` está excluido de la caché del service worker (`vite.config.ts`).
+
+**Pendiente**: ZIP/exportación del mes, reenvío por mail a gestoría, recorte tipo escáner, lectura automática (proveedor/total/líneas → checklist de recepción + `precioCoste`), backup de `uploads/`.
 
 ---
 

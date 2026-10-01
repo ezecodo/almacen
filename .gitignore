@@ -4,3 +4,4 @@ dist
 google-credentials.json
 apps/api/oidoops-*.json
 sync-db.sh
+apps/api/uploads
