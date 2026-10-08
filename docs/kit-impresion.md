@@ -211,7 +211,14 @@ Todas las Pi usan el mismo usuario y contraseña de MQTT, grabados en la tarjeta
 
 ### 4.5 Portal WiFi para la primera conexión
 
-Para que un manager pueda instalar la Pi solo en un local sin cable de red hasta ella, sin SSH. Confirmado con Eze el 2026-10-08. Diseñado, sin construir.
+Para que un manager pueda instalar la Pi solo en un local sin cable de red hasta ella, sin SSH. Confirmado con Eze el 2026-10-08.
+
+**Estado al 2026-10-08: construido, en pruebas, todavía no conecta.** Vive en el `printer-server` (`portal.py` + `oido-portal.service`, servicio aparte que corre como root) y está instalado en la Pi del prototipo. Es una página propia sobre NetworkManager, sin herramientas externas.
+
+- ✅ **Funciona**: al cortarle el WiFi, la Pi levantó sola la red abierta `OIDO-13FAEE` en un minuto y medio; el portal se abre en el teléfono con la lista de redes; tras un intento fallido la Pi vuelve a levantar su red y la página muestra el error.
+- ❌ **Falla**: dos intentos de conectar al WiFi de casa terminaron en "No se pudo conectar", el segundo con la contraseña tecleada con cuidado. **Falta leer el motivo en el registro**: entrar a la Pi por cable (Mac enchufado al AirPort, `ssh oido@oido.local`) y ejecutar `journalctl -u oido-portal -n 30 --no-pager`.
+- **Para devolver la Pi a su WiFi sin el portal**: desenchufarla y volver a enchufarla. El corte de la prueba (`nmcli con down`) es temporal y se pierde al reiniciar.
+- **Para probar el portal**: `sudo nmcli con down netplan-wlan0-<red>` deja a la Pi sin WiFi hasta el próximo reinicio.
 
 **Etiqueta de la Pi**: lleva el código (`OIDO-13FAEE`) y un **código QR** que conecta el teléfono a la red WiFi de la Pi con solo apuntarle la cámara. Funciona en iPhone y Android, sin app.
 
