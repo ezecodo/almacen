@@ -13,6 +13,7 @@ const NAV_GROUPS = [
       { to: '/admin/propinas', label: 'Propinas' },
       { to: '/admin/checklists', label: 'Checklists' },
       { to: '/admin/tickets',    label: 'Tickets' },
+      { to: '/admin/verifactu',  label: 'Veri*factu' },
     ],
   },
   {
