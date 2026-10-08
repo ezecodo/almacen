@@ -200,19 +200,37 @@ Todas las Pi usan el mismo usuario y contraseña de MQTT, grabados en la tarjeta
 
 ### 4.5 Portal WiFi para la primera conexión
 
-Para que un manager pueda instalar la Pi solo en un local sin cable de red hasta ella, sin SSH.
+Para que un manager pueda instalar la Pi solo en un local sin cable de red hasta ella, sin SSH. Confirmado con Eze el 2026-10-08. Diseñado, sin construir.
 
-1. La Pi arranca. Si tiene cable, se conecta sola y no pasa nada más.
-2. Si no tiene ninguna conexión, crea su propia red WiFi, tipo `OIDO-7F3A`.
-3. El manager se conecta con el teléfono y se le abre sola una página (portal cautivo).
-4. Elige el WiFi del local y escribe la contraseña. La Pi se pasa a esa red.
-5. La última pantalla muestra el código de la Pi, que es el que se escribe en el dashboard para vincularla (4.1).
+**Etiqueta de la Pi**: lleva el código (`OIDO-13FAEE`) y un **código QR** que conecta el teléfono a la red WiFi de la Pi con solo apuntarle la cámara. Funciona en iPhone y Android, sin app.
 
-- **Con cable no hace falta**, y con el router del kit tampoco: su WiFi lo define Eze y la Pi puede salir de casa ya configurada. Resuelve el caso de un local con router propio y sin cable hasta la Pi.
+**Flujo:**
+
+1. La Pi arranca. Si tiene cable, se conecta sola y nada de esto aparece.
+2. Si no tiene ninguna conexión, crea su propia red WiFi, con su código como nombre (`OIDO-13FAEE`).
+3. El manager escanea el QR. El teléfono se conecta a esa red y se le abre sola una página (portal cautivo).
+4. La página muestra el código de la Pi y la **lista de redes WiFi que la Pi ve alrededor**, con su señal. Hay un botón "Mi red no aparece" para escribir el nombre a mano (redes ocultas).
+5. Elige el WiFi del local, escribe la contraseña y toca "Conectar".
+6. La Pi apaga su red, se conecta al WiFi del local y arranca el servicio de impresión.
+
+**Cómo se sabe si funcionó.** La Pi tiene una sola antena: no puede mantener su red y a la vez conectarse a la del local. Al cambiar, el teléfono pierde la página, así que la confirmación no puede aparecer ahí.
+
+- **Salió bien**: la red `OIDO-…` desaparece, el teléfono vuelve a su WiFi habitual y en el dashboard la Pi aparece "Conectada" al vincular su código (4.1).
+- **Contraseña incorrecta**: la Pi no logra conectarse, vuelve a levantar su red en un minuto más o menos y, al entrar de nuevo, la página avisa que no pudo conectarse a esa red.
+- Antes del corte, la página lo explica: "Si en un minuto vuelve a aparecer la red OIDO-13FAEE, es que la contraseña no era correcta."
+
+**Otros casos:**
+
+- **El local cambia de router o de contraseña**: la Pi se queda sin conexión, vuelve a levantar su red sola y se repite el proceso con el QR.
+- **Con cable no hace falta**, y con el router del kit tampoco: su WiFi lo define Eze y la Pi puede salir de casa ya configurada. Esto resuelve el caso de un local con router propio y sin cable hasta la Pi.
+
+**Notas de implementación:**
+
 - **Se usan herramientas existentes** para la Pi, no se programa el portal desde cero. Falta elegir cuál.
 - **No contradice** el descarte de una página de configuración en la Pi: esto es solo para darle red, que es lo único que no se puede hacer desde el dashboard.
+- **Para probarlo** hay que dejar a la Pi sin WiFi a propósito, lo que corta el SSH. Conviene tenerla además por cable, para no perder el acceso.
 
-Se eligió esto y no **Bluetooth**: Bluetooth obliga a desarrollar y publicar una app (sin app solo funciona en Chrome de Android, no en iPhone) para un paso que se hace una vez por local. A favor tenía que la Pi puede avisar en el momento si la contraseña está mal.
+**Por qué no Bluetooth.** Desde una página web, Bluetooth solo funciona en Chrome (Android, Mac, Windows), no en iPhone ni iPad, y muchos managers tienen iPhone. Cubrirlos obligaría a desarrollar y publicar una app para un paso que se hace una vez por local. A favor tenía que todo pasa dentro del dashboard, sin cambiar de red, y que la Pi puede avisar en el momento si la contraseña está mal. Queda como mejora opcional si las instalaciones las hace siempre Eze con Android.
 
 ### Descartado
 
