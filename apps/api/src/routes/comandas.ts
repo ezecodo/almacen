@@ -3,7 +3,7 @@ import { Prisma, ComandaItem } from '@prisma/client'
 import { z } from 'zod'
 import { prisma } from '../server'
 import { broadcast } from '../sse'
-import { publicarTicket } from '../mqtt'
+import { publicarTicket, DestinoImpresion } from '../mqtt'
 
 const itemSchema = z.object({
   nombre:   z.string().min(1),
@@ -22,11 +22,33 @@ type ComandaConMesa = Prisma.ComandaGetPayload<{
 
 // Publica por MQTT el ticket (texto plano, formato ESC/POS nativo del lado de la Pi)
 // de los items recién comandados en esta ronda.
-function imprimirTicketComanda(comanda: ComandaConMesa, items: ComandaItem[], nextRonda: number) {
+async function imprimirTicketComanda(comanda: ComandaConMesa, items: ComandaItem[], nextRonda: number) {
   const zona = /alta/i.test(comanda.mesa?.floorPlan?.nombre ?? '') ? 'PA' : 'PB'
+
+  // Destinos según las rutas de /admin/tickets para la sala de esta mesa. Si la sala no tiene
+  // ninguna ruta de cocina/barra cargada, no se manda `destinos` y la Pi enruta por `zona`
+  // con su tabla local (comportamiento previo). Si tiene alguna, lo cargado en el admin manda:
+  // un tipo sin ruta no se imprime en ningún lado.
+  let destinos: Record<'Comida' | 'Bebida', DestinoImpresion[]> | undefined
+  const floorPlanId = comanda.mesa?.floorPlanId
+  if (floorPlanId) {
+    const rutas = await prisma.impresionRuta.findMany({
+      where: { floorPlanId, tipoTicket: { in: ['cocina', 'barra'] } },
+      include: { impresora: true },
+    })
+    if (rutas.length > 0) {
+      const de = (tipoTicket: string) =>
+        rutas
+          .filter((r) => r.tipoTicket === tipoTicket)
+          .map((r) => ({ impresora: r.impresora.nombre, ip: r.impresora.ip, copias: r.copias }))
+      destinos = { Comida: de('cocina'), Bebida: de('barra') }
+    }
+  }
+
   publicarTicket(process.env.MQTT_RESTAURANTE_ID || 'sensi-tapas-pb', {
     ticket_id: `cmd-${comanda.id}-r${nextRonda}`,
     zona,
+    destinos,
     mesa: String(comanda.mesa?.numero ?? '?'),
     camarero: comanda.camareroNombre ?? '',
     pax: comanda.pax,
@@ -313,7 +335,9 @@ export async function comandaRoutes(app: FastifyInstance) {
     const idsEnviados = new Set((niveles ?? []).map((n) => n.itemId))
     const itemsParaImprimir = comanda.items.filter((i) => idsEnviados.has(i.id) && !i.autoGenerado)
     if (itemsParaImprimir.length > 0) {
-      imprimirTicketComanda(comanda, itemsParaImprimir, nextRonda)
+      imprimirTicketComanda(comanda, itemsParaImprimir, nextRonda).catch((err) =>
+        console.error('[mqtt] no se pudo armar el ticket de la comanda', comanda.id, err)
+      )
     }
 
     return comanda

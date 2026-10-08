@@ -35,6 +35,9 @@ function getClient(): MqttClient | null {
 
 type TicketItem = { nombre: string; cantidad: number; tipo: 'Bebida' | 'Comida'; notas: string | null; nivel: number | null }
 
+// Destino ya resuelto desde las rutas de /admin/tickets: la Pi imprime ahí sin consultar su tabla local.
+export type DestinoImpresion = { impresora: string; ip: string; copias: number }
+
 // Nunca debe tirar abajo el flujo de comandas: cualquier fallo de MQTT queda
 // contenido acá adentro (broker caído, credenciales mal, lo que sea).
 export function publicarTicket(restauranteId: string, ticket: {
@@ -44,6 +47,8 @@ export function publicarTicket(restauranteId: string, ticket: {
   camarero: string
   pax?: number
   items: TicketItem[]
+  // Por tipo de item. Si no viaja, la Pi enruta por `zona` con su config local (formato previo).
+  destinos?: Record<TicketItem['tipo'], DestinoImpresion[]>
 }) {
   try {
     const c = getClient()

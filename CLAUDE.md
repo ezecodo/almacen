@@ -908,6 +908,8 @@ Las páginas son JPEG en disco: `apps/api/uploads/facturas/<id>/<n>.jpg` (overri
 
 ## Módulo: Tickets (impresión térmica 80mm)
 
+> **Kit de impresión (Pi + MQTT + térmicas)**: el estado real del prototipo y el diseño acordado para el local real (vinculación por código, enrutamiento desde el admin, detección de impresoras) están en [`docs/kit-impresion.md`](docs/kit-impresion.md) — leerlo antes de tocar `mqtt.ts`, `tickets.ts` o el `printer-server`.
+
 Preparación para cuando llegue la impresora ESC/POS del roadmap (punto 2): configuración de qué sale en cada ticket y a qué impresora, más un preview en pantalla (sin hardware todavía — se imprime a PDF desde el navegador con Cmd+P, CSS ya ajustado a 80mm).
 
 ### Modelos
@@ -921,7 +923,7 @@ ImpresionRuta   floorPlanId, tipoTicket ('cocina'|'barra'|'cobro'), impresoraId,
 
 - **Empresa vs Local**: mismo patrón conceptual que "global vs restaurante" del resto de la app, pero con dos tablas distintas en vez de scope null/id, porque los campos no se superponen (razón social/NIF/IVA son de la empresa; nombre comercial/dirección son del local).
 - **Rutas de impresión, por sala (`FloorPlan`) y no por restaurante**: un mismo restaurante puede tener varias salas (ej. Planta Baja / Planta Alta) con impresoras distintas, y un mismo tipo de ticket puede salir en **varios destinos a la vez con distinta cantidad de copias** (ej: la comida de la sala de arriba sale 1 copia arriba + 2 copias en la cocina de abajo — jefe de cocina + camarero de pase). `copias` por fila de `ImpresionRuta` cubre ese caso sin necesitar lógica especial.
-- El envío real por ESC/POS a la IP configurada (puerto 9100) todavía no está implementado — eso es el siguiente paso cuando esté la Raspberry Pi del roadmap corriendo el servicio de impresión.
+- El envío real a la IP configurada ya funciona para comandas de cocina/barra en la rama `kit-impresion` (2026-10-08, sin desplegar): `imprimirTicketComanda` en `comandas.ts` lee `ImpresionRuta` y manda los destinos a la Pi por MQTT. El tipo `cobro` todavía no se imprime. ⚠️ No desplegar sin antes corregir las impresoras de producción, que tienen IPs inventadas — detalle en `docs/kit-impresion.md`.
 
 ### API (`/tickets`, `/empresa-config`)
 
