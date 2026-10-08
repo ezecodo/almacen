@@ -141,7 +141,7 @@ Internet ── Router del kit ──┬── Pi
 
 ## 4. Las decisiones de diseño
 
-Estado de cada una: 4.1 ✅ · 4.2 ✅ · 4.3 ✅ · 4.4 ✅ · 4.5 🟡. Lo marcado ✅ está hecho y probado con la Pi real. 4.1 y 4.2 están desplegados en producción desde el 2026-10-08; 4.3 está en `main` local, sin subir.
+Estado de cada una: 4.1 ✅ · 4.2 ✅ · 4.3 ✅ · 4.4 ✅ · 4.5 ✅. Lo marcado ✅ está hecho y probado con la Pi real. 4.1 y 4.2 están desplegados en producción desde el 2026-10-08; 4.3 está en `main` local, sin subir; 4.5 vive solo en el `printer-server`.
 
 ### 4.1 Vinculación Pi ↔ restaurante por código
 
@@ -213,12 +213,21 @@ Todas las Pi usan el mismo usuario y contraseña de MQTT, grabados en la tarjeta
 
 Para que un manager pueda instalar la Pi solo en un local sin cable de red hasta ella, sin SSH. Confirmado con Eze el 2026-10-08.
 
-**Estado al 2026-10-08: construido, en pruebas, todavía no conecta.** Vive en el `printer-server` (`portal.py` + `oido-portal.service`, servicio aparte que corre como root) y está instalado en la Pi del prototipo. Es una página propia sobre NetworkManager, sin herramientas externas.
+**Estado al 2026-10-08: construido y probado de punta a punta con la Pi real.** Vive en el `printer-server` (`portal.py` + `oido-portal.service`, servicio aparte que corre como root) y está instalado en la Pi del prototipo. Es una página propia sobre NetworkManager, sin herramientas externas.
 
-- ✅ **Funciona**: al cortarle el WiFi, la Pi levantó sola la red abierta `OIDO-13FAEE` en un minuto y medio; el portal se abre en el teléfono con la lista de redes; tras un intento fallido la Pi vuelve a levantar su red y la página muestra el error.
-- ❌ **Falla**: dos intentos de conectar al WiFi de casa terminaron en "No se pudo conectar", el segundo con la contraseña tecleada con cuidado. **Falta leer el motivo en el registro**: entrar a la Pi por cable (Mac enchufado al AirPort, `ssh oido@oido.local`) y ejecutar `journalctl -u oido-portal -n 30 --no-pager`.
-- **Para devolver la Pi a su WiFi sin el portal**: desenchufarla y volver a enchufarla. El corte de la prueba (`nmcli con down`) es temporal y se pierde al reiniciar.
-- **Para probar el portal**: `sudo nmcli con down netplan-wlan0-<red>` deja a la Pi sin WiFi hasta el próximo reinicio.
+Probado cortándole el WiFi a la Pi:
+
+- La Pi levantó sola la red abierta `OIDO-13FAEE` en un minuto y medio.
+- El portal se abrió en el teléfono, con la lista de redes.
+- Tras elegir la red y escribir la contraseña, la Pi se conectó en 9 segundos, su red desapareció y volvió a figurar "Conectada" en el dashboard.
+- Ante un intento fallido, la Pi volvió a levantar su red y la página mostró el error.
+- Sin nadie usando el portal, cada 5 minutos baja su red unos 40 segundos para reintentar las redes que ya conoce y actualizar la lista, y la vuelve a subir.
+
+**Fallo encontrado y corregido**: los dos primeros intentos fallaron con `802-11-wireless-security.key-mgmt: property is missing`. No era la contraseña: el comando rápido `nmcli device wifi connect` no logra deducir el tipo de seguridad de la red. El portal ahora crea el perfil a mano indicando la seguridad (`wpa-psk`, o `sae` para WPA3) y después lo activa. No volver a usar `device wifi connect`.
+
+**Para probar el portal**: `sudo nmcli con down <perfil-wifi>` deja a la Pi sin WiFi hasta el próximo reinicio. Conviene estar entrando a la Pi por cable, para no perder el acceso ni el registro (`journalctl -u oido-portal -n 30 --no-pager`).
+
+**Sin probar todavía**: reiniciar la Pi y comprobar que vuelve sola al WiFi configurado por el portal; red con WPA3 puro; red oculta; iPhone (la prueba fue con un solo teléfono).
 
 **Etiqueta de la Pi**: lleva el código (`OIDO-13FAEE`) y un **código QR** que conecta el teléfono a la red WiFi de la Pi con solo apuntarle la cámara. Funciona en iPhone y Android, sin app.
 
@@ -354,7 +363,7 @@ Acordado el 2026-10-08:
 1. ~~**Enrutamiento desde el admin**~~ (4.2). Hecho.
 2. ~~**Vinculación por código**~~ (4.1). Hecho.
 3. ~~**Detección de impresoras + botón "Probar"**~~ (4.3). Hecho.
-4. **Portal WiFi** (4.5). Subido de prioridad a pedido de Eze: es lo que permite instalar sin SSH.
+4. ~~**Portal WiFi**~~ (4.5). Hecho. Falta la etiqueta con el QR.
 5. **Ticket de cobro y cajón**, automático en efectivo y botón manual. Es lo único de la lista que ve el restaurante.
 6. Avisos de fallo y "reimprimir comanda".
 
