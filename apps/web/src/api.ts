@@ -368,6 +368,14 @@ export interface Impresora {
   ip:           string
 }
 
+// Raspberry Pi de impresión vinculada a un restaurante. `vistoAt` null = la API nunca supo de esa Pi.
+export interface PiVinculada {
+  codigo:            string | null
+  online:            boolean
+  vistoAt:           string | null
+  brokerConfigurado: boolean
+}
+
 export type TipoTicket = 'cocina' | 'barra' | 'cobro'
 
 export interface ImpresionRuta {
@@ -1220,6 +1228,10 @@ export const api = {
       get<TicketConfig | null>(`/tickets/config?restaurantId=${restaurantId}`),
     updateConfig:  (body: { restaurantId: number; nombreComercial: string; direccion?: string | null; telefono?: string | null; mensajePieOverride?: string | null }) =>
       put<TicketConfig>('/tickets/config', body),
+    // Raspberry Pi vinculada (codigo null = desvincular)
+    getPi: (restaurantId: number) => get<PiVinculada>(`/tickets/pi?restaurantId=${restaurantId}`),
+    setPi: (restaurantId: number, codigo: string | null) =>
+      put<PiVinculada>('/tickets/pi', { restaurantId, codigo }),
     // Impresoras
     listImpresoras:   (restaurantId: number) =>
       get<Impresora[]>(`/tickets/impresoras?restaurantId=${restaurantId}`),

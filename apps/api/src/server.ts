@@ -25,6 +25,7 @@ import { checklistRoutes } from './routes/checklists'
 import { ticketRoutes } from './routes/tickets'
 import { authRoutes } from './routes/auth'
 import { facturaRoutes } from './routes/facturas'
+import { iniciarMqtt } from './mqtt'
 
 const app = Fastify({ logger: true })
 export const prisma = new PrismaClient()
@@ -70,6 +71,9 @@ async function start() {
   // 0.0.0.0 por defecto para que en dev se pueda probar desde otros dispositivos de la LAN (tablets/celus).
   const host = process.env.HOST || '0.0.0.0'
   await app.listen({ port, host })
+
+  // Empieza a escuchar el estado (online/offline) de las Pi de impresión
+  iniciarMqtt()
 }
 
 start().catch(console.error)

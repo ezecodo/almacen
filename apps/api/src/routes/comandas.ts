@@ -21,34 +21,33 @@ type ComandaConMesa = Prisma.ComandaGetPayload<{
 }>
 
 // Publica por MQTT el ticket (texto plano, formato ESC/POS nativo del lado de la Pi)
-// de los items recién comandados en esta ronda.
+// de los items recién comandados en esta ronda, a la Pi vinculada al restaurante.
+// Los destinos (impresora, IP, copias) salen de las rutas de /admin/tickets para la sala
+// de la mesa: la Pi no decide nada. Sin Pi vinculada no se publica; un tipo de item sin
+// ruta en esa sala no se imprime en ningún lado.
 async function imprimirTicketComanda(comanda: ComandaConMesa, items: ComandaItem[], nextRonda: number) {
-  const zona = /alta/i.test(comanda.mesa?.floorPlan?.nombre ?? '') ? 'PA' : 'PB'
+  const restaurante = await prisma.restaurant.findUnique({
+    where: { id: comanda.restaurantId },
+    select: { piCodigo: true },
+  })
+  if (!restaurante?.piCodigo) return
 
-  // Destinos según las rutas de /admin/tickets para la sala de esta mesa. Si la sala no tiene
-  // ninguna ruta de cocina/barra cargada, no se manda `destinos` y la Pi enruta por `zona`
-  // con su tabla local (comportamiento previo). Si tiene alguna, lo cargado en el admin manda:
-  // un tipo sin ruta no se imprime en ningún lado.
-  let destinos: Record<'Comida' | 'Bebida', DestinoImpresion[]> | undefined
   const floorPlanId = comanda.mesa?.floorPlanId
-  if (floorPlanId) {
-    const rutas = await prisma.impresionRuta.findMany({
-      where: { floorPlanId, tipoTicket: { in: ['cocina', 'barra'] } },
-      include: { impresora: true },
-    })
-    if (rutas.length > 0) {
-      const de = (tipoTicket: string) =>
-        rutas
-          .filter((r) => r.tipoTicket === tipoTicket)
-          .map((r) => ({ impresora: r.impresora.nombre, ip: r.impresora.ip, copias: r.copias }))
-      destinos = { Comida: de('cocina'), Bebida: de('barra') }
-    }
-  }
+  const rutas = floorPlanId
+    ? await prisma.impresionRuta.findMany({
+        where: { floorPlanId, tipoTicket: { in: ['cocina', 'barra'] } },
+        include: { impresora: true },
+      })
+    : []
+  const destinosDe = (tipoTicket: string): DestinoImpresion[] =>
+    rutas
+      .filter((r) => r.tipoTicket === tipoTicket)
+      .map((r) => ({ impresora: r.impresora.nombre, ip: r.impresora.ip, copias: r.copias }))
 
-  publicarTicket(process.env.MQTT_RESTAURANTE_ID || 'sensi-tapas-pb', {
+  publicarTicket(restaurante.piCodigo, {
     ticket_id: `cmd-${comanda.id}-r${nextRonda}`,
-    zona,
-    destinos,
+    sala: comanda.mesa?.floorPlan?.nombre ?? '',
+    destinos: { Comida: destinosDe('cocina'), Bebida: destinosDe('barra') },
     mesa: String(comanda.mesa?.numero ?? '?'),
     camarero: comanda.camareroNombre ?? '',
     pax: comanda.pax,

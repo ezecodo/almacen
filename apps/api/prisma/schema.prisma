@@ -42,6 +42,9 @@ model Restaurant {
   ticketConfig           TicketConfig?
   impresoras             Impresora[]
   facturas               Factura[]
+  // Código de la Raspberry Pi de impresión vinculada a este restaurante (ej. "OIDO-7F3A2C",
+  // sale del número de serie de la Pi). null = sin Pi → las comandas no se imprimen.
+  piCodigo               String?               @unique
   createdAt              DateTime              @default(now())
 }
 

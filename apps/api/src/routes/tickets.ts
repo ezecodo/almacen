@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../server'
+import { brokerConfigurado, estadoDePi, normalizarPiCodigo } from '../mqtt'
 
 const empresaSchema = z.object({
   razonSocial: z.string().default(''),
@@ -28,6 +29,11 @@ const rutaSchema = z.object({
   tipoTicket:  z.enum(['cocina', 'barra', 'cobro']),
   impresoraId: z.number().int().positive(),
   copias:      z.number().int().min(1).max(5).default(1),
+})
+
+const piSchema = z.object({
+  restaurantId: z.number().int().positive(),
+  codigo:       z.string().nullable(),
 })
 
 export async function ticketRoutes(app: FastifyInstance) {
@@ -73,6 +79,50 @@ export async function ticketRoutes(app: FastifyInstance) {
       create: { restaurantId, ...data },
       update: data,
     })
+  })
+
+  // ── Raspberry Pi de impresión vinculada al restaurante ────────────────────────
+
+  // GET /tickets/pi?restaurantId=X — código vinculado + si la Pi está conectada al broker ahora
+  app.get('/tickets/pi', async (req, reply) => {
+    const { restaurantId } = req.query as { restaurantId?: string }
+    if (!restaurantId) return reply.status(400).send({ error: 'restaurantId requerido' })
+    const restaurante = await prisma.restaurant.findUnique({
+      where: { id: Number(restaurantId) },
+      select: { piCodigo: true },
+    })
+    if (!restaurante) return reply.status(404).send({ error: 'Restaurante no encontrado' })
+
+    const estado = restaurante.piCodigo ? estadoDePi(restaurante.piCodigo) : null
+    return {
+      codigo: restaurante.piCodigo,
+      online: estado?.online ?? false,
+      vistoAt: estado?.vistoAt ?? null,   // null = la API nunca supo de esa Pi
+      brokerConfigurado: brokerConfigurado(),
+    }
+  })
+
+  // PUT /tickets/pi { restaurantId, codigo } — vincular; codigo null = desvincular
+  app.put('/tickets/pi', async (req, reply) => {
+    const result = piSchema.safeParse(req.body)
+    if (!result.success) return reply.status(400).send({ error: 'Datos inválidos' })
+    const { restaurantId } = result.data
+
+    let codigo: string | null = null
+    if (result.data.codigo !== null) {
+      codigo = normalizarPiCodigo(result.data.codigo)
+      if (!codigo) return reply.status(400).send({ error: 'Código inválido. Tiene la forma OIDO-7F3A2C (está en la etiqueta de la Pi).' })
+
+      const otro = await prisma.restaurant.findFirst({
+        where: { piCodigo: codigo, id: { not: restaurantId } },
+        select: { nombre: true },
+      })
+      if (otro) return reply.status(409).send({ error: `Esa Pi ya está vinculada a ${otro.nombre}. Desvinculala ahí primero.` })
+    }
+
+    await prisma.restaurant.update({ where: { id: restaurantId }, data: { piCodigo: codigo } })
+    const estado = codigo ? estadoDePi(codigo) : null
+    return { codigo, online: estado?.online ?? false, vistoAt: estado?.vistoAt ?? null, brokerConfigurado: brokerConfigurado() }
   })
 
   // ── Impresoras (por restaurante) ──────────────────────────────────────────────

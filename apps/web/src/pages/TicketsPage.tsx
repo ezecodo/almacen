@@ -135,6 +135,74 @@ function LocalSection({ restaurantId }: { restaurantId: number }) {
   )
 }
 
+// ── Raspberry Pi de impresión: se vincula al restaurante con el código de su etiqueta ──
+
+function PiSection({ restaurantId }: { restaurantId: number }) {
+  const qc = useQueryClient()
+  const { data: pi } = useQuery({
+    queryKey: ['ticket-pi', restaurantId],
+    queryFn: () => api.tickets.getPi(restaurantId),
+    refetchInterval: 10_000,
+  })
+
+  const [codigo, setCodigo] = useState('')
+  useEffect(() => { setCodigo('') }, [restaurantId])
+
+  const vincular = useMutation({
+    mutationFn: (nuevo: string | null) => api.tickets.setPi(restaurantId, nuevo),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['ticket-pi', restaurantId] }); setCodigo('') },
+  })
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 p-5 mb-6">
+      <h2 className="font-bold text-gray-800 mb-1">📡 Raspberry Pi</h2>
+      <p className="text-xs text-gray-400 mb-4">La Pi que imprime los tickets de este restaurante. Sin una Pi vinculada, las comandas no se imprimen.</p>
+
+      {pi?.codigo ? (
+        <div className="flex items-center gap-3">
+          <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${pi.online ? 'bg-green-500' : 'bg-red-400'}`} />
+          <span className="font-mono font-bold text-gray-800">{pi.codigo}</span>
+          <span className="text-sm text-gray-500">
+            {!pi.brokerConfigurado
+              ? 'Sin conexión con el servicio de impresión (falta configurar MQTT en la API)'
+              : pi.online
+                ? 'Conectada'
+                : pi.vistoAt
+                  ? 'Sin conexión'
+                  : 'Todavía no se conectó nunca — revisá el código y que esté enchufada'}
+          </span>
+          <button
+            onClick={() => { if (window.confirm('¿Desvincular la Pi? Las comandas de este restaurante dejarán de imprimirse.')) vincular.mutate(null) }}
+            disabled={vincular.isPending}
+            className="ml-auto shrink-0 text-sm font-semibold text-red-600 bg-red-50 hover:bg-red-100 disabled:opacity-40 px-3 py-2 rounded-xl"
+          >
+            Desvincular
+          </button>
+        </div>
+      ) : (
+        <div className="flex gap-2 items-center">
+          <input
+            className={`${inputCls} font-mono uppercase`}
+            value={codigo}
+            onChange={e => setCodigo(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && codigo.trim()) vincular.mutate(codigo) }}
+            placeholder="Código de la etiqueta (ej: OIDO-7F3A2C)"
+          />
+          <button
+            onClick={() => vincular.mutate(codigo)}
+            disabled={!codigo.trim() || vincular.isPending}
+            className="shrink-0 text-sm font-semibold text-cyan-700 bg-cyan-50 hover:bg-cyan-100 disabled:opacity-40 px-3 py-2 rounded-xl"
+          >
+            Vincular
+          </button>
+        </div>
+      )}
+
+      {vincular.isError && <p className="text-sm text-red-600 mt-2">{(vincular.error as Error).message}</p>}
+    </div>
+  )
+}
+
 // ── Impresoras (por restaurante) ──────────────────────────────────────────────
 function ImpresoraRow({ impresora, onChanged }: { impresora: Impresora; onChanged: () => void }) {
   const [nombre, setNombre] = useState(impresora.nombre)
@@ -436,6 +504,7 @@ export default function TicketsPage() {
       {restaurantSel && (
         <>
           <LocalSection restaurantId={restaurantSel} />
+          <PiSection restaurantId={restaurantSel} />
           <ImpresorasSection restaurantId={restaurantSel} />
           <RutasSection restaurantId={restaurantSel} />
           <PreviewSection restaurantId={restaurantSel} />
