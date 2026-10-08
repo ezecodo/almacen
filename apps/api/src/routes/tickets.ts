@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../server'
-import { brokerConfigurado, estadoDePi, normalizarPiCodigo, impresorasDePi, enviarOrden } from '../mqtt'
+import { brokerConfigurado, estadoDePi, normalizarPiCodigo, impresorasDePi, enviarOrden, ImpresoraDetectada } from '../mqtt'
 
 const empresaSchema = z.object({
   razonSocial: z.string().default(''),
@@ -22,6 +22,7 @@ const impresoraSchema = z.object({
   restaurantId: z.number().int().positive(),
   nombre:       z.string().min(1),
   ip:           z.string().min(1),
+  mac:          z.string().nullable().optional(),
 })
 
 const rutaSchema = z.object({
@@ -35,6 +36,35 @@ const piSchema = z.object({
   restaurantId: z.number().int().positive(),
   codigo:       z.string().nullable(),
 })
+
+// Sigue a cada impresora por su dirección física (MAC) con lo que la Pi encuentra en la red:
+//  - impresora con MAC conocida que aparece con otra IP (el router se la cambió) → se corrige la IP
+//  - impresora sin MAC cuya IP coincide con una detectada → se anota la MAC, para poder seguirla después
+// Se llama cada vez que una Pi informa una búsqueda, y al vincular una Pi.
+export async function sincronizarImpresoras(piCodigo: string, detectadas: ImpresoraDetectada[]) {
+  try {
+    const restaurante = await prisma.restaurant.findUnique({
+      where: { piCodigo },
+      select: { nombre: true, impresoras: true },
+    })
+    if (!restaurante) return
+
+    for (const imp of restaurante.impresoras) {
+      if (imp.mac) {
+        const vista = detectadas.find((d) => d.mac === imp.mac)
+        if (vista && vista.ip !== imp.ip) {
+          await prisma.impresora.update({ where: { id: imp.id }, data: { ip: vista.ip } })
+          console.log(`[impresoras] ${restaurante.nombre} · ${imp.nombre}: cambió de IP ${imp.ip} → ${vista.ip} (misma MAC ${imp.mac})`)
+        }
+      } else {
+        const vista = detectadas.find((d) => d.ip === imp.ip.trim() && d.mac)
+        if (vista) await prisma.impresora.update({ where: { id: imp.id }, data: { mac: vista.mac } })
+      }
+    }
+  } catch (err) {
+    console.error('[impresoras] no se pudo sincronizar con lo detectado por', piCodigo, err)
+  }
+}
 
 // La Pi vinculada al restaurante, solo si está conectada ahora (si no, un pedido se perdería sin aviso)
 async function piConectada(restaurantId: number): Promise<{ codigo: string } | { error: string; status: number }> {
@@ -130,6 +160,7 @@ export async function ticketRoutes(app: FastifyInstance) {
     }
 
     await prisma.restaurant.update({ where: { id: restaurantId }, data: { piCodigo: codigo } })
+    if (codigo) await sincronizarImpresoras(codigo, impresorasDePi(codigo)?.impresoras ?? [])
     const estado = codigo ? estadoDePi(codigo) : null
     return { codigo, online: estado?.online ?? false, vistoAt: estado?.vistoAt ?? null, brokerConfigurado: brokerConfigurado() }
   })
@@ -198,16 +229,21 @@ export async function ticketRoutes(app: FastifyInstance) {
   app.post('/tickets/impresoras', async (req, reply) => {
     const result = impresoraSchema.safeParse(req.body)
     if (!result.success) return reply.status(400).send({ error: result.error.flatten() })
-    const impresora = await prisma.impresora.create({ data: result.data })
+    const { mac, ...resto } = result.data
+    const impresora = await prisma.impresora.create({ data: { ...resto, mac: mac ? mac.toUpperCase() : null } })
     return reply.status(201).send(impresora)
   })
 
   // PUT /tickets/impresoras/:id
   app.put('/tickets/impresoras/:id', async (req, reply) => {
     const id = Number((req.params as { id: string }).id)
-    const result = impresoraSchema.omit({ restaurantId: true }).partial().safeParse(req.body)
+    const result = impresoraSchema.omit({ restaurantId: true, mac: true }).partial().safeParse(req.body)
     if (!result.success) return reply.status(400).send({ error: result.error.flatten() })
-    return prisma.impresora.update({ where: { id }, data: result.data })
+    // IP escrita a mano = puede ser otra impresora: se olvida la MAC (si no, la próxima búsqueda
+    // la devolvería a la IP anterior). Se vuelve a anotar sola cuando la Pi la encuentre ahí.
+    const actual = await prisma.impresora.findUnique({ where: { id }, select: { ip: true } })
+    const cambiaIp = result.data.ip !== undefined && result.data.ip.trim() !== actual?.ip.trim()
+    return prisma.impresora.update({ where: { id }, data: { ...result.data, ...(cambiaIp && { mac: null }) } })
   })
 
   // DELETE /tickets/impresoras/:id — borra en cascada sus rutas de impresión

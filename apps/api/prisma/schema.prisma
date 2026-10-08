@@ -614,6 +614,9 @@ model Impresora {
   restaurant   Restaurant      @relation(fields: [restaurantId], references: [id])
   nombre       String          // "Cocina", "Barra", "Arriba"…
   ip           String
+  // Dirección física (MAC). Si la Pi la encuentra en la red con otra IP, la IP se corrige sola.
+  // null = todavía no se sabe (se completa cuando la Pi detecta una impresora en esa IP).
+  mac          String?
   rutas        ImpresionRuta[]
   createdAt    DateTime        @default(now())
 }

@@ -20,6 +20,12 @@ const estadoPi = new Map<string, { online: boolean; vistoAt: Date }>()
 export type ImpresoraDetectada = { ip: string; mac: string | null }
 const impresorasPi = new Map<string, { escaneadoAt: Date; impresoras: ImpresoraDetectada[] }>()
 
+// Aviso a quien quiera reaccionar cuando una Pi informa su búsqueda (ver sincronizarImpresoras en tickets.ts)
+let alDetectarImpresoras: ((codigo: string, impresoras: ImpresoraDetectada[]) => void) | null = null
+export function onImpresorasDetectadas(cb: (codigo: string, impresoras: ImpresoraDetectada[]) => void) {
+  alDetectarImpresoras = cb
+}
+
 function getClient(): MqttClient | null {
   if (client) return client
   if (intentado) return null
@@ -51,9 +57,10 @@ function getClient(): MqttClient | null {
           const data = JSON.parse(payload.toString()) as { escaneado_en?: string; impresoras?: { ip?: unknown; mac?: unknown }[] }
           const impresoras = (data.impresoras ?? [])
             .filter((i): i is { ip: string; mac?: unknown } => typeof i.ip === 'string')
-            .map((i) => ({ ip: i.ip, mac: typeof i.mac === 'string' ? i.mac : null }))
+            .map((i) => ({ ip: i.ip, mac: typeof i.mac === 'string' ? i.mac.toUpperCase() : null }))
           const fecha = data.escaneado_en ? new Date(data.escaneado_en) : new Date()
           impresorasPi.set(codigo, { escaneadoAt: isNaN(fecha.getTime()) ? new Date() : fecha, impresoras })
+          alDetectarImpresoras?.(codigo, impresoras)
         } catch {
           // mensaje vacío (retenido borrado) o mal formado: se ignora
         }

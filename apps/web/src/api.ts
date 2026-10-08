@@ -366,6 +366,7 @@ export interface Impresora {
   restaurantId: number
   nombre:       string
   ip:           string
+  mac:          string | null   // dirección física; con ella la IP se corrige sola si cambia
 }
 
 // Raspberry Pi de impresión vinculada a un restaurante. `vistoAt` null = la API nunca supo de esa Pi.
@@ -1246,7 +1247,7 @@ export const api = {
     // Impresoras
     listImpresoras:   (restaurantId: number) =>
       get<Impresora[]>(`/tickets/impresoras?restaurantId=${restaurantId}`),
-    createImpresora:  (body: { restaurantId: number; nombre: string; ip: string }) =>
+    createImpresora:  (body: { restaurantId: number; nombre: string; ip: string; mac?: string | null }) =>
       post<Impresora>('/tickets/impresoras', body),
     updateImpresora:  (id: number, body: Partial<{ nombre: string; ip: string }>) =>
       put<Impresora>(`/tickets/impresoras/${id}`, body),

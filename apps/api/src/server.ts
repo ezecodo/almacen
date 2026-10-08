@@ -22,10 +22,10 @@ import { reservasRoutes } from './routes/reservas'
 import { staffingRoutes } from './routes/staffing'
 import { wikiRoutes } from './routes/wiki'
 import { checklistRoutes } from './routes/checklists'
-import { ticketRoutes } from './routes/tickets'
+import { ticketRoutes, sincronizarImpresoras } from './routes/tickets'
 import { authRoutes } from './routes/auth'
 import { facturaRoutes } from './routes/facturas'
-import { iniciarMqtt } from './mqtt'
+import { iniciarMqtt, onImpresorasDetectadas } from './mqtt'
 
 const app = Fastify({ logger: true })
 export const prisma = new PrismaClient()
@@ -72,7 +72,8 @@ async function start() {
   const host = process.env.HOST || '0.0.0.0'
   await app.listen({ port, host })
 
-  // Empieza a escuchar el estado (online/offline) de las Pi de impresión
+  // Empieza a escuchar el estado (online/offline) de las Pi de impresión y lo que detectan en la red
+  onImpresorasDetectadas(sincronizarImpresoras)
   iniciarMqtt()
 }
 

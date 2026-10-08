@@ -252,7 +252,10 @@ function ImpresoraRow({ impresora, onChanged, enRed }: { impresora: Impresora; o
       />
       {enRed !== null && (
         <span
-          title={enRed ? 'La Pi la encuentra en la red' : 'La Pi no la encuentra en la red: revisá la IP o que esté encendida'}
+          title={
+            (enRed ? 'La Pi la encuentra en la red' : 'La Pi no la encuentra en la red: revisá la IP o que esté encendida') +
+            (impresora.mac ? ` · ${impresora.mac}` : '')
+          }
           className={`w-2.5 h-2.5 rounded-full shrink-0 ${enRed ? 'bg-green-500' : 'bg-red-400'}`}
         />
       )}
@@ -266,7 +269,7 @@ function ImpresoraRow({ impresora, onChanged, enRed }: { impresora: Impresora; o
 function DetectadaRow({ restaurantId, ip, mac, onAdded }: { restaurantId: number; ip: string; mac: string | null; onAdded: () => void }) {
   const [nombre, setNombre] = useState('')
   const crear = useMutation({
-    mutationFn: () => api.tickets.createImpresora({ restaurantId, nombre, ip }),
+    mutationFn: () => api.tickets.createImpresora({ restaurantId, nombre, ip, mac }),
     onSuccess: onAdded,
   })
 
@@ -337,7 +340,7 @@ function ImpresorasSection({ restaurantId }: { restaurantId: number }) {
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-5 mb-6">
       <h2 className="font-bold text-gray-800 mb-1">🖨️ Impresoras</h2>
-      <p className="text-xs text-gray-400 mb-4">Las térmicas de este restaurante. El punto verde indica que la Pi la encuentra en la red; "Probar" imprime un papel con su IP.</p>
+      <p className="text-xs text-gray-400 mb-4">Las térmicas de este restaurante. El punto verde indica que la Pi la encuentra en la red; "Probar" imprime un papel con su IP. Si el router le cambia la IP a una impresora, se corrige sola.</p>
 
       <div className="space-y-2 mb-3">
         {impresoras.map(imp => <ImpresoraRow key={imp.id} impresora={imp} onChanged={invalidar} enRed={enRed(imp.ip)} />)}

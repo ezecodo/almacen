@@ -199,7 +199,14 @@ Hecho y probado el 2026-10-08 con la Pi real, que encontró sola la Epson en `10
 - **Cada red se recorta a 254 direcciones** (`/24`). Si un local tuviera una red más grande, se puede forzar con `REDES_ESCANEO` en el `.env` de la Pi.
 - Código: `red.py` en el `printer-server`; `GET /tickets/pi/impresoras`, `POST /tickets/pi/escanear` y `POST /tickets/pi/probar` en la API.
 
-Pendiente: la impresora se guarda por IP. Si su IP cambia, hay que corregirla a mano; guardar también la dirección física permitiría seguirla sola.
+**Seguimiento por dirección física** (hecho el 2026-10-08, probado con mensajes simulados): cada impresora guarda también su dirección física (`Impresora.mac`). Cada vez que la Pi informa una búsqueda, la API compara (`sincronizarImpresoras` en `tickets.ts`):
+
+- Si una impresora conocida aparece con **otra IP** (el router se la cambió), se corrige la IP guardada sola y queda una línea en el log de la API.
+- Si una impresora todavía no tiene dirección física y la Pi encuentra una en su IP, se anota. Así las cargadas a mano también quedan seguidas.
+- Si una impresora no aparece (apagada), no se toca nada.
+- Si alguien cambia la IP a mano en el admin, se olvida la dirección física (puede ser otro aparato) y se vuelve a anotar en la próxima búsqueda.
+
+Con esto, en un local cuyo router no tiene las IPs reservadas, un cambio de IP se corrige en la siguiente búsqueda: como mucho 15 minutos, o al momento con "Buscar de nuevo". Reservar las IPs en el router sigue siendo lo recomendable, porque durante ese rato los tickets no salen.
 
 ### 4.4 Una sola contraseña del broker para todas las Pi
 
