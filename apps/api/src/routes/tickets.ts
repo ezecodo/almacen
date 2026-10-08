@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../server'
-import { brokerConfigurado, estadoDePi, normalizarPiCodigo } from '../mqtt'
+import { brokerConfigurado, estadoDePi, normalizarPiCodigo, impresorasDePi, enviarOrden } from '../mqtt'
 
 const empresaSchema = z.object({
   razonSocial: z.string().default(''),
@@ -35,6 +35,15 @@ const piSchema = z.object({
   restaurantId: z.number().int().positive(),
   codigo:       z.string().nullable(),
 })
+
+// La Pi vinculada al restaurante, solo si está conectada ahora (si no, un pedido se perdería sin aviso)
+async function piConectada(restaurantId: number): Promise<{ codigo: string } | { error: string; status: number }> {
+  const restaurante = await prisma.restaurant.findUnique({ where: { id: restaurantId }, select: { piCodigo: true } })
+  if (!restaurante?.piCodigo) return { error: 'Este restaurante no tiene una Pi vinculada', status: 409 }
+  if (!brokerConfigurado()) return { error: 'La API no tiene configurado el servicio de impresión (MQTT)', status: 503 }
+  if (!estadoDePi(restaurante.piCodigo)?.online) return { error: 'La Pi no está conectada', status: 409 }
+  return { codigo: restaurante.piCodigo }
+}
 
 export async function ticketRoutes(app: FastifyInstance) {
 
@@ -123,6 +132,54 @@ export async function ticketRoutes(app: FastifyInstance) {
     await prisma.restaurant.update({ where: { id: restaurantId }, data: { piCodigo: codigo } })
     const estado = codigo ? estadoDePi(codigo) : null
     return { codigo, online: estado?.online ?? false, vistoAt: estado?.vistoAt ?? null, brokerConfigurado: brokerConfigurado() }
+  })
+
+  // GET /tickets/pi/impresoras?restaurantId=X — impresoras que la Pi encontró en la red del local,
+  // cruzadas por IP con las ya cargadas en el restaurante (para saber cuáles faltan nombrar)
+  app.get('/tickets/pi/impresoras', async (req, reply) => {
+    const { restaurantId } = req.query as { restaurantId?: string }
+    if (!restaurantId) return reply.status(400).send({ error: 'restaurantId requerido' })
+    const restaurante = await prisma.restaurant.findUnique({
+      where: { id: Number(restaurantId) },
+      select: { piCodigo: true, impresoras: { select: { id: true, nombre: true, ip: true } } },
+    })
+    if (!restaurante) return reply.status(404).send({ error: 'Restaurante no encontrado' })
+
+    const escaneo = restaurante.piCodigo ? impresorasDePi(restaurante.piCodigo) : null
+    return {
+      escaneadoAt: escaneo?.escaneadoAt ?? null,   // null = la Pi todavía no informó ninguna búsqueda
+      detectadas: (escaneo?.impresoras ?? []).map((d) => {
+        const cargada = restaurante.impresoras.find((i) => i.ip.trim() === d.ip)
+        return { ip: d.ip, mac: d.mac, impresoraId: cargada?.id ?? null, nombre: cargada?.nombre ?? null }
+      }),
+    }
+  })
+
+  // POST /tickets/pi/escanear { restaurantId } — le pide a la Pi que vuelva a buscar impresoras
+  app.post('/tickets/pi/escanear', async (req, reply) => {
+    const result = z.object({ restaurantId: z.number().int().positive() }).safeParse(req.body)
+    if (!result.success) return reply.status(400).send({ error: 'Datos inválidos' })
+    const pi = await piConectada(result.data.restaurantId)
+    if ('error' in pi) return reply.status(pi.status).send({ error: pi.error })
+    enviarOrden(pi.codigo, { accion: 'escanear' })
+    return { ok: true }
+  })
+
+  // POST /tickets/pi/probar { restaurantId, ip } — esa impresora imprime un papel con su IP.
+  // Solo se aceptan IPs que la Pi detectó o que ya están cargadas en el restaurante.
+  app.post('/tickets/pi/probar', async (req, reply) => {
+    const result = z.object({ restaurantId: z.number().int().positive(), ip: z.string().ip({ version: 'v4' }) }).safeParse(req.body)
+    if (!result.success) return reply.status(400).send({ error: 'IP inválida' })
+    const { restaurantId, ip } = result.data
+    const pi = await piConectada(restaurantId)
+    if ('error' in pi) return reply.status(pi.status).send({ error: pi.error })
+
+    const detectada = impresorasDePi(pi.codigo)?.impresoras.some((i) => i.ip === ip)
+    const cargada = await prisma.impresora.findFirst({ where: { restaurantId, ip }, select: { id: true } })
+    if (!detectada && !cargada) return reply.status(400).send({ error: 'Esa IP no es una impresora de este restaurante' })
+
+    enviarOrden(pi.codigo, { accion: 'probar', ip })
+    return { ok: true }
   })
 
   // ── Impresoras (por restaurante) ──────────────────────────────────────────────

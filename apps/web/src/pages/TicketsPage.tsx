@@ -204,7 +204,24 @@ function PiSection({ restaurantId }: { restaurantId: number }) {
 }
 
 // ── Impresoras (por restaurante) ──────────────────────────────────────────────
-function ImpresoraRow({ impresora, onChanged }: { impresora: Impresora; onChanged: () => void }) {
+// Botón "Probar": la impresora de esa IP imprime un papel con su dirección, para saber cuál es cuál.
+function ProbarBtn({ restaurantId, ip }: { restaurantId: number; ip: string }) {
+  const probar = useMutation({ mutationFn: () => api.tickets.probarImpresora(restaurantId, ip) })
+  return (
+    <button
+      onClick={() => probar.mutate()}
+      disabled={probar.isPending}
+      title={probar.isError ? (probar.error as Error).message : 'Imprime un papel de prueba en esta impresora'}
+      className={`shrink-0 text-sm font-semibold px-3 py-2 rounded-xl disabled:opacity-40 ${
+        probar.isError ? 'text-red-600 bg-red-50' : 'text-gray-600 bg-gray-100 hover:bg-gray-200'
+      }`}
+    >
+      {probar.isError ? '⚠️ Probar' : probar.isSuccess ? '✓ Probar' : 'Probar'}
+    </button>
+  )
+}
+
+function ImpresoraRow({ impresora, onChanged, enRed }: { impresora: Impresora; onChanged: () => void; enRed: boolean | null }) {
   const [nombre, setNombre] = useState(impresora.nombre)
   const [ip, setIp] = useState(impresora.ip)
 
@@ -233,7 +250,47 @@ function ImpresoraRow({ impresora, onChanged }: { impresora: Impresora; onChange
         onBlur={() => ip.trim() && ip !== impresora.ip && actualizar.mutate({ ip })}
         placeholder="192.168.1.50"
       />
+      {enRed !== null && (
+        <span
+          title={enRed ? 'La Pi la encuentra en la red' : 'La Pi no la encuentra en la red: revisá la IP o que esté encendida'}
+          className={`w-2.5 h-2.5 rounded-full shrink-0 ${enRed ? 'bg-green-500' : 'bg-red-400'}`}
+        />
+      )}
+      <ProbarBtn restaurantId={impresora.restaurantId} ip={impresora.ip} />
       <button onClick={() => eliminar.mutate()} className="text-gray-400 hover:text-red-500 text-lg px-2">✕</button>
+    </div>
+  )
+}
+
+// Impresora que la Pi encontró en la red y todavía no está cargada: se prueba, se le pone nombre y se añade.
+function DetectadaRow({ restaurantId, ip, mac, onAdded }: { restaurantId: number; ip: string; mac: string | null; onAdded: () => void }) {
+  const [nombre, setNombre] = useState('')
+  const crear = useMutation({
+    mutationFn: () => api.tickets.createImpresora({ restaurantId, nombre, ip }),
+    onSuccess: onAdded,
+  })
+
+  return (
+    <div className="flex gap-2 items-center">
+      <div className="w-40 shrink-0">
+        <p className="font-mono text-sm font-bold text-gray-800">{ip}</p>
+        {mac && <p className="font-mono text-[10px] text-gray-400">{mac}</p>}
+      </div>
+      <ProbarBtn restaurantId={restaurantId} ip={ip} />
+      <input
+        className={inputCls}
+        value={nombre}
+        onChange={e => setNombre(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter' && nombre.trim()) crear.mutate() }}
+        placeholder="Nombre (ej: Cocina)"
+      />
+      <button
+        onClick={() => crear.mutate()}
+        disabled={!nombre.trim() || crear.isPending}
+        className="shrink-0 text-sm font-semibold text-cyan-700 bg-cyan-50 hover:bg-cyan-100 disabled:opacity-40 px-3 py-2 rounded-xl"
+      >
+        + Añadir
+      </button>
     </div>
   )
 }
@@ -248,21 +305,79 @@ function ImpresorasSection({ restaurantId }: { restaurantId: number }) {
   const [nombre, setNombre] = useState('')
   const [ip, setIp] = useState('')
 
-  const invalidar = () => qc.invalidateQueries({ queryKey: ['impresoras', restaurantId] })
+  // Impresoras que la Pi vinculada encontró en la red del local (si hay Pi)
+  const { data: pi } = useQuery({
+    queryKey: ['ticket-pi', restaurantId],
+    queryFn: () => api.tickets.getPi(restaurantId),
+    refetchInterval: 10_000,
+  })
+  const { data: red } = useQuery({
+    queryKey: ['impresoras-detectadas', restaurantId],
+    queryFn: () => api.tickets.getDetectadas(restaurantId),
+    enabled: !!pi?.codigo,
+    refetchInterval: 5_000,
+  })
+
+  const invalidar = () => {
+    qc.invalidateQueries({ queryKey: ['impresoras', restaurantId] })
+    qc.invalidateQueries({ queryKey: ['impresoras-detectadas', restaurantId] })
+  }
 
   const crear = useMutation({
     mutationFn: () => api.tickets.createImpresora({ restaurantId, nombre, ip }),
     onSuccess: () => { invalidar(); setNombre(''); setIp('') },
   })
+  const escanear = useMutation({ mutationFn: () => api.tickets.escanear(restaurantId) })
+
+  const hayEscaneo = !!pi?.codigo && !!red?.escaneadoAt
+  const sinCargar = (red?.detectadas ?? []).filter(d => d.impresoraId === null)
+  const enRed = (ipImpresora: string) =>
+    hayEscaneo ? (red?.detectadas ?? []).some(d => d.ip === ipImpresora.trim()) : null
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-5 mb-6">
       <h2 className="font-bold text-gray-800 mb-1">🖨️ Impresoras</h2>
-      <p className="text-xs text-gray-400 mb-4">Las IP de las térmicas de este restaurante (sacala del test print de la impresora).</p>
+      <p className="text-xs text-gray-400 mb-4">Las térmicas de este restaurante. El punto verde indica que la Pi la encuentra en la red; "Probar" imprime un papel con su IP.</p>
 
       <div className="space-y-2 mb-3">
-        {impresoras.map(imp => <ImpresoraRow key={imp.id} impresora={imp} onChanged={invalidar} />)}
+        {impresoras.map(imp => <ImpresoraRow key={imp.id} impresora={imp} onChanged={invalidar} enRed={enRed(imp.ip)} />)}
       </div>
+
+      {pi?.codigo && (
+        <div className="bg-gray-50 rounded-xl p-3 mb-3">
+          <div className="flex items-center gap-2 mb-2">
+            <p className="text-xs font-semibold text-gray-500">
+              Detectadas en la red sin añadir
+              {red?.escaneadoAt && (
+                <span className="font-normal text-gray-400"> · última búsqueda {new Date(red.escaneadoAt).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</span>
+              )}
+            </p>
+            <button
+              onClick={() => escanear.mutate()}
+              disabled={escanear.isPending || !pi.online}
+              className="ml-auto shrink-0 text-xs font-semibold text-cyan-700 bg-cyan-50 hover:bg-cyan-100 disabled:opacity-40 px-2.5 py-1.5 rounded-lg"
+            >
+              🔍 Buscar de nuevo
+            </button>
+          </div>
+
+          {escanear.isError && <p className="text-xs text-red-600 mb-2">{(escanear.error as Error).message}</p>}
+
+          {sinCargar.length > 0 ? (
+            <div className="space-y-2">
+              {sinCargar.map(d => <DetectadaRow key={d.ip} restaurantId={restaurantId} ip={d.ip} mac={d.mac} onAdded={invalidar} />)}
+            </div>
+          ) : (
+            <p className="text-xs text-gray-400">
+              {!pi.online
+                ? 'La Pi no está conectada.'
+                : !red?.escaneadoAt
+                  ? 'La Pi todavía no informó ninguna búsqueda.'
+                  : 'No hay impresoras nuevas en la red.'}
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="flex gap-2 items-center">
         <input className={inputCls} value={nombre} onChange={e => setNombre(e.target.value)} placeholder="Nombre (ej: Cocina)" />

@@ -100,8 +100,7 @@ En producción todavía corre la versión anterior de la API. Lo que sigue descr
 
 - **Nadie mira el resultado.** La Pi avisa si imprimió o falló, pero la API no escucha esos mensajes: si un ticket no sale, no se entera nadie. Lo único que se ve en el admin es si la Pi está conectada.
 - **Solo imprime comandas** de cocina y barra. No hay ticket de cobro ni apertura de cajón.
-- **Las IPs de las impresoras se escriben a mano** en el admin, hasta que esté la detección (4.3).
-- **Sin desplegar.** Producción sigue con la versión anterior, que publica todo a un único destino fijo y ya no coincide con lo que escucha la Pi: hasta desplegar, la Pi solo imprime lo que se comanda desde la API local.
+- **En producción falta vincular.** La vinculación y el enrutamiento ya están desplegados, pero Sensi Tapas todavía no tiene la Pi vinculada ahí y sus impresoras tienen IPs inventadas: hasta corregirlas y vincular, la Pi solo imprime lo que se comanda desde la API local.
 
 ---
 
@@ -142,7 +141,7 @@ Internet ── Router del kit ──┬── Pi
 
 ## 4. Las decisiones de diseño
 
-Estado de cada una: 4.1 ✅ · 4.2 ✅ · 4.3 🟡 · 4.4 ✅ · 4.5 🟡. Lo marcado ✅ está hecho y probado en local con la Pi real, en la rama `kit-impresion`, **sin desplegar a producción**.
+Estado de cada una: 4.1 ✅ · 4.2 ✅ · 4.3 ✅ · 4.4 ✅ · 4.5 🟡. Lo marcado ✅ está hecho y probado con la Pi real. 4.1 y 4.2 están desplegados en producción desde el 2026-10-08; 4.3 está en `main` local, sin subir.
 
 ### 4.1 Vinculación Pi ↔ restaurante por código
 
@@ -183,12 +182,24 @@ Hecho y probado el 2026-10-08:
 
 ### 4.3 La Pi detecta las impresoras, el admin las configura
 
-No hay página de configuración en la Pi. La Pi solo hace lo que nadie más puede hacer desde afuera: mirar la red del local.
+No hay página de configuración de impresoras en la Pi. La Pi solo hace lo que nadie más puede hacer desde afuera: mirar la red del local.
 
-1. La Pi escanea su red buscando aparatos que respondan en el puerto 9100 y le manda la lista al VPS.
-2. En `/admin/tickets` aparecen como "Impresoras detectadas", con su IP.
+1. La Pi recorre las redes a las que está conectada buscando aparatos que acepten conexión en el puerto 9100, y le manda la lista al VPS. Lo hace al conectarse, cuando se le pide desde el admin y cada 15 minutos.
+2. En `/admin/tickets` → **🖨️ Impresoras** aparecen como "Detectadas en la red sin añadir", con su IP y su dirección física.
 3. Botón **"Probar"**: esa impresora imprime un papel con su IP. Sirve para saber físicamente cuál es cuál.
-4. Se le pone nombre ("Cocina", "Barra", "Arriba") y se asignan las rutas en la pantalla que ya existe.
+4. Se le pone nombre ("Cocina", "Barra", "Arriba"), se toca "+ Añadir" y se asignan las rutas en la pantalla que ya existe.
+
+Hecho y probado el 2026-10-08 con la Pi real, que encontró sola la Epson en `10.0.1.4`:
+
+- **Buscar no imprime nada**: la Pi solo abre y cierra la conexión, no manda datos.
+- **Punto verde o rojo** junto a cada impresora ya cargada: indica si la Pi la encuentra en la red. Rojo = IP mal escrita o impresora apagada.
+- **"🔍 Buscar de nuevo"** lanza una búsqueda en el momento. Tarda unos 10 segundos con tres redes.
+- **"Probar" solo acepta IPs** que la Pi detectó o que ya están cargadas en ese restaurante.
+- **Si la Pi no está conectada**, buscar y probar responden con un aviso en vez de fallar en silencio.
+- **Cada red se recorta a 254 direcciones** (`/24`). Si un local tuviera una red más grande, se puede forzar con `REDES_ESCANEO` en el `.env` de la Pi.
+- Código: `red.py` en el `printer-server`; `GET /tickets/pi/impresoras`, `POST /tickets/pi/escanear` y `POST /tickets/pi/probar` en la API.
+
+Pendiente: la impresora se guarda por IP. Si su IP cambia, hay que corregirla a mano; guardar también la dirección física permitiría seguirla sola.
 
 ### 4.4 Una sola contraseña del broker para todas las Pi
 
@@ -249,7 +260,8 @@ Todo cuelga del código de la Pi, no del restaurante.
 | `pi/<codigo>/trabajo/<id>` | API | Un trabajo a imprimir | ✅ |
 | `pi/<codigo>/resultado/<id>` | Pi | Si se imprimió o falló | ✅ lo publica la Pi; la API todavía no lo escucha |
 | `pi/<codigo>/estado` | Pi | `online` / `offline`, retenido (el broker pone `offline` si la Pi se cae) | ✅ |
-| `pi/<codigo>/impresoras` | Pi | Lista de impresoras detectadas en la red | 🟡 |
+| `pi/<codigo>/impresoras` | Pi | Lista de impresoras detectadas en la red, retenido | ✅ |
+| `pi/<codigo>/orden` | API | Pedido puntual: buscar impresoras de nuevo o imprimir una prueba. Sin garantía de entrega a propósito: a una Pi desconectada no debe llegarle más tarde | ✅ |
 
 La Pi se suscribe **solo** a `pi/<codigo>/trabajo/#`. Sus propios avisos van por temas hermanos, nunca por debajo de `trabajo/`: con el esquema anterior ya pasó que la Pi recibía sus propias confirmaciones como si fueran tickets nuevos.
 
@@ -279,7 +291,7 @@ Ticket de comanda, tal como viaja hoy:
 
 La Pi parte el ticket por tipo de item (comida / bebida) y arma un trabajo por cada destino de ese tipo.
 
-Trabajos que faltan definir 🟡: ticket de **cobro** (con apertura de cajón si se cobró en efectivo), **cajón** solo (botón "Abrir cajón" del encargado) y **prueba** (el papel con la IP, para el botón "Probar").
+Trabajos que faltan definir 🟡: ticket de **cobro** (con apertura de cajón si se cobró en efectivo) y **cajón** solo (botón "Abrir cajón" del encargado).
 
 ---
 
@@ -334,9 +346,9 @@ Acordado el 2026-10-08:
 
 1. ~~**Enrutamiento desde el admin**~~ (4.2). Hecho.
 2. ~~**Vinculación por código**~~ (4.1). Hecho.
-3. **Detección de impresoras + botón "Probar"** (4.3). Se usa en toda instalación y evita tener que saber las IPs.
-4. **Ticket de cobro y cajón**, automático en efectivo y botón manual. Es lo único de la lista que ve el restaurante.
-5. **Portal WiFi** (4.5). Al final: solo hace falta sin cable, y es lo más incómodo de probar.
+3. ~~**Detección de impresoras + botón "Probar"**~~ (4.3). Hecho.
+4. **Portal WiFi** (4.5). Subido de prioridad a pedido de Eze: es lo que permite instalar sin SSH.
+5. **Ticket de cobro y cajón**, automático en efectivo y botón manual. Es lo único de la lista que ve el restaurante.
 6. Avisos de fallo y "reimprimir comanda".
 
 ### Mientras no esté la detección: kit armado en casa
@@ -351,6 +363,6 @@ Como el router viaja con el kit, las IPs se pueden dejar resueltas antes de envi
 ### Tareas sueltas
 
 - ~~Poner `~/Desktop/dev/printer-server` bajo git.~~ Hecho el 2026-10-08, solo en local, sin repositorio remoto.
-- **Desplegar la rama `kit-impresion`** (pasarla a `main` y `git push`). Al desplegar, ningún restaurante tiene Pi vinculada, así que nada se imprime hasta vincularla en el admin de producción. Antes de vincular Sensi Tapas ahí, corregir sus impresoras: producción tiene tres con **IPs inventadas** (`192.168.0.2`, `.3`, `.4`).
+- ~~Desplegar la rama `kit-impresion`.~~ Hecho el 2026-10-08. Falta, en el admin de producción: corregir las impresoras de Sensi Tapas, que tienen **IPs inventadas** (`192.168.0.2`, `.3`, `.4`), y recién después vincular la Pi.
 - Sacar de este repo la carpeta `-x/`: es una copia vieja del `printer-server` con su `venv`, commiteada por accidente.
 - ~~Quitar del `config.py` de la Pi el bloque temporal con la impresora "test".~~ Hecho: el `config.py` nuevo ya no tiene impresoras. En la Pi quedaron copias `*.bak` de los archivos anteriores, se pueden borrar.

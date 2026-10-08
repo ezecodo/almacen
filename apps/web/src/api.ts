@@ -376,6 +376,12 @@ export interface PiVinculada {
   brokerConfigurado: boolean
 }
 
+// Impresoras que la Pi encontró en la red del local. `impresoraId` null = todavía sin cargar en el restaurante.
+export interface ImpresorasDetectadas {
+  escaneadoAt: string | null
+  detectadas:  { ip: string; mac: string | null; impresoraId: number | null; nombre: string | null }[]
+}
+
 export type TipoTicket = 'cocina' | 'barra' | 'cobro'
 
 export interface ImpresionRuta {
@@ -1232,6 +1238,11 @@ export const api = {
     getPi: (restaurantId: number) => get<PiVinculada>(`/tickets/pi?restaurantId=${restaurantId}`),
     setPi: (restaurantId: number, codigo: string | null) =>
       put<PiVinculada>('/tickets/pi', { restaurantId, codigo }),
+    getDetectadas: (restaurantId: number) =>
+      get<ImpresorasDetectadas>(`/tickets/pi/impresoras?restaurantId=${restaurantId}`),
+    escanear: (restaurantId: number) => post<{ ok: true }>('/tickets/pi/escanear', { restaurantId }),
+    probarImpresora: (restaurantId: number, ip: string) =>
+      post<{ ok: true }>('/tickets/pi/probar', { restaurantId, ip }),
     // Impresoras
     listImpresoras:   (restaurantId: number) =>
       get<Impresora[]>(`/tickets/impresoras?restaurantId=${restaurantId}`),

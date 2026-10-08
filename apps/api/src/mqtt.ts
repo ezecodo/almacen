@@ -5,6 +5,8 @@ import mqtt, { MqttClient } from 'mqtt'
 // y todo cuelga de ese código, no del restaurante:
 //   pi/<codigo>/trabajo/<id>   API → Pi   ticket a imprimir
 //   pi/<codigo>/estado         Pi → API   "online" / "offline" (retenido; el broker pone "offline" si la Pi se cae)
+//   pi/<codigo>/impresoras     Pi → API   impresoras que la Pi encontró en la red del local (retenido)
+//   pi/<codigo>/orden          API → Pi   pedidos puntuales: volver a buscar impresoras, imprimir una prueba
 // Si no hay MQTT_HOST configurado (dev local sin broker a mano), no-op silencioso.
 
 let client: MqttClient | null = null
@@ -13,6 +15,10 @@ let intentado = false
 // Último estado conocido de cada Pi. Vive en memoria: al reconectar, el broker
 // reenvía los mensajes retenidos de `estado` y el mapa se vuelve a llenar solo.
 const estadoPi = new Map<string, { online: boolean; vistoAt: Date }>()
+
+// Impresoras que cada Pi encontró en su red (aparatos que responden en el puerto 9100).
+export type ImpresoraDetectada = { ip: string; mac: string | null }
+const impresorasPi = new Map<string, { escaneadoAt: Date; impresoras: ImpresoraDetectada[] }>()
 
 function getClient(): MqttClient | null {
   if (client) return client
@@ -33,12 +39,25 @@ function getClient(): MqttClient | null {
     })
     client.on('connect', () => {
       console.log('[mqtt] conectado al broker', process.env.MQTT_HOST)
-      client?.subscribe('pi/+/estado', { qos: 1 })
+      client?.subscribe(['pi/+/estado', 'pi/+/impresoras'], { qos: 1 })
     })
     client.on('message', (topic, payload) => {
       const [, codigo, canal] = topic.split('/')
-      if (canal !== 'estado' || !codigo) return
-      estadoPi.set(codigo, { online: payload.toString() === 'online', vistoAt: new Date() })
+      if (!codigo) return
+      if (canal === 'estado') {
+        estadoPi.set(codigo, { online: payload.toString() === 'online', vistoAt: new Date() })
+      } else if (canal === 'impresoras') {
+        try {
+          const data = JSON.parse(payload.toString()) as { escaneado_en?: string; impresoras?: { ip?: unknown; mac?: unknown }[] }
+          const impresoras = (data.impresoras ?? [])
+            .filter((i): i is { ip: string; mac?: unknown } => typeof i.ip === 'string')
+            .map((i) => ({ ip: i.ip, mac: typeof i.mac === 'string' ? i.mac : null }))
+          const fecha = data.escaneado_en ? new Date(data.escaneado_en) : new Date()
+          impresorasPi.set(codigo, { escaneadoAt: isNaN(fecha.getTime()) ? new Date() : fecha, impresoras })
+        } catch {
+          // mensaje vacío (retenido borrado) o mal formado: se ignora
+        }
+      }
     })
     client.on('error', (err) => console.error('[mqtt] error:', err.message))
   } catch (err) {
@@ -60,6 +79,20 @@ export function brokerConfigurado(): boolean {
 
 export function estadoDePi(codigo: string): { online: boolean; vistoAt: Date } | null {
   return estadoPi.get(codigo) ?? null
+}
+
+export function impresorasDePi(codigo: string): { escaneadoAt: Date; impresoras: ImpresoraDetectada[] } | null {
+  return impresorasPi.get(codigo) ?? null
+}
+
+// Pedido puntual a una Pi. Va sin garantía de entrega (qos 0) a propósito: si la Pi está
+// desconectada no tiene sentido que le llegue más tarde una búsqueda o una prueba vieja.
+// Devuelve false si no hay broker configurado.
+export function enviarOrden(piCodigo: string, orden: { accion: 'escanear' } | { accion: 'probar'; ip: string }): boolean {
+  const c = getClient()
+  if (!c) return false
+  c.publish(`pi/${piCodigo}/orden`, JSON.stringify(orden), { qos: 0 })
+  return true
 }
 
 // Acepta el código como lo escribe una persona leyendo la etiqueta de la Pi
