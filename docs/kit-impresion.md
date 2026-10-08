@@ -367,7 +367,19 @@ Acordado el 2026-10-08:
 5. **Ticket de cobro y cajón**, automático en efectivo y botón manual. Es lo único de la lista que ve el restaurante.
 6. Avisos de fallo y "reimprimir comanda".
 
-### Mientras no esté la detección: kit armado en casa
+### Día cero completo, probado de corrido (2026-10-08)
+
+Con la Pi sin WiFi, sin vincular y sin impresoras cargadas, se hizo toda la instalación sin SSH y sin escribir ninguna IP:
+
+1. La Pi levantó su red `OIDO-13FAEE`; desde el teléfono se le dio el WiFi con el portal.
+2. En `/admin/tickets` se vinculó con su código y pasó a "Conectada".
+3. La impresora apareció sola como detectada; se le puso nombre y se añadió.
+4. Se le asignó la ruta de cocina de una sala.
+5. Una comanda de esa sala salió impresa.
+
+Hecho contra la API local, con una impresora. Falta repetirlo en un local real y con más de una impresora.
+
+### Alternativa: kit armado en casa
 
 Como el router viaja con el kit, las IPs se pueden dejar resueltas antes de enviarlo, y el manager solo enchufa:
 
