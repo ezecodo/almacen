@@ -2229,11 +2229,13 @@ function armarSeccionesFichas(menu: MenuItem[], cats: MenuCategoria[]): SeccionF
     .sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre, 'es'))
 
   for (const m of conFicha) {
+    // Sección = la categoría padre si el item cuelga de una subcategoría (VINOS BOTELLA →
+    // pestañas TINTO/BLANCO…); si no, la sección del menú (Comida → pestañas CLASICAS/PESCADO…)
     const cat = porNombre.get(m.categoria)
-    const top = (cat?.parentId ? porId.get(cat.parentId) : cat) ?? null
-    const topNombre = top?.nombre ?? m.categoria
+    const padre = cat?.parentId ? porId.get(cat.parentId) ?? null : null
+    const topNombre = padre?.nombre ?? (cat?.grupo || m.categoria)
     if (!secciones.has(topNombre)) {
-      secciones.set(topNombre, { nombre: topNombre, icono: top?.icono || '📋', total: 0, grupos: [], orden: top?.orden ?? 99 })
+      secciones.set(topNombre, { nombre: topNombre, icono: padre ? (padre.icono || '📋') : '🍽️', total: 0, grupos: [], orden: padre ? padre.orden : -1 })
     }
     const sec = secciones.get(topNombre)!
     let grupo = sec.grupos.find(g => g.nombre === m.categoria)
