@@ -20,6 +20,7 @@ const itemSchema = z.object({
   categoria:    z.string().min(1),
   nombre:       z.string().min(1),
   descripcion:  z.string().default(''),
+  ficha:        z.string().default(''),
   precio:       z.number().min(0),
   orden:        z.number().int().default(0),
   alergenos:    z.number().int().min(0).default(0),
@@ -209,6 +210,7 @@ export async function menuRoutes(app: FastifyInstance) {
       categoria:    result.data.categoria,
       nombre:       result.data.nombre,
       descripcion:  result.data.descripcion,
+      ficha:        result.data.ficha,
       precio:       result.data.precio,
       orden:        result.data.orden,
       alergenos:    result.data.alergenos,
@@ -329,7 +331,7 @@ export async function menuRoutes(app: FastifyInstance) {
           if (nombresExistentes.has(item.nombre)) { omitidos++; continue }
           await prisma.menuItem.create({
             data: { restaurantId: rid, categoria: item.categoria, nombre: item.nombre,
-                    descripcion: item.descripcion, precio: item.precio, orden: item.orden,
+                    descripcion: item.descripcion, ficha: item.ficha, precio: item.precio, orden: item.orden,
                     alergenos: item.alergenos, ocultoEnCarta: item.ocultoEnCarta,
                     combinable: item.combinable, precioCombinado: item.precioCombinado,
                     esMixer: item.esMixer, suplementoMixer: item.suplementoMixer },
@@ -424,7 +426,7 @@ export async function menuRoutes(app: FastifyInstance) {
 
     const nuevo = await prisma.menuItem.create({
       data: { restaurantId: result.data.restaurantId, categoria: result.data.categoria,
-              nombre: item.nombre, descripcion: item.descripcion, precio: item.precio, orden: item.orden,
+              nombre: item.nombre, descripcion: item.descripcion, ficha: item.ficha, precio: item.precio, orden: item.orden,
               alergenos: item.alergenos, ocultoEnCarta: item.ocultoEnCarta,
               combinable: item.combinable, precioCombinado: item.precioCombinado,
               esMixer: item.esMixer, suplementoMixer: item.suplementoMixer },

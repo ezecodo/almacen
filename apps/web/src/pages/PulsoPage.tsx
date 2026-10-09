@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { api, Restaurante } from '../api'
+import { api } from '../api'
 import CheckOverlay from '../components/CheckOverlay'
+import { useAdminEvents } from '../hooks/useAdminEvents'
 
 const TICKET_MEDIO_PAX = 41.50
 
@@ -56,46 +57,87 @@ function randomIncremento() {
 
 const COLORS = ['from-cyan-500 to-emerald-500', 'from-indigo-500 to-purple-500', 'from-amber-500 to-orange-500', 'from-pink-500 to-rose-500', 'from-teal-500 to-cyan-500']
 
+function fmtHora(iso: string) {
+  return new Date(iso).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+}
+
+// Modo demo: se activa con /pulso?demo=1 o manteniendo apretado el logo (~0,8s).
+// Vive en sessionStorage — al cerrar la pestaña/app vuelve a los datos reales.
+const DEMO_KEY = 'pulso_demo'
+
+function demoInicial() {
+  const param = new URLSearchParams(window.location.search).get('demo')
+  if (param !== null) {
+    const on = param !== '0'
+    try { sessionStorage.setItem(DEMO_KEY, on ? '1' : '0') } catch {}
+    return on
+  }
+  try { return sessionStorage.getItem(DEMO_KEY) === '1' } catch { return false }
+}
+
+// Simulación: cada restaurante arranca en 0 y sube solo, con su propio ritmo
+// (intervalos independientes), imitando mesas que van pagando.
+function useSimulacion(ids: number[], activa: boolean) {
+  const [montos, setMontos] = useState<Record<number, number>>({})
+  const clave = ids.join(',')
+
+  useEffect(() => {
+    if (!activa) return
+    setMontos({})
+    const timers = new Map<number, ReturnType<typeof setTimeout>>()
+    for (const id of ids) {
+      const tick = () => {
+        setMontos(prev => ({ ...prev, [id]: (prev[id] ?? 0) + randomIncremento() }))
+        timers.set(id, setTimeout(tick, randomBetween(600, 2200)))
+      }
+      timers.set(id, setTimeout(tick, randomBetween(200, 1000)))
+    }
+    return () => timers.forEach(t => clearTimeout(t))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clave, activa])
+
+  return montos
+}
+
 function RestauranteCard({
-  restaurante, color, monto, onTick,
+  nombre, color, monto, activo, detalle,
 }: {
-  restaurante: Restaurante
+  nombre: string
   color: string
   monto: number
-  onTick: (incremento: number) => void
+  activo: boolean
+  detalle: string
 }) {
   const [flash, setFlash] = useState(false)
   const [ultimoIncremento, setUltimoIncremento] = useState<{ valor: number; key: number } | null>(null)
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const montoPrev = useRef(monto)
 
+  // El flash y el "+X €" salen solos cada vez que el monto sube — da igual si el
+  // incremento viene de una mesa real cobrada o de la simulación.
   useEffect(() => {
-    const tick = () => {
-      const incremento = randomIncremento()
-      onTick(incremento)
-      setUltimoIncremento({ valor: incremento, key: Date.now() })
-      setFlash(true)
-      setTimeout(() => setFlash(false), 500)
-      timeoutRef.current = setTimeout(tick, randomBetween(600, 2200))
-    }
-    timeoutRef.current = setTimeout(tick, randomBetween(200, 1000))
-    return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current) }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    const diff = monto - montoPrev.current
+    montoPrev.current = monto
+    if (diff < 0.005) return
+    setUltimoIncremento({ valor: diff, key: Date.now() })
+    setFlash(true)
+    const t = setTimeout(() => setFlash(false), 500)
+    return () => clearTimeout(t)
+  }, [monto])
 
   return (
     <div
-      className={`relative overflow-hidden rounded-2xl sm:rounded-3xl p-3 sm:p-6 text-white shadow-lg bg-gradient-to-br ${color} transition-transform duration-500 ${flash ? 'scale-[1.02] sm:scale-[1.03]' : 'scale-100'}`}
+      className={`relative overflow-hidden rounded-2xl sm:rounded-3xl p-3 sm:p-6 text-white shadow-lg transition-transform duration-500 ${activo ? `bg-gradient-to-br ${color}` : 'bg-white/5 border border-white/10'} ${flash ? 'scale-[1.02] sm:scale-[1.03]' : 'scale-100'}`}
     >
       {flash && (
         <div className="absolute inset-0 bg-white/20 pointer-events-none" />
       )}
-      <div className="flex items-center justify-between gap-2 sm:block">
-        <p className="text-[11px] sm:text-sm font-semibold text-white/80 uppercase tracking-wide truncate sm:pr-14">{restaurante.nombre}</p>
+      <div className={`flex items-center justify-between gap-2 sm:block ${activo ? '' : 'opacity-50'}`}>
+        <p className="text-[11px] sm:text-sm font-semibold text-white/80 uppercase tracking-wide truncate sm:pr-14">{nombre}</p>
         <p className="text-xl sm:text-4xl font-black sm:mt-2 shrink-0">
           <RollingNumber value={monto} /> €
         </p>
       </div>
-      <p className="hidden sm:block text-xs text-white/70 mt-1">Facturación de hoy</p>
+      <p className={`hidden sm:block text-xs mt-1 ${activo ? 'text-white/70' : 'text-white/40'}`}>{detalle}</p>
 
       {ultimoIncremento && (
         <p
@@ -112,8 +154,7 @@ function RestauranteCard({
 
 export default function PulsoPage() {
   const navigate = useNavigate()
-  const { data: restaurantes = [] } = useQuery({ queryKey: ['restaurantes'], queryFn: api.restaurantes.list })
-  const [montos, setMontos] = useState<Record<number, number>>({})
+  const [demo, setDemo] = useState(demoInicial)
   const [cargando, setCargando] = useState(true)
 
   useEffect(() => {
@@ -121,19 +162,27 @@ export default function PulsoPage() {
     return () => clearTimeout(t)
   }, [])
 
-  // Arranca cada restaurante en 0 al entrar — se nota el reinicio y el efecto de "ir subiendo"
-  useEffect(() => {
-    setMontos(prev => {
-      const next = { ...prev }
-      let cambio = false
-      for (const r of restaurantes) {
-        if (!(r.id in next)) { next[r.id] = 0; cambio = true }
-      }
-      return cambio ? next : prev
-    })
-  }, [restaurantes])
+  // Misma fuente (y misma queryKey) que el FacturacionWidget del admin: comandas cerradas
+  // desde la apertura del turno. useAdminEvents la invalida por SSE en cada cobro;
+  // el polling queda de respaldo.
+  useAdminEvents()
+  const { data: stats = [], isError } = useQuery({
+    queryKey: ['facturacion-dia'],
+    queryFn: () => api.turnos.getStats(),
+    refetchInterval: 30_000,
+  })
 
-  const total = Object.values(montos).reduce((a, b) => a + b, 0)
+  const montosDemo = useSimulacion(stats.map(s => s.restaurantId), demo)
+
+  const cards = stats.map(s => {
+    if (demo) return { id: s.restaurantId, nombre: s.nombre, monto: montosDemo[s.restaurantId] ?? 0, activo: true, detalle: 'Facturación de hoy' }
+    const detalle = s.activo && s.aperturaAt
+      ? `Turno desde las ${fmtHora(s.aperturaAt)} · ${s.numComandas} ${s.numComandas === 1 ? 'mesa cobrada' : 'mesas cobradas'}`
+      : 'Sin turno abierto'
+    return { id: s.restaurantId, nombre: s.nombre, monto: s.totalVentas, activo: s.activo, detalle }
+  })
+
+  const total = cards.reduce((a, c) => a + c.monto, 0)
   const totalRef = useRef(total)
   totalRef.current = total
 
@@ -145,6 +194,20 @@ export default function PulsoPage() {
     const i = setInterval(() => setTotalDisplay(totalRef.current), 500)
     return () => clearInterval(i)
   }, [])
+
+  const cambiarDemo = (on: boolean) => {
+    try { sessionStorage.setItem(DEMO_KEY, on ? '1' : '0') } catch {}
+    setDemo(on)
+  }
+
+  const pressRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pressStart = () => {
+    pressRef.current = setTimeout(() => {
+      navigator.vibrate?.(30)
+      cambiarDemo(!demo)
+    }, 800)
+  }
+  const pressEnd = () => { if (pressRef.current) clearTimeout(pressRef.current) }
 
   const salir = () => {
     sessionStorage.removeItem('pulso_auth')
@@ -158,7 +221,16 @@ export default function PulsoPage() {
       <div className={`max-w-4xl mx-auto transition-opacity duration-700 ${cargando ? 'opacity-0' : 'opacity-100'}`}>
         <div className="flex items-start justify-between mb-3 sm:mb-8 gap-3">
           <div className="min-w-0">
-            <svg viewBox="0 0 300 70" className="h-5 sm:h-7 w-auto mb-1 sm:mb-2">
+            <svg
+              viewBox="0 0 300 70"
+              className="h-5 sm:h-7 w-auto mb-1 sm:mb-2 select-none"
+              style={{ WebkitTouchCallout: 'none' }}
+              onPointerDown={pressStart}
+              onPointerUp={pressEnd}
+              onPointerLeave={pressEnd}
+              onPointerCancel={pressEnd}
+              onContextMenu={e => e.preventDefault()}
+            >
               <defs>
                 <linearGradient id="pulso-logo-g" x1="0" y1="0" x2="1" y2="1">
                   <stop offset="0%" stopColor="#4B9EDF" />
@@ -179,19 +251,34 @@ export default function PulsoPage() {
             </h1>
             <p className="hidden sm:block text-xs sm:text-sm text-gray-400">Todos los restaurantes, hoy</p>
           </div>
-          <button onClick={salir} className="shrink-0 text-xs sm:text-sm text-gray-400 hover:text-white transition-colors">
-            Salir
-          </button>
+          <div className="shrink-0 flex items-center gap-3">
+            {demo && (
+              <button
+                onClick={() => cambiarDemo(false)}
+                className="text-[10px] sm:text-xs font-bold uppercase tracking-wide text-amber-300 border border-amber-300/40 rounded-full px-2 py-0.5"
+              >
+                Demo ✕
+              </button>
+            )}
+            <button onClick={salir} className="text-xs sm:text-sm text-gray-400 hover:text-white transition-colors">
+              Salir
+            </button>
+          </div>
         </div>
 
+        {isError && !demo && (
+          <p className="mb-3 text-xs sm:text-sm text-red-300">No se pudo actualizar la facturación — reintentando…</p>
+        )}
+
         <div className="grid sm:grid-cols-2 gap-2 sm:gap-5">
-          {restaurantes.map((r, i) => (
+          {cards.map((c, i) => (
             <RestauranteCard
-              key={r.id}
-              restaurante={r}
+              key={`${demo ? 'demo' : 'real'}-${c.id}`}
+              nombre={c.nombre}
               color={COLORS[i % COLORS.length]}
-              monto={montos[r.id] ?? 0}
-              onTick={incremento => setMontos(prev => ({ ...prev, [r.id]: (prev[r.id] ?? 0) + incremento }))}
+              monto={c.monto}
+              activo={c.activo}
+              detalle={c.detalle}
             />
           ))}
         </div>

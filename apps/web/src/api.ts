@@ -227,6 +227,7 @@ export interface MenuItem {
   categoria: string
   nombre: string
   descripcion: string
+  ficha: string
   precio: number
   activo: boolean
   autoPorPax: boolean
@@ -962,7 +963,7 @@ export const api = {
   menu: {
     list:   (restaurantId: number | null, categoria?: string) =>
       get<MenuItem[]>(`/menu${restaurantId !== null ? `?restaurantId=${restaurantId}` : ''}${categoria ? `${restaurantId !== null ? '&' : '?'}categoria=${encodeURIComponent(categoria)}` : ''}`),
-    create: (body: Omit<MenuItem, 'id' | 'activo' | 'autoPorPax' | 'ocultoEnCarta' | 'combinable' | 'precioCombinado' | 'esMixer' | 'suplementoMixer'> & Partial<Pick<MenuItem, 'ocultoEnCarta' | 'combinable' | 'precioCombinado' | 'esMixer' | 'suplementoMixer'>>) => post<MenuItem>('/menu', body),
+    create: (body: Omit<MenuItem, 'id' | 'activo' | 'autoPorPax' | 'ficha' | 'ocultoEnCarta' | 'combinable' | 'precioCombinado' | 'esMixer' | 'suplementoMixer'> & Partial<Pick<MenuItem, 'ficha' | 'ocultoEnCarta' | 'combinable' | 'precioCombinado' | 'esMixer' | 'suplementoMixer'>>) => post<MenuItem>('/menu', body),
     update: (id: number, body: Partial<Omit<MenuItem, 'id' | 'restaurantId' | 'activo'>>) => put<MenuItem>(`/menu/${id}`, body),
     toggle:           (id: number) => patch<MenuItem>(`/menu/${id}/toggle`, {}),
     toggleAutoPorPax: (id: number) => patch<MenuItem>(`/menu/${id}/toggleAutoPorPax`, {}),

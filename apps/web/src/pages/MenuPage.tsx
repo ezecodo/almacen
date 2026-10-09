@@ -170,6 +170,7 @@ function ItemForm({
   const qc = useQueryClient()
   const [nombre, setNombre]       = useState(initial?.nombre ?? '')
   const [descripcion, setDesc]    = useState(initial?.descripcion ?? '')
+  const [ficha, setFicha]         = useState(initial?.ficha ?? '')
   const [precio, setPrecio]       = useState(initial?.precio?.toString() ?? '')
   const [alergenos, setAlergenos] = useState(initial?.alergenos ?? 0)
   const [combinable, setCombinable]     = useState(initial?.combinable ?? false)
@@ -191,8 +192,8 @@ function ItemForm({
 
   const save = useMutation({
     mutationFn: () => initial
-      ? api.menu.update(initial.id, { nombre, descripcion, precio: parseFloat(precio), alergenos, ...camposCombinado })
-      : api.menu.create({ restaurantId: ridEfectivo, categoria, nombre, descripcion, precio: parseFloat(precio), orden: 0, alergenos, ...camposCombinado }),
+      ? api.menu.update(initial.id, { nombre, descripcion, ficha, precio: parseFloat(precio), alergenos, ...camposCombinado })
+      : api.menu.create({ restaurantId: ridEfectivo, categoria, nombre, descripcion, ficha, precio: parseFloat(precio), orden: 0, alergenos, ...camposCombinado }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['menu-items', restaurantId, categoria] })
       qc.invalidateQueries({ queryKey: ['menu-cats', restaurantId] })
@@ -235,7 +236,9 @@ function ItemForm({
         </div>
       </div>
       <input value={descripcion} onChange={e => setDesc(e.target.value)}
-        className={inputCls} placeholder="Descripción / ingredientes (opcional)" />
+        className={inputCls} placeholder="Descripción corta — se ve en la app de sala (opcional)" />
+      <textarea value={ficha} onChange={e => setFicha(e.target.value)} rows={3}
+        className={inputCls} placeholder="Ficha para estudiar: uvas, crianza, notas de cata… — NO sale en sala ni en tickets (opcional)" />
       <AlergenosPicker value={alergenos} onChange={setAlergenos} />
       {/* Combinados */}
       <div className="space-y-2 pt-1">
@@ -642,6 +645,7 @@ function CategoriaPanel({
                       {esItemGlobal && restaurantId !== null && <GlobalBadge />}
                     </div>
                     {item.descripcion && <p className="text-xs text-gray-400 mt-0.5">{item.descripcion}</p>}
+                    {item.ficha && <p className="text-xs text-gray-500 italic mt-0.5 whitespace-pre-line">📖 {item.ficha}</p>}
                     {!!item.alergenos && <AlergenosBadges mask={item.alergenos} />}
                   </div>
                   <span className="text-sm font-bold text-cyan-600 shrink-0">{formatEur(item.precio)}</span>

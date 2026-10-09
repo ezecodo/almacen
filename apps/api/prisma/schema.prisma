@@ -259,6 +259,7 @@ model MenuItem {
   categoria    String
   nombre       String
   descripcion  String     @default("")
+  ficha        String     @default("") // texto largo de estudio (uvas, crianza, notas de cata…): NO sale en el picker de sala, ni en comandas ni en tickets
   precio       Float
   activo       Boolean    @default(true)
   autoPorPax   Boolean    @default(false)
