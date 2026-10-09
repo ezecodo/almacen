@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, motion, useAnimationControls } from 'framer-motion'
 import QRCode from 'qrcode'
 
 // Monitor de la cadena de registros de facturación que exige Veri*factu, estilo terminal.
@@ -108,11 +108,68 @@ export function crearMockTransactions(): TransaccionVerifactu[] {
 
 type Tono = 'valida' | 'rectificada' | 'rectificativa' | 'cola' | 'rota'
 const ESTILO: Record<Tono, { borde: string; texto: string; brillo: string; badge: string }> = {
-  valida:        { borde: 'border-emerald-500/30', texto: 'text-emerald-400', brillo: 'shadow-[0_0_15px_rgba(0,255,102,0.18)]',  badge: '[✓ AEAT SENT]' },
-  rectificada:   { borde: 'border-amber-500/30',   texto: 'text-amber-400',   brillo: 'shadow-[0_0_15px_rgba(255,153,0,0.20)]',  badge: '[🟡 RECTIFIED]' },
-  rectificativa: { borde: 'border-rose-500/40',    texto: 'text-rose-500',    brillo: 'shadow-[0_0_15px_rgba(255,0,85,0.25)]',   badge: '[⚡ RECTIFIER]' },
-  cola:          { borde: 'border-cyan-400/40',    texto: 'text-cyan-400',    brillo: 'shadow-[0_0_15px_rgba(0,229,255,0.22)]',  badge: '[⏳ QUEUED]' },
-  rota:          { borde: 'border-red-500',        texto: 'text-red-500',     brillo: 'shadow-[0_0_22px_rgba(255,0,0,0.55)]',    badge: '[✗ HASH MISMATCH]' },
+  valida:        { borde: 'border-emerald-500/30', texto: 'text-emerald-400', brillo: 'shadow-[0_0_28px_rgba(0,255,102,0.28)]',  badge: '[✓ AEAT SENT]' },
+  rectificada:   { borde: 'border-amber-500/30',   texto: 'text-amber-400',   brillo: 'shadow-[0_0_28px_rgba(255,153,0,0.30)]',  badge: '[🟡 RECTIFIED]' },
+  rectificativa: { borde: 'border-rose-500/40',    texto: 'text-rose-500',    brillo: 'shadow-[0_0_28px_rgba(255,0,85,0.38)]',   badge: '[⚡ RECTIFIER]' },
+  cola:          { borde: 'border-cyan-400/40',    texto: 'text-cyan-400',    brillo: 'shadow-[0_0_28px_rgba(0,229,255,0.34)]',  badge: '[⏳ QUEUED]' },
+  rota:          { borde: 'border-red-500',        texto: 'text-red-500',     brillo: 'shadow-[0_0_38px_rgba(255,0,0,0.65)]',    badge: '[✗ HASH MISMATCH]' },
+}
+
+const BARRA_SCROLL = { scrollbarWidth: 'thin', scrollbarColor: 'rgba(16,185,129,0.45) transparent' } as const
+const HEX = '0123456789ABCDEF'
+
+// Lluvia de dígitos hexadecimales de fondo, estilo Matrix. Verde normalmente, roja si la cadena está rota.
+function LluviaMatrix({ alerta }: { alerta: boolean }) {
+  const ref = useRef<HTMLCanvasElement>(null)
+  const alertaRef = useRef(alerta)
+  alertaRef.current = alerta
+
+  useEffect(() => {
+    const lienzo = ref.current
+    const ctx = lienzo?.getContext('2d')
+    if (!lienzo || !ctx || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const TAM = 18
+    let columnas: number[] = []
+    const ajustar = () => {
+      lienzo.width = lienzo.offsetWidth
+      lienzo.height = lienzo.offsetHeight
+      columnas = Array.from({ length: Math.ceil(lienzo.width / TAM) }, () => Math.random() * (lienzo.height / TAM))
+    }
+    ajustar()
+    const observador = new ResizeObserver(ajustar)
+    observador.observe(lienzo)
+    const id = window.setInterval(() => {
+      ctx.fillStyle = 'rgba(3,7,18,0.14)'
+      ctx.fillRect(0, 0, lienzo.width, lienzo.height)
+      ctx.font = `${TAM}px monospace`
+      ctx.fillStyle = alertaRef.current ? 'rgba(255,45,70,0.75)' : 'rgba(0,255,102,0.6)'
+      columnas.forEach((y, i) => {
+        ctx.fillText(HEX[Math.floor(Math.random() * 16)], i * TAM, y * TAM)
+        columnas[i] = y * TAM > lienzo.height && Math.random() > 0.975 ? 0 : y + 1
+      })
+    }, 70)
+    return () => { window.clearInterval(id); observador.disconnect() }
+  }, [])
+
+  return <canvas ref={ref} className="pointer-events-none absolute inset-0 h-full w-full opacity-30" />
+}
+
+// Muestra un texto "descifrándose": arranca con dígitos al azar y se va fijando de izquierda a derecha
+function useTextoCifrado(objetivo: string) {
+  const [texto, setTexto] = useState(objetivo)
+  useEffect(() => {
+    if (!objetivo) { setTexto(''); return }
+    let paso = 0
+    const PASOS = 16
+    const id = window.setInterval(() => {
+      paso++
+      const fijos = Math.floor((paso / PASOS) * objetivo.length)
+      setTexto(objetivo.slice(0, fijos) + Array.from({ length: objetivo.length - fijos }, () => HEX[Math.floor(Math.random() * 16)]).join(''))
+      if (paso >= PASOS) window.clearInterval(id)
+    }, 45)
+    return () => window.clearInterval(id)
+  }, [objetivo])
+  return texto
 }
 
 const SCANLINES = {
@@ -141,6 +198,8 @@ export default function VerifactuMatrixLedger({
   const [sobre, setSobre] = useState<string | null>(null)
   const [pausado, setPausado] = useState(false)
   const [manipulado, setManipulado] = useState<{ numSerie: string; original: number } | null>(null)
+  const [pantallaCompleta, setPantallaCompleta] = useState(false)
+  const sacudida = useAnimationControls()
 
   const bloquesRef = useRef<Bloque[]>([])
   const contador = useRef({ fac: 104, rect: 14, log: 0 })
@@ -229,6 +288,7 @@ export default function VerifactuMatrixLedger({
     guardar(lista.map(b => (b.numSerie === objetivo.numSerie ? { ...b, importeTotal: 1 } : b)))
     log(`!! ${objetivo.numSerie}: importe alterado ${dos(objetivo.importeTotal)} -> 1.00 fuera del sistema`, 'error')
     log(`!! Recalculated hash does not match stored hash. CHAIN INTEGRITY BROKEN.`, 'error')
+    void sacudida.start({ x: [0, -14, 14, -9, 9, -4, 4, 0], transition: { duration: 0.5 } })
   }
   const restaurar = () => {
     if (!manipulado) return
@@ -254,94 +314,158 @@ export default function VerifactuMatrixLedger({
   }, [foco, bloques])
 
   const integra = rotoEn < 0
+  const ultimo = bloques[bloques.length - 1]
+  const ultimaHuella = useTextoCifrado(ultimo?.huella ?? '')
+  const kpis = useMemo(() => ({
+    total: bloques.reduce((suma, b) => suma + b.importeTotal, 0),
+    rectificativas: bloques.filter(b => b.tipo === 'R5').length,
+    enCola: bloques.filter(b => b.estado === 'en_cola').length,
+  }), [bloques])
+
+  useEffect(() => {
+    if (!pantallaCompleta) return
+    const alPulsar = (e: KeyboardEvent) => { if (e.key === 'Escape') setPantallaCompleta(false) }
+    window.addEventListener('keydown', alPulsar)
+    return () => window.removeEventListener('keydown', alPulsar)
+  }, [pantallaCompleta])
+
+  const boton = 'text-xs sm:text-sm font-bold border rounded-md px-3 py-2 transition-colors'
 
   return (
-    <div className="relative rounded-2xl overflow-hidden border border-emerald-500/20 bg-[#030712] font-mono text-emerald-400">
+    <motion.div
+      animate={sacudida}
+      className={`${pantallaCompleta ? 'fixed inset-0 z-50' : 'relative h-full min-h-[680px] rounded-2xl border border-emerald-500/20'} flex flex-col overflow-hidden bg-[#030712] font-mono text-emerald-400`}
+    >
+      <LluviaMatrix alerta={!integra} />
       <div className="pointer-events-none absolute inset-0" style={SCANLINES} />
 
       {/* Header */}
-      <div className="relative px-4 pt-4 pb-3 border-b border-emerald-500/20">
-        <div className="flex flex-wrap items-center gap-3">
-          <h2 className="text-sm sm:text-base font-bold tracking-wider">
+      <div className="relative px-5 sm:px-8 pt-5 pb-4 border-b border-emerald-500/20 bg-[#030712]/70">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <h2 className="text-xl sm:text-3xl font-bold tracking-[0.15em] drop-shadow-[0_0_12px_rgba(0,255,102,0.55)]">
             <span className={`${integra ? 'text-emerald-400' : 'text-red-500'} animate-pulse`}>[●]</span> VERI*FACTU LIVE CHAIN AUDIT
           </h2>
-          <span className="text-[10px] font-bold text-amber-300 border border-amber-400/50 rounded px-1.5 py-0.5">SIMULACIÓN · DATOS DE EJEMPLO</span>
-          <div className="ml-auto flex gap-2">
-            <button onClick={() => setPausado(p => !p)} className="text-[11px] border border-emerald-500/40 hover:bg-emerald-500/10 rounded px-2 py-1">
+          <span className="text-[11px] font-bold text-amber-300 border border-amber-400/50 rounded px-2 py-1">SIMULACIÓN · DATOS DE EJEMPLO</span>
+          <div className="ml-auto flex flex-wrap gap-2">
+            <button onClick={() => setPausado(p => !p)} className={`${boton} border-emerald-500/40 hover:bg-emerald-500/10`}>
               {pausado ? '▶ REANUDAR' : '⏸ PAUSA'}
             </button>
             {manipulado ? (
-              <button onClick={restaurar} className="text-[11px] text-cyan-300 border border-cyan-400/50 hover:bg-cyan-400/10 rounded px-2 py-1">↺ RESTAURAR</button>
+              <button onClick={restaurar} className={`${boton} text-cyan-300 border-cyan-400/60 hover:bg-cyan-400/10`}>↺ RESTAURAR</button>
             ) : (
-              <button onClick={manipular} disabled={bloques.length < 2} className="text-[11px] text-rose-400 border border-rose-500/50 hover:bg-rose-500/10 disabled:opacity-40 rounded px-2 py-1">
+              <button onClick={manipular} disabled={bloques.length < 2} className={`${boton} text-rose-400 border-rose-500/60 hover:bg-rose-500/10 disabled:opacity-40`}>
                 ⚠ SIMULAR MANIPULACIÓN
               </button>
             )}
+            <button onClick={() => setPantallaCompleta(v => !v)} className={`${boton} border-emerald-500/40 hover:bg-emerald-500/10`}>
+              {pantallaCompleta ? '✕ SALIR (ESC)' : '⛶ PANTALLA COMPLETA'}
+            </button>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2 mt-3 text-[11px]">
-          <span className={`border rounded px-2 py-0.5 ${integra ? 'border-emerald-500/40 text-emerald-300 animate-pulse' : 'border-red-500 text-red-400 bg-red-500/10'}`}>
+        <p className="mt-2 text-xs sm:text-sm text-emerald-300/60">
+          Cada ticket queda encadenado al anterior por su huella. Si alguien altera o borra uno, la cadena deja de cuadrar.
+        </p>
+        <div className="flex flex-wrap gap-2 mt-3 text-xs sm:text-sm">
+          <span className={`border rounded px-3 py-1 font-bold ${integra ? 'border-emerald-500/50 text-emerald-300 animate-pulse' : 'border-red-500 text-red-400 bg-red-500/10'}`}>
             STATUS: {integra ? 'INTEGRITY_OK' : `INTEGRITY_BROKEN @ BLOCK #${String(bloques[rotoEn]?.indice ?? 0).padStart(4, '0')}`}
           </span>
-          <span className="border border-emerald-500/25 text-emerald-300/80 rounded px-2 py-0.5">PRINT NODE: {nodoImpresion}</span>
-          <span className="border border-cyan-400/30 text-cyan-300/90 rounded px-2 py-0.5">AEAT ENDPOINT: SANDBOX · SIMULADO</span>
-          <span className="border border-emerald-500/25 text-emerald-300/80 rounded px-2 py-0.5">EMISOR: {nifEmisor}</span>
-          <span className="border border-emerald-500/25 text-emerald-300/80 rounded px-2 py-0.5">BLOCKS: {bloques.length}</span>
+          <span className="border border-emerald-500/25 text-emerald-300/80 rounded px-3 py-1">PRINT NODE: {nodoImpresion}</span>
+          <span className="border border-cyan-400/30 text-cyan-300/90 rounded px-3 py-1">AEAT ENDPOINT: SANDBOX · SIMULADO</span>
+          <span className="border border-emerald-500/25 text-emerald-300/80 rounded px-3 py-1">EMISOR: {nifEmisor}</span>
         </div>
       </div>
 
+      {/* Alerta de cadena rota */}
+      <AnimatePresence>
+        {!integra && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+            className="relative overflow-hidden bg-red-600/90 text-white"
+          >
+            <p className="px-5 sm:px-8 py-3 text-base sm:text-2xl font-bold tracking-wider animate-pulse">
+              ⚠ CHAIN INTEGRITY BROKEN — registro alterado en BLOCK #{String(bloques[rotoEn]?.indice ?? 0).padStart(4, '0')} ({bloques[rotoEn]?.numSerie})
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Cifras y última huella */}
+      <div className="relative grid grid-cols-2 lg:grid-cols-4 gap-3 px-5 sm:px-8 pt-5">
+        {[
+          { etiqueta: 'REGISTROS ENCADENADOS', valor: String(bloques.length).padStart(3, '0'), color: 'text-emerald-400' },
+          { etiqueta: 'FACTURADO EN PANTALLA', valor: `${dos(kpis.total)} €`, color: 'text-emerald-400' },
+          { etiqueta: 'RECTIFICATIVAS', valor: String(kpis.rectificativas).padStart(2, '0'), color: 'text-rose-500' },
+          { etiqueta: 'EN COLA DE ENVÍO', valor: String(kpis.enCola).padStart(2, '0'), color: 'text-cyan-400' },
+        ].map(k => (
+          <div key={k.etiqueta} className="rounded-lg border border-emerald-500/20 bg-[#0A0D14]/80 px-4 py-3">
+            <p className="text-[10px] sm:text-xs text-emerald-300/60 tracking-widest">{k.etiqueta}</p>
+            <p className={`text-2xl sm:text-4xl font-bold tabular-nums ${k.color}`}>{k.valor}</p>
+          </div>
+        ))}
+      </div>
+      <div className="relative px-5 sm:px-8 pt-4">
+        <p className="text-[10px] sm:text-xs text-emerald-300/60 tracking-widest">ÚLTIMA HUELLA · SHA-256 · {ultimo?.numSerie ?? '—'}</p>
+        <p className={`text-sm sm:text-xl lg:text-2xl font-bold tracking-wider break-all ${integra ? 'text-emerald-400 drop-shadow-[0_0_10px_rgba(0,255,102,0.5)]' : 'text-red-500'}`}>
+          {ultimaHuella || '…'}
+        </p>
+      </div>
+
       {/* Cadena */}
-      <div ref={carril} className="relative overflow-x-auto px-4 py-6">
-        <div className="flex items-stretch w-max">
+      <div ref={carril} style={BARRA_SCROLL} className="relative flex-1 flex items-center overflow-x-auto overflow-y-hidden px-5 sm:px-8 py-8 min-h-[300px]">
+        <div className="flex items-center w-max">
           {bloques.map((b, i) => {
             const tono = tonoDe(b, i)
             const e = ESTILO[tono]
             const resaltado = pareja === b.numSerie || seleccion?.numSerie === b.numSerie
+            const tachado = tono === 'rectificada' ? 'line-through decoration-amber-400/70' : ''
             return (
               <div key={b.numSerie} className="flex items-center">
                 {i > 0 && (
-                  <svg width="44" height="16" viewBox="0 0 44 16" className={`shrink-0 ${rotoEn >= 0 && i >= rotoEn ? 'text-red-500' : 'text-emerald-500/60'}`}>
-                    <line x1="0" y1="8" x2="36" y2="8" stroke="currentColor" strokeWidth="1.5" strokeDasharray={rotoEn === i ? '3 4' : undefined} />
-                    <path d="M34 3 L42 8 L34 13" fill="none" stroke="currentColor" strokeWidth="1.5" />
+                  <svg width="72" height="24" viewBox="0 0 72 24" className={`shrink-0 ${rotoEn >= 0 && i >= rotoEn ? 'text-red-500' : 'text-emerald-400/70'}`}>
+                    <motion.line
+                      x1="0" y1="12" x2="60" y2="12" stroke="currentColor" strokeWidth="2.5" strokeDasharray="7 7"
+                      animate={{ strokeDashoffset: [0, -14] }} transition={{ repeat: Infinity, ease: 'linear', duration: 0.5 }}
+                    />
+                    <path d="M56 4 L70 12 L56 20" fill="none" stroke="currentColor" strokeWidth="2.5" />
                   </svg>
                 )}
                 <motion.button
                   type="button"
-                  initial={{ opacity: 0, x: 50 }}
-                  animate={{ opacity: 1, x: 0 }}
+                  initial={{ opacity: 0, x: 120, scale: 0.8 }}
+                  animate={{ opacity: 1, x: 0, scale: 1 }}
                   whileHover={{ scale: 1.05 }}
-                  transition={{ type: 'spring', stiffness: 260, damping: 24 }}
+                  transition={{ type: 'spring', stiffness: 220, damping: 20 }}
                   onClick={() => setSeleccion(b)}
                   onMouseEnter={() => setSobre(b.numSerie)}
                   onMouseLeave={() => setSobre(null)}
-                  className={`w-56 shrink-0 text-left cursor-pointer rounded-lg border bg-[#0A0D14]/90 p-3 ${e.borde} ${e.brillo} ${resaltado ? 'ring-2 ring-white/70' : ''}`}
+                  className={`w-80 shrink-0 text-left cursor-pointer rounded-xl border-2 bg-[#0A0D14]/95 p-5 ${e.borde} ${e.brillo} ${resaltado ? 'ring-4 ring-white/70' : ''}`}
                 >
-                  <div className="flex items-center justify-between text-[10px] text-emerald-300/60">
-                    <span>BLOCK #{String(b.indice).padStart(4, '0')}</span>
+                  <div className="flex items-center justify-between text-xs text-emerald-300/60">
+                    <span className="font-bold tracking-widest">BLOCK #{String(b.indice).padStart(4, '0')}</span>
                     <span>{horaCorta(b.fechaHora)}</span>
                   </div>
-                  <p className={`mt-1 text-sm font-bold ${e.texto} ${tono === 'rectificada' ? 'line-through decoration-amber-400/70' : ''}`}>
-                    {b.numSerie} <span className="text-[10px] font-normal opacity-70">{b.tipo}</span>
+                  <p className={`mt-2 text-xl font-bold ${e.texto} ${tachado}`}>
+                    {b.numSerie} <span className="text-xs font-normal opacity-70">{b.tipo}</span>
                   </p>
-                  <p className={`text-lg font-bold ${e.texto} ${tono === 'rectificada' ? 'line-through decoration-amber-400/70' : ''}`}>
+                  <p className={`text-4xl font-bold tabular-nums ${e.texto} ${tachado}`}>
                     {b.importeTotal < 0 ? '−' : ''}{dos(Math.abs(b.importeTotal))} €
                   </p>
-                  <p className="mt-1 text-[10px] text-emerald-300/80">HASH: {truncar(b.huella)}</p>
-                  <p className="text-[10px] text-emerald-300/50">PREV_HASH: {truncar(b.huellaAnterior)}</p>
-                  {b.rectificaA && <p className="mt-1 text-[10px] text-rose-400">LINK: REF_ORIGIN_{b.rectificaA}</p>}
-                  <p className={`mt-2 text-[10px] font-bold ${e.texto} ${tono === 'rota' ? 'animate-pulse' : ''}`}>{e.badge}</p>
+                  <p className="mt-3 text-sm text-emerald-300/90">HASH: {truncar(b.huella)}</p>
+                  <p className="text-sm text-emerald-300/50">PREV_HASH: {truncar(b.huellaAnterior)}</p>
+                  {b.rectificaA && <p className="mt-2 text-sm font-bold text-rose-400">LINK: REF_ORIGIN_{b.rectificaA}</p>}
+                  <p className={`mt-3 text-sm font-bold ${e.texto} ${tono === 'rota' ? 'animate-pulse' : ''}`}>{e.badge}</p>
                 </motion.button>
               </div>
             )
           })}
-          {bloques.length === 0 && <p className="text-xs text-emerald-300/60">Generando cadena…</p>}
+          {bloques.length === 0 && <p className="text-sm text-emerald-300/60">Generando cadena…</p>}
         </div>
       </div>
 
       {/* Consola */}
-      <div ref={consola} className="relative h-[120px] overflow-y-auto border-t border-emerald-500/20 bg-black/40 px-4 py-2 text-[11px] leading-5">
+      <div ref={consola} style={BARRA_SCROLL} className="relative h-44 shrink-0 overflow-y-auto border-t border-emerald-500/20 bg-black/60 px-5 sm:px-8 py-3 text-xs sm:text-sm leading-6">
         {logs.map(l => (
-          <p key={l.id} className={l.tono === 'error' ? 'text-red-400' : l.tono === 'ok' ? 'text-emerald-400' : 'text-emerald-300/60'}>
+          <p key={l.id} className={l.tono === 'error' ? 'text-red-400 font-bold' : l.tono === 'ok' ? 'text-emerald-400' : 'text-emerald-300/60'}>
             &gt; [{l.hora}] {l.texto}
           </p>
         ))}
@@ -357,7 +481,7 @@ export default function VerifactuMatrixLedger({
           />
         )}
       </AnimatePresence>
-    </div>
+    </motion.div>
   )
 }
 
@@ -399,16 +523,17 @@ function Inspector({ bloque, nif, roto, onClose }: { bloque: Bloque; nif: string
       <motion.div
         initial={{ x: 80 }} animate={{ x: 0 }} exit={{ x: 80 }} transition={{ type: 'spring', stiffness: 300, damping: 30 }}
         onClick={e => e.stopPropagation()}
-        className="h-full w-full max-w-xl overflow-y-auto border-l border-emerald-500/40 bg-[#030712] p-4 text-[11px] text-emerald-300 shadow-[0_0_30px_rgba(0,255,102,0.15)]"
+        style={BARRA_SCROLL}
+        className="h-full w-full max-w-2xl overflow-y-auto border-l-2 border-emerald-500/40 bg-[#030712] p-6 text-sm text-emerald-300 shadow-[0_0_40px_rgba(0,255,102,0.2)]"
       >
         <div className="flex items-center mb-3">
-          <p className="text-sm font-bold text-emerald-400">$ inspect {bloque.numSerie}</p>
+          <p className="text-xl font-bold text-emerald-400">$ inspect {bloque.numSerie}</p>
           <button onClick={onClose} className="ml-auto border border-emerald-500/40 hover:bg-emerald-500/10 rounded px-2 py-0.5">[x] CERRAR</button>
         </div>
 
         <p className="text-emerald-300/60 mb-1">// HUELLA SHA-256 (64 caracteres)</p>
         <div className="flex items-start gap-2 mb-1">
-          <code className="break-all text-emerald-400">{bloque.huella}</code>
+          <code className="break-all text-base font-bold text-emerald-400">{bloque.huella}</code>
           <button onClick={copiar} className="shrink-0 border border-emerald-500/40 hover:bg-emerald-500/10 rounded px-2 py-0.5">{copiado ? '✓ COPIADO' : 'COPIAR HASH'}</button>
         </div>
         <p className={`mb-3 ${recalculada && recalculada !== bloque.huella ? 'text-red-400 font-bold' : 'text-emerald-300/60'}`}>
@@ -427,7 +552,7 @@ function Inspector({ bloque, nif, roto, onClose }: { bloque: Bloque; nif: string
 
         <p className="text-emerald-300/60 mb-1">// QR TRIBUTARIO</p>
         <div className="flex gap-3 mb-3">
-          {qr && <img src={qr} alt="QR tributario de ejemplo" className="w-36 h-36 rounded bg-white p-1 shrink-0" />}
+          {qr && <img src={qr} alt="QR tributario de ejemplo" className="w-48 h-48 rounded bg-white p-1 shrink-0" />}
           <div className="min-w-0">
             <p className="break-all text-cyan-300">{url}</p>
             <p className="mt-2 text-amber-300/90">
