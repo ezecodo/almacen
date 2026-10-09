@@ -23,7 +23,8 @@ const itemSchema = z.object({
   ficha:        z.string().default(''),
   precio:       z.number().min(0),
   orden:        z.number().int().default(0),
-  alergenos:    z.number().int().min(0).default(0),
+  alergenoIds:   z.array(z.number().int().positive()).optional(),
+  alergenosNota: z.string().default(''),
   ocultoEnCarta: z.boolean().default(false),
   // Combinados
   combinable:      z.boolean().default(false),
@@ -33,6 +34,13 @@ const itemSchema = z.object({
 })
 
 const updateSchema = itemSchema.partial().omit({ restaurantId: true })
+
+// Los alérgenos son una relación (tabla Alergeno); hacia el cliente viajan como `alergenoIds`
+const conAlergenos = { alergenos: { select: { id: true } } } as const
+function serializarItem<T extends { alergenos: { id: number }[] }>(item: T) {
+  const { alergenos, ...resto } = item
+  return { ...resto, alergenoIds: alergenos.map(a => a.id) }
+}
 
 export async function menuRoutes(app: FastifyInstance) {
 
@@ -197,8 +205,9 @@ export async function menuRoutes(app: FastifyInstance) {
         ...(categoria ? { categoria } : {}),
       },
       orderBy: [{ orden: 'asc' }, { nombre: 'asc' }],
+      include: conAlergenos,
     })
-    return items
+    return items.map(serializarItem)
   })
 
   // POST /menu
@@ -213,14 +222,15 @@ export async function menuRoutes(app: FastifyInstance) {
       ficha:        result.data.ficha,
       precio:       result.data.precio,
       orden:        result.data.orden,
-      alergenos:    result.data.alergenos,
+      alergenos:     { connect: (result.data.alergenoIds ?? []).map(id => ({ id })) },
+      alergenosNota: result.data.alergenosNota,
       ocultoEnCarta: result.data.ocultoEnCarta,
       combinable:      result.data.combinable,
       precioCombinado: result.data.precioCombinado ?? null,
       esMixer:         result.data.esMixer,
       suplementoMixer: result.data.suplementoMixer,
-    }})
-    return reply.status(201).send(item)
+    }, include: conAlergenos })
+    return reply.status(201).send(serializarItem(item))
   })
 
   // PUT /menu/:id
@@ -228,8 +238,13 @@ export async function menuRoutes(app: FastifyInstance) {
     const id = Number((req.params as { id: string }).id)
     const result = updateSchema.safeParse(req.body)
     if (!result.success) return reply.status(400).send({ error: result.error.flatten() })
-    const item = await prisma.menuItem.update({ where: { id }, data: result.data })
-    return item
+    const { alergenoIds, ...campos } = result.data
+    const item = await prisma.menuItem.update({
+      where: { id },
+      data: { ...campos, ...(alergenoIds ? { alergenos: { set: alergenoIds.map(aid => ({ id: aid })) } } : {}) },
+      include: conAlergenos,
+    })
+    return serializarItem(item)
   })
 
   // PATCH /menu/:id/toggle
@@ -304,7 +319,7 @@ export async function menuRoutes(app: FastifyInstance) {
     if (!cat) return reply.status(404).send({ error: 'Categoría no encontrada' })
 
     const items = result.data.incluirItems
-      ? await prisma.menuItem.findMany({ where: { restaurantId: cat.restaurantId, categoria: cat.nombre } })
+      ? await prisma.menuItem.findMany({ where: { restaurantId: cat.restaurantId, categoria: cat.nombre }, include: conAlergenos })
       : []
 
     const resultados = []
@@ -332,7 +347,7 @@ export async function menuRoutes(app: FastifyInstance) {
           await prisma.menuItem.create({
             data: { restaurantId: rid, categoria: item.categoria, nombre: item.nombre,
                     descripcion: item.descripcion, ficha: item.ficha, precio: item.precio, orden: item.orden,
-                    alergenos: item.alergenos, ocultoEnCarta: item.ocultoEnCarta,
+                    alergenos: { connect: item.alergenos }, alergenosNota: item.alergenosNota, ocultoEnCarta: item.ocultoEnCarta,
                     combinable: item.combinable, precioCombinado: item.precioCombinado,
                     esMixer: item.esMixer, suplementoMixer: item.suplementoMixer },
           })
@@ -403,7 +418,7 @@ export async function menuRoutes(app: FastifyInstance) {
     const result = schema.safeParse(req.body)
     if (!result.success) return reply.status(400).send({ error: result.error.flatten() })
 
-    const item = await prisma.menuItem.findUnique({ where: { id } })
+    const item = await prisma.menuItem.findUnique({ where: { id }, include: conAlergenos })
     if (!item) return reply.status(404).send({ error: 'Item no encontrado' })
 
     const yaExiste = await prisma.menuItem.findFirst({
@@ -427,7 +442,7 @@ export async function menuRoutes(app: FastifyInstance) {
     const nuevo = await prisma.menuItem.create({
       data: { restaurantId: result.data.restaurantId, categoria: result.data.categoria,
               nombre: item.nombre, descripcion: item.descripcion, ficha: item.ficha, precio: item.precio, orden: item.orden,
-              alergenos: item.alergenos, ocultoEnCarta: item.ocultoEnCarta,
+              alergenos: { connect: item.alergenos }, alergenosNota: item.alergenosNota, ocultoEnCarta: item.ocultoEnCarta,
               combinable: item.combinable, precioCombinado: item.precioCombinado,
               esMixer: item.esMixer, suplementoMixer: item.suplementoMixer },
     })

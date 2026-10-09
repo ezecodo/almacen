@@ -221,6 +221,16 @@ export interface MenuCategoria {
   itemCount: number
 }
 
+// Catálogo editable de alérgenos (/admin/alergenos). Cada MenuItem guarda los suyos en `alergenoIds`.
+export interface Alergeno {
+  id: number
+  nombre: string
+  nombreEn: string
+  icono: string
+  orden: number
+  _count?: { items: number }
+}
+
 export interface MenuItem {
   id: number
   restaurantId: number | null
@@ -233,7 +243,8 @@ export interface MenuItem {
   autoPorPax: boolean
   ocultoEnCarta: boolean
   orden: number
-  alergenos: number
+  alergenoIds: number[]
+  alergenosNota: string
   combinable: boolean
   precioCombinado: number | null
   esMixer: boolean
@@ -942,6 +953,12 @@ export const api = {
       patch<RetiroResumen>(`/retiros/${id}/confirmar`, { confirmadoPor }),
     delete: (id: number) => del(`/retiros/${id}`),
   },
+  alergenos: {
+    list:   () => get<Alergeno[]>('/alergenos'),
+    create: (body: { nombre: string; nombreEn?: string; icono?: string }) => post<Alergeno>('/alergenos', body),
+    update: (id: number, body: Partial<{ nombre: string; nombreEn: string; icono: string; orden: number }>) => put<Alergeno>(`/alergenos/${id}`, body),
+    delete: (id: number) => del(`/alergenos/${id}`),
+  },
   menuCategorias: {
     list:   (restaurantId: number | null) => get<MenuCategoria[]>(`/menu/categorias${restaurantId !== null ? `?restaurantId=${restaurantId}` : ''}`),
     create: (body: { restaurantId: number | null; grupo?: string; nombre: string; icono?: string; orden?: number; parentId?: number | null }) =>
@@ -963,7 +980,7 @@ export const api = {
   menu: {
     list:   (restaurantId: number | null, categoria?: string) =>
       get<MenuItem[]>(`/menu${restaurantId !== null ? `?restaurantId=${restaurantId}` : ''}${categoria ? `${restaurantId !== null ? '&' : '?'}categoria=${encodeURIComponent(categoria)}` : ''}`),
-    create: (body: Omit<MenuItem, 'id' | 'activo' | 'autoPorPax' | 'ficha' | 'ocultoEnCarta' | 'combinable' | 'precioCombinado' | 'esMixer' | 'suplementoMixer'> & Partial<Pick<MenuItem, 'ficha' | 'ocultoEnCarta' | 'combinable' | 'precioCombinado' | 'esMixer' | 'suplementoMixer'>>) => post<MenuItem>('/menu', body),
+    create: (body: Omit<MenuItem, 'id' | 'activo' | 'autoPorPax' | 'ficha' | 'alergenoIds' | 'alergenosNota' | 'ocultoEnCarta' | 'combinable' | 'precioCombinado' | 'esMixer' | 'suplementoMixer'> & Partial<Pick<MenuItem, 'ficha' | 'alergenoIds' | 'alergenosNota' | 'ocultoEnCarta' | 'combinable' | 'precioCombinado' | 'esMixer' | 'suplementoMixer'>>) => post<MenuItem>('/menu', body),
     update: (id: number, body: Partial<Omit<MenuItem, 'id' | 'restaurantId' | 'activo'>>) => put<MenuItem>(`/menu/${id}`, body),
     toggle:           (id: number) => patch<MenuItem>(`/menu/${id}/toggle`, {}),
     toggleAutoPorPax: (id: number) => patch<MenuItem>(`/menu/${id}/toggleAutoPorPax`, {}),

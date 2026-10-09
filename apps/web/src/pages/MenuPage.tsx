@@ -1,76 +1,13 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, MenuCategoria, MenuItem, Restaurante } from '../api'
+import { AlergenosPicker, AlergenosBadges } from '../components/Alergenos'
 
 function formatEur(n: number) {
   return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
 }
 
 const inputCls = 'w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyan-400'
-
-// ── Alérgenos (14 obligatorios UE — Reglamento 1169/2011) ─────────────────────
-const ALERGENOS = [
-  { bit: 0,  emoji: '🌾', nombre: 'Gluten' },
-  { bit: 1,  emoji: '🦐', nombre: 'Crustáceos' },
-  { bit: 2,  emoji: '🥚', nombre: 'Huevos' },
-  { bit: 3,  emoji: '🐟', nombre: 'Pescado' },
-  { bit: 4,  emoji: '🥜', nombre: 'Cacahuetes' },
-  { bit: 5,  emoji: '🫘', nombre: 'Soja' },
-  { bit: 6,  emoji: '🥛', nombre: 'Lácteos' },
-  { bit: 7,  emoji: '🌰', nombre: 'Frutos secos' },
-  { bit: 8,  emoji: '🌿', nombre: 'Apio' },
-  { bit: 9,  emoji: '🌻', nombre: 'Mostaza' },
-  { bit: 10, emoji: '⚪', nombre: 'Sésamo' },
-  { bit: 11, emoji: '🍷', nombre: 'Sulfitos' },
-  { bit: 12, emoji: '🌼', nombre: 'Altramuces' },
-  { bit: 13, emoji: '🦑', nombre: 'Moluscos' },
-]
-
-function hasAlergeno(mask: number, bit: number) { return (mask & (1 << bit)) !== 0 }
-function toggleAlergeno(mask: number, bit: number) { return mask ^ (1 << bit) }
-
-function AlergenosPicker({ value, onChange }: { value: number; onChange: (v: number) => void }) {
-  return (
-    <div>
-      <label className="block text-xs font-medium text-gray-500 mb-1.5">Alérgenos</label>
-      <div className="flex flex-wrap gap-1.5">
-        {ALERGENOS.map(a => {
-          const active = hasAlergeno(value, a.bit)
-          return (
-            <button
-              key={a.bit}
-              type="button"
-              onClick={() => onChange(toggleAlergeno(value, a.bit))}
-              title={a.nombre}
-              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium border transition-all ${
-                active
-                  ? 'bg-amber-100 border-amber-300 text-amber-800'
-                  : 'bg-gray-50 border-gray-200 text-gray-400 hover:border-gray-300'
-              }`}
-            >
-              <span>{a.emoji}</span>
-              <span className="hidden sm:inline">{a.nombre}</span>
-            </button>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-function AlergenosBadges({ mask }: { mask: number }) {
-  const activos = ALERGENOS.filter(a => hasAlergeno(mask, a.bit))
-  if (!activos.length) return null
-  return (
-    <div className="flex flex-wrap gap-1 mt-1">
-      {activos.map(a => (
-        <span key={a.bit} title={a.nombre} className="text-xs bg-amber-50 border border-amber-200 text-amber-700 px-1.5 py-0.5 rounded">
-          {a.emoji} {a.nombre}
-        </span>
-      ))}
-    </div>
-  )
-}
 
 // ── Formulario de categoría ───────────────────────────────────────────────────
 function CategoriaForm({
@@ -172,7 +109,7 @@ function ItemForm({
   const [descripcion, setDesc]    = useState(initial?.descripcion ?? '')
   const [ficha, setFicha]         = useState(initial?.ficha ?? '')
   const [precio, setPrecio]       = useState(initial?.precio?.toString() ?? '')
-  const [alergenos, setAlergenos] = useState(initial?.alergenos ?? 0)
+  const [alergenoIds, setAlergenoIds] = useState<number[]>(initial?.alergenoIds ?? [])
   const [combinable, setCombinable]     = useState(initial?.combinable ?? false)
   const [precioComb, setPrecioComb]     = useState(initial?.precioCombinado?.toString() ?? '')
   const [esMixer, setEsMixer]           = useState(initial?.esMixer ?? false)
@@ -192,8 +129,8 @@ function ItemForm({
 
   const save = useMutation({
     mutationFn: () => initial
-      ? api.menu.update(initial.id, { nombre, descripcion, ficha, precio: parseFloat(precio), alergenos, ...camposCombinado })
-      : api.menu.create({ restaurantId: ridEfectivo, categoria, nombre, descripcion, ficha, precio: parseFloat(precio), orden: 0, alergenos, ...camposCombinado }),
+      ? api.menu.update(initial.id, { nombre, descripcion, ficha, precio: parseFloat(precio), alergenoIds, ...camposCombinado })
+      : api.menu.create({ restaurantId: ridEfectivo, categoria, nombre, descripcion, ficha, precio: parseFloat(precio), orden: 0, alergenoIds, ...camposCombinado }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['menu-items', restaurantId, categoria] })
       qc.invalidateQueries({ queryKey: ['menu-cats', restaurantId] })
@@ -239,7 +176,7 @@ function ItemForm({
         className={inputCls} placeholder="Descripción corta — se ve en la app de sala (opcional)" />
       <textarea value={ficha} onChange={e => setFicha(e.target.value)} rows={3}
         className={inputCls} placeholder="Ficha para estudiar: uvas, crianza, notas de cata… — NO sale en sala ni en tickets (opcional)" />
-      <AlergenosPicker value={alergenos} onChange={setAlergenos} />
+      <AlergenosPicker value={alergenoIds} onChange={setAlergenoIds} />
       {/* Combinados */}
       <div className="space-y-2 pt-1">
         <label className="block text-xs font-medium text-gray-500">Combinados</label>
@@ -646,7 +583,7 @@ function CategoriaPanel({
                     </div>
                     {item.descripcion && <p className="text-xs text-gray-400 mt-0.5">{item.descripcion}</p>}
                     {item.ficha && <p className="text-xs text-gray-500 italic mt-0.5 whitespace-pre-line">📖 {item.ficha}</p>}
-                    {!!item.alergenos && <AlergenosBadges mask={item.alergenos} />}
+                    {!!item.alergenoIds?.length && <AlergenosBadges ids={item.alergenoIds} />}
                   </div>
                   <span className="text-sm font-bold text-cyan-600 shrink-0">{formatEur(item.precio)}</span>
                   <div className="flex items-center gap-2 shrink-0">

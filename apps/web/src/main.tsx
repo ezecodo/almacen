@@ -17,6 +17,7 @@ import VerificarPage from './pages/VerificarPage'
 import ValidarPage from './pages/ValidarPage'
 import PropinasPage from './pages/PropinasPage'
 import MenuPage from './pages/MenuPage'
+import AlergenosPage from './pages/AlergenosPage'
 import MisPropinasPage from './pages/MisPropinasPage'
 import SalonPage from './pages/SalonPage'
 import ComandasPage from './pages/ComandasPage'
@@ -75,6 +76,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               <Route path="/admin/validar" element={<ValidarPage />} />
               <Route path="/admin/propinas" element={<PropinasPage />} />
               <Route path="/admin/menu" element={<MenuPage />} />
+              <Route path="/admin/alergenos" element={<AlergenosPage />} />
               <Route path="/admin/salon" element={<SalonPage />} />
               <Route path="/admin/comandas" element={<ComandasPage />} />
               <Route path="/admin/mesas" element={<MesasFeedPage />} />

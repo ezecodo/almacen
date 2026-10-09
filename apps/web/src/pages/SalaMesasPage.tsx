@@ -4,7 +4,7 @@ const ThemeCtx = createContext<boolean>(true) // true = dark
 import CheckOverlay from '../components/CheckOverlay'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, Comanda, ComandaItem, FloorPlan, GrupoAgendado, GrupoMenuTemplate, InventarioCategoria, Mesa, MenuCategoria, MenuItem, MermaMotivo, MiTurno, Reserva, Turno, WikiCategoria, WikiArticulo, ChecklistSector, sugerirCantidadesMenu, totalComanda, valorItem, waLink } from '../api'
+import { api, Alergeno, Comanda, ComandaItem, FloorPlan, GrupoAgendado, GrupoMenuTemplate, InventarioCategoria, Mesa, MenuCategoria, MenuItem, MermaMotivo, MiTurno, Reserva, Turno, WikiCategoria, WikiArticulo, ChecklistSector, sugerirCantidadesMenu, totalComanda, valorItem, waLink } from '../api'
 import { speak, VozSelector, LANGS, Lang } from '../lib/tts'
 import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
 import { usePoolEvents } from '../hooks/usePoolEvents'
@@ -2256,20 +2256,34 @@ function armarSeccionesFichas(menu: MenuItem[], cats: MenuCategoria[]): SeccionF
   return [...secciones.values()].sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre, 'es'))
 }
 
-function FichasSeccion({ seccion, itemId, onItem }: {
+function FichasSeccion({ seccion, alergenos, itemId, onItem }: {
   seccion: SeccionFichas
+  alergenos: Alergeno[]
   itemId: number | null
   onItem: (id: number | null) => void
 }) {
   const [tab, setTab] = useState(seccion.grupos[0]?.nombre ?? '')
   const [q, setQ] = useState('')
+  const [filtro, setFiltro] = useState<number[]>([])   // "cliente alérgico a…"
+  const [showFiltro, setShowFiltro] = useState(false)
   const touch = useRef<{ x: number; y: number } | null>(null)
 
-  // Con texto en el buscador se busca en toda la sección (nombre, D.O., uvas, notas)
+  const todos = seccion.grupos.flatMap(g => g.items)
+  // El filtro solo se ofrece si la sección tiene alérgenos cargados: sin datos, un plato
+  // "sin marcar" se leería como apto (ej. vinos y sulfitos) y eso sería peligroso.
+  const hayAlergenos = alergenos.length > 0 && todos.some(m => (m.alergenoIds ?? []).length > 0)
+  const delItem = (m: MenuItem) => alergenos.filter(a => (m.alergenoIds ?? []).includes(a.id))
+  const choca = (m: MenuItem) => filtro.some(id => (m.alergenoIds ?? []).includes(id))
+
+  // Con texto en el buscador se busca en toda la sección (nombre, D.O., uvas, notas).
+  // Con filtro de alergias también se mira toda la sección: primero lo que puede comer.
   const nq = normTxt(q.trim())
-  const visibles = nq
-    ? seccion.grupos.flatMap(g => g.items).filter(m => normTxt(`${m.nombre} ${m.descripcion} ${m.ficha}`).includes(nq))
-    : (seccion.grupos.find(g => g.nombre === tab)?.items ?? [])
+  const base = nq
+    ? todos.filter(m => normTxt(`${m.nombre} ${m.descripcion} ${m.ficha}`).includes(nq))
+    : filtro.length > 0 ? todos : (seccion.grupos.find(g => g.nombre === tab)?.items ?? [])
+  const aptos = filtro.length > 0 ? base.filter(m => !choca(m)) : base
+  const noAptos = filtro.length > 0 ? base.filter(choca) : []
+  const visibles = [...aptos, ...noAptos]
 
   const idx = itemId === null ? -1 : visibles.findIndex(m => m.id === itemId)
   const item = idx >= 0 ? visibles[idx] : null
@@ -2312,6 +2326,31 @@ function FichasSeccion({ seccion, itemId, onItem }: {
             ))}
           </div>
 
+          {hayAlergenos && (
+            <div className="mt-4">
+              <p className="text-[var(--sala-tx3)] text-xs font-bold uppercase tracking-wider mb-2">Alérgenos</p>
+              {delItem(item).length === 0 ? (
+                <p className="text-[var(--sala-tx2)] text-sm">Sin alérgenos declarados</p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {delItem(item).map(a => (
+                    <span
+                      key={a.id}
+                      className={`text-sm font-semibold px-3 py-1.5 rounded-full ${
+                        filtro.includes(a.id) ? 'bg-red-500 text-white' : 'bg-amber-500/15 text-amber-500 border border-amber-500/30'
+                      }`}
+                    >
+                      {a.icono} {a.nombre}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {item.alergenosNota && (
+                <p className="text-[var(--sala-tx2)] text-sm italic mt-2 leading-relaxed">{item.alergenosNota}</p>
+              )}
+            </div>
+          )}
+
           <button
             onClick={() => speak(`${item.nombre.toLowerCase()}. ${item.ficha}`, 'en')}
             className="mt-4 w-full bg-[var(--sala-btn2)] text-[var(--sala-txt)] font-semibold text-sm py-3 rounded-2xl active:scale-[0.98] transition-transform"
@@ -2338,16 +2377,86 @@ function FichasSeccion({ seccion, itemId, onItem }: {
   }
 
   // ── Lista: pestañas + buscador + tarjetas que ya enseñan lo esencial
+  const tarjeta = (m: MenuItem, noApto: boolean) => (
+    <button
+      key={m.id}
+      onClick={() => onItem(m.id)}
+      className={`w-full bg-[var(--sala-srf)] hover:bg-[var(--sala-btn2)] rounded-2xl px-4 py-3 text-left transition-colors active:scale-[0.99] ${noApto ? 'opacity-60' : ''}`}
+    >
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="text-[var(--sala-txt)] font-bold text-base min-w-0 truncate">{m.nombre}</p>
+        <p className="text-[var(--sala-txt)] font-bold text-sm shrink-0 tabular-nums">{fmtPrecioFicha(m.precio)}</p>
+      </div>
+      {m.descripcion && <p className="text-[#4CC8A0] text-xs font-semibold mt-0.5">{m.descripcion}</p>}
+      <p className="text-[var(--sala-tx2)] text-xs mt-1 truncate">{m.ficha.split('\n')[0]}</p>
+      {noApto ? (
+        <p className="text-red-400 text-xs font-bold mt-1.5">
+          🚫 {delItem(m).filter(a => filtro.includes(a.id)).map(a => `${a.icono} ${a.nombre}`).join(' · ')}
+        </p>
+      ) : delItem(m).length > 0 && (
+        <p className="text-sm mt-1.5 tracking-wider">{delItem(m).map(a => a.icono).join(' ')}</p>
+      )}
+    </button>
+  )
+
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       <div className="px-5 pt-3 pb-2 space-y-2">
-        <input
-          value={q}
-          onChange={e => setQ(e.target.value)}
-          placeholder="Buscar por nombre, uva, D.O.…"
-          className="w-full bg-[var(--sala-srf)] text-[var(--sala-txt)] placeholder:text-[var(--sala-tx4)] text-sm rounded-xl px-4 py-2.5 outline-none border border-[var(--sala-brd)] focus:border-[#4CC8A0]"
-        />
-        {!nq && seccion.grupos.length > 1 && (
+        <div className="flex gap-2">
+          <input
+            value={q}
+            onChange={e => setQ(e.target.value)}
+            placeholder="Buscar por nombre, ingrediente…"
+            className="flex-1 min-w-0 bg-[var(--sala-srf)] text-[var(--sala-txt)] placeholder:text-[var(--sala-tx4)] text-sm rounded-xl px-4 py-2.5 outline-none border border-[var(--sala-brd)] focus:border-[#4CC8A0]"
+          />
+          {hayAlergenos && (
+            <button
+              onClick={() => setShowFiltro(v => !v)}
+              className={`shrink-0 text-sm font-bold px-3 rounded-xl border transition-colors ${
+                filtro.length > 0
+                  ? 'bg-red-500 border-red-500 text-white'
+                  : showFiltro
+                    ? 'border-[#4CC8A0] text-[#4CC8A0]'
+                    : 'border-[var(--sala-brd)] text-[var(--sala-tx2)] bg-[var(--sala-srf)]'
+              }`}
+            >
+              ⚠️ Alergias{filtro.length > 0 ? ` (${filtro.length})` : ''}
+            </button>
+          )}
+        </div>
+
+        {showFiltro && hayAlergenos && (
+          <div className="bg-[var(--sala-srf)] rounded-2xl p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-[var(--sala-txt)] text-sm font-bold">El cliente es alérgico a…</p>
+              {filtro.length > 0 && (
+                <button onClick={() => setFiltro([])} className="text-[var(--sala-tx3)] text-xs underline">Limpiar</button>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {alergenos.map(a => {
+                const on = filtro.includes(a.id)
+                return (
+                  <button
+                    key={a.id}
+                    onClick={() => setFiltro(f => (on ? f.filter(i => i !== a.id) : [...f, a.id]))}
+                    className={`text-sm font-semibold px-3 py-2 rounded-full transition-colors active:scale-95 ${
+                      on ? 'bg-red-500 text-white' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx1)]'
+                    }`}
+                  >
+                    {a.icono} {a.nombre}
+                  </button>
+                )
+              })}
+            </div>
+            <p className="text-[var(--sala-tx3)] text-[11px] leading-snug">
+              Cocina y equipos compartidos: no se puede garantizar la ausencia total de trazas (tampoco de gluten).
+              Ante una alergia grave, avisa siempre a cocina.
+            </p>
+          </div>
+        )}
+
+        {!nq && filtro.length === 0 && seccion.grupos.length > 1 && (
           <div className="flex gap-1.5 overflow-x-auto">
             {seccion.grupos.map(g => (
               <button
@@ -2366,20 +2475,14 @@ function FichasSeccion({ seccion, itemId, onItem }: {
 
       <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-2">
         {visibles.length === 0 && <p className="text-[var(--sala-tx4)] text-sm text-center py-6">Sin resultados.</p>}
-        {visibles.map(m => (
-          <button
-            key={m.id}
-            onClick={() => onItem(m.id)}
-            className="w-full bg-[var(--sala-srf)] hover:bg-[var(--sala-btn2)] rounded-2xl px-4 py-3 text-left transition-colors active:scale-[0.99]"
-          >
-            <div className="flex items-baseline justify-between gap-3">
-              <p className="text-[var(--sala-txt)] font-bold text-base min-w-0 truncate">{m.nombre}</p>
-              <p className="text-[var(--sala-txt)] font-bold text-sm shrink-0 tabular-nums">{fmtPrecioFicha(m.precio)}</p>
-            </div>
-            {m.descripcion && <p className="text-[#4CC8A0] text-xs font-semibold mt-0.5">{m.descripcion}</p>}
-            <p className="text-[var(--sala-tx2)] text-xs mt-1 truncate">{m.ficha.split('\n')[0]}</p>
-          </button>
-        ))}
+        {filtro.length > 0 && aptos.length > 0 && (
+          <p className="text-emerald-400 text-xs font-bold uppercase tracking-wider pt-1">✅ Puede comer ({aptos.length})</p>
+        )}
+        {aptos.map(m => tarjeta(m, false))}
+        {noAptos.length > 0 && (
+          <p className="text-red-400 text-xs font-bold uppercase tracking-wider pt-3">🚫 No puede ({noAptos.length})</p>
+        )}
+        {noAptos.map(m => tarjeta(m, true))}
       </div>
     </div>
   )
@@ -2400,6 +2503,7 @@ function WikiPanel({ restaurantId, onClose }: { restaurantId: number; onClose: (
   // Secciones de estudio de la carta: mismas queries (y caché) que el picker de sala
   const { data: menu = [] } = useQuery({ queryKey: ['menu', restaurantId], queryFn: () => api.menu.list(restaurantId) })
   const { data: menuCats = [] } = useQuery({ queryKey: ['menu-cats', restaurantId], queryFn: () => api.menuCategorias.list(restaurantId) })
+  const { data: alergenos = [] } = useQuery({ queryKey: ['alergenos'], queryFn: api.alergenos.list })
   const secciones = armarSeccionesFichas(menu, menuCats)
   const [seccionNombre, setSeccionNombre] = useState<string | null>(null)
   const [fichaId, setFichaId] = useState<number | null>(null)
@@ -2463,7 +2567,7 @@ function WikiPanel({ restaurantId, onClose }: { restaurantId: number; onClose: (
 
         {/* Sección de estudio de la carta (fichas del menú) */}
         {seccion && (
-          <FichasSeccion key={seccion.nombre} seccion={seccion} itemId={fichaId} onItem={setFichaId} />
+          <FichasSeccion key={seccion.nombre} seccion={seccion} alergenos={alergenos} itemId={fichaId} onItem={setFichaId} />
         )}
 
         {/* Vista lista: artículos clicables agrupados por categoría */}

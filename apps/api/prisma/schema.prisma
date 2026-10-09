@@ -265,13 +265,26 @@ model MenuItem {
   autoPorPax   Boolean    @default(false)
   ocultoEnCarta Boolean   @default(false) // no se muestra en el picker del camarero (sigue activo: se cobra y se auto-añade)
   orden        Int        @default(0)
-  alergenos    Int        @default(0)
+  alergenos     Alergeno[]              // catálogo editable (tabla Alergeno), ya no bitmask
+  alergenosNota String    @default("")  // matices que no entran en una casilla: "gluten in the sauce", trazas…
   // Combinados: destilado marcado combinable + pool global de mixers
   combinable      Boolean @default(false)  // se puede pedir combinado (destilados)
   precioCombinado Float?                   // precio del combinado, refresco incluido (null = usar precio)
   esMixer         Boolean @default(false)  // sirve de mezcla (refrescos, tónicas…)
   suplementoMixer Float   @default(0)      // extra si el mixer es premium (Red Bull +1.50)
   createdAt    DateTime   @default(now())
+}
+
+// Catálogo de alérgenos, editable desde /admin/alergenos (añadir/quitar/renombrar).
+// Común a todos los restaurantes. Arranca con los 14 del Reglamento UE 1169/2011.
+model Alergeno {
+  id        Int        @id @default(autoincrement())
+  nombre    String     @unique
+  nombreEn  String     @default("") // en inglés: lo que el camarero le dice al cliente
+  icono     String     @default("")
+  orden     Int        @default(0)
+  items     MenuItem[]
+  createdAt DateTime   @default(now())
 }
 
 model FloorPlan {

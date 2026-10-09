@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { AlergenosInline } from '../components/Alergenos'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   api,
@@ -11,37 +12,6 @@ import {
   MenuItem,
   Restaurante,
 } from '../api'
-
-// ── Alérgenos (14 EU — Reglamento 1169/2011) ─────────────────────────────────
-const ALERGENOS = [
-  { bit: 0,  emoji: '🌾', nombre: 'Gluten' },
-  { bit: 1,  emoji: '🦐', nombre: 'Crustáceos' },
-  { bit: 2,  emoji: '🥚', nombre: 'Huevos' },
-  { bit: 3,  emoji: '🐟', nombre: 'Pescado' },
-  { bit: 4,  emoji: '🥜', nombre: 'Cacahuetes' },
-  { bit: 5,  emoji: '🫘', nombre: 'Soja' },
-  { bit: 6,  emoji: '🥛', nombre: 'Lácteos' },
-  { bit: 7,  emoji: '🌰', nombre: 'Frutos secos' },
-  { bit: 8,  emoji: '🌿', nombre: 'Apio' },
-  { bit: 9,  emoji: '🌻', nombre: 'Mostaza' },
-  { bit: 10, emoji: '⚪', nombre: 'Sésamo' },
-  { bit: 11, emoji: '🍷', nombre: 'Sulfitos' },
-  { bit: 12, emoji: '🌼', nombre: 'Altramuces' },
-  { bit: 13, emoji: '🦑', nombre: 'Moluscos' },
-]
-function hasAlergeno(mask: number, bit: number) { return (mask & (1 << bit)) !== 0 }
-
-function AlergenosInline({ mask }: { mask: number }) {
-  const activos = ALERGENOS.filter(a => hasAlergeno(mask, a.bit))
-  if (!activos.length) return null
-  return (
-    <span className="flex gap-0.5 flex-wrap">
-      {activos.map(a => (
-        <span key={a.bit} title={a.nombre} className="text-[11px] cursor-default">{a.emoji}</span>
-      ))}
-    </span>
-  )
-}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -155,7 +125,7 @@ function CursoCard({
                   <span className="text-xs text-gray-700 group-hover:text-gray-900 leading-tight block">
                     {item.nombre}
                   </span>
-                  {!!item.alergenos && <AlergenosInline mask={item.alergenos} />}
+                  {!!item.alergenoIds?.length && <AlergenosInline ids={item.alergenoIds} />}
                 </div>
               </label>
             ))}
@@ -636,7 +606,7 @@ function GenerarWizard({
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <p className="text-sm text-gray-800 truncate">{plato}</p>
                               {isExtra && <span className="text-[10px] bg-indigo-100 text-indigo-500 rounded-full px-1.5 shrink-0">extra</span>}
-                              {!!itemMap[plato]?.alergenos && <AlergenosInline mask={itemMap[plato].alergenos} />}
+                              {!!itemMap[plato]?.alergenoIds?.length && <AlergenosInline ids={itemMap[plato].alergenoIds} />}
                             </div>
                             {precio > 0 && (
                               <p className="text-xs text-gray-400">
