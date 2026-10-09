@@ -2207,6 +2207,182 @@ function WikiArticuloCard({ art }: { art: WikiArticulo }) {
   )
 }
 
+// ── Fichas de la carta (Wiki → sección de estudio, ej. Carta de vinos) ─────────
+// No son artículos de la Wiki: se arman solas con los items del menú que tienen
+// `ficha` cargada, agrupados por categoría. Cambia la carta → cambia la Wiki.
+type SeccionFichas = {
+  nombre: string
+  icono: string
+  total: number
+  grupos: { nombre: string; label: string; items: MenuItem[] }[]
+}
+
+const fmtPrecioFicha = (n: number) => `${n.toFixed(2).replace('.', ',')} €`
+
+function armarSeccionesFichas(menu: MenuItem[], cats: MenuCategoria[]): SeccionFichas[] {
+  const porNombre = new Map(cats.map(c => [c.nombre, c]))
+  const porId = new Map(cats.map(c => [c.id, c]))
+  const secciones = new Map<string, SeccionFichas & { orden: number }>()
+
+  const conFicha = menu
+    .filter(m => m.activo && m.ficha?.trim())
+    .sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre, 'es'))
+
+  for (const m of conFicha) {
+    const cat = porNombre.get(m.categoria)
+    const top = (cat?.parentId ? porId.get(cat.parentId) : cat) ?? null
+    const topNombre = top?.nombre ?? m.categoria
+    if (!secciones.has(topNombre)) {
+      secciones.set(topNombre, { nombre: topNombre, icono: top?.icono || '📋', total: 0, grupos: [], orden: top?.orden ?? 99 })
+    }
+    const sec = secciones.get(topNombre)!
+    let grupo = sec.grupos.find(g => g.nombre === m.categoria)
+    if (!grupo) {
+      // Pestaña corta: se le quitan las palabras que repite del padre ("TINTO BOTELLA" → "TINTO")
+      const delPadre = new Set(topNombre.split(/\s+/))
+      const corto = m.categoria.split(/\s+/).filter(w => !delPadre.has(w)).join(' ')
+      grupo = { nombre: m.categoria, label: corto || m.categoria, items: [] }
+      sec.grupos.push(grupo)
+    }
+    grupo.items.push(m)
+    sec.total++
+  }
+
+  for (const sec of secciones.values()) {
+    sec.grupos.sort((a, b) => (porNombre.get(a.nombre)?.orden ?? 99) - (porNombre.get(b.nombre)?.orden ?? 99))
+  }
+  return [...secciones.values()].sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre, 'es'))
+}
+
+function FichasSeccion({ seccion, itemId, onItem }: {
+  seccion: SeccionFichas
+  itemId: number | null
+  onItem: (id: number | null) => void
+}) {
+  const [tab, setTab] = useState(seccion.grupos[0]?.nombre ?? '')
+  const [q, setQ] = useState('')
+  const touch = useRef<{ x: number; y: number } | null>(null)
+
+  // Con texto en el buscador se busca en toda la sección (nombre, D.O., uvas, notas)
+  const nq = normTxt(q.trim())
+  const visibles = nq
+    ? seccion.grupos.flatMap(g => g.items).filter(m => normTxt(`${m.nombre} ${m.descripcion} ${m.ficha}`).includes(nq))
+    : (seccion.grupos.find(g => g.nombre === tab)?.items ?? [])
+
+  const idx = itemId === null ? -1 : visibles.findIndex(m => m.id === itemId)
+  const item = idx >= 0 ? visibles[idx] : null
+
+  const ir = (d: number) => {
+    const destino = visibles[idx + d]
+    if (!destino) return
+    window.speechSynthesis?.cancel()
+    onItem(destino.id)
+  }
+
+  // ── Detalle: una ficha a pantalla completa, se pasa a la siguiente como un mazo
+  if (item) {
+    const [cabecera, ...resto] = item.ficha.split('\n').map(l => l.trim()).filter(Boolean)
+    return (
+      <div
+        className="flex-1 min-h-0 flex flex-col"
+        onTouchStart={e => { touch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY } }}
+        onTouchEnd={e => {
+          if (!touch.current) return
+          const dx = e.changedTouches[0].clientX - touch.current.x
+          const dy = e.changedTouches[0].clientY - touch.current.y
+          touch.current = null
+          if (Math.abs(dx) > swipeThresholds().dx && Math.abs(dx) > Math.abs(dy) * 1.5) ir(dx < 0 ? 1 : -1)
+        }}
+      >
+        <div className="flex-1 overflow-y-auto px-5 py-5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="text-[var(--sala-txt)] font-black text-2xl leading-tight">{item.nombre}</h3>
+              {item.descripcion && <p className="text-[#4CC8A0] font-semibold text-sm mt-1">{item.descripcion}</p>}
+            </div>
+            <p className="text-[var(--sala-txt)] font-black text-xl shrink-0">{fmtPrecioFicha(item.precio)}</p>
+          </div>
+
+          <div className="mt-4 bg-[var(--sala-srf)] rounded-2xl p-4 space-y-3">
+            <p className="text-[var(--sala-txt)] font-semibold text-base leading-relaxed">{cabecera}</p>
+            {resto.map((linea, i) => (
+              <p key={i} className="text-[var(--sala-tx1)] text-base leading-relaxed">{linea}</p>
+            ))}
+          </div>
+
+          <button
+            onClick={() => speak(`${item.nombre.toLowerCase()}. ${item.ficha}`, 'en')}
+            className="mt-4 w-full bg-[var(--sala-btn2)] text-[var(--sala-txt)] font-semibold text-sm py-3 rounded-2xl active:scale-[0.98] transition-transform"
+          >
+            🔊 Escuchar en inglés
+          </button>
+        </div>
+
+        <div className="px-5 py-3 border-t border-[var(--sala-brd)] flex items-center justify-between">
+          <button
+            onClick={() => ir(-1)}
+            disabled={idx === 0}
+            className="w-16 h-12 rounded-2xl bg-[var(--sala-btn2)] text-[var(--sala-txt)] text-2xl font-bold disabled:opacity-30 active:scale-95 transition-transform"
+          >‹</button>
+          <span className="text-[var(--sala-tx3)] text-sm font-semibold tabular-nums">{idx + 1} / {visibles.length}</span>
+          <button
+            onClick={() => ir(1)}
+            disabled={idx === visibles.length - 1}
+            className="w-16 h-12 rounded-2xl bg-[var(--sala-btn2)] text-[var(--sala-txt)] text-2xl font-bold disabled:opacity-30 active:scale-95 transition-transform"
+          >›</button>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Lista: pestañas + buscador + tarjetas que ya enseñan lo esencial
+  return (
+    <div className="flex-1 min-h-0 flex flex-col">
+      <div className="px-5 pt-3 pb-2 space-y-2">
+        <input
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          placeholder="Buscar por nombre, uva, D.O.…"
+          className="w-full bg-[var(--sala-srf)] text-[var(--sala-txt)] placeholder:text-[var(--sala-tx4)] text-sm rounded-xl px-4 py-2.5 outline-none border border-[var(--sala-brd)] focus:border-[#4CC8A0]"
+        />
+        {!nq && seccion.grupos.length > 1 && (
+          <div className="flex gap-1.5 overflow-x-auto">
+            {seccion.grupos.map(g => (
+              <button
+                key={g.nombre}
+                onClick={() => setTab(g.nombre)}
+                className={`shrink-0 text-xs font-bold uppercase tracking-wide px-3 py-2 rounded-full transition-colors ${
+                  tab === g.nombre ? 'bg-[#4CC8A0] text-white' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx2)]'
+                }`}
+              >
+                {g.label} <span className="opacity-70">{g.items.length}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-2">
+        {visibles.length === 0 && <p className="text-[var(--sala-tx4)] text-sm text-center py-6">Sin resultados.</p>}
+        {visibles.map(m => (
+          <button
+            key={m.id}
+            onClick={() => onItem(m.id)}
+            className="w-full bg-[var(--sala-srf)] hover:bg-[var(--sala-btn2)] rounded-2xl px-4 py-3 text-left transition-colors active:scale-[0.99]"
+          >
+            <div className="flex items-baseline justify-between gap-3">
+              <p className="text-[var(--sala-txt)] font-bold text-base min-w-0 truncate">{m.nombre}</p>
+              <p className="text-[var(--sala-txt)] font-bold text-sm shrink-0 tabular-nums">{fmtPrecioFicha(m.precio)}</p>
+            </div>
+            {m.descripcion && <p className="text-[#4CC8A0] text-xs font-semibold mt-0.5">{m.descripcion}</p>}
+            <p className="text-[var(--sala-tx2)] text-xs mt-1 truncate">{m.ficha.split('\n')[0]}</p>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── Panel Wiki (consulta camarero) ─────────────────────────────────────────────
 function WikiPanel({ restaurantId, onClose }: { restaurantId: number; onClose: () => void }) {
   const [showVoz, setShowVoz] = useState(false)
@@ -2219,11 +2395,25 @@ function WikiPanel({ restaurantId, onClose }: { restaurantId: number; onClose: (
   // Solo categorías con artículos activos
   const conContenido = (categorias ?? []).filter((c: WikiCategoria) => (c.articulos?.length ?? 0) > 0)
 
-  const volver = () => { window.speechSynthesis?.cancel(); setActivo(null) }
+  // Secciones de estudio de la carta: mismas queries (y caché) que el picker de sala
+  const { data: menu = [] } = useQuery({ queryKey: ['menu', restaurantId], queryFn: () => api.menu.list(restaurantId) })
+  const { data: menuCats = [] } = useQuery({ queryKey: ['menu-cats', restaurantId], queryFn: () => api.menuCategorias.list(restaurantId) })
+  const secciones = armarSeccionesFichas(menu, menuCats)
+  const [seccionNombre, setSeccionNombre] = useState<string | null>(null)
+  const [fichaId, setFichaId] = useState<number | null>(null)
+  const seccion = secciones.find(s => s.nombre === seccionNombre) ?? null
+  const fichaAbierta = fichaId !== null
+
+  const volver = () => {
+    window.speechSynthesis?.cancel()
+    if (fichaAbierta) setFichaId(null)
+    else if (seccion) setSeccionNombre(null)
+    else setActivo(null)
+  }
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-end z-50" onClick={onClose}>
-      <div className="w-full bg-[var(--sala-hdr)] rounded-t-3xl shadow-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+      <div className={`w-full bg-[var(--sala-hdr)] rounded-t-3xl shadow-2xl max-h-[85vh] flex flex-col ${seccion ? 'h-[85vh]' : ''}`} onClick={e => e.stopPropagation()}>
         {/* Handle */}
         <div className="flex justify-center pt-3 pb-1">
           <div className="w-10 h-1 rounded-full bg-[var(--sala-btna)]" />
@@ -2232,12 +2422,15 @@ function WikiPanel({ restaurantId, onClose }: { restaurantId: number; onClose: (
         {/* Header */}
         <div className="px-5 pt-2 pb-4 border-b border-[var(--sala-brd)] flex items-center justify-between">
           <div className="flex items-center gap-2 min-w-0">
-            {activo && (
-              <button onClick={volver} className="text-[var(--sala-tx3)] text-lg shrink-0">←</button>
+            {(activo || seccion) && (
+              <button onClick={volver} className="text-[var(--sala-tx3)] text-2xl leading-none px-1 shrink-0">←</button>
             )}
             <div className="min-w-0">
-              <h2 className="text-[var(--sala-txt)] font-bold text-lg truncate">{activo ? activo.titulo : '📖 Wiki'}</h2>
-              {!activo && <p className="text-[var(--sala-tx3)] text-xs mt-0.5">Speeches y protocolos</p>}
+              <h2 className="text-[var(--sala-txt)] font-bold text-lg truncate">
+                {seccion ? `${seccion.icono} ${seccion.nombre}` : activo ? activo.titulo : '📖 Wiki'}
+              </h2>
+              {!activo && !seccion && <p className="text-[var(--sala-tx3)] text-xs mt-0.5">Speeches, protocolos y carta</p>}
+              {seccion && !fichaAbierta && <p className="text-[var(--sala-tx3)] text-xs mt-0.5">{seccion.total} fichas · toca una para estudiarla</p>}
             </div>
           </div>
           <div className="flex items-center gap-3 shrink-0">
@@ -2266,11 +2459,34 @@ function WikiPanel({ restaurantId, onClose }: { restaurantId: number; onClose: (
           </div>
         )}
 
+        {/* Sección de estudio de la carta (fichas del menú) */}
+        {seccion && (
+          <FichasSeccion key={seccion.nombre} seccion={seccion} itemId={fichaId} onItem={setFichaId} />
+        )}
+
         {/* Vista lista: artículos clicables agrupados por categoría */}
-        {!activo && (
+        {!activo && !seccion && (
           <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
+            {secciones.length > 0 && (
+              <div className="space-y-2">
+                {secciones.map(sec => (
+                  <button
+                    key={sec.nombre}
+                    onClick={() => setSeccionNombre(sec.nombre)}
+                    className="w-full flex items-center gap-4 rounded-2xl px-4 py-4 text-left text-white bg-gradient-to-r from-[#4B9EDF] to-[#4CC8A0] active:scale-[0.99] transition-transform"
+                  >
+                    <span className="text-3xl shrink-0">{sec.icono}</span>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-black text-base uppercase tracking-wide truncate">{sec.nombre}</p>
+                      <p className="text-white/85 text-xs mt-0.5">{sec.total} fichas para estudiar</p>
+                    </div>
+                    <span className="text-2xl shrink-0">›</span>
+                  </button>
+                ))}
+              </div>
+            )}
             {isLoading && <p className="text-[var(--sala-tx4)] text-sm text-center py-6">Cargando…</p>}
-            {!isLoading && conContenido.length === 0 && (
+            {!isLoading && conContenido.length === 0 && secciones.length === 0 && (
               <p className="text-[var(--sala-tx4)] text-sm text-center py-6">No hay contenido todavía.</p>
             )}
             {conContenido.map((cat: WikiCategoria) => (
