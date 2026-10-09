@@ -36,6 +36,19 @@ Módulos activos:
    - **Explícitamente fuera de esta v1** (para no repetir el error de scope-creep de la propuesta descartada): sincronización de stock/inventario, staffing, reservas, wiki, checklists — quedan inaccesibles durante el corte, no hace falta que funcionen offline.
    - Sin diseñar en detalle todavía — esto es el esqueleto del roadmap, falta la sesión de diseño dedicada (estructura de la mini-API, formato exacto de sync, UI de "modo local" para que camarero/encargado sepan que están offline).
 
+8. **Informe de cierre de turno en PDF** (idea de Eze, 2026-10-08, sin empezar). Un "informe Z" generado al cerrar el turno. VeriFactu no lo exige; sirve de control para la dueña (qué se rectificó, por cuánto y quién), de resumen para la gestoría y de prueba legible ante una inspección. Hacerlo en dos pasos:
+   - **Primero, con los datos que ya existen**: restaurante, encargado, apertura y cierre, ventas, efectivo/tarjeta, mermas, invitaciones y propinas. Útil aplique VeriFactu o no.
+   - **Después, cuando exista el registro fiscal real**: lista de facturas numeradas del turno, rectificativas aparte (cuál corrige a cuál, motivo, quién), base e IVA, y bloque de integridad con la primera y la última huella del turno.
+   - Diseño sobrio, de informe contable, no el estilo terminal del monitor. La API ya genera PDFs con `pdf-lib` (módulo Facturas).
+   - Quedó preguntado y sin responder si arrancar ya con el primer paso o esperar a la gestoría.
+9. **Pendientes al cierre de la sesión del 2026-10-08** (borrar de acá a medida que se hagan):
+   - **Preguntar a la gestoría** si el ticket de OidoOps es la factura simplificada del restaurante. Preguntas listas en `docs/verifactu.md`, sección 7. Plazo: 1-1-2027 para sociedades.
+   - **Monitor Veri\*factu** (`/admin/verifactu`): Eze pidió verlo "más grande e impactante" y se rediseñó a pantalla completa. Falta su visto bueno sobre el aspecto; no lo vio todavía.
+   - **Producción**: corregir las impresoras de Sensi Tapas (IPs inventadas) y vincular la Pi `OIDO-13FAEE` en `/admin/tickets`.
+   - **Kit de impresión**: lo siguiente es el ticket de cobro con cajón. Resto de pendientes en `docs/kit-impresion.md`.
+   - **`printer-server`**: Eze decidió dejarlo solo en local, sin repositorio en GitHub.
+   - **Carpeta `-x/`** commiteada por accidente en este repo: sigue ahí, falta su OK para borrarla.
+
 ## Contexto de negocio
 
 - Cliente: grupo de 5 restaurantes en Barcelona
