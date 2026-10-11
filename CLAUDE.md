@@ -41,13 +41,20 @@ Módulos activos:
    - **Después, cuando exista el registro fiscal real**: lista de facturas numeradas del turno, rectificativas aparte (cuál corrige a cuál, motivo, quién), base e IVA, y bloque de integridad con la primera y la última huella del turno.
    - Diseño sobrio, de informe contable, no el estilo terminal del monitor. La API ya genera PDFs con `pdf-lib` (módulo Facturas).
    - Quedó preguntado y sin responder si arrancar ya con el primer paso o esperar a la gestoría.
-9. **Pendientes al cierre de la sesión del 2026-10-08** (borrar de acá a medida que se hagan):
-   - **Preguntar a la gestoría** si el ticket de OidoOps es la factura simplificada del restaurante. Preguntas listas en `docs/verifactu.md`, sección 7. Plazo: 1-1-2027 para sociedades.
-   - **Monitor Veri\*factu** (`/admin/verifactu`): rediseñado como árbol con colores de marca el 2026-10-09 a pedido de Eze. Falta su visto bueno.
+9. **Pendientes al cierre de la sesión del 2026-10-09** (borrar de acá a medida que se hagan):
+   - **Preguntar a la gestoría** si el ticket de OidoOps es la factura simplificada del restaurante, y si los cinco restaurantes facturan con el mismo NIF (el monitor dibuja una sola cadena para el grupo). Preguntas en `docs/verifactu.md`, sección 7. Plazo: 1-1-2027 para sociedades.
+   - **Escandallos**: la pantalla está hecha pero vacía — faltan los gramajes del chef (¿Excel/papel?). Después, pasos 2 y 3 (ver **Módulo: Escandallos**).
+   - **Alérgenos — confirmar con cocina**: la hoja del restaurante no marca pescado en TOST. ANCHOAS ni soja en TARTAR DE ATÙN. Se corrige en `/admin/alergenos`.
+   - **Postres**: no existen en el menú; la hoja de alérgenos trae Cheesecake, Flan, Coconut y Brownie pero falta la carta con precios.
+   - **Menús de grupo**: al quitar ZANAHORIAS de la carta, Standar, Premium y Deluxe quedaron con un vegetariano menos — decidir si va REMOLACHA.
+   - **Quiz para camareros** sobre las fichas de la Wiki (vinos y comida) — idea de Eze, sin empezar.
+   - **Pedidos a proveedores + recepción + cotejo con la factura** (idea de Eze, diseñada a medias el 2026-10-09, sin código): el dueño arma el pedido en `/admin` → se envía solo al proveedor → el encargado lo recibe en el panel 💼 marcando línea por línea → la foto de la factura queda pegada al pedido. Acordado arrancar por cotejo manual (nivel A) y dejar la lectura automática de la factura para después. **Falta saber**: quién provee los vinos y a qué coste, cómo piden hoy (mail/WhatsApp/teléfono) y quién hace los pedidos. Una factura vieja del proveedor de vinos resuelve casi todo.
+   - **Monitor Veri\*factu** (`/admin/verifactu`): rediseñado como árbol con colores de marca, mermas y lluvia con OIDOOPS + viñeta. Eze lo vio en local y le gustó.
    - **Producción**: corregir las impresoras de Sensi Tapas (IPs inventadas) y vincular la Pi `OIDO-13FAEE` en `/admin/tickets`.
-   - **Kit de impresión**: lo siguiente es el ticket de cobro con cajón. Resto de pendientes en `docs/kit-impresion.md`.
+   - **Kit de impresión**: lo siguiente es el ticket de cobro con cajón. Resto de pendientes en `docs/kit-impresion.md`. La rama `kit-impresion` sigue sin mergear.
    - **`printer-server`**: Eze decidió dejarlo solo en local, sin repositorio en GitHub.
    - **Carpeta `-x/`** commiteada por accidente en este repo: sigue ahí, falta su OK para borrarla.
+   - **Informe Z en PDF** (punto 8): sin empezar.
 
 ## Contexto de negocio
 
