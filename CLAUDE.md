@@ -55,6 +55,7 @@ Módulos activos:
    - **`printer-server`**: Eze decidió dejarlo solo en local, sin repositorio en GitHub.
    - **Carpeta `-x/`** commiteada por accidente en este repo: sigue ahí, falta su OK para borrarla.
    - **Informe Z en PDF** (punto 8): sin empezar.
+10. **Varios clientes de la suite: una instalación por cliente** (dirección acordada con Eze 2026-10-11, sin empezar; "hay que trabajarlo sí o sí"). Hoy la app es de un solo grupo: todo lo "global" (carta, alérgenos, wiki, proveedores, `EmpresaConfig`, PIN de admin) es de Sensi sin decirlo. Para un segundo cliente **no** se mete un `clienteId` en cada tabla; cada cliente tendrá su propia base de datos, proceso y dirección web con el mismo código. El identificador corto del cliente (`sensi`) ya existe en el back-office, que vive en **otro repo**: `~/Desktop/dev/oido-talent` → `/admin`, pestaña "Suite OidoOps" (clientes, locales y Pi de cada uno; registro a mano, no lee nada de esta app). Ese identificador dará nombre a la base, la dirección y el proceso. El alta se hará con un script corrido a mano, no con un botón del dashboard. **A resolver antes del segundo cliente**: `VITE_ADMIN_PIN`/`VITE_PULSO_PIN` son de build (hoy haría falta un build por cliente), el workflow de deploy apunta a una sola carpeta (`/root/almacen`), y las credenciales de Google Sheets y `sync-db.sh` asumen una única instalación.
 
 ## Contexto de negocio
 
