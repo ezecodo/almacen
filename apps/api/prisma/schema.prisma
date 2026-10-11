@@ -266,6 +266,7 @@ model MenuItem {
   ocultoEnCarta Boolean   @default(false) // no se muestra en el picker del camarero (sigue activo: se cobra y se auto-añade)
   orden        Int        @default(0)
   alergenos     Alergeno[]              // catálogo editable (tabla Alergeno), ya no bitmask
+  receta        Receta?                 // escandallo (ingredientes y cantidades) → coste del plato
   alergenosNota String    @default("")  // matices que no entran en una casilla: "gluten in the sauce", trazas…
   // Combinados: destilado marcado combinable + pool global de mixers
   combinable      Boolean @default(false)  // se puede pedir combinado (destilados)
@@ -273,6 +274,27 @@ model MenuItem {
   esMixer         Boolean @default(false)  // sirve de mezcla (refrescos, tónicas…)
   suplementoMixer Float   @default(0)      // extra si el mixer es premium (Red Bull +1.50)
   createdAt    DateTime   @default(now())
+}
+
+// Escandallo de un plato: qué ingredientes (productos del catálogo de Inventario) lleva y cuánto.
+// El coste se calcula al vuelo con el precioCoste vigente de cada producto — no se guarda.
+model Receta {
+  id         Int           @id @default(autoincrement())
+  menuItemId Int           @unique
+  menuItem   MenuItem      @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  raciones   Float         @default(1) // raciones que salen de las cantidades indicadas
+  lineas     RecetaLinea[]
+  updatedAt  DateTime      @updatedAt
+}
+
+model RecetaLinea {
+  id         Int                @id @default(autoincrement())
+  recetaId   Int
+  receta     Receta             @relation(fields: [recetaId], references: [id], onDelete: Cascade)
+  productoId Int
+  producto   InventarioProducto @relation(fields: [productoId], references: [id])
+  cantidad   Float              // en la unidad base del producto (g / ml / ud)
+  orden      Int                @default(0)
 }
 
 // Catálogo de alérgenos, editable desde /admin/alergenos (añadir/quitar/renombrar).
@@ -377,6 +399,12 @@ model InventarioProducto {
   stockMinimo    Float                  @default(0)
   precioCoste    Float?
   precioVenta    Float?
+  // Escandallos: cómo se mide el producto dentro de una receta. null = se deduce de `unidad`
+  // (kg → 1000 g, l → 1000 ml, botella → 750 ml, caja/ud → 1 ud).
+  unidadBase     String?                // 'g' | 'ml' | 'ud'
+  contenido      Float?                 // unidades base por unidad de compra (botella de 700 ml → 700)
+  mermaPct       Float                  @default(0) // % que se pierde al limpiar/cocinar (0-95)
+  recetaLineas   RecetaLinea[]
   orden          Int                    @default(0)
   activo         Boolean                @default(true)
   categoriaId    Int
@@ -605,6 +633,9 @@ model EmpresaConfig {
   razonSocial String   @default("")
   nif         String?
   tasaIva     Float    @default(10)
+  // Semáforo de escandallos: food cost % hasta el que un plato es verde / ámbar (por encima, rojo)
+  foodCostVerde Float  @default(30)
+  foodCostAmbar Float  @default(35)
   mensajePie  String?  // pie por defecto del ticket de cobro, ej "Servicio no incluido"
   updatedAt   DateTime @updatedAt
 }

@@ -29,6 +29,7 @@ const NAV_GROUPS = [
     items: [
       { to: '/admin/menu',   label: 'Menú' },
       { to: '/admin/alergenos', label: 'Alérgenos' },
+      { to: '/admin/escandallos', label: 'Escandallos' },
       { to: '/admin/grupos', label: 'Grupos' },
       { to: '/admin/salon',  label: 'Salón' },
     ],

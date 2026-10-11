@@ -843,7 +843,40 @@ async function authFetch(path: string, init: { method?: string; json?: unknown; 
   return res
 }
 
+// ── Escandallos (coste de materia prima por plato) — rutas /admin/escandallos*, sesión de admin ──
+export type EstadoEscandallo = 'verde' | 'ambar' | 'rojo' | 'sin_receta' | 'incompleta'
+export interface EscandalloPlato {
+  id: number; nombre: string; categoria: string; grupo: string; restaurantId: number | null
+  precio: number; precioSinIva: number
+  coste: number | null; foodCost: number | null; margen: number | null
+  ingredientes: number; sinPrecio: number; estado: EstadoEscandallo
+}
+export interface EscandalloMatriz { tasaIva: number; verde: number; ambar: number; platos: EscandalloPlato[] }
+export interface Ingrediente {
+  id: number; nombre: string; restaurantId: number | null
+  unidad: string; precioCoste: number | null           // unidad y precio de compra
+  unidadBase: string; contenido: number; mermaPct: number // cómo se mide en la receta
+  costeUnitario: number | null                          // € por unidad base, merma incluida
+}
+export interface EscandalloDetalle {
+  tasaIva: number; verde: number; ambar: number
+  id: number; nombre: string; categoria: string; precio: number; precioSinIva: number
+  raciones: number
+  lineas: { productoId: number; cantidad: number; producto: Ingrediente }[]
+}
+export type IngredienteBody = { nombre: string; unidad: string; precioCoste: number | null; unidadBase?: string | null; contenido?: number | null; mermaPct?: number }
+
 export const api = {
+  escandallos: {
+    matriz: (restaurantId: number) => authFetch(`/admin/escandallos?restaurantId=${restaurantId}`).then(r => r.json() as Promise<EscandalloMatriz>),
+    detalle: (menuItemId: number) => authFetch(`/admin/escandallos/${menuItemId}`).then(r => r.json() as Promise<EscandalloDetalle>),
+    guardar: (menuItemId: number, body: { raciones: number; lineas: { productoId: number; cantidad: number }[] }) =>
+      authFetch(`/admin/escandallos/${menuItemId}`, { method: 'PUT', json: body }).then(() => undefined),
+    umbrales: (body: { verde: number; ambar: number }) => authFetch('/admin/escandallos/umbrales', { method: 'PUT', json: body }).then(() => undefined),
+    ingredientes: (restaurantId: number) => authFetch(`/admin/escandallos/ingredientes?restaurantId=${restaurantId}`).then(r => r.json() as Promise<Ingrediente[]>),
+    crearIngrediente: (body: IngredienteBody) => authFetch('/admin/escandallos/ingredientes', { method: 'POST', json: body }).then(r => r.json() as Promise<Ingrediente>),
+    editarIngrediente: (id: number, body: Partial<IngredienteBody>) => authFetch(`/admin/escandallos/ingredientes/${id}`, { method: 'PATCH', json: body }).then(r => r.json() as Promise<Ingrediente>),
+  },
   auth: {
     admin: (pin: string) => post<{ token: string }>('/admin/auth', { pin }),
   },

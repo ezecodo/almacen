@@ -169,7 +169,11 @@ Orden de trabajo sugerido si aplica:
 
 `/admin/verifactu` → `apps/web/src/components/VerifactuMatrixLedger.tsx` (página `VerifactuPage.tsx`).
 
-Una pantalla estilo terminal que muestra la cadena de registros como bloques enlazados, con una consola de eventos debajo. Sirve para enseñar la idea a Valentina o a un cliente, y como base de la pantalla de auditoría real.
+Una pantalla que muestra la cadena de registros como un **árbol**: arriba el grupo (el emisor), de él cuelgan los restaurantes reales del grupo (los lee de la API) y debajo de cada uno sus tickets, el más nuevo arriba. La cadena es **una sola para todo el emisor**, así que el enlace de cada ticket con el registro anterior salta de un restaurante a otro: esos hilos son la red que se va tejiendo entre columnas. Todo entra en pantalla sin scroll (se ven los últimos tickets de cada local; los viejos se pierden por abajo). Debajo, una consola de eventos. Sirve para enseñar la idea a Valentina o a un cliente, y como base de la pantalla de auditoría real.
+
+Rediseñado el 2026-10-09 con la identidad de la app: colores azul→verde del logo en lugar del verde terminal, logo en la cabecera y en la raíz del árbol, y una lluvia de caracteres de fondo (dígitos hexadecimales, como las huellas) en la que con frecuencia una columna deja caer la palabra `OIDOOPS`: sus letras quedan encendidas un par de segundos, más grandes y con brillo, con "OIDO" en blanco y "OPS" en verde como el logo; cada tanto cae también la viñeta del logo (globo con el check), suelta o encabezando la palabra (frecuencia y duración son las constantes `0.01` y `VIDA` de `LluviaMarca`). Cada restaurante tiene su serie de numeración (iniciales: `ST-2026-131`, rectificativas `ST-R-2026-011`). **Supuesto del dibujo, pendiente de confirmar con la gestoría**: que los cinco restaurantes facturan con el mismo NIF y por tanto comparten cadena; si fueran emisores distintos, serían cinco cadenas independientes.
+
+**Mermas e invitaciones en el monitor** (2026-10-09, simuladas): se muestran en dos lugares distintos porque fiscalmente no son lo mismo. (1) *Antes de imprimir la cuenta*: el plato sale de la comanda y nunca llega a una factura — no es un registro fiscal ni entra en la cadena; aparece solo como contador ámbar en la cabecera de cada restaurante ("🗑 n mermas sin factura · €") y como línea ámbar en la consola marcada NO FISCAL. (2) *Después de imprimir la cuenta* (lo que hoy es "cuenta desactualizada"): genera una **rectificativa por diferencias** (R5, `TipoRectificativa: I`) que descuenta solo ese plato; el nodo rosa muestra plato + quién y la etiqueta "RECT · MERMA" / "RECT · INVITACIÓN", y al abrirlo se ve el motivo completo (plato, importe, causa, quién, a qué factura corrige). Platos, causas y nombres son de ejemplo.
 
 **Qué es real:**
 
@@ -179,14 +183,14 @@ Una pantalla estilo terminal que muestra la cadena de registros como bloques enl
 
 **Qué es simulado:**
 
-- **Las facturas**: datos de ejemplo, y una venta nueva cada 7 segundos.
+- **Las facturas**: datos de ejemplo, y una venta nueva cada 3,5 segundos en un restaurante al azar (de vez en cuando, una rectificativa).
 - **El envío a la AEAT**: no se envía nada. La pantalla lo dice en la cabecera y en cada registro.
 - **El QR** apunta al entorno de pruebas de la AEAT, donde esas facturas no existen.
 - **El NIF** del emisor (`B12345678`).
 
-El botón **"Simular manipulación"** cambia el importe de un ticket sin tocar su huella, como haría alguien editando la base a mano: la cadena pasa a rojo desde ese bloque. Es la mejor forma de explicar para qué sirve todo esto.
+El botón **"Simular manipulación"** cambia el importe de un ticket sin tocar su huella, como haría alguien editando la base a mano: la cadena pasa a rojo desde ese registro **en todos los restaurantes** (es una sola cadena). Es la mejor forma de explicar para qué sirve todo esto.
 
-Para conectarlo a datos reales basta con pasarle los registros por la prop `mockTransactions` y apagar `simular`.
+Para conectarlo a datos reales hay que alimentar `bloques` con los registros fiscales reales (cada uno con el índice de su restaurante en `local`) y apagar `simular`.
 
 ---
 

@@ -146,7 +146,9 @@ export async function inventarioRoutes(app: FastifyInstance) {
     const id = Number((req.params as { id: string }).id)
 
     // Soft delete — mark as inactive rather than hard delete if it has conteo items
-    const itemCount = await prisma.inventarioConteoItem.count({ where: { productoId: id } })
+    // o si es ingrediente de alguna receta (borrarlo abarataría el plato en silencio)
+    const itemCount = (await prisma.inventarioConteoItem.count({ where: { productoId: id } }))
+      + (await prisma.recetaLinea.count({ where: { productoId: id } }))
     if (itemCount > 0) {
       await prisma.inventarioProducto.update({ where: { id }, data: { activo: false } })
     } else {

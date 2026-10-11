@@ -4,7 +4,7 @@ import VerifactuMatrixLedger from '../components/VerifactuMatrixLedger'
 // Todavía no hay facturación real detrás: ver docs/verifactu.md para el mapa de lo que falta.
 export default function VerifactuPage() {
   return (
-    <div className="h-full min-h-[700px] bg-[#030712] p-3 sm:p-4">
+    <div className="h-full min-h-[700px] bg-[#0f1a2e] p-3 sm:p-4">
       <VerifactuMatrixLedger />
     </div>
   )
