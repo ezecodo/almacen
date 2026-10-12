@@ -251,8 +251,13 @@ async function main() {
   let yaHay = await prisma.restaurant.count()
   const reiniciar = process.argv.includes('--reiniciar')
   if (yaHay > 0 && reiniciar && !esDemo) throw new Error('Lo que hay en esta base no es una demo cargada por este script: no la vacío.')
-  // Se vacía si se pidió, o si quedó una demo a medias de un intento que falló
+  // Se vacía si se pidió, o si quedó una demo a medias de un intento que falló.
+  // Lo único que se conserva al recargar es lo que se configuró a mano con el hardware delante:
+  // las impresoras y a dónde sale cada ticket. Se guardan por nombre de local y de sala.
+  let impresorasPrevias: { local: string; nombre: string; ip: string; mac: string | null; rutas: { sala: string; tipoTicket: string; copias: number }[] }[] = []
   if (esDemo && (reiniciar || yaHay === 0)) {
+    const previas = await prisma.impresora.findMany({ include: { restaurant: { select: { nombre: true } }, rutas: { include: { floorPlan: { select: { nombre: true } } } } } })
+    impresorasPrevias = previas.map(i => ({ local: i.restaurant.nombre, nombre: i.nombre, ip: i.ip, mac: i.mac, rutas: i.rutas.map(x => ({ sala: x.floorPlan.nombre, tipoTicket: x.tipoTicket, copias: x.copias })) }))
     const tablas = await prisma.$queryRaw<{ tablename: string }[]>`SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> '_prisma_migrations'`
     await prisma.$executeRawUnsafe(`TRUNCATE ${tablas.map(t => `"${t.tablename}"`).join(', ')} RESTART IDENTITY CASCADE`)
     console.log(`Demo anterior borrada (${tablas.length} tablas vaciadas).`)
@@ -521,6 +526,18 @@ async function main() {
 
     resumen.push(`  ${local.nombre}: ${mesas.length} mesas, ${local.personal.length} empleados, ${ventasHoy.toFixed(0)} € cobrados hoy, ${ocupadas.length} mesas ocupadas · encargado/a ${encargado}, PIN ${pinEncargado}`)
   }
+
+  // Impresoras y rutas que había antes de recargar
+  for (const imp of impresorasPrevias) {
+    const local = await prisma.restaurant.findFirst({ where: { nombre: imp.local }, include: { floorPlans: true } })
+    if (!local) continue
+    const nueva = await prisma.impresora.create({ data: { restaurantId: local.id, nombre: imp.nombre, ip: imp.ip, mac: imp.mac } })
+    for (const ruta of imp.rutas) {
+      const sala = local.floorPlans.find(f => f.nombre === ruta.sala)
+      if (sala) await prisma.impresionRuta.create({ data: { floorPlanId: sala.id, impresoraId: nueva.id, tipoTicket: ruta.tipoTicket, copias: ruta.copias } })
+    }
+  }
+  if (impresorasPrevias.length) console.log(`Se conservaron ${impresorasPrevias.length} impresora(s) y sus rutas de impresión.`)
 
   console.log('\nDemo cargada: grupo "Traga Agua" con 3 restaurantes.\n' + resumen.join('\n'))
   console.log(`\nCarta: ${platos.length} platos y bebidas en ${CARTA.length} categorías, con alérgenos y ficha de estudio.`)
