@@ -73,6 +73,7 @@ const NAV_GROUPS = [
     label: 'Grupo',
     icon: '⚙️',
     items: [
+      { to: '/admin/accesos', label: 'Accesos' },
       { to: '/admin/restaurantes', label: 'Restaurantes' },
       { to: '/admin/red', label: 'Red del local' },
     ],
