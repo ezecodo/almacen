@@ -14,6 +14,8 @@
 #   bash deploy/mqtt.sh cerrar            elimina el usuario viejo compartido (cuando todas las Pi ya
 #                                         usan su credencial propia)
 #   bash deploy/mqtt.sh sincronizar       rehace las reglas con lo que dice HQ (lo llama runner.sh)
+#   bash deploy/mqtt.sh vigilar           lo mismo, cada 3 segundos durante un minuto (por cron: así una
+#                                         Pi recién asignada en HQ tiene permiso casi al instante)
 
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/comun.sh"
@@ -53,8 +55,10 @@ if viejo:
     print("user " + viejo + "\ntopic readwrite pi/#")
 ' <<< "$json")
   if [ -f "$ACL" ] && [ "$nuevo" = "$(cat "$ACL")" ]; then return 1; fi
-  printf '%s\n' "$nuevo" > "$ACL"
-  chmod 644 "$ACL"
+  # de golpe (archivo aparte y renombrar): el canal nunca lee unas reglas a medio escribir
+  printf '%s\n' "$nuevo" > "$ACL.nuevo"
+  chmod 644 "$ACL.nuevo"
+  mv "$ACL.nuevo" "$ACL"
   return 0
 }
 
@@ -170,6 +174,17 @@ sincronizar() {
   if escribir_reglas; then recargar; echo "$(date '+%F %T') reglas MQTT actualizadas"; fi
 }
 
+# Un minuto de vigilancia: lo relanza el cron cada minuto, así las reglas van siempre a ≤3 s de HQ.
+# Cada vuelta es una consulta a HQ en esta misma máquina y una comparación de texto.
+vigilar() {
+  [ -f "$ACL" ] && [ -f "$RUNNER_CONF" ] || return 0
+  local fin=$((SECONDS + 57))
+  while [ "$SECONDS" -lt "$fin" ]; do
+    sincronizar 2>/dev/null || true
+    sleep 3
+  done
+}
+
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   [ "$(id -u)" -eq 0 ] || morir "Hay que correrlo como root"
   case "${1:-}" in
@@ -177,6 +192,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     pi) pi "${2:-}" ;;
     cerrar) cerrar ;;
     sincronizar) sincronizar || true ;;
-    *) morir "Uso: mqtt.sh instalar | pi OIDO-XXXXXX | cerrar | sincronizar" ;;
+    vigilar) vigilar ;;
+    *) morir "Uso: mqtt.sh instalar | pi OIDO-XXXXXX | cerrar | sincronizar | vigilar" ;;
   esac
 fi

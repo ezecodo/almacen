@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { prisma } from '../server'
 import { requireAdmin } from '../auth'
 import { normalizarPiCodigo, onConectado, publicarConfigPi } from '../mqtt'
+import { avisoDeHQ } from '../sync-hq'
 
 // "Dónde estás": la sala de un restaurante solo se opera desde la red del local.
 // El servidor aprende esa red sin que nadie la cargue: la Pi, que vive enchufada al router del
@@ -98,6 +99,19 @@ export async function redRoutes(app: FastifyInstance) {
       olvidar()
       console.log(`[red] la Pi ${codigo} informó una red nueva para el restaurante ${r.id}`)
     }
+    return { ok: true }
+  })
+
+  // POST /suite/sincronizar — el back-office avisa de que cambió algo de este cliente (le asignó o
+  // le quitó una Pi) para que se aplique ya. Pública: se valida con el secreto de la suite. No recibe
+  // datos: solo dispara la consulta de siempre a HQ, que es quien dice qué hay que hacer.
+  app.post('/suite/sincronizar', async (req, reply) => {
+    const esperado = Buffer.from(process.env.SUITE_TOKEN ?? '')
+    const recibido = Buffer.from(String(req.headers['x-suite-token'] ?? ''))
+    if (!esperado.length || recibido.length !== esperado.length || !timingSafeEqual(recibido, esperado)) {
+      return reply.status(401).send({ error: 'No autorizado' })
+    }
+    avisoDeHQ()
     return { ok: true }
   })
 

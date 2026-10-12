@@ -142,7 +142,7 @@ function PiSection({ restaurantId }: { restaurantId: number }) {
   const { data: pi } = useQuery({
     queryKey: ['ticket-pi', restaurantId],
     queryFn: () => api.tickets.getPi(restaurantId),
-    refetchInterval: 10_000,
+    refetchInterval: 4_000,
   })
 
   const [codigo, setCodigo] = useState('')

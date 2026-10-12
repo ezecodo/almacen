@@ -124,3 +124,13 @@ enlazar_instalacion() {
   poner_env "$env" HQ_URL "${HQ_URL:-http://127.0.0.1:3100}" || true
   poner_env "$env" SUITE_TOKEN "$SUITE_TOKEN" || true
 }
+
+# Deja programada en el cron de root la vigilancia de las reglas del canal (mqtt.sh vigilar), si el
+# canal ya tiene reglas y todavía no está puesta. La llama el deploy, que corre como root.
+asegurar_vigilancia_canal() {
+  [ -f "${OIDOOPS_MOSQUITTO:-/etc/mosquitto}/acl" ] && [ -f "$RUNNER_CONF" ] || return 0
+  crontab -l 2>/dev/null | grep -q 'deploy/mqtt.sh vigilar' && return 0
+  ( crontab -l 2>/dev/null || true
+    echo "* * * * * flock -n /root/oidoops/canal.lock bash /root/almacen/deploy/mqtt.sh vigilar >> /root/oidoops/runner.log 2>&1" ) | crontab -
+  echo "→ Vigilancia de las reglas del canal programada (cada 3 s)"
+}

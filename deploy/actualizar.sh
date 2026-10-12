@@ -31,6 +31,7 @@ main() {
   local solo="${1:-}" hechas=() fallidas=() build_listo=""
   asegurar_registro
   asegurar_suite_token
+  asegurar_vigilancia_canal
 
   while read -r codigo carpeta proceso _puerto web _dominio; do
     [ -n "$solo" ] && [ "$solo" != "$codigo" ] && continue

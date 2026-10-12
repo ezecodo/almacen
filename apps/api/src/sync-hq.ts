@@ -16,9 +16,15 @@ const INSTALACION_CODIGO = process.env.INSTALACION_CODIGO
 export const enlazadaConHQ = Boolean(HQ_URL && SUITE_TOKEN && INSTALACION_CODIGO)
 
 let enCurso = false
+let otraAlTerminar = false
+// Reintentos rápidos mientras una Pi recién asignada sigue sin dar noticias (su permiso en el canal
+// llega unos segundos después que la asignación). Con tope, para no insistir sin fin con una apagada.
+let reintentos = 0
+const MAX_REINTENTOS = 20
 
 export async function sincronizarConHQ() {
-  if (!enlazadaConHQ || enCurso) return
+  if (!enlazadaConHQ) return
+  if (enCurso) { otraAlTerminar = true; return } // llegó un aviso en mitad de una: se repite al acabar
   enCurso = true
   try {
     const restaurantes = await prisma.restaurant.findMany({ select: { id: true, nombre: true, piCodigo: true } })
@@ -60,11 +66,21 @@ export async function sincronizarConHQ() {
       volverAPreguntar(r.piCodigo as string)
       await anunciarLatido(r.id)
     }
+    if (pendientes.length === 0) reintentos = 0
+    else if (reintentos++ < MAX_REINTENTOS) setTimeout(sincronizarConHQ, 3_000)
   } catch (err) {
     console.error('[hq] no se pudo sincronizar con el back-office:', (err as Error).message)
   } finally {
     enCurso = false
+    if (otraAlTerminar) { otraAlTerminar = false; setTimeout(sincronizarConHQ, 200) }
   }
+}
+
+// HQ avisa en el momento en que cambia algo de este cliente (una Pi asignada o quitada): se
+// sincroniza ya, sin esperar al minuto. Vuelve a contar los reintentos rápidos.
+export function avisoDeHQ() {
+  reintentos = 0
+  void sincronizarConHQ()
 }
 
 export function iniciarSyncHQ() {

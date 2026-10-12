@@ -21,6 +21,7 @@ export const RUTAS_PUBLICAS = new Set([
   'GET /api/retiros/:id',             // lo que abre el QR de un retiro
   'POST /api/reviews/sync',           // cron: se valida con SYNC_SECRET
   'POST /api/pi/latido',              // la Pi del local: se valida con su secreto
+  'POST /api/suite/sincronizar',      // aviso del back-office: se valida con el secreto de la suite
 ])
 
 // El panel del dueño: facturación en vivo y nada más
