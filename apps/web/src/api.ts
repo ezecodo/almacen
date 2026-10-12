@@ -29,6 +29,20 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>
 }
 
+// Badge de Oído Talent que un restaurante da a un empleado
+export interface BadgeBody {
+  restaurantId: number
+  tipo: 'BASIC' | 'GOLD'
+  nombre: string
+  apellido: string
+  email: string
+  rol: string
+  fechaInicio: string
+  fechaFin: string | null
+  skills: string[]
+  nota: string
+}
+
 export interface RedAdmin {
   tuIp: string
   restaurantes: {
@@ -968,6 +982,8 @@ export const api = {
   },
   empleados: {
     list:   (tipo?: 'cocina' | 'sala') => get<Empleado[]>(`/empleados${tipo ? `?tipo=${tipo}` : ''}`),
+    darBadge: (id: number, body: BadgeBody) =>
+      authFetch(`/empleados/${id}/badge`, { method: 'POST', json: body }).then(r => r.json() as Promise<{ codigo: string; url: string; avisado: boolean }>),
     // restaurantId: el local del dispositivo; la sesión queda atada a él (ver "red del local")
     auth:   (pin: string, restaurantId?: number) => post<Empleado & { token?: string }>('/empleados/auth', { pin, restaurantId }).then(e => {
       tokenEmpleadoEfimero = e.token ?? null

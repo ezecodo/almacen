@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../server'
 import { requireAdmin } from '../auth'
+import { pedirBadge } from '../suite'
 
 // Freno contra fuerza bruta del PIN (4 dígitos = 10.000 combinaciones): por IP, en memoria.
 // El tope es holgado porque todas las tablets de un local salen por la misma IP.
@@ -44,7 +45,51 @@ const updateSchema = z.object({
   diasLibresFijos: diasLibresSchema,
 })
 
+const fechaIso = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+const badgeSchema = z.object({
+  restaurantId: z.number().int().positive(),
+  tipo:         z.enum(['BASIC', 'GOLD']),
+  nombre:       z.string().trim().min(1).max(60),
+  apellido:     z.string().trim().min(1).max(80),
+  email:        z.string().trim().toLowerCase().email(),
+  rol:          z.string().trim().min(2).max(80),
+  fechaInicio:  fechaIso,
+  fechaFin:     fechaIso.nullable(),
+  skills:       z.array(z.string().trim().min(1)).max(12),
+  nota:         z.string().max(1000),
+})
+
 export async function empleadoRoutes(app: FastifyInstance) {
+
+  // POST /empleados/:id/badge — dar un badge de Oído Talent a un empleado, a nombre del restaurante.
+  // Lo firma y lo comunica el back-office (ver suite.ts). Solo administración.
+  app.post('/empleados/:id/badge', { preHandler: requireAdmin }, async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    const result = badgeSchema.safeParse(req.body)
+    if (!result.success) return reply.status(400).send({ error: 'Revisa los datos: nombre, apellido, email, puesto y fecha de inicio son obligatorios' })
+    const d = result.data
+    const [empleado, restaurante] = await Promise.all([
+      prisma.empleado.findUnique({ where: { id }, select: { id: true } }),
+      prisma.restaurant.findUnique({ where: { id: d.restaurantId }, select: { id: true, nombre: true } }),
+    ])
+    if (!empleado) return reply.status(404).send({ error: 'Empleado no encontrado' })
+    if (!restaurante) return reply.status(404).send({ error: 'Restaurante no encontrado' })
+
+    const r = await pedirBadge({
+      local: { nombre: restaurante.nombre, restaurantId: restaurante.id },
+      badge: {
+        tipo: d.tipo,
+        trabajador: { nombre: d.nombre, apellido: d.apellido, email: d.email },
+        rol: d.rol,
+        fechaInicio: d.fechaInicio,
+        fechaFin: d.fechaFin,
+        endorsement: { skills: d.skills, nota: d.nota },
+      },
+    })
+    if (!r.ok) return reply.status(r.status).send({ error: r.error })
+    return reply.status(201).send({ codigo: r.codigo, url: r.url, avisado: r.avisado })
+  })
+
 
   // Auth por PIN (solo cocina)
   app.post('/empleados/auth', async (req, reply) => {

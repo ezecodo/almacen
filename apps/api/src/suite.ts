@@ -33,3 +33,44 @@ export async function piPermitida(piCodigo: string): Promise<Permiso> {
   }
   return { ok: true }
 }
+
+// ── Badges de Oído Talent ──────────────────────────────────────────────────────────────────────
+// Un cliente de la suite da badges a su gente desde el módulo Empleados, sin registrarse en Talent:
+// se piden al back-office, que los firma y le avisa al trabajador por correo.
+export interface BadgePedido {
+  local: { nombre: string; restaurantId: number }
+  badge: {
+    tipo: 'BASIC' | 'GOLD'
+    trabajador: { nombre: string; apellido: string; email: string }
+    rol: string
+    fechaInicio: string
+    fechaFin: string | null
+    endorsement: { skills: string[]; nota: string }
+  }
+}
+type BadgeResultado =
+  | { ok: true; codigo: string; url: string; avisado: boolean }
+  | { ok: false; status: number; error: string }
+
+export async function pedirBadge(pedido: BadgePedido): Promise<BadgeResultado> {
+  if (!HQ_URL || !SUITE_TOKEN || !INSTALACION_CODIGO) {
+    return { ok: false, status: 503, error: 'Esta instalación no está enlazada con Oído: no se pueden dar badges.' }
+  }
+  try {
+    const res = await fetch(`${HQ_URL}/api/interno/badges`, {
+      method: 'POST',
+      headers: { 'X-Suite-Token': SUITE_TOKEN, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cliente: INSTALACION_CODIGO, ...pedido }),
+      signal: AbortSignal.timeout(15000),
+    })
+    const data = (await res.json().catch(() => ({}))) as { error?: string; campos?: Record<string, string[]>; codigo?: string; url?: string; avisado?: boolean }
+    if (!res.ok || !data.codigo || !data.url) {
+      const campo = data.campos ? Object.values(data.campos).flat()[0] : undefined
+      return { ok: false, status: res.status >= 400 && res.status < 500 ? res.status : 502, error: campo ?? data.error ?? 'Oído Talent no pudo emitir el badge' }
+    }
+    return { ok: true, codigo: data.codigo, url: data.url, avisado: Boolean(data.avisado) }
+  } catch (err) {
+    console.error('[suite] no se pudo pedir el badge', err)
+    return { ok: false, status: 503, error: 'No se pudo conectar con Oído Talent. Prueba de nuevo en un minuto.' }
+  }
+}

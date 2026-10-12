@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, Empleado, Restaurante } from '../api'
+import BadgeModal from '../components/BadgeModal'
 
 function generarPin() {
   return String(Math.floor(1000 + Math.random() * 9000))
@@ -381,6 +382,7 @@ export default function EmpleadosPage() {
   const [tab, setTab] = useState<Tipo>('cocina')
   const { data: restaurantes = [] } = useQuery({ queryKey: ['restaurantes'], queryFn: () => api.restaurantes.list() })
   const [modal, setModal] = useState<{ mode: 'create' } | { mode: 'edit'; emp: Empleado } | null>(null)
+  const [badgeDe, setBadgeDe] = useState<Empleado | null>(null)
   const [showInactivos, setShowInactivos] = useState(false)
   const [feedback, setFeedback] = useState<{ msg: string; ok: boolean } | null>(null)
 
@@ -549,6 +551,13 @@ export default function EmpleadosPage() {
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
                       <button
+                        onClick={() => setBadgeDe(emp)}
+                        className="text-xs text-amber-600 hover:text-amber-700 font-medium"
+                        title="Dar un badge de Oído Talent"
+                      >
+                        🏅 Badge
+                      </button>
+                      <button
                         onClick={() => setModal({ mode: 'edit', emp })}
                         className="text-xs text-cyan-500 hover:text-cyan-700 font-medium"
                       >
@@ -665,6 +674,7 @@ export default function EmpleadosPage() {
       </div>
 
       {/* Modal crear / editar */}
+      {badgeDe && <BadgeModal empleado={badgeDe} restaurantes={restaurantes} onClose={() => setBadgeDe(null)} />}
       {modal && (
         <EmpleadoModal
           initial={
