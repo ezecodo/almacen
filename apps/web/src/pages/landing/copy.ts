@@ -226,6 +226,37 @@ export const copy = {
     ],
   },
 
+  box: {
+    eyebrow: 'El kit de local',
+    title: 'Oído Box.',
+    titleAccent: 'Se enchufa y la cocina imprime.',
+    sub: 'Una caja que cabe en la palma de la mano y conecta tu local con OidoOps. La enchufas al router, encuentra sola tus impresoras de tickets, y cada comanda sale donde tiene que salir: cocina, barra o las dos.',
+    imageAlt: 'Oído Box, el aparato de OidoOps para cada local',
+    chips: ['En línea', '2 impresoras encontradas'],
+    points: [
+      {
+        num: '01',
+        title: 'Lista en minutos',
+        body: 'Llega configurada. La enchufas, le das el WiFi del local desde el móvil, y aparece sola en tu panel.',
+      },
+      {
+        num: '02',
+        title: 'Encuentra tus impresoras',
+        body: 'Detecta las térmicas de tu red y te las propone. Tú les pones nombre y eliges qué sale en cada una, sala por sala y con las copias que quieras.',
+      },
+      {
+        num: '03',
+        title: 'No pierde un ticket',
+        body: 'Si internet parpadea, las comandas esperan y se imprimen en cuanto vuelve. Y no abre ninguna puerta en tu red: es la Box la que llama, nunca al revés.',
+      },
+      {
+        num: '04',
+        title: 'Tu sala, solo desde tu local',
+        body: 'La Box le dice a OidoOps cuál es la red del restaurante. Fuera de ella el equipo consulta la carta y sus propinas, pero nadie toca una mesa ni cobra.',
+      },
+    ],
+    foot: ['Impresoras térmicas de tickets por red', 'Probada con Epson TM-T20', 'Una por local'],
+  },
   verifactu: {
     eyebrow: 'Cumplimiento Hacienda',
     chipPrefix: 'VERI', // antes del asterisco

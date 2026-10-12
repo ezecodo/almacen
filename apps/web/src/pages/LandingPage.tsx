@@ -5,6 +5,7 @@ import { MarqueeSection } from './landing/components/Marquee'
 import { StickyFeaturesSection } from './landing/components/StickyFeatures'
 import { CamareroSection } from './landing/components/Camarero'
 import { ModulesSection } from './landing/components/Modules'
+import { BoxSection } from './landing/components/Box'
 import { VerifactuSection } from './landing/components/Verifactu'
 import { StatementSection } from './landing/components/Statement'
 import { StatsSection } from './landing/components/Stats'
@@ -28,6 +29,7 @@ export default function LandingPage() {
       <StickyFeaturesSection />
       <CamareroSection />
       <ModulesSection />
+      <BoxSection />
       <VerifactuSection />
       <StatementSection />
       <StatsSection />
