@@ -110,11 +110,17 @@ export function enviarOrden(piCodigo: string, orden: { accion: 'escanear' } | { 
   return true
 }
 
-// Vuelve a suscribirse para que el broker reenvíe los mensajes retenidos (estado e impresoras).
-// Hace falta cuando a esta instalación le asignan una Pi después de haberse conectado: en el momento
-// de suscribirse no tenía permiso sobre ella, y el broker no reparte de nuevo lo retenido por su cuenta.
-export function volverAPreguntar() {
-  client?.subscribe(['pi/+/estado', 'pi/+/impresoras'], { qos: 1 })
+// Pide de nuevo al broker lo último que publicó una Pi (su estado y sus impresoras, que son
+// mensajes retenidos). Hace falta cuando a esta instalación le asignan una Pi después de haberse
+// conectado: al suscribirse todavía no tenía permiso sobre ella, y el broker no reparte de nuevo
+// lo retenido por su cuenta.
+// Se da de baja y se vuelve a suscribir a propósito: la librería ignora en silencio una suscripción
+// a algo a lo que ya está suscrita, y entonces el broker no reenvía nada.
+export function volverAPreguntar(piCodigo: string) {
+  const c = client
+  if (!c) return
+  const temas = [`pi/${piCodigo}/estado`, `pi/${piCodigo}/impresoras`]
+  c.unsubscribe(temas, () => c.subscribe(temas, { qos: 1 }))
 }
 
 // Le dice a una Pi a dónde mandar su latido. Va retenido: la Pi lo recibe al conectarse aunque

@@ -56,9 +56,9 @@ export async function sincronizarConHQ() {
     // preguntar por ella y se le repite a dónde mandar el latido, que la primera vez pudo no pasar.
     const sinNoticias = await prisma.restaurant.findMany({ where: { piCodigo: { not: null } }, select: { id: true, piCodigo: true } })
     const pendientes = sinNoticias.filter(r => !estadoDePi(r.piCodigo as string))
-    if (pendientes.length > 0) {
-      volverAPreguntar()
-      for (const r of pendientes) await anunciarLatido(r.id)
+    for (const r of pendientes) {
+      volverAPreguntar(r.piCodigo as string)
+      await anunciarLatido(r.id)
     }
   } catch (err) {
     console.error('[hq] no se pudo sincronizar con el back-office:', (err as Error).message)
