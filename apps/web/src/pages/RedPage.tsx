@@ -21,7 +21,7 @@ function Local({ r, tuIp }: { r: RedAdmin['restaurantes'][number]; tuIp: string 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="font-bold text-gray-900">{r.nombre}</h2>
-          <p className="text-sm text-gray-400">{r.piCodigo ? `Pi ${r.piCodigo}` : 'Sin Pi vinculada'}</p>
+          <p className="text-sm text-gray-400">{r.piCodigo ? `Oído Box ${r.piCodigo}` : 'Sin Box vinculada'}</p>
         </div>
         <button
           onClick={() => restringir.mutate(!r.restringirPorRed)}
@@ -37,7 +37,7 @@ function Local({ r, tuIp }: { r: RedAdmin['restaurantes'][number]; tuIp: string 
 
       {r.redes.length === 0 ? (
         <p className="text-sm text-gray-400 mt-4">
-          Todavía no se conoce la red de este local. Aparece sola cuando su Pi está encendida y vinculada.
+          Todavía no se conoce la red de este local. Aparece sola cuando su Box está encendida y vinculada.
         </p>
       ) : (
         <ul className="mt-4 divide-y divide-gray-100">

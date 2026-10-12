@@ -147,7 +147,7 @@ export async function redRoutes(app: FastifyInstance) {
     if (!r) return reply.status(404).send({ error: 'Restaurante no encontrado' })
     // Sin ninguna red conocida, activarlo dejaría a todo el local sin poder trabajar
     if (body.data.restringirPorRed && !r.redes.some(x => vigente(x))) {
-      return reply.status(409).send({ error: 'Todavía no se conoce la red de este local: aparece sola cuando su Pi está encendida y vinculada.' })
+      return reply.status(409).send({ error: 'Todavía no se conoce la red de este local: aparece sola cuando su Box está encendida y vinculada.' })
     }
     await prisma.restaurant.update({ where: { id: restaurantId }, data: { restringirPorRed: body.data.restringirPorRed } })
     olvidar()

@@ -13,7 +13,7 @@ type Permiso = { ok: true } | { ok: false; status: number; error: string }
 export async function piPermitida(piCodigo: string): Promise<Permiso> {
   if (!HQ_URL) return { ok: true }
   if (!SUITE_TOKEN || !INSTALACION_CODIGO) {
-    return { ok: false, status: 503, error: 'Esta instalación no está enlazada con Oído: no se puede comprobar la Pi.' }
+    return { ok: false, status: 503, error: 'Esta instalación no está enlazada con Oído: no se puede comprobar la Box.' }
   }
   let cliente: string | null
   try {
@@ -25,11 +25,11 @@ export async function piPermitida(piCodigo: string): Promise<Permiso> {
     cliente = ((await res.json()) as { cliente: string | null }).cliente
   } catch (err) {
     console.error('[suite] no se pudo comprobar la Pi', piCodigo, err)
-    return { ok: false, status: 503, error: 'No se pudo comprobar esa Pi en este momento. Prueba de nuevo en un minuto.' }
+    return { ok: false, status: 503, error: 'No se pudo comprobar esa Box en este momento. Prueba de nuevo en un minuto.' }
   }
   // Mismo mensaje si no existe o si es de otro grupo: no se revela de quién es
   if (cliente !== INSTALACION_CODIGO) {
-    return { ok: false, status: 403, error: 'Esa Pi no está asignada a tu grupo. Pídele a Oído que la asigne a tu local y vuelve a intentarlo.' }
+    return { ok: false, status: 403, error: 'Esa Box no está asignada a tu grupo. Pídele a Oído que la asigne a tu local y vuelve a intentarlo.' }
   }
   return { ok: true }
 }

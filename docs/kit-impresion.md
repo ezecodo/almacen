@@ -7,6 +7,8 @@ Cómo funciona hoy el servidor de impresión (prototipo) y cómo tiene que queda
 > 2. **La Pi se asigna a un local desde el back-office de Oído (HQ)**, no desde el panel del cliente — sección 4.1.
 > 3. **La Pi manda un latido** con el que el servidor aprende la red del local — sección 4.6.
 >
+> **Nombre comercial (2026-10-12): "Oído Box".** Es como se llama el aparato en todo lo que lee un cliente (panel, back-office). En este documento, en el código y en los comandos se sigue diciendo "la Pi": es lo mismo. Eze descartó "Oído Caixa" porque en un restaurante "la caixa" es la caja registradora.
+>
 > **Para preparar e instalar un kit, ir directo a la sección 6**: está reescrita con los pasos vigentes.
 
 **Leyenda de estado**, usada en todo el documento:

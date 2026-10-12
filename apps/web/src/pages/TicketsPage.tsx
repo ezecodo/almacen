@@ -159,8 +159,8 @@ function PiSection({ restaurantId }: { restaurantId: number }) {
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-5 mb-6">
-      <h2 className="font-bold text-gray-800 mb-1">📡 Raspberry Pi</h2>
-      <p className="text-xs text-gray-400 mb-4">La Pi que imprime los tickets de este restaurante. Sin una Pi vinculada, las comandas no se imprimen.</p>
+      <h2 className="font-bold text-gray-800 mb-1">📡 Oído Box</h2>
+      <p className="text-xs text-gray-400 mb-4">La Box que imprime los tickets de este restaurante. Sin una Box vinculada, las comandas no se imprimen.</p>
 
       {pi?.codigo ? (
         <div className="flex items-center gap-3">
@@ -177,7 +177,7 @@ function PiSection({ restaurantId }: { restaurantId: number }) {
           </span>
           {!pi.asignadaPorOido && (
             <button
-              onClick={() => { if (window.confirm('¿Desvincular la Pi? Las comandas de este restaurante dejarán de imprimirse.')) vincular.mutate(null) }}
+              onClick={() => { if (window.confirm('¿Desvincular la Box? Las comandas de este restaurante dejarán de imprimirse.')) vincular.mutate(null) }}
               disabled={vincular.isPending}
               className="ml-auto shrink-0 text-sm font-semibold text-red-600 bg-red-50 hover:bg-red-100 disabled:opacity-40 px-3 py-2 rounded-xl"
             >
@@ -186,7 +186,7 @@ function PiSection({ restaurantId }: { restaurantId: number }) {
           )}
         </div>
       ) : pi?.asignadaPorOido ? (
-        <p className="text-sm text-gray-500">Este local todavía no tiene una Pi. La asigna Oído al instalar el kit, y aparece aquí sola.</p>
+        <p className="text-sm text-gray-500">Este local todavía no tiene una Box. La asigna Oído al instalar el kit, y aparece aquí sola.</p>
       ) : (
         <div className="flex gap-2 items-center">
           <input
@@ -261,7 +261,7 @@ function ImpresoraRow({ impresora, onChanged, enRed }: { impresora: Impresora; o
       {enRed !== null && (
         <span
           title={
-            (enRed ? 'La Pi la encuentra en la red' : 'La Pi no la encuentra en la red: revisá la IP o que esté encendida') +
+            (enRed ? 'La Box la encuentra en la red' : 'La Box no la encuentra en la red: revisá la IP o que esté encendida') +
             (impresora.mac ? ` · ${impresora.mac}` : '')
           }
           className={`w-2.5 h-2.5 rounded-full shrink-0 ${enRed ? 'bg-green-500' : 'bg-red-400'}`}
@@ -348,7 +348,7 @@ function ImpresorasSection({ restaurantId }: { restaurantId: number }) {
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-5 mb-6">
       <h2 className="font-bold text-gray-800 mb-1">🖨️ Impresoras</h2>
-      <p className="text-xs text-gray-400 mb-4">Las térmicas de este restaurante. El punto verde indica que la Pi la encuentra en la red; "Probar" imprime un papel con su IP. Si el router le cambia la IP a una impresora, se corrige sola.</p>
+      <p className="text-xs text-gray-400 mb-4">Las térmicas de este restaurante. El punto verde indica que la Box la encuentra en la red; "Probar" imprime un papel con su IP. Si el router le cambia la IP a una impresora, se corrige sola.</p>
 
       <div className="space-y-2 mb-3">
         {impresoras.map(imp => <ImpresoraRow key={imp.id} impresora={imp} onChanged={invalidar} enRed={enRed(imp.ip)} />)}
@@ -381,9 +381,9 @@ function ImpresorasSection({ restaurantId }: { restaurantId: number }) {
           ) : (
             <p className="text-xs text-gray-400">
               {!pi.online
-                ? 'La Pi no está conectada.'
+                ? 'La Box no está conectada.'
                 : !red?.escaneadoAt
-                  ? 'La Pi todavía no informó ninguna búsqueda.'
+                  ? 'La Box todavía no informó ninguna búsqueda.'
                   : 'No hay impresoras nuevas en la red.'}
             </p>
           )}

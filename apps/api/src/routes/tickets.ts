@@ -74,9 +74,9 @@ export async function sincronizarImpresoras(piCodigo: string, detectadas: Impres
 // La Pi vinculada al restaurante, solo si está conectada ahora (si no, un pedido se perdería sin aviso)
 async function piConectada(restaurantId: number): Promise<{ codigo: string } | { error: string; status: number }> {
   const restaurante = await prisma.restaurant.findUnique({ where: { id: restaurantId }, select: { piCodigo: true } })
-  if (!restaurante?.piCodigo) return { error: 'Este restaurante no tiene una Pi vinculada', status: 409 }
+  if (!restaurante?.piCodigo) return { error: 'Este restaurante no tiene una Box vinculada', status: 409 }
   if (!brokerConfigurado()) return { error: 'La API no tiene configurado el servicio de impresión (MQTT)', status: 503 }
-  if (!estadoDePi(restaurante.piCodigo)?.online) return { error: 'La Pi no está conectada', status: 409 }
+  if (!estadoDePi(restaurante.piCodigo)?.online) return { error: 'La Box no está conectada', status: 409 }
   return { codigo: restaurante.piCodigo }
 }
 
@@ -151,7 +151,7 @@ export async function ticketRoutes(app: FastifyInstance) {
   app.put('/tickets/pi', async (req, reply) => {
     // En una instalación enlazada con Oído, las Pi se asignan desde el back-office (y llegan solas
     // en un minuto): vincularla acá a mano se pisaría en la siguiente sincronización.
-    if (enlazadaConHQ) return reply.status(409).send({ error: 'La Pi de cada local la asigna Oído. Pídesela a tu contacto y aparecerá aquí sola.' })
+    if (enlazadaConHQ) return reply.status(409).send({ error: 'La Box de cada local la asigna Oído. Pídesela a tu contacto y aparecerá aquí sola.' })
     const result = piSchema.safeParse(req.body)
     if (!result.success) return reply.status(400).send({ error: 'Datos inválidos' })
     const { restaurantId } = result.data
@@ -159,13 +159,13 @@ export async function ticketRoutes(app: FastifyInstance) {
     let codigo: string | null = null
     if (result.data.codigo !== null) {
       codigo = normalizarPiCodigo(result.data.codigo)
-      if (!codigo) return reply.status(400).send({ error: 'Código inválido. Tiene la forma OIDO-7F3A2C (está en la etiqueta de la Pi).' })
+      if (!codigo) return reply.status(400).send({ error: 'Código inválido. Tiene la forma OIDO-7F3A2C (está en la etiqueta de la Box).' })
 
       const otro = await prisma.restaurant.findFirst({
         where: { piCodigo: codigo, id: { not: restaurantId } },
         select: { nombre: true },
       })
-      if (otro) return reply.status(409).send({ error: `Esa Pi ya está vinculada a ${otro.nombre}. Desvinculala ahí primero.` })
+      if (otro) return reply.status(409).send({ error: `Esa Box ya está vinculada a ${otro.nombre}. Desvinculala ahí primero.` })
 
       const permiso = await piPermitida(codigo)
       if (!permiso.ok) return reply.status(permiso.status).send({ error: permiso.error })
