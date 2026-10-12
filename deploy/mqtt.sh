@@ -149,15 +149,20 @@ pi() {
   echo "MQTT_PASS=$clave"
 }
 
+# Usuarios del esquema anterior: todo lo que no sea hq, una instalación (inst-…) o una Pi (OIDO-…).
+# Había dos: el de la API y el que usaban las Pi.
+usuarios_viejos() { cut -d: -f1 "$CLAVES" | grep -vE '^(hq|inst-[a-z0-9-]+|OIDO-[0-9A-F]{6})$' || true; }
+
 cerrar() {
-  [ -f "$VIEJO" ] || morir "No hay usuario viejo que cerrar"
-  local viejo
-  viejo=$(cat "$VIEJO")
-  mosquitto_passwd -D "$CLAVES" "$viejo" || true
+  local viejos
+  viejos=$(usuarios_viejos)
+  [ -n "$viejos" ] || [ -f "$VIEJO" ] || morir "No queda ningún usuario viejo que cerrar"
+  local u
+  for u in $viejos; do mosquitto_passwd -D "$CLAVES" "$u" && echo "   eliminado: $u"; done
   rm -f "$VIEJO"
   escribir_reglas || true
   recargar
-  echo "Usuario compartido '$viejo' eliminado. Una Pi que todavía lo use deja de conectar."
+  echo "Usuarios del esquema anterior eliminados. Una Pi que todavía use uno deja de conectar."
 }
 
 sincronizar() {
