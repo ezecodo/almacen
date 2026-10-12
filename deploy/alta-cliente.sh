@@ -113,9 +113,15 @@ main() {
   echo
   echo "════════ Instalación '$codigo' creada ════════"
   echo "Dirección:   https://$dominio"
-  echo "PIN admin:   $pin_admin"
-  echo "PIN pulso:   $pin_pulso"
-  echo "(los PIN no se vuelven a mostrar; quedan en $carpeta/apps/api/.env)"
+  # El instalador (runner.sh) recoge el resultado de un archivo y no quiere los PIN en su log
+  if [ -n "${OIDOOPS_RESULTADO:-}" ]; then
+    ( umask 077; printf 'url=https://%s\npin_admin=%s\npin_pulso=%s\n' "$dominio" "$pin_admin" "$pin_pulso" > "$OIDOOPS_RESULTADO" )
+    echo "(PIN entregados al back-office)"
+  else
+    echo "PIN admin:   $pin_admin"
+    echo "PIN pulso:   $pin_pulso"
+    echo "(los PIN no se vuelven a mostrar; quedan en $carpeta/apps/api/.env)"
+  fi
   echo "Puerto $puerto · proceso $proceso · base $base"
   if [ "$https" != "ok" ]; then
     echo
