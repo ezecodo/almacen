@@ -20,7 +20,7 @@ export function VerifactuSection() {
   const days = useDaysUntil(deadline)
 
   return (
-    <section className="verifactu">
+    <section className="verifactu" id="verifactu">
       <div className="verifactu-grid-bg" aria-hidden />
       <div className="container verifactu-content">
         <div className="verifactu-head">

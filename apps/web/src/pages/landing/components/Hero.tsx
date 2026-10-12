@@ -55,7 +55,7 @@ export function HeroSection() {
               ))}
             </p>
             <div className="hero-ctas">
-              <button className="btn btn--primary btn--lg">
+              <a className="btn btn--primary btn--lg" href={c.ctaPrimaryHref} style={{ textDecoration: 'none' }}>
                 {c.ctaPrimary}
                 <span className="btn-arrow">
                   <svg
@@ -71,8 +71,10 @@ export function HeroSection() {
                     <path d="M5 12h14M13 5l7 7-7 7" />
                   </svg>
                 </span>
-              </button>
-              <button className="btn btn--ghost btn--lg">{c.ctaSecondary}</button>
+              </a>
+              <a className="btn btn--ghost btn--lg" href={c.ctaSecondaryHref} style={{ textDecoration: 'none' }}>
+                {c.ctaSecondary}
+              </a>
             </div>
             <div className="hero-mini">
               <span className="hero-mini-dot" />

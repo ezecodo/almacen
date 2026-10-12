@@ -23,12 +23,13 @@ export function Nav() {
         <Link className="nav-link" to={copy.nav.accessHref} style={{ color: 'var(--text)' }}>
           {copy.nav.access}
         </Link>
-        <button
+        <a
           className="btn btn--primary"
-          style={{ height: 40, padding: '0 18px', fontSize: 14 }}
+          href={copy.nav.ctaHref}
+          style={{ height: 40, padding: '0 18px', fontSize: 14, textDecoration: 'none' }}
         >
           {copy.nav.cta}
-        </button>
+        </a>
       </div>
     </nav>
   )

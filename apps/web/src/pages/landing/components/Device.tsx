@@ -762,24 +762,27 @@ function MiniComanda() {
 }
 
 function MiniCocina() {
-  const tickets: Array<{ mesa: number; urg: 'ok' | 'warn'; tiempo: string; items: string[] }> = [
+  const tickets: Array<{ mesa: number; urg: 'ok' | 'warn'; tiempo: string; salida: number; items: string[] }> = [
     {
       mesa: 5,
       urg: 'ok',
-      tiempo: '4:22',
+      tiempo: '20:47',
+      salida: 1,
       items: ['2× Croquetas jamón', '1× Patatas bravas', '1× Pulpo brasa'],
     },
     {
       mesa: 7,
-      urg: 'warn',
-      tiempo: '11:08',
+      urg: 'ok',
+      tiempo: '20:49',
+      salida: 2,
       items: ['1× Tartare atún', '2× Burrata', '4× Pan tomate'],
     },
     {
       mesa: 11,
       urg: 'ok',
-      tiempo: '2:14',
-      items: ['1× Tortilla esp.', '2× Cerveza', '1× Vermut'],
+      tiempo: '20:52',
+      salida: 1,
+      items: ['1× Tortilla esp.', '2× Pimientos padrón', '1× Ensaladilla'],
     },
   ]
   return (
@@ -805,7 +808,7 @@ function MiniCocina() {
         }}
       >
         <span style={{ fontFamily: 'Inter', fontSize: 12, fontWeight: 700, color: 'white' }}>
-          Cocina · KDS
+          Cocina · comandas
         </span>
         <div
           style={{
@@ -818,7 +821,7 @@ function MiniCocina() {
           }}
         >
           <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#4CC8A0' }} />
-          5 tickets · en cola
+          3 comandas · por salidas
         </div>
       </div>
       <div
@@ -834,9 +837,10 @@ function MiniCocina() {
           <div
             key={t.mesa}
             style={{
-              background: '#1a2238',
-              border: `1.5px solid ${t.urg === 'warn' ? '#D97706' : '#2a3147'}`,
-              borderRadius: 8,
+              background: '#FBFAF6',
+              border: `1.5px solid ${t.urg === 'warn' ? '#D97706' : '#FBFAF6'}`,
+              borderRadius: 3,
+              alignSelf: 'start',
               padding: 10,
               position: 'relative',
               overflow: 'hidden',
@@ -867,7 +871,7 @@ function MiniCocina() {
                   fontFamily: 'Inter',
                   fontWeight: 800,
                   fontSize: 18,
-                  color: 'white',
+                  color: '#0F172A',
                   letterSpacing: '-0.03em',
                 }}
               >
@@ -878,7 +882,7 @@ function MiniCocina() {
                   fontFamily: 'JetBrains Mono',
                   fontSize: 10,
                   fontWeight: 700,
-                  color: t.urg === 'warn' ? '#D97706' : '#4CC8A0',
+                  color: t.urg === 'warn' ? '#D97706' : '#2A9D7F',
                 }}
               >
                 {t.tiempo}
@@ -889,10 +893,10 @@ function MiniCocina() {
                 <div
                   key={i}
                   style={{
-                    fontFamily: 'Inter',
-                    fontSize: 11,
-                    color: '#CBD5E1',
-                    fontWeight: 500,
+                    fontFamily: 'JetBrains Mono',
+                    fontSize: 10,
+                    color: '#0F172A',
+                    fontWeight: 600,
                     lineHeight: 1.3,
                   }}
                 >
@@ -900,24 +904,20 @@ function MiniCocina() {
                 </div>
               ))}
             </div>
-            <button
+            <div
               style={{
                 marginTop: 10,
-                width: '100%',
-                height: 26,
-                background: '#4CC8A0',
-                color: 'white',
-                border: 'none',
-                borderRadius: 6,
-                fontFamily: 'Inter',
-                fontSize: 10,
-                fontWeight: 800,
-                cursor: 'pointer',
-                letterSpacing: '-0.005em',
+                paddingTop: 7,
+                borderTop: '1px dashed #94A3B8',
+                fontFamily: 'JetBrains Mono',
+                fontSize: 9,
+                fontWeight: 700,
+                color: '#475569',
+                letterSpacing: '0.08em',
               }}
             >
-              Listo
-            </button>
+              SALIDA {t.salida}
+            </div>
           </div>
         ))}
       </div>

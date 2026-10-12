@@ -8,7 +8,7 @@ export function BoxSection() {
   const [ref, inView] = useInView<HTMLDivElement>({ threshold: 0.25 })
 
   return (
-    <section className="section section--paper box-section">
+    <section className="section section--paper box-section" id="box">
       <div className="container box-grid">
         <div>
           <div className="eyebrow" style={{ marginBottom: 28 }}>{c.eyebrow}</div>

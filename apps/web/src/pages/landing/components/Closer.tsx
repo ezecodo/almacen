@@ -38,7 +38,9 @@ export function CloserSection() {
               </svg>
             </span>
           </button>
-          <button className="btn btn--ghost btn--lg">{c.ctaSecondary}</button>
+          <a className="btn btn--ghost btn--lg" href={c.ctaSecondaryHref} style={{ textDecoration: 'none' }}>
+            {c.ctaSecondary}
+          </a>
         </div>
 
         <div className="closer-foot">
@@ -53,7 +55,7 @@ export function CloserSection() {
             {c.foot.links.map((l) => (
               <span key={l}>{l}</span>
             ))}
-            <span style={{ color: 'var(--teal-2)' }}>{c.foot.email}</span>
+            {c.foot.email && <span style={{ color: 'var(--teal-2)' }}>{c.foot.email}</span>}
           </div>
         </div>
       </div>
