@@ -74,3 +74,53 @@ activar_sitio() {
 certificado() {
   certbot --nginx -d "$1" --non-interactive --redirect
 }
+
+# ── Enlace de cada instalación con el back-office (HQ) ────────────────────────────────────────
+# Cada instalación sabe quién es (INSTALACION_CODIGO) y puede preguntarle a HQ, con un secreto
+# común (SUITE_TOKEN), si una Pi está asignada a su cliente. Solo existe si el instalador está
+# puesto (deploy/instalar-runner.sh), que es quien crea el archivo de configuración.
+RUNNER_CONF="${OIDOOPS_RUNNER_CONF:-/root/oidoops/runner.env}"
+HQ_DIR="${OIDOOPS_HQ_DIR:-/home/eze/oido-talent}"
+
+# Pone o reemplaza CLAVE=valor en un .env. Devuelve 0 si el archivo cambió.
+poner_env() {
+  local archivo="$1" clave="$2" valor="$3"
+  if grep -q "^$clave=" "$archivo"; then
+    [ "$(grep -m1 "^$clave=" "$archivo")" = "$clave=$valor" ] && return 1
+    sed -i "s|^$clave=.*|$clave=$valor|" "$archivo"
+  else
+    [ -z "$(tail -c1 "$archivo")" ] || echo >> "$archivo"
+    printf '%s=%s\n' "$clave" "$valor" >> "$archivo"
+  fi
+  return 0
+}
+
+# Crea el secreto común si falta y lo deja en HQ (reiniciando su API solo si cambió algo)
+asegurar_suite_token() {
+  [ -f "$RUNNER_CONF" ] || return 0
+  grep -q '^SUITE_TOKEN=' "$RUNNER_CONF" || printf 'SUITE_TOKEN=%s\n' "$(openssl rand -hex 32)" >> "$RUNNER_CONF"
+  # shellcheck disable=SC1090
+  source "$RUNNER_CONF"
+  local env_hq="$HQ_DIR/apps/api/.env"
+  [ -f "$env_hq" ] || return 0
+  if poner_env "$env_hq" SUITE_TOKEN "$SUITE_TOKEN"; then
+    chown --reference="$HQ_DIR/apps/api" "$env_hq"
+    chmod 600 "$env_hq"
+    ( cd "$HQ_DIR" && docker compose up -d --force-recreate api 2>&1 | tail -1 )
+    echo "→ Secreto de la suite entregado al back-office"
+  fi
+}
+
+# Deja en el .env de una instalación quién es y cómo hablar con HQ. El proceso lo toma al reiniciar.
+#   enlazar_instalacion <codigo> <carpeta>
+enlazar_instalacion() {
+  [ -f "$RUNNER_CONF" ] || return 0
+  # shellcheck disable=SC1090
+  source "$RUNNER_CONF"
+  [ -n "${SUITE_TOKEN:-}" ] || return 0
+  local env="$2/apps/api/.env"
+  [ -f "$env" ] || return 0
+  poner_env "$env" INSTALACION_CODIGO "$1" || true
+  poner_env "$env" HQ_URL "${HQ_URL:-http://127.0.0.1:3100}" || true
+  poner_env "$env" SUITE_TOKEN "$SUITE_TOKEN" || true
+}

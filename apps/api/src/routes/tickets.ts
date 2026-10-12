@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../server'
 import { brokerConfigurado, estadoDePi, normalizarPiCodigo, impresorasDePi, enviarOrden, ImpresoraDetectada } from '../mqtt'
+import { piPermitida } from '../suite'
 
 const empresaSchema = z.object({
   razonSocial: z.string().default(''),
@@ -157,6 +158,9 @@ export async function ticketRoutes(app: FastifyInstance) {
         select: { nombre: true },
       })
       if (otro) return reply.status(409).send({ error: `Esa Pi ya está vinculada a ${otro.nombre}. Desvinculala ahí primero.` })
+
+      const permiso = await piPermitida(codigo)
+      if (!permiso.ok) return reply.status(permiso.status).send({ error: permiso.error })
     }
 
     await prisma.restaurant.update({ where: { id: restaurantId }, data: { piCodigo: codigo } })

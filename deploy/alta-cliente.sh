@@ -85,6 +85,9 @@ main() {
     } > "$carpeta/apps/api/.env"
   )
 
+  asegurar_suite_token
+  enlazar_instalacion "$codigo" "$carpeta"
+
   echo "→ API (dependencias, tablas, build)"
   cd "$carpeta/apps/api"
   npm install

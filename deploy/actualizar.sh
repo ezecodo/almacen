@@ -30,11 +30,13 @@ actualizar_una() {
 main() {
   local solo="${1:-}" hechas=() fallidas=() build_listo=""
   asegurar_registro
+  asegurar_suite_token
 
   while read -r codigo carpeta proceso _puerto web _dominio; do
     [ -n "$solo" ] && [ "$solo" != "$codigo" ] && continue
     echo
     echo "════════ $codigo ($carpeta) ════════"
+    enlazar_instalacion "$codigo" "$carpeta"   # antes de actualizar: el reinicio ya lo toma
     # En subshell: un fallo corta esta instalación, no el recorrido
     if (actualizar_una "$carpeta" "$proceso" "$web") < /dev/null; then
       hechas+=("$codigo")
