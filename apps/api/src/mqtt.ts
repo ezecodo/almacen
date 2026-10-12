@@ -1,4 +1,5 @@
 import mqtt, { MqttClient } from 'mqtt'
+import { broadcastGlobal } from './sse'
 
 // Canal con el printer-server de cada restaurante (Raspberry Pi en el local).
 // Cada Pi se identifica con un código propio (OIDO-XXXXXX, sale de su número de serie)
@@ -60,6 +61,7 @@ function getClient(): MqttClient | null {
       if (!codigo) return
       if (canal === 'estado') {
         estadoPi.set(codigo, { online: payload.toString() === 'online', vistoAt: new Date() })
+        broadcastGlobal('pi') // el panel de Tickets lo muestra al momento, sin esperar a su refresco
       } else if (canal === 'impresoras') {
         try {
           const data = JSON.parse(payload.toString()) as { escaneado_en?: string; impresoras?: { ip?: unknown; mac?: unknown }[] }
@@ -69,6 +71,7 @@ function getClient(): MqttClient | null {
           const fecha = data.escaneado_en ? new Date(data.escaneado_en) : new Date()
           impresorasPi.set(codigo, { escaneadoAt: isNaN(fecha.getTime()) ? new Date() : fecha, impresoras })
           alDetectarImpresoras?.(codigo, impresoras)
+          broadcastGlobal('pi')
         } catch {
           // mensaje vacío (retenido borrado) o mal formado: se ignora
         }

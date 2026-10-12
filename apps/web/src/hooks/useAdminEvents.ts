@@ -16,6 +16,12 @@ export function useAdminEvents() {
           queryClient.invalidateQueries({ queryKey: ['facturacion-dia'] })
           queryClient.invalidateQueries({ queryKey: ['turnos-activos-global'] })
         }
+        if (type === 'pi') {
+          // Le asignaron o quitaron la Pi a un local, o cambió su estado o lo que detecta
+          queryClient.invalidateQueries({ queryKey: ['ticket-pi'] })
+          queryClient.invalidateQueries({ queryKey: ['impresoras-detectadas'] })
+          queryClient.invalidateQueries({ queryKey: ['impresoras'] })
+        }
         if (type === 'facturas') {
           queryClient.invalidateQueries({ queryKey: ['facturas'] })
         }

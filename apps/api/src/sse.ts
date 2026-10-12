@@ -26,3 +26,10 @@ export function broadcast(restaurantId: number, type: string) {
   clients.get(restaurantId)?.forEach(send => { try { send(msg) } catch {} })
   globalClients.forEach(send => { try { send(msg) } catch {} })
 }
+
+// Aviso que no es de un restaurante concreto (por ejemplo, cambió el estado de una Pi):
+// solo a quien escucha el canal global, que es el panel de administración.
+export function broadcastGlobal(type: string) {
+  const msg = `data: ${JSON.stringify({ type })}\n\n`
+  globalClients.forEach(send => { try { send(msg) } catch {} })
+}

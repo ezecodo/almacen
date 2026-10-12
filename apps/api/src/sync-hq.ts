@@ -2,6 +2,7 @@ import { randomBytes } from 'crypto'
 import { prisma } from './server'
 import { estadoDePi, impresorasDePi, volverAPreguntar } from './mqtt'
 import { anunciarLatido } from './routes/red'
+import { broadcastGlobal } from './sse'
 import { sincronizarImpresoras } from './routes/tickets'
 
 // Sincronización con el back-office de Oído (HQ), cada minuto y al crear o renombrar un restaurante:
@@ -56,6 +57,7 @@ export async function sincronizarConHQ() {
       await sincronizarImpresoras(codigo, impresorasDePi(codigo)?.impresoras ?? [])
       console.log(`[hq] Pi ${codigo} vinculada a ${r.nombre}`)
     }
+    if (cambios.length > 0) broadcastGlobal('pi') // que el panel abierto lo vea sin recargar
 
     // Una Pi recién asignada de la que todavía no se sabe nada: el permiso en el canal llega por otro
     // camino (hasta un minuto después), así que se insiste hasta tener su estado — se vuelve a

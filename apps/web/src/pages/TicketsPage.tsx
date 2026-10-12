@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, Comanda, Impresora, ImpresionRuta, TipoTicket } from '../api'
+import { useAdminEvents } from '../hooks/useAdminEvents'
 import TicketCobro from '../components/tickets/TicketCobro'
 import TicketComanda from '../components/tickets/TicketComanda'
 
@@ -142,7 +143,10 @@ function PiSection({ restaurantId }: { restaurantId: number }) {
   const { data: pi } = useQuery({
     queryKey: ['ticket-pi', restaurantId],
     queryFn: () => api.tickets.getPi(restaurantId),
+    // respaldo del aviso del servidor; sigue consultando aunque la pestaña esté en segundo plano
     refetchInterval: 4_000,
+    refetchIntervalInBackground: true,
+    staleTime: 0,
   })
 
   const [codigo, setCodigo] = useState('')
@@ -597,6 +601,8 @@ function PreviewSection({ restaurantId }: { restaurantId: number }) {
 }
 
 export default function TicketsPage() {
+  // El servidor avisa cuando cambia algo de la Pi (se la asignan, se la quitan, se conecta o se cae)
+  useAdminEvents()
   const { data: restaurantes = [] } = useQuery({ queryKey: ['restaurantes'], queryFn: api.restaurantes.list })
   const [restaurantSel, setRestaurantSel] = useState<number | null>(null)
 
