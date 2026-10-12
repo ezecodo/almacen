@@ -56,9 +56,9 @@ function vigente(red: { origen: string; vistaAt: Date; caducaAt: Date | null }, 
 
 // Le dice a la Pi vinculada a un restaurante a dónde mandar el latido (o se lo borra)
 export async function anunciarLatido(restaurantId: number) {
-  const r = await prisma.restaurant.findUnique({ where: { id: restaurantId }, select: { piCodigo: true, piToken: true } })
-  if (!r?.piCodigo || !r.piToken || !process.env.FRONTEND_URL) return
-  publicarConfigPi(r.piCodigo, { latido_url: `${process.env.FRONTEND_URL}/api/pi/latido`, token: r.piToken })
+  const r = await prisma.restaurant.findUnique({ where: { id: restaurantId }, select: { piCodigo: true, piSecreto: true } })
+  if (!r?.piCodigo || !r.piSecreto || !process.env.FRONTEND_URL) return
+  publicarConfigPi(r.piCodigo, { latido_url: `${process.env.FRONTEND_URL}/api/pi/latido`, token: r.piSecreto })
 }
 
 export async function redRoutes(app: FastifyInstance) {
@@ -66,11 +66,11 @@ export async function redRoutes(app: FastifyInstance) {
   // Las que se vincularon antes de existir el latido no tienen secreto: se les genera.
   onConectado(async () => {
     try {
-      const vinculados = await prisma.restaurant.findMany({ where: { piCodigo: { not: null } }, select: { id: true, piToken: true } })
+      const vinculados = await prisma.restaurant.findMany({ where: { piCodigo: { not: null } }, select: { id: true, piSecreto: true } })
       for (const r of vinculados) {
-        if (!r.piToken) {
+        if (!r.piSecreto) {
           const { randomBytes } = await import('crypto')
-          await prisma.restaurant.update({ where: { id: r.id }, data: { piToken: randomBytes(24).toString('hex') } })
+          await prisma.restaurant.update({ where: { id: r.id }, data: { piSecreto: randomBytes(24).toString('hex') } })
         }
         await anunciarLatido(r.id)
       }
@@ -84,9 +84,9 @@ export async function redRoutes(app: FastifyInstance) {
     const body = z.object({ codigo: z.string().max(20), token: z.string().max(100) }).safeParse(req.body)
     const codigo = body.success ? normalizarPiCodigo(body.data.codigo) : null
     if (!body.success || !codigo) return reply.status(400).send({ error: 'Datos inválidos' })
-    const r = await prisma.restaurant.findUnique({ where: { piCodigo: codigo }, select: { id: true, piToken: true } })
+    const r = await prisma.restaurant.findUnique({ where: { piCodigo: codigo }, select: { id: true, piSecreto: true } })
     const a = Buffer.from(body.data.token)
-    const b = Buffer.from(r?.piToken ?? '')
+    const b = Buffer.from(r?.piSecreto ?? '')
     if (!r || !b.length || a.length !== b.length || !timingSafeEqual(a, b)) return reply.status(401).send({ error: 'No autorizado' })
 
     const ip = ipDe(req)

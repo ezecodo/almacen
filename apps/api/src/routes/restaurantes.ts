@@ -7,7 +7,8 @@ const nombreSchema = z.object({ nombre: z.string().trim().min(2).max(80) })
 
 export async function restauranteRoutes(app: FastifyInstance) {
   app.get('/restaurantes', async () => {
-    return prisma.restaurant.findMany({ orderBy: { nombre: 'asc' } })
+    // Es pública (la usa un dispositivo de sala antes de que nadie entre): solo lo que hace falta
+    return prisma.restaurant.findMany({ orderBy: { nombre: 'asc' }, select: { id: true, nombre: true } })
   })
 
   // Alta y cambio de nombre: una instalación nueva arranca sin restaurantes y se cargan desde

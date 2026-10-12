@@ -169,7 +169,7 @@ export async function ticketRoutes(app: FastifyInstance) {
     const antes = await prisma.restaurant.findUnique({ where: { id: restaurantId }, select: { piCodigo: true } })
     await prisma.restaurant.update({
       where: { id: restaurantId },
-      data: { piCodigo: codigo, piToken: codigo ? randomBytes(24).toString('hex') : null },
+      data: { piCodigo: codigo, piSecreto: codigo ? randomBytes(24).toString('hex') : null },
     })
     if (antes?.piCodigo && antes.piCodigo !== codigo) publicarConfigPi(antes.piCodigo, null)
     await anunciarLatido(restaurantId)

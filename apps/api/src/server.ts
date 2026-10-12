@@ -34,13 +34,15 @@ import { iniciarMqtt, onImpresorasDetectadas } from './mqtt'
 const app = Fastify({ logger: true })
 export const prisma = new PrismaClient()
 
-// Copia de un resultado sin ninguna clave `pin`, a cualquier profundidad
-function sinPin(valor: unknown): unknown {
-  if (Array.isArray(valor)) return valor.map(sinPin)
+// Copia de un resultado sin secretos, a cualquier profundidad: el secreto del latido de la Pi
+// (`piSecreto`) no sale nunca, y el `pin` de un empleado solo hacia administración.
+function sinSecretos(valor: unknown, esAdmin: boolean): unknown {
+  if (Array.isArray(valor)) return valor.map(v => sinSecretos(v, esAdmin))
   if (valor === null || typeof valor !== 'object' || valor instanceof Date) return valor
   const limpio: Record<string, unknown> = {}
   for (const [clave, v] of Object.entries(valor)) {
-    if (clave !== 'pin') limpio[clave] = sinPin(v)
+    if (clave === 'piSecreto' || (clave === 'pin' && !esAdmin)) continue
+    limpio[clave] = sinSecretos(v, esAdmin)
   }
   return limpio
 }
@@ -107,18 +109,19 @@ async function start() {
     }
   })
 
-  // Red de seguridad: el PIN de un empleado nunca sale en una respuesta, salvo hacia el panel de
-  // administración. Muchas rutas devuelven el empleado entero dentro de otra cosa (turnos, propinas,
+  // Red de seguridad: el secreto de la Pi no sale nunca en una respuesta, y el PIN de un empleado
+  // solo hacia el panel de administración. Muchas rutas devuelven el empleado entero dentro de otra cosa (turnos, propinas,
   // retiros…); en vez de confiar en acordarse en cada una, se quita acá de todas.
   app.addHook('preSerialization', async (req, _reply, payload) => {
     if (payload === null || typeof payload !== 'object') return payload
+    let esAdmin = false
     if (req.headers.authorization) {
       try {
         await req.jwtVerify()
-        if (req.user.tipo === 'admin') return payload
+        esAdmin = req.user.tipo === 'admin'
       } catch { /* sin sesión válida: se filtra */ }
     }
-    return sinPin(payload)
+    return sinSecretos(payload, esAdmin)
   })
 
   await app.register(retiroRoutes, { prefix: '/api' })

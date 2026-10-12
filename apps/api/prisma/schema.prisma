@@ -46,7 +46,7 @@ model Restaurant {
   // sale del número de serie de la Pi). null = sin Pi → las comandas no se imprimen.
   piCodigo               String?               @unique
   // Secreto con el que esa Pi firma su latido (ver routes/red.ts). Se genera al vincularla.
-  piToken                String?
+  piSecreto                String?
   // Operar la sala (mesas, comandas, cobros) solo desde la red del local. Apagado por defecto:
   // se enciende desde /admin/red cuando el local ya tiene su red aprendida.
   restringirPorRed       Boolean               @default(false)
