@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api'
 import CheckOverlay from '../components/CheckOverlay'
@@ -153,7 +152,6 @@ function RestauranteCard({
 }
 
 export default function PulsoPage() {
-  const navigate = useNavigate()
   const [demo, setDemo] = useState(demoInicial)
   const [cargando, setCargando] = useState(true)
 
@@ -211,7 +209,8 @@ export default function PulsoPage() {
 
   const salir = () => {
     sessionStorage.removeItem('pulso_auth')
-    navigate('/')
+    // Recarga para volver a la pantalla del PIN de pulso (la raíz lleva al panel de admin)
+    location.assign('/pulso')
   }
 
   return (

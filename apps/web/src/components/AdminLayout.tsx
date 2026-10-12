@@ -118,10 +118,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       </nav>
 
       {/* Footer */}
-      <div className="px-4 py-4 border-t border-gray-200 flex items-center justify-between">
-        <Link to="/" className="text-xs text-gray-400 hover:text-gray-600 transition-colors">
-          ← App
-        </Link>
+      <div className="px-4 py-4 border-t border-gray-200 flex items-center justify-end">
         <button onClick={handleLogout} className="text-xs text-gray-400 hover:text-red-500 transition-colors">
           Salir
         </button>

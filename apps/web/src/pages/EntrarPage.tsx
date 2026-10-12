@@ -10,7 +10,7 @@ export default function EntrarPage() {
   const [buscando, setBuscando] = useState(false)
 
   // Dentro de la instalación de un cliente no hay nada que elegir
-  if (esInstalacion) return <Navigate to="/acceder" replace />
+  if (esInstalacion) return <Navigate to="/admin" replace />
 
   const codigo = grupo.trim().toLowerCase()
 
@@ -23,7 +23,7 @@ export default function EntrarPage() {
     }
     setBuscando(true)
     if (await existeGrupo(codigo)) {
-      location.href = `${urlDeGrupo(codigo)}/acceder`
+      location.href = `${urlDeGrupo(codigo)}/admin`
     } else {
       setError('No encontramos ese grupo. Revisa el nombre que te dimos.')
       setBuscando(false)

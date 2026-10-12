@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, Outlet } from 'react-router-dom'
+import { Outlet } from 'react-router-dom'
 import { api, ADMIN_TOKEN_KEY } from '../api'
 
 const STORAGE_KEY = 'admin_auth'
@@ -57,9 +57,6 @@ function PinGate({ onSuccess }: { onSuccess: () => void }) {
             Entrar
           </button>
         </form>
-        <Link to="/" className="block mt-6 text-sm text-gray-400 hover:text-gray-600">
-          ← Volver a la app
-        </Link>
       </div>
     </div>
   )
