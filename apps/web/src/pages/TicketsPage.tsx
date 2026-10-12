@@ -171,14 +171,18 @@ function PiSection({ restaurantId }: { restaurantId: number }) {
                   ? 'Sin conexión'
                   : 'Todavía no se conectó nunca — revisá el código y que esté enchufada'}
           </span>
-          <button
-            onClick={() => { if (window.confirm('¿Desvincular la Pi? Las comandas de este restaurante dejarán de imprimirse.')) vincular.mutate(null) }}
-            disabled={vincular.isPending}
-            className="ml-auto shrink-0 text-sm font-semibold text-red-600 bg-red-50 hover:bg-red-100 disabled:opacity-40 px-3 py-2 rounded-xl"
-          >
-            Desvincular
-          </button>
+          {!pi.asignadaPorOido && (
+            <button
+              onClick={() => { if (window.confirm('¿Desvincular la Pi? Las comandas de este restaurante dejarán de imprimirse.')) vincular.mutate(null) }}
+              disabled={vincular.isPending}
+              className="ml-auto shrink-0 text-sm font-semibold text-red-600 bg-red-50 hover:bg-red-100 disabled:opacity-40 px-3 py-2 rounded-xl"
+            >
+              Desvincular
+            </button>
+          )}
         </div>
+      ) : pi?.asignadaPorOido ? (
+        <p className="text-sm text-gray-500">Este local todavía no tiene una Pi. La asigna Oído al instalar el kit, y aparece aquí sola.</p>
       ) : (
         <div className="flex gap-2 items-center">
           <input

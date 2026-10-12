@@ -6,6 +6,7 @@ import { piPermitida } from '../suite'
 import { randomBytes } from 'crypto'
 import { publicarConfigPi } from '../mqtt'
 import { anunciarLatido } from './red'
+import { enlazadaConHQ } from '../sync-hq'
 
 const empresaSchema = z.object({
   razonSocial: z.string().default(''),
@@ -142,11 +143,15 @@ export async function ticketRoutes(app: FastifyInstance) {
       online: estado?.online ?? false,
       vistoAt: estado?.vistoAt ?? null,   // null = la API nunca supo de esa Pi
       brokerConfigurado: brokerConfigurado(),
+      asignadaPorOido: enlazadaConHQ,   // true = se asigna desde el back-office, no desde este panel
     }
   })
 
   // PUT /tickets/pi { restaurantId, codigo } — vincular; codigo null = desvincular
   app.put('/tickets/pi', async (req, reply) => {
+    // En una instalación enlazada con Oído, las Pi se asignan desde el back-office (y llegan solas
+    // en un minuto): vincularla acá a mano se pisaría en la siguiente sincronización.
+    if (enlazadaConHQ) return reply.status(409).send({ error: 'La Pi de cada local la asigna Oído. Pídesela a tu contacto y aparecerá aquí sola.' })
     const result = piSchema.safeParse(req.body)
     if (!result.success) return reply.status(400).send({ error: 'Datos inválidos' })
     const { restaurantId } = result.data

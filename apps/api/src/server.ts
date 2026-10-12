@@ -30,6 +30,7 @@ import { algunRestringido, ipDe, redDe, redRoutes } from './routes/red'
 import { CONSULTA_ENCARGADO, CONSULTA_SALA, RUTAS_PUBLICAS, RUTAS_PULSO, RUTAS_SALA, SOLO_ENCARGADO } from './permisos'
 import { facturaRoutes } from './routes/facturas'
 import { iniciarMqtt, onImpresorasDetectadas } from './mqtt'
+import { iniciarSyncHQ } from './sync-hq'
 
 const app = Fastify({ logger: true })
 export const prisma = new PrismaClient()
@@ -171,6 +172,7 @@ async function start() {
   // Empieza a escuchar el estado (online/offline) de las Pi de impresión y lo que detectan en la red
   onImpresorasDetectadas(sincronizarImpresoras)
   iniciarMqtt()
+  iniciarSyncHQ()
 }
 
 start().catch(console.error)

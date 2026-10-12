@@ -416,6 +416,7 @@ export interface PiVinculada {
   online:            boolean
   vistoAt:           string | null
   brokerConfigurado: boolean
+  asignadaPorOido?: boolean
 }
 
 // Impresoras que la Pi encontró en la red del local. `impresoraId` null = todavía sin cargar en el restaurante.
