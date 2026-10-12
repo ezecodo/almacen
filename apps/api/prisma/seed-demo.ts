@@ -1,14 +1,20 @@
 // Datos de demostración para una instalación NUEVA: un grupo inventado de tres restaurantes, con
 // carta, salón, personal y un turno en marcha, para enseñar el producto sin el panel vacío.
 //
-//   cd apps/api && npx tsx prisma/seed-demo.ts --confirmar
+//   cd apps/api && npx tsx prisma/seed-demo.ts --confirmar                 primera vez
+//   cd apps/api && npx tsx prisma/seed-demo.ts --confirmar --reiniciar     vaciar y volver a cargar
 //
 // Solo corre sobre una base sin restaurantes: nunca pisa ni mezcla datos de un cliente real.
+// --reiniciar BORRA TODO antes de cargar, y solo se permite si lo que hay es una demo anterior
+// (la razón social de la empresa termina en "(demo)"): sobre datos de verdad se niega.
 // Todo es inventado (nombres, NIF, teléfonos). No toca la carta ni el personal de nadie.
 
 import { PrismaClient } from '@prisma/client'
 
 const prisma = new PrismaClient()
+
+// Marca que deja la demo en la razón social: es lo que permite vaciarla después sin riesgo
+const MARCA_DEMO = '(demo)'
 
 // Azar repetible: la demo sale igual cada vez
 let semilla = 20261012
@@ -137,10 +143,20 @@ async function main() {
     return
   }
   if (process.env.INSTALACION_CODIGO === 'sensi') throw new Error('Esta es la instalación de Sensi: no se cargan datos de demostración aquí.')
-  const yaHay = await prisma.restaurant.count()
-  if (yaHay > 0) throw new Error(`Esta base ya tiene ${yaHay} restaurante(s). La demo solo se carga en una instalación vacía.`)
+  let yaHay = await prisma.restaurant.count()
+  if (yaHay > 0 && process.argv.includes('--reiniciar')) {
+    const empresa = await prisma.empresaConfig.findFirst()
+    if (!empresa?.razonSocial.endsWith(MARCA_DEMO)) {
+      throw new Error('Lo que hay en esta base no es una demo cargada por este script: no la vacío.')
+    }
+    const tablas = await prisma.$queryRaw<{ tablename: string }[]>`SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> '_prisma_migrations'`
+    await prisma.$executeRawUnsafe(`TRUNCATE ${tablas.map(t => `"${t.tablename}"`).join(', ')} RESTART IDENTITY CASCADE`)
+    console.log(`Demo anterior borrada (${tablas.length} tablas vaciadas).`)
+    yaHay = 0
+  }
+  if (yaHay > 0) throw new Error(`Esta base ya tiene ${yaHay} restaurante(s). La demo solo se carga en una instalación vacía (o con --reiniciar si lo que hay es una demo).`)
 
-  await prisma.empresaConfig.create({ data: { razonSocial: 'Traga Agua Hostelería S.L. (demo)', nif: 'B00000000', tasaIva: 10, mensajePie: 'Gracias por tu visita · Servicio no incluido' } })
+  await prisma.empresaConfig.create({ data: { razonSocial: `Traga Agua Hostelería S.L. ${MARCA_DEMO}`, nif: 'B00000000', tasaIva: 10, mensajePie: 'Gracias por tu visita · Servicio no incluido' } })
 
   const alergenoId = new Map<string, number>()
   for (const [i, [nombre, nombreEn, icono]] of ALERGENOS.entries()) {
