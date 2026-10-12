@@ -2,6 +2,13 @@
 
 Cómo funciona hoy el servidor de impresión (prototipo) y cómo tiene que quedar instalado en un restaurante de verdad. Decisiones acordadas con Eze el 2026-10-08.
 
+> **Cambios del 2026-10-12** (varios clientes, seguridad). Tres cosas ya no son como dice el resto del documento, y están corregidas en sus secciones:
+> 1. **Cada Pi tiene su propia credencial del canal** (antes una compartida) — sección 4.4.
+> 2. **La Pi se asigna a un local desde el back-office de Oído (HQ)**, no desde el panel del cliente — sección 4.1.
+> 3. **La Pi manda un latido** con el que el servidor aprende la red del local — sección 4.6.
+>
+> **Para preparar e instalar un kit, ir directo a la sección 6**: está reescrita con los pasos vigentes.
+
 **Leyenda de estado**, usada en todo el documento:
 
 - ✅ **Hecho** — implementado y probado.
@@ -149,12 +156,15 @@ La Pi no guarda de qué restaurante es. Se identifica con un **código corto pro
 
 1. En casa: se le pega a la carcasa una etiqueta con su código.
 2. En el local: se enchufa. Se conecta sola al VPS y avisa "estoy en línea".
-3. En `/admin/tickets`, sección **📡 Raspberry Pi** del restaurante: se escribe el código de la etiqueta y se toca "Vincular". Un punto verde indica que la Pi está conectada.
+3. ~~En `/admin/tickets` se escribe el código y se toca "Vincular".~~ **Desde el 2026-10-12: en el back-office de Oído** (`hq.…/admin` → Suite OidoOps), se le asigna esa Pi al local del cliente. En segundos queda vinculada en su OidoOps y aparece sola en su `/admin/tickets`, con el punto verde. El cliente no puede vincular ni desvincular una Pi por su cuenta.
+
+Por qué cambió: con varios clientes, a un cliente le bastaba conocer el código de la Pi de otro para vincularla. Ahora quien decide de quién es cada Pi es Oído. Detalle técnico en `CLAUDE.md`, punto 10 del roadmap ("Sincronización con HQ").
 
 Consecuencias:
 
-- **Todas las Pi son iguales.** Se clona la misma tarjeta SD para todas.
-- **Si se rompe una Pi**, se enchufa otra y se cambia el código en el admin. Impresoras y rutas no se tocan, porque viven en el admin.
+- **Todas las Pi llevan el mismo programa**, pero ya no son idénticas: cada una tiene su credencial (4.4).
+- **Si se rompe una Pi**, se enchufa otra (con su propia credencial) y se cambia la asignación en HQ. Impresoras y rutas no se tocan, porque viven en el admin del cliente.
+- **Una Pi se puede prestar a otro cliente** (para una demo, por ejemplo): se le quita a un local en HQ y se le asigna a otro. Cada cliente conserva sus impresoras y rutas.
 - **Si se rompe solo la tarjeta SD**, se pone otra clonada en la misma Pi: el código no cambia.
 
 Hecho y probado el 2026-10-08:
@@ -208,13 +218,18 @@ Hecho y probado el 2026-10-08 con la Pi real, que encontró sola la Epson en `10
 
 Con esto, en un local cuyo router no tiene las IPs reservadas, un cambio de IP se corrige en la siguiente búsqueda: como mucho 15 minutos, o al momento con "Buscar de nuevo". Reservar las IPs en el router sigue siendo lo recomendable, porque durante ese rato los tickets no salen.
 
-### 4.4 Una sola contraseña del broker para todas las Pi
+### 4.4 Una credencial del canal por Pi ✅ (desde el 2026-10-12)
 
-Todas las Pi usan el mismo usuario y contraseña de MQTT, grabados en la tarjeta SD. Es lo único que lleva el `.env` de la Pi. El broker hoy no limita qué puede leer cada usuario.
+Antes todas las Pi compartían un usuario y contraseña de MQTT y el broker no limitaba nada: quien sacara la contraseña de la tarjeta de una Pi podía leer e imprimir en las de todos los locales. Eso se cerró.
 
-- **A favor**: las Pi quedan idénticas y clonables.
-- **En contra**: quien saque la contraseña de una Pi podría leer los tickets de los demás locales.
-- **Cuándo cambiarlo**: al instalar OidoOps en otro grupo de restaurantes. Ahí conviene una contraseña por Pi, con permisos limitados a sus propios mensajes.
+- **Cada Pi entra al canal con su propio usuario, que es su código** (`OIDO-13FAEE`), y una contraseña propia. Con eso solo puede leer y escribir sus propios mensajes (`pi/<su código>/…`).
+- **Cada instalación de cliente** entra como `inst-<cliente>` y solo llega a las Pi que Oído le tiene asignadas.
+- **El back-office** entra como `hq` y solo lee estados.
+- **Una Pi sin credencial no se conecta a nada.** Hay que creársela al prepararla (sección 6).
+
+La credencial se crea en el VPS, como root: `bash /root/almacen/deploy/mqtt.sh pi OIDO-XXXXXX`. La muestra una sola vez y va en el `.env` de la Pi (`MQTT_USER` y `MQTT_PASS`). Repetir el comando le genera una nueva y anula la anterior. El `.env` vive solo en la Pi: si se reinstala desde cero, hay que generarle otra.
+
+Precio de este cambio: las tarjetas ya no se clonan tal cual. Se clona el programa, y a cada Pi se le pone su `.env`.
 
 ### 4.5 Portal WiFi para la primera conexión
 
@@ -265,6 +280,15 @@ Probado cortándole el WiFi a la Pi:
 - **Para probarlo** hay que dejar a la Pi sin WiFi a propósito, lo que corta el SSH. Conviene tenerla además por cable, para no perder el acceso.
 
 **Por qué no Bluetooth.** Desde una página web, Bluetooth solo funciona en Chrome (Android, Mac, Windows), no en iPhone ni iPad, y muchos managers tienen iPhone. Cubrirlos obligaría a desarrollar y publicar una app para un paso que se hace una vez por local. A favor tenía que todo pasa dentro del dashboard, sin cambiar de red, y que la Pi puede avisar en el momento si la contraseña está mal. Queda como mejora opcional si las instalaciones las hace siempre Eze con Android.
+
+### 4.6 Latido: el servidor aprende la red del local ✅ (desde el 2026-10-12)
+
+La Pi le manda cada minuto un aviso por HTTPS a la instalación del cliente al que está asignada. El servidor anota desde qué conexión a internet llega: esa es "la red del local". Sirve para que la sala (mesas, comandas, cobros) solo se pueda operar desde ahí, si el cliente lo activa en su panel → Grupo → **Red del local**.
+
+- La Pi no lleva nada configurado para esto: la dirección a la que latir y su secreto le llegan solos por el canal cuando Oído la asigna a un local.
+- Si el proveedor de internet cambia la dirección del local, se actualiza sola en un minuto.
+- Si la Pi se apaga, la red que ya se conocía sigue valiendo una semana.
+- Necesita el `printer-server` del 2026-10-12 en adelante (`_loop_latido` en `main.py`).
 
 ### Descartado
 
@@ -318,36 +342,58 @@ Trabajos que faltan definir 🟡: ticket de **cobro** (con apertura de cajón si
 
 ---
 
-## 6. Instalación en un local 🟡
+## 6. Preparar e instalar un kit ✅ (pasos vigentes desde el 2026-10-12)
 
-### Antes de ir (en casa)
+Tres momentos: en casa con la Pi, en el back-office, y en el local.
 
-1. Clonar la tarjeta SD con el `printer-server` instalado y la contraseña del broker.
-2. Arrancar la Pi una vez, leer su código en el log (`journalctl -u printer-server -n 20 --no-pager`) y pegarle la etiqueta.
-3. Comprobar que el puerto de red de la Pi está en **automático** y que puede usarse para salir a internet. La Pi del prototipo tiene puesto `never-default` para el banco de pruebas, y hay que quitarlo:
+### A. En casa: preparar la Pi
+
+1. **Grabar la tarjeta** con el `printer-server` actual (el de `~/Desktop/dev/printer-server`, con el latido). Si se clona una tarjeta ya preparada, **hay que cambiarle el `.env`** en el paso 3: cada Pi lleva su propia credencial.
+2. **Arrancarla y leer su código.** Sale en el registro: `journalctl -u printer-server -n 20 --no-pager` → "Código de esta Pi: OIDO-XXXXXX". Pegarle una etiqueta con ese código.
+3. **Crearle su credencial del canal.** Sin esto no se conecta.
+   - En el VPS, como root: `bash /root/almacen/deploy/mqtt.sh pi OIDO-XXXXXX`
+   - Muestra dos líneas, `MQTT_USER=…` y `MQTT_PASS=…`. Solo esa vez.
+   - En la Pi, ponerlas en `~/printer-server/.env` (reemplazando las que haya) y reiniciar: `sudo systemctl restart printer-server`.
+   - Comprobar en el registro que dice "Conectado al broker MQTT". Si dice "Fallo al conectar (rc=5)", la clave no coincide.
+4. **Red en automático.** Comprobar que el puerto de red de la Pi puede salir a internet. La Pi del prototipo tuvo puesto `never-default` para el banco de pruebas; si lo tiene, quitarlo:
    `sudo nmcli con mod netplan-eth0 ipv4.method auto ipv4.addresses "" ipv4.never-default no && sudo nmcli con up netplan-eth0`
-4. En cada impresora, comprobar con el autotest (encender manteniendo FEED) que la interfaz activa es **Ethernet** y no USB. Si quedó en USB, la red no funciona aunque el cable esté bien.
+5. **Impresoras.** En cada una, con el autotest (encender manteniendo FEED), comprobar que la interfaz activa es **Ethernet** y no USB.
 
-### En el local
+### B. En el back-office de Oído: decir de quién es
+
+Se puede hacer antes de enviar el kit; cuando la Pi se conecte ya tendrá dueño.
+
+1. `hq.…/admin` → **Suite OidoOps**. Los restaurantes del cliente aparecen solos (los informa su OidoOps).
+2. En el local que corresponda → Editar → poner el código de la Pi → Guardar. O, si la Pi ya está encendida, elegir el local en el bloque **Raspberry Pi**.
+
+En segundos queda vinculada en el OidoOps del cliente.
+
+### C. En el local
 
 1. Montar router, switch y cables. Pi e impresoras en la misma red.
-2. Enchufar las impresoras (ya en automático, ver sección 2) y **reservarle a cada una su IP en el router del kit**, por su dirección física.
-3. Enchufar la Pi. En el admin tiene que aparecer "en línea".
-4. `/admin/tickets` → restaurante → **📡 Raspberry Pi** → escribir el código de la etiqueta → **Vincular**.
-5. `/admin/tickets` → cargar las impresoras con sus IPs. Cuando esté la detección: impresoras detectadas → **Probar** cada una y ponerle nombre.
+2. Enchufar las impresoras y **reservarle a cada una su IP en el router del kit**, por su dirección física (sección 2).
+3. Enchufar la Pi. Si va por cable, se conecta sola. Si va por WiFi: entrar a la red que crea la Pi y poner el WiFi del local (sección 4.5). **Esto no cambió.**
+4. En el panel del cliente → Sala → **Tickets** → el restaurante: la Pi tiene que aparecer sola, con el punto verde.
+5. Más abajo, las impresoras que la Pi detectó: **Probar** cada una y ponerle nombre.
 6. Asignar las rutas por sala: cocina, barra y cobro, con sus copias.
-7. Prueba real: comandar una mesa de cada sala con comida y bebida, y revisar que cada ticket sale donde tiene que salir, con las copias correctas.
+7. Prueba real: comandar una mesa de cada sala con comida y bebida, y revisar que cada ticket sale donde debe.
 8. Enchufar cada cajón a su impresora y probar "Abrir cajón".
+9. Opcional: panel → Grupo → **Red del local**. A los pocos minutos aparece la red del local, informada por la Pi. Con eso se puede activar "solo desde el local".
 
 ### Cuando algo falla
 
 | Síntoma | Qué mirar primero |
 |---|---|
-| La Pi no aparece "en línea" | Cable de red, y que el local tenga internet |
-| La Pi no detecta una impresora | Autotest de la impresora: interfaz activa y su IP |
-| "Probar" funciona pero las comandas no salen | Rutas de esa sala en `/admin/tickets` |
+| La Pi no se conecta al canal ("rc=5" en su registro) | Su credencial: `MQTT_USER` tiene que ser su código y `MQTT_PASS` la que dio `mqtt.sh pi`. Generarle otra si hay duda |
+| En HQ la Pi figura conectada pero el cliente no la ve | ¿Está asignada a un local de **ese** cliente en HQ? |
+| El cliente la ve en rojo recién asignada | Esperar unos segundos: el permiso del canal y el estado llegan en ≤10 s. Si pasa de un minuto, mirar `/root/oidoops/runner.log` en el VPS |
+| La Pi no aparece en HQ | Cable o WiFi, y que el local tenga internet |
+| La Pi no detecta una impresora | Autotest de la impresora: interfaz activa y su IP. La Pi busca cada 15 min y al reconectarse; en Tickets hay un botón para buscar ya |
+| Aparece una impresora que no es de tickets | La Pi ve todo lo que responda como impresora en esa red (una de oficina, por ejemplo). No añadirla ni probarla. Por eso el kit lleva su propio router |
+| "Probar" funciona pero las comandas no salen | Rutas de esa sala en Tickets |
 | Sale en la impresora equivocada | Nombres mal asignados: volver a "Probar" cada una |
-| Se rompió la Pi | Enchufar la de repuesto y cambiar el código en el admin |
+| En "Red del local" no aparece ninguna red | La Pi lleva un `printer-server` anterior al latido, o no está asignada a ningún local |
+| Se rompió la Pi | Preparar otra (pasos A), y en HQ cambiar la asignación del local a la nueva |
 
 ---
 
