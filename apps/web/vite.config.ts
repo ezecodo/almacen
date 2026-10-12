@@ -27,6 +27,9 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico}'],
+        // El JS de la app pasa de los 2 MiB que workbox precachea por defecto; sin subir el
+        // límite el build falla (y si no fallara, la app instalada no abriría sin conexión).
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         runtimeCaching: [
           {
             // events (SSE) y facturas (documentos privados) no pasan por la caché
