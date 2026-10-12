@@ -9,8 +9,10 @@ async function errorMessage(res: Response, fallback: string): Promise<string> {
   return fallback
 }
 
+// Todas las llamadas mandan la sesión si la hay (admin dentro de /admin, empleado en la app de sala):
+// las rutas que la exigen la reciben, y a las que no, no les molesta.
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`)
+  const res = await fetch(`${BASE}${path}`, { headers: authHeaders() })
   if (!res.ok) throw new Error(await errorMessage(res, `GET ${path} failed: ${res.status}`))
   return res.json() as Promise<T>
 }
@@ -18,7 +20,7 @@ async function get<T>(path: string): Promise<T> {
 async function post<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(body),
   })
   if (!res.ok) throw new Error(await errorMessage(res, `POST ${path} failed: ${res.status}`))
@@ -187,7 +189,7 @@ export interface Producto {
 async function patch<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(body),
   })
   if (!res.ok) throw new Error(await errorMessage(res, `PATCH ${path} failed: ${res.status}`))
@@ -195,14 +197,14 @@ async function patch<T>(path: string, body: unknown): Promise<T> {
 }
 
 async function del(path: string): Promise<void> {
-  const res = await fetch(`${BASE}${path}`, { method: 'DELETE' })
+  const res = await fetch(`${BASE}${path}`, { method: 'DELETE', headers: authHeaders() })
   if (!res.ok) throw new Error(await errorMessage(res, `DELETE ${path} failed: ${res.status}`))
 }
 
 async function put<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(body),
   })
   if (!res.ok) throw new Error(await errorMessage(res, `PUT ${path} failed: ${res.status}`))

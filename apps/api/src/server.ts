@@ -32,6 +32,17 @@ import { iniciarMqtt, onImpresorasDetectadas } from './mqtt'
 const app = Fastify({ logger: true })
 export const prisma = new PrismaClient()
 
+// Copia de un resultado sin ninguna clave `pin`, a cualquier profundidad
+function sinPin(valor: unknown): unknown {
+  if (Array.isArray(valor)) return valor.map(sinPin)
+  if (valor === null || typeof valor !== 'object' || valor instanceof Date) return valor
+  const limpio: Record<string, unknown> = {}
+  for (const [clave, v] of Object.entries(valor)) {
+    if (clave !== 'pin') limpio[clave] = sinPin(v)
+  }
+  return limpio
+}
+
 async function start() {
   await app.register(cors, {
     origin: process.env.FRONTEND_URL || 'http://localhost:5173'
@@ -41,6 +52,20 @@ async function start() {
   // sesiones firmadas se invalidan en cada reinicio de la API.
   if (!process.env.JWT_SECRET) app.log.warn('JWT_SECRET no configurado — usando secreto efímero')
   await app.register(jwt, { secret: process.env.JWT_SECRET || randomBytes(32).toString('hex') })
+
+  // Red de seguridad: el PIN de un empleado nunca sale en una respuesta, salvo hacia el panel de
+  // administración. Muchas rutas devuelven el empleado entero dentro de otra cosa (turnos, propinas,
+  // retiros…); en vez de confiar en acordarse en cada una, se quita acá de todas.
+  app.addHook('preSerialization', async (req, _reply, payload) => {
+    if (payload === null || typeof payload !== 'object') return payload
+    if (req.headers.authorization) {
+      try {
+        await req.jwtVerify()
+        if (req.user.tipo === 'admin') return payload
+      } catch { /* sin sesión válida: se filtra */ }
+    }
+    return sinPin(payload)
+  })
 
   await app.register(retiroRoutes, { prefix: '/api' })
   await app.register(productoRoutes, { prefix: '/api' })

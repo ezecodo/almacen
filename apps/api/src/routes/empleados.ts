@@ -1,6 +1,13 @@
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../server'
+import { requireAdmin } from '../auth'
+
+// Freno contra fuerza bruta del PIN (4 dígitos = 10.000 combinaciones): por IP, en memoria.
+// El tope es holgado porque todas las tablets de un local salen por la misma IP.
+const MAX_FALLOS = 20
+const VENTANA_MS = 10 * 60 * 1000
+const fallosPorIp = new Map<string, number[]>()
 
 const diasLibresSchema = z.array(z.number().int().min(0).max(6)).optional()
 
@@ -41,11 +48,20 @@ export async function empleadoRoutes(app: FastifyInstance) {
 
   // Auth por PIN (solo cocina)
   app.post('/empleados/auth', async (req, reply) => {
-    const { pin } = req.body as { pin: string }
+    const { pin } = (req.body ?? {}) as { pin?: string }
     if (!pin) return reply.status(400).send({ error: 'PIN requerido' })
 
-    const empleado = await prisma.empleado.findUnique({ where: { pin } })
+    // Nginx pone la IP del visitante en X-Real-IP
+    const ip = String(req.headers['x-real-ip'] ?? req.ip)
+    const ahora = Date.now()
+    const recientes = (fallosPorIp.get(ip) ?? []).filter(t => ahora - t < VENTANA_MS)
+    if (recientes.length >= MAX_FALLOS) {
+      return reply.status(429).send({ error: 'Demasiados intentos — espera unos minutos' })
+    }
+
+    const empleado = await prisma.empleado.findUnique({ where: { pin: String(pin) } })
     if (!empleado || !empleado.activo) {
+      fallosPorIp.set(ip, [...recientes, ahora])
       return reply.status(401).send({ error: 'PIN incorrecto' })
     }
 
@@ -62,7 +78,8 @@ export async function empleadoRoutes(app: FastifyInstance) {
   })
 
   // Listar empleados con filtro opcional por tipo
-  app.get('/empleados', async (req) => {
+  // La ficha de personal (PIN, teléfono, email) solo la ve y la toca el panel de administración
+  app.get('/empleados', { preHandler: requireAdmin }, async (req) => {
     const { tipo } = req.query as { tipo?: string }
     return prisma.empleado.findMany({
       where: tipo ? { tipo, activo: true } : undefined,
@@ -72,7 +89,7 @@ export async function empleadoRoutes(app: FastifyInstance) {
   })
 
   // Crear empleado
-  app.post('/empleados', async (req, reply) => {
+  app.post('/empleados', { preHandler: requireAdmin }, async (req, reply) => {
     const result = createSchema.safeParse(req.body)
     if (!result.success) return reply.status(400).send({ error: result.error.flatten() })
 
@@ -86,7 +103,7 @@ export async function empleadoRoutes(app: FastifyInstance) {
   })
 
   // Editar empleado
-  app.put('/empleados/:id', async (req, reply) => {
+  app.put('/empleados/:id', { preHandler: requireAdmin }, async (req, reply) => {
     const id = Number((req.params as { id: string }).id)
     const result = updateSchema.safeParse(req.body)
     if (!result.success) return reply.status(400).send({ error: result.error.flatten() })
@@ -103,14 +120,14 @@ export async function empleadoRoutes(app: FastifyInstance) {
   })
 
   // Desactivar empleado (soft delete)
-  app.patch('/empleados/:id/desactivar', async (req, _reply) => {
+  app.patch('/empleados/:id/desactivar', { preHandler: requireAdmin }, async (req, _reply) => {
     const id = Number((req.params as { id: string }).id)
     const empleado = await prisma.empleado.update({ where: { id }, data: { activo: false } })
     return empleado
   })
 
   // Eliminar empleado (hard delete — anonimiza retiros si los tiene)
-  app.delete('/empleados/:id', async (req, reply) => {
+  app.delete('/empleados/:id', { preHandler: requireAdmin }, async (req, reply) => {
     const id = Number((req.params as { id: string }).id)
 
     const empleado = await prisma.empleado.findUnique({ where: { id } })

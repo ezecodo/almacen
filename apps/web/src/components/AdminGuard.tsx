@@ -4,8 +4,17 @@ import { api, ADMIN_TOKEN_KEY } from '../api'
 
 const STORAGE_KEY = 'admin_auth'
 
+// Hay sesión si el servidor la firmó y no caducó: sin token vigente las rutas protegidas
+// responderían 401, así que se vuelve a pedir el PIN.
 function isAuthenticated() {
-  return sessionStorage.getItem(STORAGE_KEY) === 'true'
+  if (sessionStorage.getItem(STORAGE_KEY) !== 'true') return false
+  try {
+    const [, payload] = (sessionStorage.getItem(ADMIN_TOKEN_KEY) ?? '').split('.')
+    const { exp } = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')))
+    return typeof exp === 'number' && exp * 1000 > Date.now()
+  } catch {
+    return false
+  }
 }
 
 function PinGate({ onSuccess }: { onSuccess: () => void }) {
