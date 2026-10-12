@@ -1,5 +1,7 @@
 import { useState } from 'react'
-import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { api } from '../api'
 
 const NAV_GROUPS = [
   {
@@ -67,6 +69,13 @@ const NAV_GROUPS = [
       { to: '/admin/wiki',      label: 'Wiki' },
     ],
   },
+  {
+    label: 'Grupo',
+    icon: '⚙️',
+    items: [
+      { to: '/admin/restaurantes', label: 'Restaurantes' },
+    ],
+  },
 ]
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
@@ -129,6 +138,10 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
 export default function AdminLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  // Instalación recién creada: sin restaurantes casi todas las pantallas salen vacías
+  const { pathname } = useLocation()
+  const { data: restaurantes } = useQuery({ queryKey: ['restaurantes'], queryFn: api.restaurantes.list })
+  const sinRestaurantes = restaurantes?.length === 0 && pathname !== '/admin/restaurantes'
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
@@ -168,6 +181,12 @@ export default function AdminLayout() {
 
         {/* Page content */}
         <main className="flex-1 overflow-y-auto">
+          {sinRestaurantes && (
+            <div className="m-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              Este grupo todavía no tiene restaurantes.{' '}
+              <Link to="/admin/restaurantes" className="font-semibold underline">Añade el primero</Link> para empezar.
+            </div>
+          )}
           <Outlet />
         </main>
 

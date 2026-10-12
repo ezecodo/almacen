@@ -910,6 +910,8 @@ export const api = {
   },
   restaurantes: {
     list: () => get<Restaurante[]>('/restaurantes'),
+    crear: (nombre: string) => authFetch('/admin/restaurantes', { method: 'POST', json: { nombre } }).then(r => r.json() as Promise<Restaurante>),
+    renombrar: (id: number, nombre: string) => authFetch(`/admin/restaurantes/${id}`, { method: 'PUT', json: { nombre } }).then(r => r.json() as Promise<Restaurante>),
   },
   empleados: {
     list:   (tipo?: 'cocina' | 'sala') => get<Empleado[]>(`/empleados${tipo ? `?tipo=${tipo}` : ''}`),

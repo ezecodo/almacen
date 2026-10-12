@@ -41,6 +41,7 @@ import ChecklistsPage from './pages/ChecklistsPage'
 import TicketsPage from './pages/TicketsPage'
 import FacturasPage from './pages/FacturasPage'
 import VerifactuPage from './pages/VerifactuPage'
+import RestaurantesPage from './pages/RestaurantesPage'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -95,6 +96,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               <Route path="/admin/tickets" element={<TicketsPage />} />
               <Route path="/admin/facturas" element={<FacturasPage />} />
               <Route path="/admin/verifactu" element={<VerifactuPage />} />
+              <Route path="/admin/restaurantes" element={<RestaurantesPage />} />
             </Route>
           </Route>
         </Routes>

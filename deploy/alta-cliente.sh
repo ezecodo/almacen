@@ -29,6 +29,7 @@ main() {
   [[ "$codigo" =~ ^[a-z][a-z0-9-]{1,29}$ ]] || morir "Identificador no válido: 2 a 30 caracteres, minúsculas, números y guiones, empezando por letra"
   [[ "$dominio" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}$ ]] || morir "Dominio no válido: $dominio"
   [ "$(id -u)" -eq 0 ] || morir "Hay que correrlo como root"
+  case "$codigo" in hq|www|api|admin|app|mail|oido|oidoops|talent) morir "El identificador '$codigo' está reservado" ;; esac
 
   local carpeta="$RAIZ/$codigo" proceso="oidoops-$codigo" web="/var/www/oidoops-$codigo"
   local base="oidoops_${codigo//-/_}" sitio="$NGINX/sites-available/oidoops-$codigo"
@@ -42,6 +43,11 @@ main() {
   [ -n "$(sql "SELECT 1 FROM pg_database WHERE datname='$base'")" ] && morir "Ya existe la base $base"
   [ -n "$(sql "SELECT 1 FROM pg_roles WHERE rolname='$base'")" ] && morir "Ya existe el usuario de Postgres $base"
   pm2 describe "$proceso" > /dev/null 2>&1 && morir "Ya existe el proceso PM2 $proceso"
+
+  # Antes de crear nada: ¿se puede bajar el código? (si falla acá no queda nada a medias)
+  local repo
+  repo=$(git -C "$REPO_REFERENCIA" remote get-url origin)
+  git ls-remote --exit-code "$repo" main > /dev/null 2>&1 || morir "No puedo leer el repositorio $repo desde este servidor"
 
   # Puerto: el siguiente al más alto del registro, saltando los que estén ocupados
   local puerto
@@ -61,7 +67,7 @@ main() {
 
   echo "→ Código en $carpeta"
   mkdir -p "$RAIZ"
-  git clone --branch main "$(git -C "$REPO_REFERENCIA" remote get-url origin)" "$carpeta"
+  git clone --branch main "$repo" "$carpeta"
 
   echo "→ Configuración (.env)"
   (
