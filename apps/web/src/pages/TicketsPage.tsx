@@ -159,8 +159,13 @@ function PiSection({ restaurantId }: { restaurantId: number }) {
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-5 mb-6">
-      <h2 className="font-bold text-gray-800 mb-1">📡 Oído Box</h2>
-      <p className="text-xs text-gray-400 mb-4">La Box que imprime los tickets de este restaurante. Sin una Box vinculada, las comandas no se imprimen.</p>
+      <div className="flex items-center gap-4 mb-4">
+        <img src="/oido-box.jpg" alt="Oído Box" className="h-16 w-28 shrink-0 rounded-xl object-cover" />
+        <div>
+          <h2 className="font-bold text-gray-800 mb-1">Oído Box</h2>
+          <p className="text-xs text-gray-400">La Box que imprime los tickets de este restaurante. Sin una Box vinculada, las comandas no se imprimen.</p>
+        </div>
+      </div>
 
       {pi?.codigo ? (
         <div className="flex items-center gap-3">
