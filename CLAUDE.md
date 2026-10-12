@@ -992,6 +992,31 @@ Ruta standalone `/pulso` (fuera del layout de `/admin`, con su propio PIN vía `
 
 ---
 
+## Página de presentación (la vidriera)
+
+`oidoops.ezeangeloni.xyz` — es el mismo build servido sin API detrás (`InicioPage` muestra `LandingPage` cuando `GET /api/instalacion` no responde). Vive en `apps/web/src/pages/landing/`: **todo el texto está en `copy.ts`**, los componentes en `components/` (uno por sección) y los estilos en `landing.css` (aquí sí hay CSS aparte, escopeado a `.landing-root`). Orden: Nav → Hero → Marquee → StickyFeatures ("Cómo funciona") → Camarero → Modules → Box → Verifactu → Statement → Stats → Closer.
+
+**Regla que fijó Eze (2026-10-12): la página solo cuenta lo que OidoOps hace hoy.** La plantilla original traía funciones inventadas y se limpió entera ese día. No volver a escribir: pantalla de cocina/KDS con botón «listo» ni alertas de tiempo (cocina y barra **imprimen** tickets), exportación al contable, descuento automático de stock, fichajes/vacaciones, modos daltonismo/zurdo/lectura por voz/huella, cifras de clientes (no hay "1.234 restaurantes"), prueba gratis de 30 días ni vídeo de demo. Veri\*factu va **en futuro** ("lo estamos construyendo"). Tampoco la biografía de Eze: el bloque "Manifiesto" habla del producto ("Pensado en pleno servicio, no en un despacho").
+
+Estado tras el 2026-10-12:
+- **Hero**: la Oído Box (`public/oido-box.webp`) entra arriba a la derecha con el primer titular rotativo (`.hero-box` en `landing.css`: `top: 1vw; right: 5vw; width: clamp(320px, 40vw, 780px)`; se oculta por debajo de 1100 px). Probado con los titulares más largos ("sincronizada.", "sin papelitos.") a 1456 px de ancho: no los pisa, pero queda justo — si se agranda más, toca el texto.
+- **Modules**: el titular no lleva número ("Una plataforma. Todo tu restaurante, sin cuotas extra."), seis tarjetas destacadas + fila de chips "Y además, incluido" (`copy.modules.mas`) con el resto de módulos. Al sumar un módulo a la app, añadirlo ahí.
+- **Box**: sección propia (`components/Box.tsx`, `id="box"`), cuatro puntos.
+- **Stats**: cifras propias del producto (4 toques, +15 módulos, 0 apps que instalar) y "Pensado para…", sin clientes.
+- **Nav**: Producto · Cómo funciona · Oído Box · Veri\*factu · Contacto. Los botones del hero y de la navegación son enlaces a anclas (`#contacto`, `#features`).
+
+**Gotcha — caché de la PWA**: tras un deploy el navegador sigue sirviendo la versión guardada. Para ver un cambio: Cmd+Shift+R (a veces dos veces) o ventana de incógnito. Eze creyó dos veces que un cambio no se había publicado por esto.
+
+**Pendiente**:
+- **"Pedir una demo" no lleva a ningún sitio**: los botones de arriba bajan al cierre, y el botón del cierre (`Closer.tsx`) no hace nada. Falta decidir el destino (correo que reciba, WhatsApp, o formulario que caiga en "Interesados" de HQ). El pie ya no muestra correo (`copy.closer.foot.email` vacío): el anterior era de un dominio que no es de Eze.
+- **Mockups reales** (pedido de Eze, 2026-10-12, frenado por él a los pocos minutos sin decir por qué — **preguntarle antes de retomarlo**): que los dibujos de la página sean pantallas de verdad de la app. Idea que se empezó: capturas automáticas con Puppeteer (está instalado en `~/Desktop/dev/cv/node_modules`) sobre una copia local con los datos de `prisma/seed-demo.ts` en una base aparte, metidas en los mismos marcos de móvil/tablet. No se llegó a crear nada (ojo: `psql`/`createdb` a secas piden contraseña en este Mac y se quedan colgados; usar la URL del `.env`).
+- "Sin cuotas extra" y "activa el resto cuando lo necesites" son promesas de precio: a confirmar con el socio. "Probada en servicio real" (Manifiesto): suavizar si Sensi aún no la usa a diario.
+- La rejilla de tarjetas de Modules deja un hueco a la derecha en escritorio (tarjetas de 3 y 2 columnas sobre 6); venía así.
+- Sin mirar en móvil nada de lo cambiado ese día (la Box del hero se oculta en pantallas chicas).
+- Pantalla `/entrar` ("escribe tu grupo"): a Eze le pareció confusa.
+
+---
+
 ## SSE — Server-Sent Events
 
 Dos canales de eventos en tiempo real:
