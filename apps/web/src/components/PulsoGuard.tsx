@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, Outlet } from 'react-router-dom'
+import { api } from '../api'
 
-const PULSO_PIN = import.meta.env.VITE_PULSO_PIN as string
 const STORAGE_KEY = 'pulso_auth'
 
 function isAuthenticated() {
@@ -10,16 +10,22 @@ function isAuthenticated() {
 
 function PinGate({ onSuccess }: { onSuccess: () => void }) {
   const [pin, setPin] = useState('')
-  const [error, setError] = useState(false)
+  const [error, setError] = useState('')
+  const [comprobando, setComprobando] = useState(false)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // El PIN lo valida el servidor (PULSO_PIN en el .env de la API)
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (pin === PULSO_PIN) {
+    if (!pin || comprobando) return
+    setComprobando(true)
+    try {
+      await api.auth.pulso(pin)
       sessionStorage.setItem(STORAGE_KEY, 'true')
       onSuccess()
-    } else {
-      setError(true)
+    } catch (err) {
+      setError((err as Error).message)
       setPin('')
+      setComprobando(false)
     }
   }
 
@@ -34,16 +40,17 @@ function PinGate({ onSuccess }: { onSuccess: () => void }) {
             type="password"
             inputMode="numeric"
             value={pin}
-            onChange={(e) => { setPin(e.target.value); setError(false) }}
+            onChange={(e) => { setPin(e.target.value); setError('') }}
             placeholder="····"
             autoFocus
             className={`w-full text-center text-3xl tracking-widest border-2 rounded-xl px-4 py-4 focus:outline-none transition-colors ${
               error ? 'border-red-400 bg-red-50' : 'border-gray-200 focus:border-cyan-500'
             }`}
           />
-          {error && <p className="text-red-500 text-sm">PIN incorrecto</p>}
+          {error && <p className="text-red-500 text-sm">{error}</p>}
           <button
             type="submit"
+            disabled={comprobando}
             className="w-full bg-cyan-500 text-white text-lg font-semibold py-4 rounded-xl hover:bg-cyan-400 transition-colors"
           >
             Entrar

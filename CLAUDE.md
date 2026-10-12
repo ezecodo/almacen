@@ -55,7 +55,7 @@ Módulos activos:
    - **`printer-server`**: Eze decidió dejarlo solo en local, sin repositorio en GitHub.
    - **Carpeta `-x/`** commiteada por accidente en este repo: sigue ahí, falta su OK para borrarla.
    - **Informe Z en PDF** (punto 8): sin empezar.
-10. **Varios clientes de la suite: una instalación por cliente** (dirección acordada con Eze 2026-10-11, sin empezar; "hay que trabajarlo sí o sí"). Hoy la app es de un solo grupo: todo lo "global" (carta, alérgenos, wiki, proveedores, `EmpresaConfig`, PIN de admin) es de Sensi sin decirlo. Para un segundo cliente **no** se mete un `clienteId` en cada tabla; cada cliente tendrá su propia base de datos, proceso y dirección web con el mismo código. El identificador corto del cliente (`sensi`) ya existe en el back-office, que vive en **otro repo**: `~/Desktop/dev/oido-talent` → `/admin`, pestaña "Suite OidoOps" (clientes, locales y Pi de cada uno; registro a mano, no lee nada de esta app). Ese identificador dará nombre a la base, la dirección y el proceso. El alta se hará con un script corrido a mano, no con un botón del dashboard. **A resolver antes del segundo cliente**: `VITE_ADMIN_PIN`/`VITE_PULSO_PIN` son de build (hoy haría falta un build por cliente), el workflow de deploy apunta a una sola carpeta (`/root/almacen`), y las credenciales de Google Sheets y `sync-db.sh` asumen una única instalación.
+10. **Varios clientes de la suite: una instalación por cliente** (dirección acordada con Eze 2026-10-11, sin empezar; "hay que trabajarlo sí o sí"). Hoy la app es de un solo grupo: todo lo "global" (carta, alérgenos, wiki, proveedores, `EmpresaConfig`, PIN de admin) es de Sensi sin decirlo. Para un segundo cliente **no** se mete un `clienteId` en cada tabla; cada cliente tendrá su propia base de datos, proceso y dirección web con el mismo código. El identificador corto del cliente (`sensi`) ya existe en el back-office, que vive en **otro repo**: `~/Desktop/dev/oido-talent` → `/admin`, pestaña "Suite OidoOps" (clientes, locales y Pi de cada uno; registro a mano, no lee nada de esta app). Ese identificador dará nombre a la base, la dirección y el proceso. El alta se hará con un script corrido a mano, no con un botón del dashboard. **Hecho en la rama `multi-cliente` (2026-10-12, sin desplegar ni probar en el VPS)**: (a) los PIN de admin y pulso se validan en el servidor, así el código no lleva nada propio de un cliente; (b) carpeta `deploy/`: `comun.sh` (registro de instalaciones en `/root/oidoops/instalaciones`, una línea por cliente; se crea solo con Sensi apuntando a donde vive hoy: `/root/almacen`, `almacen-api`, 3001, `/var/www/almacen`), `actualizar.sh` (lo llama el workflow; recorre el registro haciendo por instalación los mismos pasos de siempre, y si una falla sigue con las demás; `actualizar.sh <codigo>` actualiza solo una) y `alta-cliente.sh <codigo> <dominio>` (a mano, como root: base y usuario `oidoops_<codigo>`, clon en `/root/oidoops/<codigo>`, `.env` con secretos y PIN nuevos, proceso `oidoops-<codigo>` desde el puerto 3101, sitio de Nginx y certbot; la base arranca vacía). **Decidido: una carpeta (clon) por cliente**, no una compartida — Sensi no se toca y cada cliente tiene la forma ya probada; se puede cambiar después sin tocar datos. **Sin decidir**: el dominio de los clientes nuevos (propuesto `<codigo>.oidoops.ezeangeloni.xyz` con un comodín en IONOS; el script lo recibe como argumento). **Antes de pasar a `main`**: el `.env` de la API en el VPS necesita `PULSO_PIN` (y `ADMIN_PIN`). **Pendiente antes del segundo cliente**: un usuario MQTT por instalación (hoy el alta copia las credenciales de Sensi: una instalación podría imprimir en la Pi de otra), el cron de reviews por instalación, y las credenciales de Google Sheets y `sync-db.sh`, que asumen una única instalación.
 
 ## Contexto de negocio
 
@@ -129,8 +129,8 @@ almacen_app/
 │           │   ├── VerificarPage.tsx     ← vista pública de un retiro /verificar/:id
 │           │   └── LogoLabPage.tsx       ← herramienta interna exploración logo
 │           ├── components/
-│           │   ├── AdminGuard.tsx        ← PIN gate del panel admin (`VITE_ADMIN_PIN`)
-│           │   ├── PulsoGuard.tsx        ← PIN gate de /pulso (`VITE_PULSO_PIN`, independiente del admin)
+│           │   ├── AdminGuard.tsx        ← PIN gate del panel admin (lo valida el servidor, `ADMIN_PIN`)
+│           │   ├── PulsoGuard.tsx        ← PIN gate de /pulso (lo valida el servidor, `PULSO_PIN`, independiente del admin)
 │           │   └── tickets/
 │           │       ├── TicketCobro.tsx   ← preview ticket de cobro (80mm)
 │           │       └── TicketComanda.tsx ← preview comanda cocina/barra (80mm, agrupado por nivel)
@@ -148,19 +148,11 @@ DATABASE_URL="postgresql://ezequielangeloni@localhost:5432/almacen_dev"
 JWT_SECRET="dev-secret-local"
 FRONTEND_URL="http://localhost:5173"
 PORT=3001
-ADMIN_PIN=xxxx   # mismo valor que VITE_ADMIN_PIN — lo valida el servidor (POST /admin/auth) para las rutas protegidas (facturas)
+ADMIN_PIN=xxxx   # PIN de /admin — lo valida el servidor (POST /admin/auth) y devuelve la sesión firmada
+PULSO_PIN=xxxx   # PIN de /pulso — lo valida el servidor (POST /pulso/auth); independiente del de admin
 ```
 
-### Variables de entorno (apps/web/.env)
-
-PINs de acceso, uno por gate — no van en git (`.env` está en `.gitignore`), hay que crearlas a mano la primera vez tanto en local como en el VPS (`apps/web/.env` en `/root/almacen`):
-
-```
-VITE_ADMIN_PIN=xxxx    # gate de /admin (AdminGuard)
-VITE_PULSO_PIN=xxxx    # gate de /pulso (PulsoGuard) — independiente del admin
-```
-
-**Gotcha**: son variables de *build* de Vite (se graban adentro del JS compilado), no las lee ningún proceso en runtime — cambiar el `.env` en el VPS no alcanza, hay que reconstruir: `cd apps/web && npm run build && cp -r dist/* /var/www/almacen/`.
+**Los PIN ya no van en el build del frontend** (rama `multi-cliente`, 2026-10-11): `VITE_ADMIN_PIN` y `VITE_PULSO_PIN` dejaron de existir, `apps/web` no necesita `.env`. `AdminGuard` y `PulsoGuard` le preguntan al servidor, así el mismo build sirve para cualquier instalación y cambiar un PIN es editar el `.env` de la API + `pm2 restart` (sin reconstruir). Sin la variable en el servidor el login responde 503 y **no se puede entrar**: antes de desplegar esto, el `.env` de la API en el VPS tiene que tener las dos. 10 fallos seguidos bloquean esa puerta 10 minutos.
 
 ## Comandos útiles
 
@@ -915,7 +907,7 @@ Reemplaza el flujo "escanear con ScanCam + mandar el PDF por mail". Implementado
 
 El resto de la API sigue sin validar identidad; las rutas `/facturas*` sí, vía `@fastify/jwt` (`apps/api/src/auth.ts`, guards `requireEncargado` / `requireAdmin`):
 - **Sala**: `POST /empleados/auth` devuelve además `token` (16h) con `encargado = rol 'encargado' || accesoEncargadoApp` — mismo criterio que `esEncargado` en `/sala`. Se guarda dentro de `sessionStorage['oidoops_camarero']`. Un encargado logueado desde antes del deploy no tiene token → tiene que volver a entrar con su PIN.
-- **Admin**: `POST /admin/auth { pin }` valida contra `ADMIN_PIN` del `.env` de la API (no el `VITE_ADMIN_PIN` del build) y devuelve token (12h) → `sessionStorage['admin_token']`. `AdminGuard` lo pide solo al entrar; si falta o caducó, `FacturasPage` muestra su propio PIN. Sin `ADMIN_PIN` en el servidor el endpoint devuelve 503 y el resto del admin sigue igual.
+- **Admin**: `POST /admin/auth { pin }` valida contra `ADMIN_PIN` del `.env` de la API y devuelve token (12h) → `sessionStorage['admin_token']`. Es el login de todo `/admin`: `AdminGuard` lo pide al entrar; si el token caducó con la pestaña abierta, `FacturasPage` y `EscandallosPage` muestran su propio PIN. Sin `ADMIN_PIN` en el servidor el endpoint devuelve 503 y no se puede entrar al admin.
 - `authFetch` en `api.ts` elige el token según la ruta (`/admin*` → admin, resto → sala). Las imágenes/PDF se bajan como blob (un `<img src>` directo no puede mandar el header).
 - Sin `JWT_SECRET` la API arranca igual con un secreto efímero (las sesiones se caen en cada reinicio).
 

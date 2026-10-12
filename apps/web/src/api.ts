@@ -879,6 +879,7 @@ export const api = {
   },
   auth: {
     admin: (pin: string) => post<{ token: string }>('/admin/auth', { pin }),
+    pulso: (pin: string) => post<{ ok: true }>('/pulso/auth', { pin }),
   },
   facturas: {
     list: (params: { restaurantId?: number; estado?: 'pendiente' | 'revisada'; mes?: string; proveedorId?: number } = {}) => {

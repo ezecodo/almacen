@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { Link, Outlet } from 'react-router-dom'
 import { api, ADMIN_TOKEN_KEY } from '../api'
 
-const ADMIN_PIN = import.meta.env.VITE_ADMIN_PIN as string
 const STORAGE_KEY = 'admin_auth'
 
 function isAuthenticated() {
@@ -11,19 +10,23 @@ function isAuthenticated() {
 
 function PinGate({ onSuccess }: { onSuccess: () => void }) {
   const [pin, setPin] = useState('')
-  const [error, setError] = useState(false)
+  const [error, setError] = useState('')
+  const [comprobando, setComprobando] = useState(false)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // El PIN lo valida el servidor (ADMIN_PIN en el .env de la API) y devuelve la sesión firmada
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (pin === ADMIN_PIN) {
+    if (!pin || comprobando) return
+    setComprobando(true)
+    try {
+      const { token } = await api.auth.admin(pin)
+      sessionStorage.setItem(ADMIN_TOKEN_KEY, token)
       sessionStorage.setItem(STORAGE_KEY, 'true')
-      // Sesión firmada para las rutas protegidas del backend (facturas). Si el servidor
-      // no tiene ADMIN_PIN configurado, el resto del admin sigue funcionando igual.
-      api.auth.admin(pin).then(({ token }) => sessionStorage.setItem(ADMIN_TOKEN_KEY, token)).catch(() => {})
       onSuccess()
-    } else {
-      setError(true)
+    } catch (err) {
+      setError((err as Error).message)
       setPin('')
+      setComprobando(false)
     }
   }
 
@@ -38,16 +41,17 @@ function PinGate({ onSuccess }: { onSuccess: () => void }) {
             type="password"
             inputMode="numeric"
             value={pin}
-            onChange={(e) => { setPin(e.target.value); setError(false) }}
+            onChange={(e) => { setPin(e.target.value); setError('') }}
             placeholder="····"
             autoFocus
             className={`w-full text-center text-3xl tracking-widest border-2 rounded-xl px-4 py-4 focus:outline-none transition-colors ${
               error ? 'border-red-400 bg-red-50' : 'border-gray-200 focus:border-cyan-500'
             }`}
           />
-          {error && <p className="text-red-500 text-sm">PIN incorrecto</p>}
+          {error && <p className="text-red-500 text-sm">{error}</p>}
           <button
             type="submit"
+            disabled={comprobando}
             className="w-full bg-cyan-500 text-white text-lg font-semibold py-4 rounded-xl hover:bg-cyan-400 transition-colors"
           >
             Entrar
