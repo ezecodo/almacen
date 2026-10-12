@@ -7,6 +7,7 @@ import mqtt, { MqttClient } from 'mqtt'
 //   pi/<codigo>/estado         Pi → API   "online" / "offline" (retenido; el broker pone "offline" si la Pi se cae)
 //   pi/<codigo>/impresoras     Pi → API   impresoras que la Pi encontró en la red del local (retenido)
 //   pi/<codigo>/orden          API → Pi   pedidos puntuales: volver a buscar impresoras, imprimir una prueba
+//   pi/<codigo>/config         API → Pi   a dónde mandar su latido y con qué secreto (retenido)
 // Si no hay MQTT_HOST configurado (dev local sin broker a mano), no-op silencioso.
 
 let client: MqttClient | null = null
@@ -24,6 +25,12 @@ const impresorasPi = new Map<string, { escaneadoAt: Date; impresoras: ImpresoraD
 let alDetectarImpresoras: ((codigo: string, impresoras: ImpresoraDetectada[]) => void) | null = null
 export function onImpresorasDetectadas(cb: (codigo: string, impresoras: ImpresoraDetectada[]) => void) {
   alDetectarImpresoras = cb
+}
+
+// Lo que hay que volver a anunciar cada vez que se conecta al broker (la config de las Pi vinculadas)
+let alConectar: (() => void) | null = null
+export function onConectado(cb: () => void) {
+  alConectar = cb
 }
 
 function getClient(): MqttClient | null {
@@ -46,6 +53,7 @@ function getClient(): MqttClient | null {
     client.on('connect', () => {
       console.log('[mqtt] conectado al broker', process.env.MQTT_HOST)
       client?.subscribe(['pi/+/estado', 'pi/+/impresoras'], { qos: 1 })
+      alConectar?.()
     })
     client.on('message', (topic, payload) => {
       const [, codigo, canal] = topic.split('/')
@@ -99,6 +107,15 @@ export function enviarOrden(piCodigo: string, orden: { accion: 'escanear' } | { 
   const c = getClient()
   if (!c) return false
   c.publish(`pi/${piCodigo}/orden`, JSON.stringify(orden), { qos: 0 })
+  return true
+}
+
+// Le dice a una Pi a dónde mandar su latido. Va retenido: la Pi lo recibe al conectarse aunque
+// se haya publicado antes. Con null se borra (Pi desvinculada).
+export function publicarConfigPi(piCodigo: string, config: { latido_url: string; token: string } | null): boolean {
+  const c = getClient()
+  if (!c) return false
+  c.publish(`pi/${piCodigo}/config`, config ? JSON.stringify(config) : '', { qos: 1, retain: true })
   return true
 }
 

@@ -26,7 +26,8 @@ import { wikiRoutes } from './routes/wiki'
 import { checklistRoutes } from './routes/checklists'
 import { ticketRoutes, sincronizarImpresoras } from './routes/tickets'
 import { authRoutes } from './routes/auth'
-import { RUTAS_PUBLICAS, RUTAS_PULSO, RUTAS_SALA, SOLO_ENCARGADO } from './permisos'
+import { algunRestringido, ipDe, redDe, redRoutes } from './routes/red'
+import { CONSULTA_ENCARGADO, CONSULTA_SALA, RUTAS_PUBLICAS, RUTAS_PULSO, RUTAS_SALA, SOLO_ENCARGADO } from './permisos'
 import { facturaRoutes } from './routes/facturas'
 import { iniciarMqtt, onImpresorasDetectadas } from './mqtt'
 
@@ -79,6 +80,33 @@ async function start() {
     if (!permitido) return reply.status(403).send({ error: 'No tienes permiso para esto' })
   })
 
+  // "Dónde estás": con restringirPorRed, la sala de un restaurante solo se opera desde la red del
+  // local. Lo de consulta (wiki, carta, propinas; reviews y reservas para el encargado) no se limita.
+  // Va en preHandler, no en onRequest, porque mira también el restaurante que viene en el cuerpo.
+  app.addHook('preHandler', async (req, reply) => {
+    const sesion = req.user as typeof req.user | undefined
+    if (sesion?.tipo !== 'sala') return
+    const clave = `${req.method} ${req.routeOptions?.url}`
+    if (!RUTAS_SALA.has(clave) || CONSULTA_SALA.has(clave)) return
+    if (sesion.encargado && CONSULTA_ENCARGADO.has(clave)) return
+
+    // Sesión de antes de este cambio (sin restaurante): si algún local ya restringe, que vuelva a entrar
+    if (!sesion.restaurantId) {
+      if (await algunRestringido()) return reply.status(401).send({ error: 'Vuelve a entrar con tu PIN' })
+      return
+    }
+    const red = await redDe(sesion.restaurantId)
+    if (!red?.restringido) return
+
+    const pedido = Number((req.query as { restaurantId?: string })?.restaurantId ?? (req.body as { restaurantId?: number } | undefined)?.restaurantId)
+    if (pedido && pedido !== sesion.restaurantId) {
+      return reply.status(403).send({ error: 'Este dispositivo es de otro local', codigo: 'otro_local' })
+    }
+    if (!red.ips.has(ipDe(req))) {
+      return reply.status(403).send({ error: 'Estás fuera del local: conéctate a su red para operar', codigo: 'fuera_del_local' })
+    }
+  })
+
   // Red de seguridad: el PIN de un empleado nunca sale en una respuesta, salvo hacia el panel de
   // administración. Muchas rutas devuelven el empleado entero dentro de otra cosa (turnos, propinas,
   // retiros…); en vez de confiar en acordarse en cada una, se quita acá de todas.
@@ -116,6 +144,7 @@ async function start() {
   await app.register(checklistRoutes, { prefix: '/api' })
   await app.register(ticketRoutes, { prefix: '/api' })
   await app.register(authRoutes, { prefix: '/api' })
+  await app.register(redRoutes, { prefix: '/api' })
   await app.register(facturaRoutes, { prefix: '/api' })
 
   app.get('/health', async () => ({ status: 'ok', timestamp: new Date() }))

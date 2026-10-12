@@ -7,6 +7,8 @@ export interface Sesion {
   tipo:        'sala' | 'admin' | 'pulso'
   nombre:      string
   empleadoId?: number
+  // Restaurante del dispositivo donde entró (lo elige quien configura la tablet). Solo sesiones de sala.
+  restaurantId?: number
   // rol 'encargado' o superpoder accesoEncargadoApp — mismo criterio que esEncargado en /sala
   encargado:   boolean
 }

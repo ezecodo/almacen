@@ -48,7 +48,7 @@ export async function empleadoRoutes(app: FastifyInstance) {
 
   // Auth por PIN (solo cocina)
   app.post('/empleados/auth', async (req, reply) => {
-    const { pin } = (req.body ?? {}) as { pin?: string }
+    const { pin, restaurantId } = (req.body ?? {}) as { pin?: string; restaurantId?: number }
     if (!pin) return reply.status(400).send({ error: 'PIN requerido' })
 
     // Nginx pone la IP del visitante en X-Real-IP
@@ -71,6 +71,7 @@ export async function empleadoRoutes(app: FastifyInstance) {
       tipo: 'sala',
       nombre: empleado.nombre,
       empleadoId: empleado.id,
+      ...(Number.isInteger(restaurantId) ? { restaurantId } : {}),
       encargado: empleado.tipo === 'sala' && (empleado.rol === 'encargado' || empleado.accesoEncargadoApp),
     }, { expiresIn: '16h' })
 

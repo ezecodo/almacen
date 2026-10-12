@@ -29,6 +29,14 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>
 }
 
+export interface RedAdmin {
+  tuIp: string
+  restaurantes: {
+    id: number; nombre: string; piCodigo: string | null; restringirPorRed: boolean
+    redes: { id: number; ip: string; origen: 'pi' | 'manual'; autorizadaPor: string | null; vistaAt: string; caducaAt: string | null; vigente: boolean }[]
+  }[]
+}
+
 export interface Restaurante {
   id: number
   nombre: string
@@ -946,6 +954,14 @@ export const api = {
     pagina: (id: number, n: number) => authFetch(`/facturas/${id}/paginas/${n}`).then(r => r.blob()),
     pdf: (id: number) => authFetch(`/facturas/${id}/pdf`).then(r => r.blob()),
   },
+  // Red del local: operar la sala solo desde la red del restaurante (la aprende el latido de la Pi)
+  red: {
+    estado: () => get<{ restaurantId: number | null; restringido: boolean; enLocal: boolean }>('/red/estado'),
+    autorizar: () => post<{ ok: true; caducaAt: string }>('/red/autorizar', {}),
+    admin: () => authFetch('/admin/red').then(r => r.json() as Promise<RedAdmin>),
+    restringir: (restaurantId: number, restringirPorRed: boolean) => authFetch(`/admin/red/${restaurantId}`, { method: 'PATCH', json: { restringirPorRed } }).then(() => undefined),
+    quitarRed: (id: number) => authFetch(`/admin/red/redes/${id}`, { method: 'DELETE' }).then(() => undefined),
+  },
   restaurantes: {
     list: () => get<Restaurante[]>('/restaurantes'),
     crear: (nombre: string) => authFetch('/admin/restaurantes', { method: 'POST', json: { nombre } }).then(r => r.json() as Promise<Restaurante>),
@@ -953,7 +969,8 @@ export const api = {
   },
   empleados: {
     list:   (tipo?: 'cocina' | 'sala') => get<Empleado[]>(`/empleados${tipo ? `?tipo=${tipo}` : ''}`),
-    auth:   (pin: string) => post<Empleado & { token?: string }>('/empleados/auth', { pin }).then(e => {
+    // restaurantId: el local del dispositivo; la sesión queda atada a él (ver "red del local")
+    auth:   (pin: string, restaurantId?: number) => post<Empleado & { token?: string }>('/empleados/auth', { pin, restaurantId }).then(e => {
       tokenEmpleadoEfimero = e.token ?? null
       return e
     }),

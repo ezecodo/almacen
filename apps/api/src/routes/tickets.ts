@@ -3,6 +3,9 @@ import { z } from 'zod'
 import { prisma } from '../server'
 import { brokerConfigurado, estadoDePi, normalizarPiCodigo, impresorasDePi, enviarOrden, ImpresoraDetectada } from '../mqtt'
 import { piPermitida } from '../suite'
+import { randomBytes } from 'crypto'
+import { publicarConfigPi } from '../mqtt'
+import { anunciarLatido } from './red'
 
 const empresaSchema = z.object({
   razonSocial: z.string().default(''),
@@ -163,7 +166,13 @@ export async function ticketRoutes(app: FastifyInstance) {
       if (!permiso.ok) return reply.status(permiso.status).send({ error: permiso.error })
     }
 
-    await prisma.restaurant.update({ where: { id: restaurantId }, data: { piCodigo: codigo } })
+    const antes = await prisma.restaurant.findUnique({ where: { id: restaurantId }, select: { piCodigo: true } })
+    await prisma.restaurant.update({
+      where: { id: restaurantId },
+      data: { piCodigo: codigo, piToken: codigo ? randomBytes(24).toString('hex') : null },
+    })
+    if (antes?.piCodigo && antes.piCodigo !== codigo) publicarConfigPi(antes.piCodigo, null)
+    await anunciarLatido(restaurantId)
     if (codigo) await sincronizarImpresoras(codigo, impresorasDePi(codigo)?.impresoras ?? [])
     const estado = codigo ? estadoDePi(codigo) : null
     return { codigo, online: estado?.online ?? false, vistoAt: estado?.vistoAt ?? null, brokerConfigurado: brokerConfigurado() }

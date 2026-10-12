@@ -36,7 +36,7 @@ export default function SalaLoginPage() {
 
     setLoading(true)
     try {
-      const empleado = await api.empleados.auth(next)
+      const empleado = await api.empleados.auth(next, restaurant?.id)
       if (empleado.tipo !== 'sala') {
         triggerError('Solo personal de sala puede acceder')
       } else {

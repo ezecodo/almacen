@@ -20,6 +20,7 @@ export const RUTAS_PUBLICAS = new Set([
   'POST /api/reservas/publica',
   'GET /api/retiros/:id',             // lo que abre el QR de un retiro
   'POST /api/reviews/sync',           // cron: se valida con SYNC_SECRET
+  'POST /api/pi/latido',              // la Pi del local: se valida con su secreto
 ])
 
 // El panel del dueño: facturación en vivo y nada más
@@ -58,6 +59,8 @@ export const RUTAS_SALA = new Set([
   // facturas de proveedor (cada ruta comprueba además que sea encargado)
   'GET /api/facturas', 'POST /api/facturas', 'GET /api/facturas/proveedores', 'GET /api/facturas/:id/paginas/:n',
   'POST /api/facturas/:id/paginas', 'PATCH /api/facturas/:id/enviar', 'DELETE /api/facturas/:id',
+  // en qué red está el dispositivo, y autorizarla a mano (solo encargado)
+  'GET /api/red/estado', 'POST /api/red/autorizar',
   // propinas propias, almacén y validación de retiros
   'GET /api/propinas/mis-turnos',
   'GET /api/producto/:barcode', 'POST /api/retiros', 'PATCH /api/retiros/:id/confirmar',
@@ -68,4 +71,24 @@ export const SOLO_ENCARGADO = new Set([
   'PATCH /api/comandas/:id/cerrar',   // cobrar
   'POST /api/turnos',                 // abrir turno
   'PATCH /api/turnos/:id/cerrar',     // cerrar turno
+  'POST /api/red/autorizar',          // autorizar la red donde está, por unas horas
+])
+
+// ── Dónde está el dispositivo ────────────────────────────────────────────────────────────────
+// Si el restaurante tiene restringirPorRed, lo de RUTAS_SALA solo funciona desde la red del local
+// (la que aprende el latido de la Pi), salvo lo de estas dos listas, que es consulta y se puede
+// abrir desde cualquier lado. Lo aplica el hook preHandler de server.ts.
+
+// Cualquier empleado, desde donde esté: estudiar la carta y la wiki, ver sus propinas
+export const CONSULTA_SALA = new Set([
+  'GET /api/red/estado',
+  'GET /api/wiki', 'GET /api/menu', 'GET /api/menu/categorias', 'GET /api/alergenos',
+  'GET /api/propinas/mis-turnos',
+])
+
+// Además, el encargado: reviews y reservas (solo verlas), y autorizar la red donde está
+export const CONSULTA_ENCARGADO = new Set([
+  'GET /api/reviews', 'GET /api/reviews/historial', 'GET /api/reviews/turno',
+  'GET /api/reservas', 'GET /api/reservas/pool',
+  'POST /api/red/autorizar',
 ])

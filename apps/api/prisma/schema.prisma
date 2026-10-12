@@ -45,7 +45,30 @@ model Restaurant {
   // Código de la Raspberry Pi de impresión vinculada a este restaurante (ej. "OIDO-7F3A2C",
   // sale del número de serie de la Pi). null = sin Pi → las comandas no se imprimen.
   piCodigo               String?               @unique
+  // Secreto con el que esa Pi firma su latido (ver routes/red.ts). Se genera al vincularla.
+  piToken                String?
+  // Operar la sala (mesas, comandas, cobros) solo desde la red del local. Apagado por defecto:
+  // se enciende desde /admin/red cuando el local ya tiene su red aprendida.
+  restringirPorRed       Boolean               @default(false)
+  redes                  RedLocal[]
   createdAt              DateTime              @default(now())
+}
+
+// Redes desde las que se puede operar la sala de un restaurante: la dirección pública con la
+// que el local sale a internet. La aprende sola del latido de la Pi (origen 'pi') o la autoriza
+// un encargado por unas horas si la Pi no está (origen 'manual').
+model RedLocal {
+  id             Int        @id @default(autoincrement())
+  restaurantId   Int
+  restaurant     Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  ip             String
+  origen         String // 'pi' | 'manual'
+  autorizadaPor  String?
+  vistaAt        DateTime   @default(now()) // último latido desde esa red, o cuándo se autorizó
+  caducaAt       DateTime? // solo las manuales
+  createdAt      DateTime   @default(now())
+
+  @@unique([restaurantId, ip])
 }
 
 // ── Wiki ──────────────────────────────────────────────────────────────────────
