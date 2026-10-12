@@ -3,6 +3,9 @@
 //
 //   cd apps/api && npx tsx prisma/seed-demo.ts --confirmar                 primera vez
 //   cd apps/api && npx tsx prisma/seed-demo.ts --confirmar --reiniciar     vaciar y volver a cargar
+//   ... --usuario "Nombre Apellido:1234"            además, quien enseña la demo entra con su PIN
+//       (encargado de sala y rotativo: le sirve en los tres locales). Opcional: ":email" al final.
+//       El PIN se pasa al ejecutar, no se escribe en este archivo.
 //
 // Solo corre sobre una base sin restaurantes: nunca pisa ni mezcla datos de un cliente real.
 // --reiniciar BORRA TODO antes de cargar, y solo se permite si lo que hay es una demo anterior
@@ -234,12 +237,22 @@ async function main() {
     return
   }
   if (process.env.INSTALACION_CODIGO === 'sensi') throw new Error('Esta es la instalación de Sensi: no se cargan datos de demostración aquí.')
+  // Los argumentos se comprueban antes de escribir nada, para no dejar una carga a medias
+  const indice = process.argv.indexOf('--usuario')
+  let yo: { nombre: string; pin: string; email: string | null } | null = null
+  if (indice !== -1) {
+    const [nombre, suPin, email] = (process.argv[indice + 1] ?? '').split(':').map(x => x.trim())
+    if (!nombre || !/^\d{4}$/.test(suPin ?? '')) throw new Error('Uso: --usuario "Nombre Apellido:1234"  (el PIN son 4 dígitos)')
+    yo = { nombre, pin: suPin, email: email || null }
+  }
+
+  const empresa = await prisma.empresaConfig.findFirst()
+  const esDemo = Boolean(empresa?.razonSocial.endsWith(MARCA_DEMO))
   let yaHay = await prisma.restaurant.count()
-  if (yaHay > 0 && process.argv.includes('--reiniciar')) {
-    const empresa = await prisma.empresaConfig.findFirst()
-    if (!empresa?.razonSocial.endsWith(MARCA_DEMO)) {
-      throw new Error('Lo que hay en esta base no es una demo cargada por este script: no la vacío.')
-    }
+  const reiniciar = process.argv.includes('--reiniciar')
+  if (yaHay > 0 && reiniciar && !esDemo) throw new Error('Lo que hay en esta base no es una demo cargada por este script: no la vacío.')
+  // Se vacía si se pidió, o si quedó una demo a medias de un intento que falló
+  if (esDemo && (reiniciar || yaHay === 0)) {
     const tablas = await prisma.$queryRaw<{ tablename: string }[]>`SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> '_prisma_migrations'`
     await prisma.$executeRawUnsafe(`TRUNCATE ${tablas.map(t => `"${t.tablename}"`).join(', ')} RESTART IDENTITY CASCADE`)
     console.log(`Demo anterior borrada (${tablas.length} tablas vaciadas).`)
@@ -247,7 +260,11 @@ async function main() {
   }
   if (yaHay > 0) throw new Error(`Esta base ya tiene ${yaHay} restaurante(s). La demo solo se carga en una instalación vacía (o con --reiniciar si lo que hay es una demo).`)
 
-  await prisma.empresaConfig.create({ data: { razonSocial: `Traga Agua Hostelería S.L. ${MARCA_DEMO}`, nif: 'B00000000', tasaIva: 10, mensajePie: 'Gracias por tu visita · Servicio no incluido' } })
+  // La configuración de empresa es una sola fila: si la instalación ya la creó vacía, se rellena esa
+  const datosEmpresa = { razonSocial: `Traga Agua Hostelería S.L. ${MARCA_DEMO}`, nif: 'B00000000', tasaIva: 10, mensajePie: 'Gracias por tu visita · Servicio no incluido' }
+  const existente = await prisma.empresaConfig.findFirst()
+  if (existente) await prisma.empresaConfig.update({ where: { id: existente.id }, data: datosEmpresa })
+  else await prisma.empresaConfig.create({ data: datosEmpresa })
 
   const alergenoId = new Map<string, number>()
   for (const [i, [nombre, nombreEn, icono]] of ALERGENOS.entries()) {
@@ -302,6 +319,13 @@ async function main() {
     refuerzo: await prisma.turnoTipo.create({ data: { nombre: 'Refuerzo', horaInicio: '20:00', horaFin: '00:00', horas: 4, color: '#10b981' } }),
   }
 
+  // Quien enseña la demo, con su propio PIN: encargado de sala y rotativo, le sirve en los tres locales
+  let pinReservado = ''
+  if (yo) {
+    await prisma.empleado.create({ data: { nombre: yo.nombre, tipo: 'sala', rol: 'encargado', pin: yo.pin, restaurantId: null, horasSemanales: 40, email: yo.email, excluirPlanning: true } })
+    pinReservado = yo.pin
+  }
+
   let pin = 2100
   const resumen: string[] = []
   for (const local of LOCALES) {
@@ -322,6 +346,7 @@ async function main() {
     let encargado = ''
     let pinEncargado = ''
     for (const [nombre, tipo, rol] of local.personal) {
+      if (String(pin) === pinReservado) pin++ // el PIN es único: no pisar el de quien enseña la demo
       const suPin = String(pin++)
       const horas = rol === 'encargado' || rol === 'jefe_cocina' ? 40 : elegir([40, 40, 30, 20])
       const emp = await prisma.empleado.create({
@@ -501,7 +526,9 @@ async function main() {
   console.log(`\nCarta: ${platos.length} platos y bebidas en ${CARTA.length} categorías, con alérgenos y ficha de estudio.`)
   console.log('También: mermas, checklists por sector con lo hecho hoy, 3 menús de grupo y 2 grupos agendados, inventario con dos conteos,')
   console.log('planificación de personal de esta semana y la próxima, reservas de hoy y mañana (una en el pool), y la wiki.')
-  console.log('Los PIN del personal van del 2100 en adelante, por orden. Todo es inventado.\n')
+  console.log('Los PIN del personal van del 2100 en adelante, por orden. Todo es inventado.')
+  if (pinReservado) console.log('Tu usuario quedó como encargado en los tres locales, con el PIN que indicaste.')
+  console.log()
 }
 
 main()
