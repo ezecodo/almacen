@@ -29,6 +29,9 @@ fi
 source "$CONF"
 sed -i '/^RUNNER_TOKEN=/d; /^SUITE_DOMINIO_BASE=/d' "$HQ/apps/api/.env"
 printf 'RUNNER_TOKEN=%s\nSUITE_DOMINIO_BASE=%s\n' "$RUNNER_TOKEN" "$DOMINIO_BASE" >> "$HQ/apps/api/.env"
+# El .env es del usuario que publica el back-office: que siga pudiendo leerlo
+chown --reference="$HQ/apps/api" "$HQ/apps/api/.env"
+chmod 600 "$HQ/apps/api/.env"
 ( cd "$HQ" && docker compose up -d --force-recreate api 2>&1 | tail -2 )
 
 echo "→ Nginx: /api/interno cerrado al exterior"
