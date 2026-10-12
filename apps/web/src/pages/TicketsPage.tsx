@@ -45,7 +45,7 @@ function EmpresaSection() {
       <div className="grid sm:grid-cols-2 gap-3">
         <div>
           <label className={labelCls}>Razón social</label>
-          <input className={inputCls} value={razonSocial} onChange={e => setRazonSocial(e.target.value)} placeholder="Sensi Tapas Group SL" />
+          <input className={inputCls} value={razonSocial} onChange={e => setRazonSocial(e.target.value)} placeholder="Mi Grupo Hostelero SL" />
         </div>
         <div>
           <label className={labelCls}>NIF / CIF</label>
@@ -109,7 +109,7 @@ function LocalSection({ restaurantId }: { restaurantId: number }) {
       <div className="grid sm:grid-cols-2 gap-3">
         <div className="sm:col-span-2">
           <label className={labelCls}>Nombre comercial (aparece en el ticket)</label>
-          <input className={inputCls} value={nombreComercial} onChange={e => setNombreComercial(e.target.value)} placeholder="Sensi Tapas - Gòtic" />
+          <input className={inputCls} value={nombreComercial} onChange={e => setNombreComercial(e.target.value)} placeholder="Mi Restaurante - Centro" />
         </div>
         <div>
           <label className={labelCls}>Dirección</label>

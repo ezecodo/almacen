@@ -100,6 +100,97 @@ const CARTA: [string, string, string, Plato[]][] = [
   ]],
 ]
 
+// Ficha de estudio de cada plato (en inglés, es lo que el camarero le cuenta al cliente): con esto
+// la Wiki de sala muestra la carta para estudiar. 1ª línea = de qué está hecho; resto = cómo venderlo.
+const FICHAS: Record<string, string> = {
+  'Aceitunas aliñadas': 'Gordal and Arbequina olives, orange peel, thyme, olive oil\nMarinated in house for 48 hours. A good start while the table decides.',
+  'Pan con tomate': 'Coca bread, hanging tomato, extra virgin olive oil, sea salt\nThe Catalan classic. Toasted to order; suggest it with any cured meat or cheese.',
+  'Anchoas del Cantábrico': 'Hand-filleted Cantabrian anchovies, olive oil\nFour fillets, cured for 12 months. Salty and silky: pair with vermouth or cava.',
+  'Jamón ibérico': 'Acorn-fed Iberian ham, 36 months cured\n80 grams, hand carved. Serve at room temperature; never suggest it with strong sauces.',
+  'Tabla de quesos': 'Three Catalan cheeses (goat, sheep, cow), quince paste, walnuts\nFrom mild to strong, left to right. Contains nuts.',
+  'Patatas bravas': 'Fried potatoes, house brava sauce (tomato, smoked paprika, chilli), garlic alioli\nOur best seller. Mildly spicy; the sauces can be served on the side.',
+  'Croquetas de jamón': 'Bechamel, Iberian ham, breadcrumbs\nFour pieces, creamy inside. Made daily; they take 6 minutes.',
+  'Tortilla de patatas': 'Free-range eggs, potato, caramelised onion\nServed slightly runny in the centre. Ask if the guest prefers it well done.',
+  'Pimientos de Padrón': 'Padrón peppers, olive oil, Maldon salt\nBlistered, not fried. One in ten is hot: tell the table, it is part of the fun.',
+  'Ensaladilla rusa': 'Potato, carrot, mayonnaise, tuna belly, piparra pepper\nServed cold. Contains fish and egg.',
+  'Bomba de la Barceloneta': 'Potato ball filled with minced beef, alioli and spicy sauce\nBorn in this neighbourhood in the 1950s. One piece per person is the usual.',
+  'Pulpo a la brasa': 'Charcoal-grilled octopus, potato parmentier, smoked paprika, olive oil\nOur signature dish. Tender inside, crisp outside. Pair with a white from Penedès.',
+  'Calamares a la andaluza': 'Fresh squid, chickpea flour, lime mayonnaise\nLight batter, fried to order. Gluten in the flour mix.',
+  'Gambas al ajillo': 'Red prawns, garlic, chilli, olive oil, parsley\nServed sizzling in the clay pot. Recommend bread to finish the oil.',
+  'Mejillones al vapor': 'Mussels from the Ebro delta, bay leaf, lemon\nSteamed with nothing else. Half a kilo; ideal to share between two.',
+  'Tartar de atún': 'Bluefin tuna, avocado, soy, sesame, lime\nCut by knife to order. Contains soy and sesame; cannot be made without soy.',
+  'Entrecot a la brasa': 'Aged beef ribeye 300 g, fries, Padrón peppers\nAlways ask the cooking point. We recommend medium rare.',
+  'Secreto ibérico': 'Iberian pork secreto, chimichurri\nA marbled cut from the shoulder, grilled pink. Pair with a red from Montsant.',
+  'Mini hamburguesas': 'Three beef sliders, cheddar, caramelised onion, brioche bun\nGood option for children. Bun contains sesame.',
+  'Pollo de corral al ajillo': 'Free-range chicken, garlic, white wine, thyme\nBoneless, slow cooked. Contains sulphites from the wine.',
+  'Crema catalana': 'Egg yolk custard, lemon peel, cinnamon, burnt sugar\nThe sugar is torched at the table side when possible.',
+  'Tarta de queso': 'Baked cheesecake, cream cheese, biscuit base\nCreamy centre, served warm. Contains gluten in the base.',
+  'Coulant de chocolate': 'Dark chocolate fondant 70%, vanilla ice cream\nTakes 10 minutes: offer it when the mains are served.',
+  'Copa tinto': 'Garnacha and Cariñena · D.O. Montsant\nFruity, medium body. Goes with meats and the cheese board.',
+  'Copa blanco': 'Xarel·lo · D.O. Penedès\nFresh and dry. The match for anything from the sea.',
+  'Copa de cava': 'Macabeo, Xarel·lo, Parellada · Brut nature\nNo added sugar. Suggest it as an aperitif with anchovies or ham.',
+  'Botella tinto': 'Garnacha, Cariñena, Syrah · D.O.Q. Priorat · 12 months in oak\nPowerful and mineral. For the ribeye or the secreto.',
+}
+
+// Menús cerrados para grupos: [nombre, €/pax, 1 ración cada X pax, cursos]
+const MENUS_GRUPO: [string, number, number, [string, string[], boolean][]][] = [
+  ['Tapeo', 35, 3, [['Para empezar', ['Pan con tomate', 'Aceitunas aliñadas', 'Jamón ibérico'], false], ['Tapas', ['Patatas bravas', 'Croquetas de jamón', 'Tortilla de patatas', 'Pimientos de Padrón'], false], ['Postre', ['Crema catalana'], true]]],
+  ['Mar y montaña', 48, 3, [['Para empezar', ['Pan con tomate', 'Anchoas del Cantábrico', 'Jamón ibérico'], false], ['Del mar', ['Pulpo a la brasa', 'Calamares a la andaluza', 'Gambas al ajillo'], false], ['Carnes', ['Secreto ibérico', 'Mini hamburguesas'], false], ['Postre', ['Tarta de queso'], true]]],
+  ['Celebración', 62, 2, [['Para empezar', ['Pan con tomate', 'Jamón ibérico', 'Tabla de quesos', 'Anchoas del Cantábrico'], false], ['Del mar', ['Pulpo a la brasa', 'Tartar de atún', 'Gambas al ajillo'], false], ['Carnes', ['Entrecot a la brasa', 'Secreto ibérico'], false], ['Postre', ['Coulant de chocolate', 'Crema catalana'], true]]],
+]
+
+// Inventario común: [categoría, quién produce (o null), [producto, unidad, mínimo, coste, venta]]
+const INVENTARIO: [string, string | null, [string, string, number, number, number | null][]][] = [
+  ['Vinos y cavas', null, [['Tinto Montsant', 'botella', 12, 5.2, 22], ['Blanco Penedès', 'botella', 12, 4.8, 22], ['Cava brut nature', 'botella', 10, 5.9, 24], ['Tinto Priorat', 'botella', 6, 11.5, 24], ['Vermut rojo', 'botella', 4, 6.4, null]]],
+  ['Cervezas y refrescos', null, [['Barril de cerveza 30 l', 'ud', 2, 68, null], ['Cerveza artesana 33 cl', 'caja', 2, 31, null], ['Cerveza sin alcohol', 'caja', 1, 17.5, null], ['Coca-Cola 20 cl', 'caja', 3, 14.2, null], ['Tónica', 'caja', 2, 16.8, null], ['Agua mineral 50 cl', 'caja', 4, 5.9, null]]],
+  ['Destilados', null, [['Ginebra premium', 'botella', 3, 21, null], ['Ron añejo', 'botella', 2, 16.5, null], ['Aperol', 'botella', 3, 11.9, null], ['Vodka', 'botella', 2, 13.4, null]]],
+  ['Despensa', null, [['Aceite de oliva virgen extra', 'l', 10, 7.8, null], ['Patata agria', 'kg', 25, 0.95, null], ['Pulpo cocido', 'kg', 6, 24, null], ['Jamón ibérico', 'kg', 2, 68, null], ['Café en grano', 'kg', 4, 16, null]]],
+  ['Premixes de barra', 'sala', [['Premix mojito', 'l', 2, 4.1, null], ['Sirope simple', 'l', 2, 1.2, null], ['Zumo de lima', 'l', 1.5, 5.5, null], ['Sangría base', 'l', 4, 3.3, null]]],
+]
+
+const MERMAS: [string, string, string][] = [
+  ['Croquetas de jamón', 'no_servido', 'Se pasaron de fritura'],
+  ['Copa tinto', 'queja_cliente', 'Vino picado, se cambió la copa'],
+  ['Patatas bravas', 'no_servido', 'Marchadas dos veces por error'],
+  ['Pulpo a la brasa', 'queja_cliente', 'Llegó frío a la mesa'],
+  ['Caña', 'otro', 'Se cayó la bandeja'],
+  ['Tarta de queso', 'no_servido', 'Cliente se fue antes del postre'],
+  ['Gambas al ajillo', 'queja_cliente', 'Demasiado picante para el cliente'],
+]
+
+const TAREAS: Record<string, { apertura: string[]; cierre: string[] }> = {
+  Barra: {
+    apertura: ['Encender cafetera y purgar grupos', 'Encender lavavasos y comprobar detergente', 'Reponer cámaras: cervezas, refrescos y vinos', 'Llenar la cubitera de hielo', 'Cortar cítricos y preparar guarniciones', 'Comprobar barril de cerveza y CO₂', 'Preparar premixes del día', 'Revisar cambio en la caja de barra'],
+    cierre: ['Vaciar, limpiar y apagar cafetera', 'Limpiar grifos de cerveza y bandejas', 'Vaciar y limpiar lavavasos', 'Guardar y etiquetar premixes y cítricos', 'Anotar botellas terminadas', 'Limpiar barra, estantes y suelo', 'Sacar la basura y el vidrio', 'Cerrar caja de barra'],
+  },
+  Sala: {
+    apertura: ['Abrir y ventilar el local', 'Montar mesas: cubiertos, copas y servilletas', 'Revisar que las cartas estén limpias y completas', 'Comprobar las reservas del turno y bloquear mesas', 'Encender música, luces y climatización', 'Revisar baños: papel, jabón y limpieza', 'Cargar las tablets y comprobar la impresora', 'Reunión de 5 minutos: sugerencias y platos agotados'],
+    cierre: ['Recoger y limpiar todas las mesas', 'Reponer cubiertos, copas y servilletas', 'Barrer y fregar la sala', 'Limpiar baños', 'Apagar música, luces y climatización', 'Poner las tablets a cargar', 'Comprobar ventanas y cerrar con llave'],
+  },
+  Cocina: {
+    apertura: ['Encender planchas, fuegos y freidoras', 'Comprobar y anotar temperaturas de cámaras', 'Revisar la mise en place de cada partida', 'Comprobar caducidades y etiquetas', 'Recibir y revisar el pedido del día', 'Encender la campana extractora', 'Avisar a sala de los platos agotados'],
+    cierre: ['Filtrar o cambiar el aceite de las freidoras', 'Etiquetar y guardar elaboraciones', 'Limpiar planchas, fuegos y superficies', 'Vaciar y limpiar el tren de lavado', 'Fregar el suelo de cocina', 'Sacar la basura y el orgánico', 'Apagar gas y campana', 'Hacer el pedido para mañana'],
+  },
+  Terraza: {
+    apertura: ['Sacar y montar mesas y sillas', 'Abrir toldos o sombrillas', 'Limpiar mesas y ceniceros', 'Encender estufas si hace falta'],
+    cierre: ['Recoger mesas, sillas y sombrillas', 'Barrer la terraza', 'Apagar y guardar estufas', 'Candar el mobiliario'],
+  },
+}
+
+const NOMBRES_RESERVA = ['Anna Puig', 'Marc Torres', 'Familia Llorens', 'Sophie Martin', 'Javier Ortega', 'Laia Font', 'Thomas Becker', 'Empresa Nexo', 'Clara Domènech', 'Giulia Rossi']
+
+// Lunes de esta semana (UTC), para la planificación de personal
+const lunes = (() => {
+  const d = new Date()
+  const hoy = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
+  hoy.setUTCDate(hoy.getUTCDate() - ((hoy.getUTCDay() + 6) % 7))
+  return hoy
+})()
+const diaUtc = (desplazamiento: number) => {
+  const d = new Date()
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + desplazamiento))
+}
+
 // [número, tipo, x, y, capacidad, rotación, ancho, alto]
 type MesaDef = [number, string, number, number, number, number, number, number]
 const cuadricula = (desde: number, columnas: number, filas: number, x0: number, y0: number, capacidad: number): MesaDef[] =>
@@ -169,7 +260,7 @@ async function main() {
     await prisma.menuCategoria.create({ data: { grupo, nombre: categoria, icono, orden: i } })
     for (const [j, [nombre, precio, descripcion, alergenos]] of items.entries()) {
       await prisma.menuItem.create({
-        data: { categoria, nombre, precio, descripcion, orden: j, alergenos: { connect: alergenos.map(a => ({ id: alergenoId.get(a) as number })) } },
+        data: { categoria, nombre, precio, descripcion, ficha: FICHAS[nombre] ?? '', orden: j, alergenos: { connect: alergenos.map(a => ({ id: alergenoId.get(a) as number })) } },
       })
       platos.push({ nombre, precio, tipo: grupo === 'Bebidas' ? 'barra' : 'cocina' })
     }
@@ -184,9 +275,32 @@ async function main() {
     data: [
       { categoriaId: bienvenida.id, titulo: 'Recibir a la mesa', orden: 0, notas: 'Siempre en el primer minuto. Ofrecer agua y explicar que las tapas son para compartir.', guiones: { en: 'Welcome to Traga Agua! Our dishes are made to share. Can I bring you some water while you look at the menu?' } },
       { categoriaId: bienvenida.id, titulo: 'Recomendar la carta', orden: 1, notas: 'Proponer 2 tapas por persona y un plato del mar para el centro.', guiones: { en: 'For two people I would suggest four tapas and one dish from the sea to share. The grilled octopus is our favourite.' } },
+      { categoriaId: bienvenida.id, titulo: 'Despedir a la mesa', orden: 2, notas: 'Acompañar hasta la puerta si se puede. Mencionar la reseña solo si la experiencia fue buena.', guiones: { en: 'Thank you for coming! We hope you enjoyed it. If you did, a review would help us a lot. See you soon!' } },
+      { categoriaId: protocolos.id, titulo: 'Queja de un cliente', orden: 1, notas: 'Escuchar sin interrumpir, disculparse, ofrecer solución y avisar al encargado. Registrar la merma.', guiones: { en: 'I am very sorry about that. Let me fix it right away: I can bring you a new one or offer you something else.' } },
+      { categoriaId: protocolos.id, titulo: 'Cuenta dividida', orden: 2, notas: 'Preguntar antes de imprimir cómo quieren pagar. Con tarjeta, una operación por persona.', guiones: { en: 'Would you like to pay together or split the bill? I can divide it equally or by what each of you ordered.' } },
       { categoriaId: protocolos.id, titulo: 'Alergias', orden: 0, notas: 'Preguntar SIEMPRE al tomar nota. Ante la duda, consultar con cocina antes de confirmar.', guiones: { en: 'Does anyone at the table have an allergy or intolerance? I will check every dish with the kitchen.' } },
     ],
   })
+
+  // Inventario común
+  const productos: { id: number; minimo: number }[] = []
+  const premixes: { id: number; nombre: string }[] = []
+  for (const [i, [categoria, produce, items]] of INVENTARIO.entries()) {
+    const c = await prisma.inventarioCategoria.create({ data: { nombre: categoria, orden: i, personalProduccion: produce } })
+    for (const [j, [nombre, unidad, stockMinimo, precioCoste, precioVenta]] of items.entries()) {
+      const prod = await prisma.inventarioProducto.create({ data: { categoriaId: c.id, nombre, unidad, stockMinimo, precioCoste, precioVenta, orden: j } })
+      productos.push({ id: prod.id, minimo: stockMinimo })
+      if (produce) premixes.push({ id: prod.id, nombre })
+    }
+  }
+
+  // Tipos de turno del personal, comunes al grupo
+  const tipoTurno = {
+    completo: await prisma.turnoTipo.create({ data: { nombre: 'Jornada', horaInicio: '12:00', horaFin: '20:00', horas: 8, color: '#6366f1' } }),
+    noche: await prisma.turnoTipo.create({ data: { nombre: 'Noche', horaInicio: '17:00', horaFin: '01:00', horas: 8, color: '#0ea5e9' } }),
+    tarde: await prisma.turnoTipo.create({ data: { nombre: 'Tarde', horaInicio: '18:00', horaFin: '00:00', horas: 6, color: '#f59e0b' } }),
+    refuerzo: await prisma.turnoTipo.create({ data: { nombre: 'Refuerzo', horaInicio: '20:00', horaFin: '00:00', horas: 4, color: '#10b981' } }),
+  }
 
   let pin = 2100
   const resumen: string[] = []
@@ -204,23 +318,106 @@ async function main() {
     }
 
     const camareros: string[] = []
+    const plantilla: { id: number; horas: number }[] = []
     let encargado = ''
     let pinEncargado = ''
     for (const [nombre, tipo, rol] of local.personal) {
       const suPin = String(pin++)
-      await prisma.empleado.create({
-        data: { nombre, tipo, rol, pin: suPin, restaurantId: r.id, horasSemanales: elegir([40, 40, 30, 20]), email: `${nombre.toLowerCase().normalize('NFD').replace(/[^a-z ]/g, '').replace(/ /g, '.')}@demo.oido` },
+      const horas = rol === 'encargado' || rol === 'jefe_cocina' ? 40 : elegir([40, 40, 30, 20])
+      const emp = await prisma.empleado.create({
+        data: { nombre, tipo, rol, pin: suPin, restaurantId: r.id, horasSemanales: horas, email: `${nombre.toLowerCase().normalize('NFD').replace(/[^a-z ]/g, '').replace(/ /g, '.')}@demo.oido` },
       })
+      plantilla.push({ id: emp.id, horas })
       if (tipo === 'sala') camareros.push(nombre.split(' ')[0])
       if (rol === 'encargado') { encargado = nombre; pinEncargado = suPin }
     }
 
-    for (const [i, sector] of ['Barra', 'Sala'].entries()) {
-      const s = await prisma.checklistSector.create({ data: { restaurantId: r.id, nombre: sector, orden: i } })
-      const tareas: [string, string][] = sector === 'Barra'
-        ? [['apertura', 'Encender cafetera y lavavasos'], ['apertura', 'Reponer cámaras y hielo'], ['apertura', 'Cortar cítricos'], ['cierre', 'Vaciar y limpiar cafetera'], ['cierre', 'Inventario rápido de barriles'], ['cierre', 'Cerrar caja de barra']]
-        : [['apertura', 'Montar mesas y revisar cartas'], ['apertura', 'Comprobar reservas del turno'], ['apertura', 'Encender música y luces'], ['cierre', 'Recoger terraza'], ['cierre', 'Barrer y fregar sala'], ['cierre', 'Apagar luces y climatización']]
-      await prisma.checklistItem.createMany({ data: tareas.map(([momento, texto], orden) => ({ sectorId: s.id, momento, texto, orden })) })
+    // Planificación de personal: esta semana y la siguiente. Dos días libres seguidos por persona,
+    // escalonados; el turno depende de sus horas de contrato.
+    await prisma.staffingConfig.create({ data: { restaurantId: r.id } })
+    const cuenta = (rol: string) => local.personal.filter(p => p[2] === rol).length
+    await prisma.staffingNecesidadDia.createMany({
+      data: Array.from({ length: 7 }, (_, dia) => ({
+        restaurantId: r.id, diaSemana: dia,
+        encargados: 1, camareros: Math.max(1, cuenta('camarero') - (dia < 4 ? 1 : 0)),
+        jefeCocina: 1, cocineros: Math.min(1, cuenta('cocinero')), friegaplatos: Math.min(1, cuenta('friegaplatos')),
+      })),
+    })
+    for (const [i, emp] of plantilla.entries()) {
+      const libre = (i * 2) % 7 // primer día libre; el segundo es el siguiente
+      const tipo = emp.horas >= 40 ? (i % 2 ? tipoTurno.noche : tipoTurno.completo) : emp.horas >= 30 ? tipoTurno.tarde : tipoTurno.refuerzo
+      for (let dia = 0; dia < 14; dia++) {
+        if (dia % 7 === libre || dia % 7 === (libre + 1) % 7) continue
+        const fecha = new Date(lunes); fecha.setUTCDate(fecha.getUTCDate() + dia)
+        await prisma.turnoEmpleado.create({
+          data: { restaurantId: r.id, empleadoId: emp.id, tipoId: tipo.id, fecha, horaInicio: tipo.horaInicio, horaFin: tipo.horaFin, estado: dia < 7 ? 'confirmado' : 'planificado' },
+        })
+      }
+    }
+
+    // Checklists de apertura y cierre por sector, con lo ya hecho hoy y el cierre de ayer
+    const sectores = ['Barra', 'Sala', 'Cocina', ...(local.plantas.length > 1 ? ['Terraza'] : [])]
+    for (const [i, sector] of sectores.entries()) {
+      const sec = await prisma.checklistSector.create({ data: { restaurantId: r.id, nombre: sector, orden: i } })
+      const t = TAREAS[sector]
+      await prisma.checklistItem.createMany({
+        data: [...t.apertura.map((texto, orden) => ({ sectorId: sec.id, momento: 'apertura', texto, orden })), ...t.cierre.map((texto, orden) => ({ sectorId: sec.id, momento: 'cierre', texto, orden }))],
+      })
+      // la apertura de hoy (alguno deja una tarea sin hacer) y el cierre de anoche
+      const quien = sector === 'Cocina' ? local.personal.find(p => p[1] === 'cocina')![0] : elegir(camareros)
+      await prisma.checklistEjecucion.create({
+        data: { sectorId: sec.id, restaurantId: r.id, momento: 'apertura', completadoPor: quien, fecha: hace(235 - i * 6), itemsMarcados: t.apertura.map((texto, n) => ({ texto, marcado: !(i === 1 && n === 5) })) },
+      })
+      await prisma.checklistEjecucion.create({
+        data: { sectorId: sec.id, restaurantId: r.id, momento: 'cierre', completadoPor: quien, fecha: hace(1440 - 60 + i * 5), itemsMarcados: t.cierre.map(texto => ({ texto, marcado: true })) },
+      })
+    }
+
+    // Menús de grupo y dos grupos agendados
+    const plantillas = []
+    for (const [nombre, precio, paxPorRacion, cursos] of MENUS_GRUPO) {
+      plantillas.push(await prisma.grupoMenuTemplate.create({
+        data: { restaurantId: r.id, nombre, precio, paxPorRacion, niveles: cursos.map(([curso, platosCurso, esPostre], n) => ({ nivel: n + 1, nombre: curso, platos: platosCurso, esPostre })) },
+      }))
+    }
+    await prisma.grupoAgendado.create({ data: { restaurantId: r.id, templateId: plantillas[1].id, fecha: diaUtc(0), pax: 14, restricciones: { normales: 11, vegetarianos: 2, sinCerdo: 0, sinGluten: 1 }, notas: 'Cena de empresa. Llegan a las 21:00.' } })
+    await prisma.grupoAgendado.create({ data: { restaurantId: r.id, templateId: plantillas[2].id, fecha: diaUtc(3), pax: 22, restricciones: { normales: 18, vegetarianos: 3, sinCerdo: 1, sinGluten: 0 }, notas: 'Cumpleaños. Traen tarta: cobrar descorche.' } })
+
+    // Inventario: dos conteos (hace una semana y ayer) para poder comparar consumo y costes
+    for (const [dias, factor] of [[7, 1], [1, 0.55]] as const) {
+      await prisma.inventarioConteo.create({
+        data: {
+          restaurantId: r.id, fecha: hace(dias * 1440), creadoPor: encargado, cerrado: true, notas: dias === 7 ? 'Conteo semanal' : 'Conteo antes del pedido',
+          items: { create: productos.map(p => ({ productoId: p.id, cantidad: Math.max(0, Math.round((p.minimo * (1.4 + azar()) * factor) * 2) / 2) })) },
+        },
+      })
+    }
+    for (const premix of premixes) {
+      await prisma.inventarioProduccion.create({ data: { restaurantId: r.id, productoId: premix.id, cantidad: entre(2, 5), unidad: 'l', creadoPor: elegir(camareros), fecha: hace(entre(200, 1500)), notas: '' } })
+    }
+
+    // Reservas: horarios de comida y cena, las de hoy y algunas de mañana
+    const reservaConfig = await prisma.reservaConfig.create({
+      data: { restaurantId: r.id, slug: local.nombre.toLowerCase().normalize('NFD').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''), maxPaxPorSlot: 20, duracionMin: 90, diasAntelacion: 30 },
+    })
+    await prisma.reservaHorario.createMany({
+      data: [
+        { configId: reservaConfig.id, nombre: 'Comida', diasSemana: [1, 2, 3, 4, 5, 6, 7], horaInicio: '13:00', horaFin: '15:30', intervaloMin: 30, maxPax: 20 },
+        { configId: reservaConfig.id, nombre: 'Cena', diasSemana: [1, 2, 3, 4, 5, 6, 7], horaInicio: '20:00', horaFin: '22:30', intervaloMin: 30, maxPax: 24 },
+      ],
+    })
+    const horas = ['13:30', '14:00', '20:00', '20:30', '21:00', '21:30', '22:00']
+    for (let n = 0; n < 9; n++) {
+      const enPool = n === 4
+      await prisma.reserva.create({
+        data: {
+          restaurantId: r.id, configId: reservaConfig.id, fecha: diaUtc(n < 6 ? 0 : 1), hora: horas[n % horas.length], pax: entre(2, 8),
+          nombre: NOMBRES_RESERVA[(n + r.id) % NOMBRES_RESERVA.length], telefono: `600 000 ${String(100 + n * 7 + r.id)}`,
+          notas: n === 1 ? 'Aniversario, mesa tranquila' : n === 3 ? 'Un celíaco' : null, origen: n % 3 === 0 ? 'admin' : 'web',
+          estado: n === 5 ? 'cancelada' : 'confirmada',
+          ...(enPool ? { enPool: true, poolMotivo: 'No nos queda mesa para 8 a esa hora', poolDesde: hace(40), restaurantIdOrigen: r.id } : {}),
+        },
+      })
     }
 
     // Una comanda con platos y bebidas al azar, proporcional a los comensales
@@ -285,11 +482,25 @@ async function main() {
     for (const [i, m] of ocupadas.entries()) {
       await crearComanda(m.id, entre(1, m.capacidad), entre(8, 55), i === 0 ? 'facturada' : i === 1 ? 'abierta' : 'enviada')
     }
+    // Mermas: las de hoy y algunas de los días anteriores
+    for (const [n, [itemNombre, motivo, descripcion]] of MERMAS.entries()) {
+      const plato = platos.find(p => p.nombre === itemNombre)!
+      await prisma.merma.create({
+        data: {
+          restaurantId: r.id, mesaNumero: entre(1, 9), planNombre: local.plantas[0].nombre, itemNombre, cantidad: n === 2 ? 2 : 1, precio: plato.precio,
+          itemNivel: plato.tipo === 'barra' ? 1 : entre(1, 2), camareroNombre: elegir(camareros), motivo, descripcion,
+          createdAt: hace(n < 3 ? entre(20, 220) : entre(1, 2) * 1440 + entre(0, 300)),
+        },
+      })
+    }
+
     resumen.push(`  ${local.nombre}: ${mesas.length} mesas, ${local.personal.length} empleados, ${ventasHoy.toFixed(0)} € cobrados hoy, ${ocupadas.length} mesas ocupadas · encargado/a ${encargado}, PIN ${pinEncargado}`)
   }
 
   console.log('\nDemo cargada: grupo "Traga Agua" con 3 restaurantes.\n' + resumen.join('\n'))
-  console.log(`\nCarta: ${platos.length} platos y bebidas en ${CARTA.length} categorías, con alérgenos. Wiki y checklists de apertura y cierre incluidos.`)
+  console.log(`\nCarta: ${platos.length} platos y bebidas en ${CARTA.length} categorías, con alérgenos y ficha de estudio.`)
+  console.log('También: mermas, checklists por sector con lo hecho hoy, 3 menús de grupo y 2 grupos agendados, inventario con dos conteos,')
+  console.log('planificación de personal de esta semana y la próxima, reservas de hoy y mañana (una en el pool), y la wiki.')
   console.log('Los PIN del personal van del 2100 en adelante, por orden. Todo es inventado.\n')
 }
 

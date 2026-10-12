@@ -604,7 +604,7 @@ function TabConfiguracion({ restaurantes }: { restaurantes: Restaurante[] }) {
                   type="text"
                   value={configForm.slug}
                   onChange={(e) => setConfigForm({ ...configForm, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') })}
-                  placeholder="ej: sensi-gracia"
+                  placeholder="ej: mi-restaurante-centro"
                   className="w-full bg-gray-700 text-white rounded-lg px-3 py-2 text-sm border border-gray-600 focus:outline-none focus:border-cyan-500"
                 />
                 {publicUrl && (
