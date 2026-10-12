@@ -246,9 +246,16 @@ async function main() {
     yo = { nombre, pin: suPin, email: email || null }
   }
 
-  const empresa = await prisma.empresaConfig.findFirst()
-  const esDemo = Boolean(empresa?.razonSocial.endsWith(MARCA_DEMO))
-  let yaHay = await prisma.restaurant.count()
+  // ¿Lo que hay es una demo de este script? Dos señales, cualquiera vale: la marca en la razón
+  // social (en cualquier fila: una instalación puede tener otra creada vacía de antes), o que los
+  // restaurantes sean exactamente los de la demo.
+  const empresas = await prisma.empresaConfig.findMany()
+  const locales = await prisma.restaurant.findMany({ select: { nombre: true } })
+  const nombresDemo = new Set(LOCALES.map(l => l.nombre))
+  const esDemo =
+    empresas.some(e => e.razonSocial.endsWith(MARCA_DEMO)) ||
+    (locales.length > 0 && locales.every(l => nombresDemo.has(l.nombre)))
+  let yaHay = locales.length
   const reiniciar = process.argv.includes('--reiniciar')
   if (yaHay > 0 && reiniciar && !esDemo) throw new Error('Lo que hay en esta base no es una demo cargada por este script: no la vacío.')
   // Se vacía si se pidió, o si quedó una demo a medias de un intento que falló.
@@ -267,7 +274,7 @@ async function main() {
 
   // La configuración de empresa es una sola fila: si la instalación ya la creó vacía, se rellena esa
   const datosEmpresa = { razonSocial: `Traga Agua Hostelería S.L. ${MARCA_DEMO}`, nif: 'B00000000', tasaIva: 10, mensajePie: 'Gracias por tu visita · Servicio no incluido' }
-  const existente = await prisma.empresaConfig.findFirst()
+  const existente = await prisma.empresaConfig.findFirst({ orderBy: { id: 'asc' } })
   if (existente) await prisma.empresaConfig.update({ where: { id: existente.id }, data: datosEmpresa })
   else await prisma.empresaConfig.create({ data: datosEmpresa })
 
