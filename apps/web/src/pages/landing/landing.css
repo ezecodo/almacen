@@ -1324,6 +1324,30 @@
   gap: 20px;
   grid-auto-rows: 380px;
 }
+.landing-root .modules-mas {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 36px;
+}
+.landing-root .modules-mas-label {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-right: 8px;
+}
+.landing-root .modules-mas-chip {
+  padding: 9px 16px;
+  border-radius: 999px;
+  background: var(--white);
+  border: 1px solid rgba(10, 18, 40, 0.08);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
 .landing-root .module-card {
   grid-column: span 2;
   display: flex;

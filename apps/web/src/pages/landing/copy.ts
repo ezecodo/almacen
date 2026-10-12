@@ -176,8 +176,10 @@ export const copy = {
   modules: {
     eyebrow: 'El menú completo',
     headlineLine1: 'Una plataforma.',
-    headlineLine2: { before: '', accent: 'Seis módulos', after: 'sin cuotas extra.' } as AccentTitle,
+    headlineLine2: { before: '', accent: 'Todo tu restaurante,', after: 'sin cuotas extra.' } as AccentTitle,
     body: 'Empieza con sala y cocina. Activa el resto cuando lo necesites. Todo funciona con los mismos datos — sin doble entrada, sin export/import, sin Excel a final de mes.',
+    masLabel: 'Y además, incluido',
+    mas: ['Carta y alérgenos', 'Escandallos', 'Menús de grupo', 'Reservas', 'Fichas de personal', 'Wiki del equipo', 'Checklists de apertura y cierre', 'Facturas de proveedor', 'Almacén', 'Pulso para el dueño', 'Tickets e impresión'],
     cards: [
       {
         num: '01',
@@ -190,22 +192,22 @@ export const copy = {
       {
         num: '02',
         tag: 'Operación',
-        title: 'Cocina · KDS',
-        body: 'Tickets por salidas, alertas de tiempo. Marca «listo» y la sala lo ve.',
+        title: 'Cocina y barra',
+        body: 'Cada comanda sale impresa donde toca, ordenada por salidas. La marcha pasa, con un toque.',
         visual: 'cocina' as const,
       },
       {
         num: '03',
         tag: 'Equipo',
         title: 'Planning',
-        body: 'Turnos, cobertura, vacaciones, fichajes. Cuadrante semanal arrastrable.',
+        body: 'Cuadrante semanal por local, horas de contrato y días libres. Con planificación automática.',
         visual: 'planning' as const,
       },
       {
         num: '04',
         tag: 'Stock',
         title: 'Inventario',
-        body: 'Sala y cocina. Descuento automático al cobrar. Alertas bajo mínimo.',
+        body: 'Conteos por local, consumo y coste entre dos conteos. Avisos bajo mínimo.',
         visual: 'inventario' as const,
       },
       {
@@ -220,7 +222,7 @@ export const copy = {
         num: '06',
         tag: 'Cierre',
         title: 'Caja & propinas',
-        body: 'Cierre del turno, propinas por camarero, export a tu contable en 1 clic.',
+        body: 'Cierre de turno con efectivo, tarjeta, mermas e invitaciones. Propinas repartidas por horas.',
         visual: 'caja' as const,
       },
     ],

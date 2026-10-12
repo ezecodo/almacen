@@ -48,6 +48,13 @@ export function ModulesSection() {
             />
           ))}
         </div>
+
+        <div className="modules-mas">
+          <span className="modules-mas-label">{c.masLabel}</span>
+          {c.mas.map((m) => (
+            <span key={m} className="modules-mas-chip">{m}</span>
+          ))}
+        </div>
       </div>
     </section>
   )
