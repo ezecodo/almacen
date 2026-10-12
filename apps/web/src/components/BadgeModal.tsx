@@ -3,7 +3,7 @@ import { useMutation } from '@tanstack/react-query'
 import { api, Empleado, Restaurante } from '../api'
 
 // Dar un badge de Oído Talent a un empleado, a nombre del restaurante. Lo firma el back-office de
-// Oído y le llega al empleado por correo, con el enlace para descargar el QR de su CV.
+// Oído y le llega al empleado por correo, con el QR de su CV adjunto (solo se entrega así).
 // BASIC = cumplió; GOLD = superó las expectativas (exige tener ya un BASIC de cualquier local).
 
 const PUESTO: Record<string, string> = {
@@ -54,7 +54,7 @@ export default function BadgeModal({ empleado, restaurantes, onClose }: { emplea
             <h2 className="text-lg font-bold text-gray-900">Badge {dar.data.codigo} emitido</h2>
             <p className="text-sm text-gray-500">
               {dar.data.avisado
-                ? <>Le hemos enviado un correo a <b>{f.email}</b> con el enlace para verlo y descargar el QR para su CV.</>
+                ? <>Le hemos enviado un correo a <b>{f.email}</b> con su badge y el código QR adjunto, para que lo ponga en su CV.</>
                 : 'No pudimos avisarle por correo. Pásale tú este enlace:'}
             </p>
             <a href={dar.data.url} target="_blank" rel="noreferrer" className="block break-all text-sm font-semibold text-cyan-600">{dar.data.url}</a>
