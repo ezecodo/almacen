@@ -69,6 +69,15 @@ async function start() {
 
   app.get('/health', async () => ({ status: 'ok', timestamp: new Date() }))
 
+  // "Acá hay una instalación de OidoOps". El frontend lo usa para saber si está en la instalación
+  // de un cliente o en la vidriera (que es el mismo build servido sin API detrás), y la vidriera
+  // para comprobar que un grupo existe antes de mandar a alguien a su dirección — por eso
+  // responde a cualquier origen. No lleva ningún dato del cliente.
+  app.get('/api/instalacion', async (_req, reply) => {
+    reply.header('Access-Control-Allow-Origin', '*')
+    return { ok: true }
+  })
+
   const port = Number(process.env.PORT) || 3001
   // Nginx le habla por localhost:3001 (ver /etc/nginx/sites-available/almacen) — en producción
   // debe ir a loopback (HOST=127.0.0.1 en .env) para no exponer la API directo a internet.

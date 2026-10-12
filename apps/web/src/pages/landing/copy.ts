@@ -23,7 +23,7 @@ export const copy = {
       { label: 'Contacto', href: '#contacto' },
     ],
     access: 'Acceder',
-    accessHref: '/acceder',
+    accessHref: '/entrar',
     cta: 'Probar gratis',
   },
 

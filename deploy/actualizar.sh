@@ -28,7 +28,7 @@ actualizar_una() {
 }
 
 main() {
-  local solo="${1:-}" hechas=() fallidas=()
+  local solo="${1:-}" hechas=() fallidas=() build_listo=""
   asegurar_registro
 
   while read -r codigo carpeta proceso _puerto web _dominio; do
@@ -38,11 +38,17 @@ main() {
     # En subshell: un fallo corta esta instalación, no el recorrido
     if (actualizar_una "$carpeta" "$proceso" "$web") < /dev/null; then
       hechas+=("$codigo")
+      [ -z "$build_listo" ] && build_listo="$carpeta/apps/web/dist"
     else
       fallidas+=("$codigo")
       echo "✗ $codigo falló — sigue con la versión que tenía si no llegó a reiniciar"
     fi
   done < <(instalaciones)
+
+  # La vidriera es el mismo frontend: se refresca con el build de la primera que salió bien
+  if [ -d "$WEB_VIDRIERA" ] && [ -n "$build_listo" ]; then
+    cp -r "$build_listo"/* "$WEB_VIDRIERA"/ && echo && echo "Vidriera actualizada"
+  fi
 
   echo
   echo "Actualizadas: ${hechas[*]:-ninguna}"

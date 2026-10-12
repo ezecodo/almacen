@@ -21,7 +21,6 @@ REPO_REFERENCIA="${OIDOOPS_REPO_REFERENCIA:-/root/almacen}"
 RAIZ="${OIDOOPS_RAIZ:-/root/oidoops}"
 PRIMER_PUERTO=3101
 
-morir() { echo "✗ $*" >&2; exit 1; }
 sql() { runuser -u postgres -- psql -v ON_ERROR_STOP=1 -tAc "$1"; }
 
 main() {
@@ -32,7 +31,7 @@ main() {
   [ "$(id -u)" -eq 0 ] || morir "Hay que correrlo como root"
 
   local carpeta="$RAIZ/$codigo" proceso="oidoops-$codigo" web="/var/www/oidoops-$codigo"
-  local base="oidoops_${codigo//-/_}" sitio="/etc/nginx/sites-available/oidoops-$codigo"
+  local base="oidoops_${codigo//-/_}" sitio="$NGINX/sites-available/oidoops-$codigo"
 
   # Nada de esto puede existir ya: si algo quedó a medias de un intento anterior, se limpia a mano
   asegurar_registro
@@ -99,39 +98,11 @@ main() {
   echo "$codigo $carpeta $proceso $puerto $web $dominio" >> "$REGISTRO"
 
   echo "→ Nginx"
-  cat > "$sitio" <<NGINX
-server {
-    listen 80;
-    server_name $dominio;
-
-    location /api {
-        proxy_pass http://127.0.0.1:$puerto;
-        proxy_http_version 1.1;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-    }
-
-    location / {
-        root $web;
-        try_files \$uri \$uri/ /index.html;
-        # index.html nunca se cachea
-        location = /index.html {
-            add_header Cache-Control "no-cache, no-store, must-revalidate";
-        }
-    }
-}
-NGINX
-  ln -s "$sitio" "/etc/nginx/sites-enabled/oidoops-$codigo"
-  if ! nginx -t; then
-    rm -f "/etc/nginx/sites-enabled/oidoops-$codigo"
-    morir "La configuración de Nginx no es válida; quité el enlace para no afectar a los demás sitios. Revisar $sitio"
-  fi
-  systemctl reload nginx
+  escribir_sitio "oidoops-$codigo" "$dominio" "$puerto" "$web"
+  activar_sitio "oidoops-$codigo"
 
   local https="pendiente"
-  if certbot --nginx -d "$dominio" --non-interactive --redirect; then
-    https="ok"
-  fi
+  if certificado "$dominio"; then https="ok"; fi
 
   echo
   echo "════════ Instalación '$codigo' creada ════════"
