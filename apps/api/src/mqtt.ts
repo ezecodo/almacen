@@ -110,6 +110,13 @@ export function enviarOrden(piCodigo: string, orden: { accion: 'escanear' } | { 
   return true
 }
 
+// Vuelve a suscribirse para que el broker reenvíe los mensajes retenidos (estado e impresoras).
+// Hace falta cuando a esta instalación le asignan una Pi después de haberse conectado: en el momento
+// de suscribirse no tenía permiso sobre ella, y el broker no reparte de nuevo lo retenido por su cuenta.
+export function volverAPreguntar() {
+  client?.subscribe(['pi/+/estado', 'pi/+/impresoras'], { qos: 1 })
+}
+
 // Le dice a una Pi a dónde mandar su latido. Va retenido: la Pi lo recibe al conectarse aunque
 // se haya publicado antes. Con null se borra (Pi desvinculada).
 export function publicarConfigPi(piCodigo: string, config: { latido_url: string; token: string } | null): boolean {

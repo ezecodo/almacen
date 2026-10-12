@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto'
 import { prisma } from './server'
-import { impresorasDePi } from './mqtt'
+import { estadoDePi, impresorasDePi, volverAPreguntar } from './mqtt'
 import { anunciarLatido } from './routes/red'
 import { sincronizarImpresoras } from './routes/tickets'
 
@@ -49,6 +49,16 @@ export async function sincronizarConHQ() {
       await anunciarLatido(r.id)
       await sincronizarImpresoras(codigo, impresorasDePi(codigo)?.impresoras ?? [])
       console.log(`[hq] Pi ${codigo} vinculada a ${r.nombre}`)
+    }
+
+    // Una Pi recién asignada de la que todavía no se sabe nada: el permiso en el canal llega por otro
+    // camino (hasta un minuto después), así que se insiste hasta tener su estado — se vuelve a
+    // preguntar por ella y se le repite a dónde mandar el latido, que la primera vez pudo no pasar.
+    const sinNoticias = await prisma.restaurant.findMany({ where: { piCodigo: { not: null } }, select: { id: true, piCodigo: true } })
+    const pendientes = sinNoticias.filter(r => !estadoDePi(r.piCodigo as string))
+    if (pendientes.length > 0) {
+      volverAPreguntar()
+      for (const r of pendientes) await anunciarLatido(r.id)
     }
   } catch (err) {
     console.error('[hq] no se pudo sincronizar con el back-office:', (err as Error).message)
