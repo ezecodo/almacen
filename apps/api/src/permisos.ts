@@ -59,8 +59,8 @@ export const RUTAS_SALA = new Set([
   // facturas de proveedor (cada ruta comprueba además que sea encargado)
   'GET /api/facturas', 'POST /api/facturas', 'GET /api/facturas/proveedores', 'GET /api/facturas/:id/paginas/:n',
   'POST /api/facturas/:id/paginas', 'PATCH /api/facturas/:id/enviar', 'DELETE /api/facturas/:id',
-  // en qué red está el dispositivo, y autorizarla a mano (solo encargado)
-  'GET /api/red/estado', 'POST /api/red/autorizar',
+  // en qué red está el dispositivo
+  'GET /api/red/estado',
   // propinas propias, almacén y validación de retiros
   'GET /api/propinas/mis-turnos',
   'GET /api/producto/:barcode', 'POST /api/retiros', 'PATCH /api/retiros/:id/confirmar',
@@ -71,7 +71,6 @@ export const SOLO_ENCARGADO = new Set([
   'PATCH /api/comandas/:id/cerrar',   // cobrar
   'POST /api/turnos',                 // abrir turno
   'PATCH /api/turnos/:id/cerrar',     // cerrar turno
-  'POST /api/red/autorizar',          // autorizar la red donde está, por unas horas
 ])
 
 // ── Dónde está el dispositivo ────────────────────────────────────────────────────────────────
@@ -86,9 +85,8 @@ export const CONSULTA_SALA = new Set([
   'GET /api/propinas/mis-turnos',
 ])
 
-// Además, el encargado: reviews y reservas (solo verlas), y autorizar la red donde está
+// Además, el encargado: reviews y reservas (solo verlas)
 export const CONSULTA_ENCARGADO = new Set([
   'GET /api/reviews', 'GET /api/reviews/historial', 'GET /api/reviews/turno',
   'GET /api/reservas', 'GET /api/reservas/pool',
-  'POST /api/red/autorizar',
 ])

@@ -4057,11 +4057,6 @@ export default function SalaMesasPage() {
   // ¿El dispositivo está en la red del local? Solo importa si el local la exige (ver /admin/red)
   const { data: redEstado } = useQuery({ queryKey: ['red-estado'], queryFn: api.red.estado, enabled: !!camarero, refetchInterval: 60_000 })
   const fueraDelLocal = redEstado?.restringido === true && !redEstado.enLocal
-  const [armadoAutorizar, setArmadoAutorizar] = useState(false)
-  const autorizarRed = useMutation({
-    mutationFn: api.red.autorizar,
-    onSuccess: () => { setArmadoAutorizar(false); queryClient.invalidateQueries() },
-  })
   const [menuGrupo, setMenuGrupo] = useState<{ mesa: Mesa; pax: number } | null>(null)
   const [isDark, setIsDark] = useState(() => localStorage.getItem('sala_theme') !== 'light')
   const toggleTheme = () => setIsDark(d => {
@@ -4235,31 +4230,6 @@ export default function SalaMesasPage() {
             Salir
           </button>
         </div>
-        {esEncargado && (
-          <div className="mt-8 max-w-xs">
-            {!armadoAutorizar ? (
-              <button onClick={() => setArmadoAutorizar(true)} className="text-[var(--sala-tx3)] text-xs underline">
-                ¿Estás en el local y no te deja? Autorizar esta red
-              </button>
-            ) : (
-              <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4">
-                <p className="text-[var(--sala-txt)] text-sm mb-3">
-                  Durante 16 horas se podrá operar {restaurant.nombre} desde la red a la que estás conectado ahora. Queda registrado a tu nombre.
-                </p>
-                <div className="flex gap-2">
-                  <button onClick={() => autorizarRed.mutate()} disabled={autorizarRed.isPending}
-                    className="flex-1 py-3 rounded-xl bg-amber-500 text-white font-black text-sm disabled:opacity-50">
-                    {autorizarRed.isPending ? 'Autorizando…' : 'Autorizar'}
-                  </button>
-                  <button onClick={() => setArmadoAutorizar(false)} className="flex-1 py-3 rounded-xl bg-[var(--sala-btn2)] text-[var(--sala-txt)] font-black text-sm">
-                    Cancelar
-                  </button>
-                </div>
-                {autorizarRed.isError && <p className="text-red-400 text-xs mt-2">{(autorizarRed.error as Error).message}</p>}
-              </div>
-            )}
-          </div>
-        )}
         {showWiki && <WikiPanel restaurantId={restaurant.id} onClose={() => setShowWiki(false)} />}
         {showPerfil && (
           <PerfilPanel

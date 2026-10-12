@@ -47,7 +47,7 @@ function Local({ r, tuIp }: { r: RedAdmin['restaurantes'][number]; tuIp: string 
                 <span className="font-mono text-gray-900">{x.ip}</span>
                 {x.ip === tuIp && <span className="ml-2 text-xs font-semibold text-cyan-600">donde estás ahora</span>}
                 <p className="text-gray-400">
-                  {x.origen === 'pi' ? `La informa la Pi · último latido ${haceCuanto(x.vistaAt)}` : `Autorizada a mano por ${x.autorizadaPor ?? 'un encargado'} ${haceCuanto(x.vistaAt)}`}
+                  La informa la Pi · último latido {haceCuanto(x.vistaAt)}
                   {!x.vigente && ' · caducada'}
                 </p>
               </div>

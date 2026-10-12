@@ -55,8 +55,7 @@ model Restaurant {
 }
 
 // Redes desde las que se puede operar la sala de un restaurante: la dirección pública con la
-// que el local sale a internet. La aprende sola del latido de la Pi (origen 'pi') o la autoriza
-// un encargado por unas horas si la Pi no está (origen 'manual').
+// que el local sale a internet. La aprende sola del latido de la Pi; no se cargan a mano.
 model RedLocal {
   id             Int        @id @default(autoincrement())
   restaurantId   Int

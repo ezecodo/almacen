@@ -10,10 +10,10 @@ import { normalizarPiCodigo, onConectado, publicarConfigPi } from '../mqtt'
 // local, manda un latido cada minuto y se anota la dirección pública desde la que llega.
 // El PIN sigue siendo quién sos; la red es dónde estás.
 
-// Una red aprendida por la Pi vale una semana desde su último latido: si la Pi se apaga un rato,
-// el local sigue trabajando. Una autorizada a mano por un encargado, las horas que dure el servicio.
+// Una red vale una semana desde el último latido de la Pi: si la Pi se apaga un rato, el local
+// sigue trabajando. No hay forma de autorizar una red a mano (decisión de Eze, 2026-10-12): la red
+// la define la Pi. Si algo falla, el plan B es apagar el interruptor del local desde /admin/red.
 const VIGENCIA_PI_MS = 7 * 24 * 60 * 60 * 1000
-const VIGENCIA_MANUAL_MS = 16 * 60 * 60 * 1000
 
 // Nginx pone la dirección del visitante en X-Real-IP (y la pisa: no se puede falsear desde fuera)
 export const ipDe = (req: FastifyRequest) => String(req.headers['x-real-ip'] ?? req.ip)
@@ -48,10 +48,8 @@ export async function algunRestringido(): Promise<boolean> {
   return valor
 }
 
-function vigente(red: { origen: string; vistaAt: Date; caducaAt: Date | null }, ahora = Date.now()) {
-  return red.origen === 'manual'
-    ? Boolean(red.caducaAt && red.caducaAt.getTime() > ahora)
-    : ahora - red.vistaAt.getTime() < VIGENCIA_PI_MS
+function vigente(red: { origen: string; vistaAt: Date }, ahora = Date.now()) {
+  return red.origen === 'pi' && ahora - red.vistaAt.getTime() < VIGENCIA_PI_MS
 }
 
 // Le dice a la Pi vinculada a un restaurante a dónde mandar el latido (o se lo borra)
@@ -114,27 +112,6 @@ export async function redRoutes(app: FastifyInstance) {
     }
   })
 
-  // POST /red/autorizar — el encargado autoriza la red donde está, por si la Pi no está (se rompió,
-  // todavía no llegó) o el local salió a internet por otro lado. Solo encargado (ver permisos.ts).
-  app.post('/red/autorizar', async (req, reply) => {
-    const restaurantId = req.user.restaurantId
-    if (!restaurantId) return reply.status(400).send({ error: 'Vuelve a entrar con tu PIN desde este dispositivo' })
-    const ip = ipDe(req)
-    const caducaAt = new Date(Date.now() + VIGENCIA_MANUAL_MS)
-    const existente = await prisma.redLocal.findUnique({ where: { restaurantId_ip: { restaurantId, ip } } })
-    // Una red que ya informa la Pi no se degrada a manual
-    if (!existente || existente.origen === 'manual' || !vigente(existente)) {
-      await prisma.redLocal.upsert({
-        where: { restaurantId_ip: { restaurantId, ip } },
-        create: { restaurantId, ip, origen: 'manual', autorizadaPor: req.user.nombre, caducaAt },
-        update: { origen: 'manual', autorizadaPor: req.user.nombre, vistaAt: new Date(), caducaAt },
-      })
-    }
-    olvidar()
-    console.log(`[red] ${req.user.nombre} autorizó a mano una red para el restaurante ${restaurantId}`)
-    return { ok: true, caducaAt }
-  })
-
   // ── Panel de administración ──────────────────────────────────────────────────
 
   app.get('/admin/red', { preHandler: requireAdmin }, async (req) => {
@@ -156,7 +133,7 @@ export async function redRoutes(app: FastifyInstance) {
     if (!r) return reply.status(404).send({ error: 'Restaurante no encontrado' })
     // Sin ninguna red conocida, activarlo dejaría a todo el local sin poder trabajar
     if (body.data.restringirPorRed && !r.redes.some(x => vigente(x))) {
-      return reply.status(409).send({ error: 'Todavía no se conoce la red de este local: espera al latido de su Pi o autoriza una desde la app de sala.' })
+      return reply.status(409).send({ error: 'Todavía no se conoce la red de este local: aparece sola cuando su Pi está encendida y vinculada.' })
     }
     await prisma.restaurant.update({ where: { id: restaurantId }, data: { restringirPorRed: body.data.restringirPorRed } })
     olvidar()

@@ -957,7 +957,6 @@ export const api = {
   // Red del local: operar la sala solo desde la red del restaurante (la aprende el latido de la Pi)
   red: {
     estado: () => get<{ restaurantId: number | null; restringido: boolean; enLocal: boolean }>('/red/estado'),
-    autorizar: () => post<{ ok: true; caducaAt: string }>('/red/autorizar', {}),
     admin: () => authFetch('/admin/red').then(r => r.json() as Promise<RedAdmin>),
     restringir: (restaurantId: number, restringirPorRed: boolean) => authFetch(`/admin/red/${restaurantId}`, { method: 'PATCH', json: { restringirPorRed } }).then(() => undefined),
     quitarRed: (id: number) => authFetch(`/admin/red/redes/${id}`, { method: 'DELETE' }).then(() => undefined),
