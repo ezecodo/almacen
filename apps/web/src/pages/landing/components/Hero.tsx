@@ -24,17 +24,25 @@ export function HeroSection() {
           </span>
         </div>
 
-        <div className="hero-brand" style={{ marginBottom: 28 }}>
-          <LogoIntro size={132} />
-        </div>
+        {/* El logo, el titular y, a la derecha, la Oído Box: entra a la vez que el primer titular */}
+        <div className="hero-top">
+          <div className="hero-box" style={{ animationDelay: `${c.rotorStartDelayMs}ms` }} aria-hidden>
+            <div className="hero-box-halo" />
+            <img src="/oido-box.webp" alt="" width={760} height={484} />
+          </div>
 
-        <h1 className="h-display hero-headline">
-          <PairRotor
-            pairs={c.pairs}
-            intervalMs={c.rotorIntervalMs}
-            startDelay={c.rotorStartDelayMs}
-          />
-        </h1>
+          <div className="hero-brand" style={{ marginBottom: 28 }}>
+            <LogoIntro size={132} />
+          </div>
+
+          <h1 className="h-display hero-headline">
+            <PairRotor
+              pairs={c.pairs}
+              intervalMs={c.rotorIntervalMs}
+              startDelay={c.rotorStartDelayMs}
+            />
+          </h1>
+        </div>
 
         <div className="hero-bottom">
           <div className="hero-left in-view-fade-up in-view">
