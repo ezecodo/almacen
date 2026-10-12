@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import { conSesion } from '../api'
 
 export function useRestaurantEvents(restaurantId: number | null) {
   const queryClient = useQueryClient()
@@ -7,7 +8,7 @@ export function useRestaurantEvents(restaurantId: number | null) {
   useEffect(() => {
     if (!restaurantId) return
 
-    const es = new EventSource(`/api/events?restaurantId=${restaurantId}`)
+    const es = new EventSource(conSesion(`/api/events?restaurantId=${restaurantId}`))
 
     es.onmessage = (e) => {
       try {

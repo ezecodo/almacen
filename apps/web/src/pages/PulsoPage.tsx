@@ -209,6 +209,7 @@ export default function PulsoPage() {
 
   const salir = () => {
     sessionStorage.removeItem('pulso_auth')
+    sessionStorage.removeItem('pulso_token')
     // Recarga para volver a la pantalla del PIN de pulso (la raíz lleva al panel de admin)
     location.assign('/pulso')
   }

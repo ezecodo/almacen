@@ -1,11 +1,19 @@
 import { useState } from 'react'
 import { Outlet } from 'react-router-dom'
-import { api } from '../api'
+import { api, PULSO_TOKEN_KEY } from '../api'
 
 const STORAGE_KEY = 'pulso_auth'
 
+// Hay sesión si el servidor la firmó y no caducó
 function isAuthenticated() {
-  return sessionStorage.getItem(STORAGE_KEY) === 'true'
+  if (sessionStorage.getItem(STORAGE_KEY) !== 'true') return false
+  try {
+    const [, payload] = (sessionStorage.getItem(PULSO_TOKEN_KEY) ?? '').split('.')
+    const { exp } = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')))
+    return typeof exp === 'number' && exp * 1000 > Date.now()
+  } catch {
+    return false
+  }
 }
 
 function PinGate({ onSuccess }: { onSuccess: () => void }) {
@@ -19,7 +27,8 @@ function PinGate({ onSuccess }: { onSuccess: () => void }) {
     if (!pin || comprobando) return
     setComprobando(true)
     try {
-      await api.auth.pulso(pin)
+      const { token } = await api.auth.pulso(pin)
+      sessionStorage.setItem(PULSO_TOKEN_KEY, token)
       sessionStorage.setItem(STORAGE_KEY, 'true')
       onSuccess()
     } catch (err) {

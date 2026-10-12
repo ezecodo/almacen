@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import { conSesion } from '../api'
 
 // Escucha el canal SSE global (todos los restaurantes) solo para cambios del pool de reservas.
 // Usado en /sala (EncargadoPanel) — el resto de eventos de sala ya los cubre useRestaurantEvents.
@@ -7,7 +8,7 @@ export function usePoolEvents(restaurantId?: number) {
   const queryClient = useQueryClient()
 
   useEffect(() => {
-    const es = new EventSource('/api/events/global')
+    const es = new EventSource(conSesion('/api/events/global'))
 
     es.onmessage = (e) => {
       try {

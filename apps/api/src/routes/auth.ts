@@ -49,6 +49,7 @@ export async function authRoutes(app: FastifyInstance) {
   // PIN del panel del dueño (independiente del de admin)
   app.post('/pulso/auth', async (req, reply) => {
     if (!pinValido('PULSO_PIN', req.body, reply)) return reply
-    return { ok: true }
+    const token = app.jwt.sign({ tipo: 'pulso', nombre: 'Pulso', encargado: false }, { expiresIn: '12h' })
+    return { token }
   })
 }

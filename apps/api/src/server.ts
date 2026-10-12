@@ -32,6 +32,20 @@ import { iniciarMqtt, onImpresorasDetectadas } from './mqtt'
 const app = Fastify({ logger: true })
 export const prisma = new PrismaClient()
 
+// Lo único que responde sin sesión. Método + ruta tal como se declara (con el prefijo /api).
+const RUTAS_PUBLICAS = new Set([
+  'GET /api/instalacion',            // "acá hay un OidoOps" (vidriera y raíz del sitio)
+  'POST /api/admin/auth',            // los tres logins
+  'POST /api/pulso/auth',
+  'POST /api/empleados/auth',
+  'GET /api/restaurantes',           // elegir el local al configurar un dispositivo de sala (solo nombres)
+  'GET /api/reservas/publica/config', // formulario público de reservas
+  'GET /api/reservas/publica/slots',
+  'POST /api/reservas/publica',
+  'GET /api/retiros/:id',            // lo que abre el QR de un retiro
+  'POST /api/reviews/sync',          // cron: se valida con SYNC_SECRET
+])
+
 // Copia de un resultado sin ninguna clave `pin`, a cualquier profundidad
 function sinPin(valor: unknown): unknown {
   if (Array.isArray(valor)) return valor.map(sinPin)
@@ -52,6 +66,24 @@ async function start() {
   // sesiones firmadas se invalidan en cada reinicio de la API.
   if (!process.env.JWT_SECRET) app.log.warn('JWT_SECRET no configurado — usando secreto efímero')
   await app.register(jwt, { secret: process.env.JWT_SECRET || randomBytes(32).toString('hex') })
+
+  // Toda la API exige sesión (de empleado, de admin o de Pulso). Solo lo de esta lista responde
+  // sin ella, y está acá a propósito: una ruta nueva nace cerrada.
+  app.addHook('onRequest', async (req, reply) => {
+    const ruta = req.routeOptions?.url
+    if (!ruta || !ruta.startsWith('/api/') || req.method === 'OPTIONS') return
+    if (RUTAS_PUBLICAS.has(`${req.method} ${ruta}`)) return
+    // EventSource no puede mandar cabeceras: los canales de eventos aceptan la sesión en la dirección
+    if (ruta.startsWith('/api/events') && !req.headers.authorization) {
+      const { token } = req.query as { token?: string }
+      if (token) req.headers.authorization = `Bearer ${token}`
+    }
+    try {
+      await req.jwtVerify()
+    } catch {
+      return reply.status(401).send({ error: 'Sesión caducada — vuelve a entrar con tu PIN' })
+    }
+  })
 
   // Red de seguridad: el PIN de un empleado nunca sale en una respuesta, salvo hacia el panel de
   // administración. Muchas rutas devuelven el empleado entero dentro de otra cosa (turnos, propinas,

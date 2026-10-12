@@ -13,6 +13,7 @@ async function errorMessage(res: Response, fallback: string): Promise<string> {
 // las rutas que la exigen la reciben, y a las que no, no les molesta.
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`, { headers: authHeaders() })
+  sesionRechazada(res, path)
   if (!res.ok) throw new Error(await errorMessage(res, `GET ${path} failed: ${res.status}`))
   return res.json() as Promise<T>
 }
@@ -23,6 +24,7 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(body),
   })
+  sesionRechazada(res, path)
   if (!res.ok) throw new Error(await errorMessage(res, `POST ${path} failed: ${res.status}`))
   return res.json() as Promise<T>
 }
@@ -192,12 +194,14 @@ async function patch<T>(path: string, body: unknown): Promise<T> {
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(body),
   })
+  sesionRechazada(res, path)
   if (!res.ok) throw new Error(await errorMessage(res, `PATCH ${path} failed: ${res.status}`))
   return res.json() as Promise<T>
 }
 
 async function del(path: string): Promise<void> {
   const res = await fetch(`${BASE}${path}`, { method: 'DELETE', headers: authHeaders() })
+  sesionRechazada(res, path)
   if (!res.ok) throw new Error(await errorMessage(res, `DELETE ${path} failed: ${res.status}`))
 }
 
@@ -207,6 +211,7 @@ async function put<T>(path: string, body: unknown): Promise<T> {
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(body),
   })
+  sesionRechazada(res, path)
   if (!res.ok) throw new Error(await errorMessage(res, `PUT ${path} failed: ${res.status}`))
   return res.json() as Promise<T>
 }
@@ -819,17 +824,47 @@ export interface Factura {
   createdAt:    string
 }
 
-// Las rutas de facturas exigen sesión firmada: el token de admin (POST /admin/auth)
-// dentro de /admin, o el del empleado (login por PIN) en la app de sala.
+// Toda la API exige sesión firmada. Cada zona de la app tiene la suya:
+//   /admin → la de administración (PIN de admin)      /pulso → la de Pulso (PIN de Pulso)
+//   resto  → la del empleado que entró con su PIN en la app de sala
 export const ADMIN_TOKEN_KEY = 'admin_token'
+export const PULSO_TOKEN_KEY = 'pulso_token'
+// Pantallas que piden el PIN del empleado sin guardar sesión (almacén, mis propinas)
+let tokenEmpleadoEfimero: string | null = null
+
+function tokenSala(): string | null {
+  try { return JSON.parse(sessionStorage.getItem('oidoops_camarero') ?? '').token ?? null } catch { return null }
+}
+
+export function tokenActual(): string | null {
+  const admin = sessionStorage.getItem(ADMIN_TOKEN_KEY)
+  if (location.pathname.startsWith('/admin')) return admin
+  if (location.pathname.startsWith('/pulso')) return sessionStorage.getItem(PULSO_TOKEN_KEY)
+  // Fuera del panel (p. ej. al validar un retiro escaneado desde /admin) sirve también la de admin
+  return tokenSala() ?? tokenEmpleadoEfimero ?? admin
+}
+
 function authHeaders(): Record<string, string> {
-  let token: string | null = null
-  if (location.pathname.startsWith('/admin')) {
-    token = sessionStorage.getItem(ADMIN_TOKEN_KEY)
-  } else {
-    try { token = JSON.parse(sessionStorage.getItem('oidoops_camarero') ?? '').token ?? null } catch {}
-  }
+  const token = tokenActual()
   return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
+// Para los canales de eventos: EventSource no puede mandar cabeceras, la sesión va en la dirección
+export function conSesion(url: string): string {
+  const token = tokenActual()
+  return token ? `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}` : url
+}
+
+// El servidor rechazó una sesión que sí mandamos: caducó. Se borra y se vuelve a pedir el PIN.
+function sesionRechazada(res: Response, path: string) {
+  if (res.status !== 401 || path.endsWith('/auth') || !tokenActual()) return
+  if (location.pathname.startsWith('/admin')) {
+    sessionStorage.removeItem('admin_auth'); sessionStorage.removeItem(ADMIN_TOKEN_KEY); location.reload()
+  } else if (location.pathname.startsWith('/pulso')) {
+    sessionStorage.removeItem('pulso_auth'); sessionStorage.removeItem(PULSO_TOKEN_KEY); location.reload()
+  } else if (location.pathname.startsWith('/sala') && tokenSala()) {
+    sessionStorage.removeItem('oidoops_camarero'); location.assign('/sala')
+  }
 }
 
 async function authFetch(path: string, init: { method?: string; json?: unknown; body?: Blob; contentType?: string } = {}): Promise<Response> {
@@ -841,6 +876,7 @@ async function authFetch(path: string, init: { method?: string; json?: unknown; 
     headers,
     body: init.json !== undefined ? JSON.stringify(init.json) : init.body,
   })
+  sesionRechazada(res, path)
   if (!res.ok) throw new Error(await errorMessage(res, `${init.method ?? 'GET'} ${path} failed: ${res.status}`))
   return res
 }
@@ -881,7 +917,7 @@ export const api = {
   },
   auth: {
     admin: (pin: string) => post<{ token: string }>('/admin/auth', { pin }),
-    pulso: (pin: string) => post<{ ok: true }>('/pulso/auth', { pin }),
+    pulso: (pin: string) => post<{ token: string }>('/pulso/auth', { pin }),
   },
   facturas: {
     list: (params: { restaurantId?: number; estado?: 'pendiente' | 'revisada'; mes?: string; proveedorId?: number } = {}) => {
@@ -917,7 +953,10 @@ export const api = {
   },
   empleados: {
     list:   (tipo?: 'cocina' | 'sala') => get<Empleado[]>(`/empleados${tipo ? `?tipo=${tipo}` : ''}`),
-    auth:   (pin: string) => post<Empleado & { token?: string }>('/empleados/auth', { pin }),
+    auth:   (pin: string) => post<Empleado & { token?: string }>('/empleados/auth', { pin }).then(e => {
+      tokenEmpleadoEfimero = e.token ?? null
+      return e
+    }),
     create: (body: { nombre: string; tipo: 'cocina' | 'sala'; pin?: string; telefono?: string; email?: string; horasSemanales?: number; rol?: string; puedeEncargado?: boolean; accesoEncargadoApp?: boolean; puedeJefeCocina?: boolean; excluirPlanning?: boolean; diasLibresFijos?: number[]; restaurantId?: number | null }) => post<Empleado>('/empleados', body),
     update: (id: number, body: { nombre?: string; tipo?: string; pin?: string; telefono?: string | null; email?: string | null; horasSemanales?: number; rol?: string | null; puedeEncargado?: boolean; accesoEncargadoApp?: boolean; puedeJefeCocina?: boolean; excluirPlanning?: boolean; diasLibresFijos?: number[]; restaurantId?: number | null; activo?: boolean }) =>
       put<Empleado>(`/empleados/${id}`, body),

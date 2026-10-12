@@ -1,12 +1,13 @@
 import { useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import { conSesion } from '../api'
 
 // Escucha eventos SSE globales (todos los restaurantes) e invalida los widgets del admin
 export function useAdminEvents() {
   const queryClient = useQueryClient()
 
   useEffect(() => {
-    const es = new EventSource('/api/events/global')
+    const es = new EventSource(conSesion('/api/events/global'))
 
     es.onmessage = (e) => {
       try {

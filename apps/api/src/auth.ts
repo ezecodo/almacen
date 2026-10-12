@@ -1,9 +1,10 @@
 import { FastifyReply, FastifyRequest } from 'fastify'
 
 // Sesión firmada (JWT). La emiten POST /empleados/auth (sala, por PIN de empleado)
-// y POST /admin/auth (PIN de admin validado en el servidor).
+// POST /admin/auth (PIN de admin validado en el servidor) y POST /pulso/auth (panel del dueño).
+// Toda la API exige una de estas sesiones salvo las rutas públicas listadas en server.ts.
 export interface Sesion {
-  tipo:        'sala' | 'admin'
+  tipo:        'sala' | 'admin' | 'pulso'
   nombre:      string
   empleadoId?: number
   // rol 'encargado' o superpoder accesoEncargadoApp — mismo criterio que esEncargado en /sala
