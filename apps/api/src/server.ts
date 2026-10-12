@@ -26,25 +26,12 @@ import { wikiRoutes } from './routes/wiki'
 import { checklistRoutes } from './routes/checklists'
 import { ticketRoutes, sincronizarImpresoras } from './routes/tickets'
 import { authRoutes } from './routes/auth'
+import { RUTAS_PUBLICAS, RUTAS_PULSO, RUTAS_SALA, SOLO_ENCARGADO } from './permisos'
 import { facturaRoutes } from './routes/facturas'
 import { iniciarMqtt, onImpresorasDetectadas } from './mqtt'
 
 const app = Fastify({ logger: true })
 export const prisma = new PrismaClient()
-
-// Lo único que responde sin sesión. Método + ruta tal como se declara (con el prefijo /api).
-const RUTAS_PUBLICAS = new Set([
-  'GET /api/instalacion',            // "acá hay un OidoOps" (vidriera y raíz del sitio)
-  'POST /api/admin/auth',            // los tres logins
-  'POST /api/pulso/auth',
-  'POST /api/empleados/auth',
-  'GET /api/restaurantes',           // elegir el local al configurar un dispositivo de sala (solo nombres)
-  'GET /api/reservas/publica/config', // formulario público de reservas
-  'GET /api/reservas/publica/slots',
-  'POST /api/reservas/publica',
-  'GET /api/retiros/:id',            // lo que abre el QR de un retiro
-  'POST /api/reviews/sync',          // cron: se valida con SYNC_SECRET
-])
 
 // Copia de un resultado sin ninguna clave `pin`, a cualquier profundidad
 function sinPin(valor: unknown): unknown {
@@ -67,12 +54,13 @@ async function start() {
   if (!process.env.JWT_SECRET) app.log.warn('JWT_SECRET no configurado — usando secreto efímero')
   await app.register(jwt, { secret: process.env.JWT_SECRET || randomBytes(32).toString('hex') })
 
-  // Toda la API exige sesión (de empleado, de admin o de Pulso). Solo lo de esta lista responde
-  // sin ella, y está acá a propósito: una ruta nueva nace cerrada.
+  // Toda la API exige sesión, y cada tipo de sesión llega solo a lo suyo (ver permisos.ts).
+  // Lo que no figura en esas listas es de administración: una ruta nueva nace cerrada.
   app.addHook('onRequest', async (req, reply) => {
     const ruta = req.routeOptions?.url
     if (!ruta || !ruta.startsWith('/api/') || req.method === 'OPTIONS') return
-    if (RUTAS_PUBLICAS.has(`${req.method} ${ruta}`)) return
+    const clave = `${req.method} ${ruta}`
+    if (RUTAS_PUBLICAS.has(clave)) return
     // EventSource no puede mandar cabeceras: los canales de eventos aceptan la sesión en la dirección
     if (ruta.startsWith('/api/events') && !req.headers.authorization) {
       const { token } = req.query as { token?: string }
@@ -83,6 +71,12 @@ async function start() {
     } catch {
       return reply.status(401).send({ error: 'Sesión caducada — vuelve a entrar con tu PIN' })
     }
+    const { tipo, encargado } = req.user
+    if (tipo === 'admin') return
+    const permitido =
+      tipo === 'pulso' ? RUTAS_PULSO.has(clave)
+      : RUTAS_SALA.has(clave) && (encargado || !SOLO_ENCARGADO.has(clave))
+    if (!permitido) return reply.status(403).send({ error: 'No tienes permiso para esto' })
   })
 
   // Red de seguridad: el PIN de un empleado nunca sale en una respuesta, salvo hacia el panel de

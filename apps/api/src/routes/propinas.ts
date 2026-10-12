@@ -172,6 +172,10 @@ export async function propinaRoutes(app: FastifyInstance) {
   app.get('/propinas/mis-turnos', async (req, reply) => {
     const { empleadoId, desde, hasta } = req.query as { empleadoId?: string; desde?: string; hasta?: string }
     if (!empleadoId) return reply.status(400).send({ error: 'empleadoId requerido' })
+    // Cada empleado ve solo las suyas
+    if (req.user.tipo === 'sala' && req.user.empleadoId !== Number(empleadoId)) {
+      return reply.status(403).send({ error: 'No tienes permiso para esto' })
+    }
 
     const where: any = { empleadoId: Number(empleadoId) }
     if (desde || hasta) {
