@@ -93,6 +93,17 @@ main() {
   pm2 start dist/server.js --name "$proceso" --cwd "$carpeta/apps/api"
   pm2 save
 
+  # Que el proceso exista no alcanza: tiene que contestar. Si no, el alta se da por fallida.
+  local viva=""
+  for _ in $(seq 1 20); do
+    if curl -sf -m 3 "http://127.0.0.1:$puerto/api/instalacion" > /dev/null; then viva=1; break; fi
+    sleep 2
+  done
+  if [ -z "$viva" ]; then
+    pm2 logs "$proceso" --lines 25 --nostream 2>&1 | tail -n 30 || true
+    morir "La API de '$codigo' no responde en el puerto $puerto. Quedó a medias: limpiar con  bash $(dirname "${BASH_SOURCE[0]}")/baja-cliente.sh $codigo --borrar-todo"
+  fi
+
   echo "→ Frontend"
   cd "$carpeta/apps/web"
   npm install

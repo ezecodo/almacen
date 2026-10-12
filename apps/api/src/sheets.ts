@@ -1,8 +1,11 @@
 import { google, sheets_v4 } from 'googleapis'
 import path from 'path'
 
-const SPREADSHEET_ID = process.env.GOOGLE_SHEETS_ID!
-const CREDENTIALS_PATH = path.resolve(process.cwd(), process.env.GOOGLE_SHEETS_CREDENTIALS!)
+// La hoja de propinas es opcional: una instalación sin GOOGLE_SHEETS_ID / GOOGLE_SHEETS_CREDENTIALS
+// guarda las propinas igual, solo que no las copia a ninguna hoja.
+const SPREADSHEET_ID = process.env.GOOGLE_SHEETS_ID ?? ''
+const CREDENTIALS_PATH = process.env.GOOGLE_SHEETS_CREDENTIALS ? path.resolve(process.cwd(), process.env.GOOGLE_SHEETS_CREDENTIALS) : ''
+const SHEETS_ACTIVO = Boolean(SPREADSHEET_ID && CREDENTIALS_PATH)
 
 function getAuth() {
   return new google.auth.GoogleAuth({
@@ -266,7 +269,7 @@ export async function clearRemovedTurnosFromSheet(
   propina: PropinaDiaSheets,
   removedTurnos: PropinaDiaSheets['turnos'],
 ) {
-  if (!removedTurnos.length) return
+  if (!SHEETS_ACTIVO || !removedTurnos.length) return
   try {
     const auth = getAuth()
     const sheets = google.sheets({ version: 'v4', auth })
@@ -325,6 +328,7 @@ export async function clearRemovedTurnosFromSheet(
 }
 
 export async function appendPropinaToSheet(propina: PropinaDiaSheets) {
+  if (!SHEETS_ACTIVO) return
   try {
     const auth = getAuth()
     const sheets = google.sheets({ version: 'v4', auth })
@@ -587,6 +591,7 @@ async function formatRestaurantesSheet(
 }
 
 export async function appendRestauranteToSheet(propina: PropinaDiaSheets) {
+  if (!SHEETS_ACTIVO) return
   try {
     const auth = getAuth()
     const sheets = google.sheets({ version: 'v4', auth })
