@@ -14,6 +14,7 @@
 
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/comun.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/mqtt.sh"
 
 # De acá se copian los datos del broker MQTT de las Pi (hoy lo comparten todas las instalaciones)
 ENV_REFERENCIA="${OIDOOPS_ENV_REFERENCIA:-/root/almacen/apps/api/.env}"
@@ -87,6 +88,8 @@ main() {
 
   asegurar_suite_token
   enlazar_instalacion "$codigo" "$carpeta"
+  # Con el canal ya reglado, su propio usuario MQTT (pisa el copiado de la instalación de referencia)
+  usuario_de_instalacion "$codigo" "$carpeta"
 
   echo "→ API (dependencias, tablas, build)"
   cd "$carpeta/apps/api"

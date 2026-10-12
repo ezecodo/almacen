@@ -16,6 +16,10 @@ CONF="${OIDOOPS_RUNNER_CONF:-/root/oidoops/runner.env}"
 # shellcheck disable=SC1090
 source "$CONF"   # HQ_URL, RUNNER_TOKEN, DOMINIO_BASE
 
+# Las reglas del canal MQTT siguen lo que diga HQ (qué Pi es de qué cliente). No hace nada si
+# el canal todavía no tiene reglas (deploy/mqtt.sh instalar).
+bash "$DIR/mqtt.sh" sincronizar || true
+
 respuesta=$(curl -s -m 10 -w '\n%{http_code}' -H "X-Runner-Token: $RUNNER_TOKEN" "$HQ_URL/api/interno/instalaciones/siguiente") || exit 0
 [ "$(tail -n1 <<< "$respuesta")" = "200" ] || exit 0   # 204 = no hay pedidos
 pedido=$(sed '$d' <<< "$respuesta")
