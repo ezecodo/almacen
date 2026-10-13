@@ -1,5 +1,15 @@
-import { FastifyInstance } from 'fastify'
+import { FastifyInstance, FastifyReply } from 'fastify'
 import { subscribe, unsubscribe, subscribeGlobal, unsubscribeGlobal } from '../sse'
+
+// Al tomar el control de la respuesta se pierden las cabeceras que ya había puesto Fastify. Las de
+// CORS hacen falta cuando la app instalada (en la nube) abre este canal contra la Box del local.
+function deOtroOrigen(reply: FastifyReply): Record<string, string> {
+  const fuera: Record<string, string> = {}
+  for (const [nombre, valor] of Object.entries(reply.getHeaders())) {
+    if (/^(access-control-|vary$)/i.test(nombre) && valor !== undefined) fuera[nombre] = String(valor)
+  }
+  return fuera
+}
 
 export async function eventRoutes(app: FastifyInstance) {
   app.get('/events', (req, reply) => {
@@ -12,6 +22,7 @@ export async function eventRoutes(app: FastifyInstance) {
     reply.hijack()
 
     reply.raw.writeHead(200, {
+      ...deOtroOrigen(reply),
       'Content-Type':      'text/event-stream',
       'Cache-Control':     'no-cache',
       'Connection':        'keep-alive',
@@ -43,6 +54,7 @@ export async function eventRoutes(app: FastifyInstance) {
     reply.hijack()
 
     reply.raw.writeHead(200, {
+      ...deOtroOrigen(reply),
       'Content-Type':      'text/event-stream',
       'Cache-Control':     'no-cache',
       'Connection':        'keep-alive',
