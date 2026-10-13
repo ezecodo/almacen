@@ -13,6 +13,19 @@ async function hayInstalacion(base = ''): Promise<boolean> {
   }
 }
 
+// ¿Esta es la copia de la app que corre dentro de la Box del local (modo local, sin internet)?
+export function useEsModoLocal(): boolean {
+  return useQuery({
+    queryKey: ['instalacion-local'],
+    queryFn: async () => {
+      const res = await fetch('/api/instalacion')
+      return res.ok && (await res.json()).local === true
+    },
+    staleTime: Infinity,
+    retry: false,
+  }).data === true
+}
+
 // undefined mientras se averigua
 export function useEsInstalacion(): boolean | undefined {
   return useQuery({ queryKey: ['instalacion'], queryFn: () => hayInstalacion(), staleTime: Infinity, retry: false }).data

@@ -69,8 +69,10 @@ Coste: no es invisible. Se vuelve a pedir el PIN (para el navegador la Box es ot
      - Los PIN viajan tal cual (con el nombre `clave`, porque el filtro global borra toda clave `pin`). Se descartó mandarlos como huella: con 4 cifras se prueban las 10.000 combinaciones en nada, no protege. La protección es que la base de la Box solo escuche en la propia Box.
      - Lo que la Box crea se numera desde 1.000.000.000 para no chocar con números de la nube.
      - ⚠️ Hoy cada copia nueva **borra** lo creado en la Box. Antes de comandar de verdad en modo local hay que frenar las copias mientras haya algo sin subir (paso 4 / etapa 2).
-  3. *La Box sirve la sala*: la misma web en `http://<ip>:8080/sala`, solo las rutas del alcance, franja "MODO LOCAL". Pendiente.
-  4. *Imprimir directo*, sin pasar por el servidor. Pendiente.
+  3. *La Box sirve la sala* — **escrito y probado solo en el Mac** (2026-10-13). Con `MODO_LOCAL=1`: solo responden las rutas de `RUTAS_LOCAL` (`permisos.ts`; el resto da 403 con `codigo: 'modo_local'` — no un 5xx, que la app tomaría por "sin conexión"); `servirWeb` (`local.ts`) sirve el build de la web sin Nginx; `/api/instalacion` devuelve `local: true` y la sala muestra una franja ámbar fija "Modo local · sin internet" (`SinConexion.tsx`). No arranca MQTT ni la sincronización con HQ. En `http` la app no registra service worker ni se puede instalar.
+  4. *Imprimir directo* — **escrito y probado solo en el Mac**. `publicarTicket` (`mqtt.ts`) en modo local entrega el ticket por HTTP al `printer-server` de la misma Pi (`127.0.0.1:9101/trabajo`, `_servidor_local` en `main.py`; solo escucha en la propia Pi), que lo encola igual que uno llegado por MQTT. Prueba hecha: con la "nube" apagada, entrar con PIN, abrir mesa, añadir plato y Oído → llega el ticket `cmd-1000000001-r1` con su destino de cocina.
+  - **Instalación en la Box**: `bash deploy/box.sh` desde el Mac (compila aquí, copia a `~/oidoops` de la Box, y allí crea base, `.env` y el servicio `oidoops-local` en el puerto 8080). Sin estrenar.
+  - **Pendiente de estos pasos**: ocultar en la sala los botones que en modo local no hacen nada (cobrar, turno, mermas, 💼, wiki): hoy se ven y responden "No disponible sin internet".
   5. *Salto automático* desde la pantalla "Sin conexión". Pendiente.
 - **Etapa 2 — volver**: subida por lotes, pendientes de cobro, bloqueo mientras sincroniza.
 - **Etapa 3 — pulir**: ticket con QR, avisos en HQ, limpieza.

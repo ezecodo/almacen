@@ -1,4 +1,5 @@
 import mqtt, { MqttClient } from 'mqtt'
+import { imprimirEnLaBox, MODO_LOCAL } from './local'
 import { broadcastGlobal } from './sse'
 
 // Canal con el printer-server de cada restaurante (Raspberry Pi en el local).
@@ -160,6 +161,11 @@ export function publicarTicket(piCodigo: string, ticket: {
   destinos: Record<TicketItem['tipo'], DestinoImpresion[]>
 }) {
   try {
+    if (MODO_LOCAL) {
+      imprimirEnLaBox({ ...ticket, timestamp: new Date().toISOString() })
+        .catch(err => console.error('[local] fallo al imprimir el ticket', ticket.ticket_id, err instanceof Error ? err.message : err))
+      return
+    }
     const c = getClient()
     if (!c) return
 

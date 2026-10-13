@@ -1,6 +1,7 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import { Outlet } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
+import { useEsModoLocal } from '../lib/instalacion'
 import { alVolverLaConexion, conexionActual, reintentarAhora, suscribirConexion, vigilarConexion } from '../lib/conexion'
 
 // Envuelve las pantallas de sala. Cuando la app deja de llegar al servidor tapa todo con un aviso,
@@ -8,6 +9,7 @@ import { alVolverLaConexion, conexionActual, reintentarAhora, suscribirConexion,
 export default function SinConexion() {
   const queryClient = useQueryClient()
   const { caida, desde } = useSyncExternalStore(suscribirConexion, conexionActual)
+  const modoLocal = useEsModoLocal()
 
   useEffect(() => vigilarConexion(), [])
   // Al volver, todo lo que hay en pantalla puede estar viejo: se vuelve a pedir
@@ -16,6 +18,15 @@ export default function SinConexion() {
   return (
     <>
       <Outlet />
+      {/* Dentro de la Box: que nadie dude de que está comandando sin internet. No tapa ni recibe toques. */}
+      {modoLocal && (
+        <div className="pointer-events-none fixed inset-x-0 top-0 z-[900] flex flex-col items-center">
+          <div className="h-1 w-full bg-amber-400" />
+          <span className="rounded-b-lg bg-amber-400 px-3 py-0.5 text-[11px] font-black uppercase tracking-wide text-slate-900 shadow">
+            Modo local · sin internet
+          </span>
+        </div>
+      )}
       {caida && (
         <div role="alert" className="fixed inset-0 z-[1000] flex flex-col items-center justify-center bg-[#0f172a] px-8 text-center">
           <svg viewBox="0 0 24 24" className="mb-5 h-16 w-16 text-amber-400" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">

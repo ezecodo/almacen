@@ -27,11 +27,11 @@ import { checklistRoutes } from './routes/checklists'
 import { ticketRoutes, sincronizarImpresoras } from './routes/tickets'
 import { authRoutes } from './routes/auth'
 import { algunRestringido, ipDe, redDe, redRoutes } from './routes/red'
-import { CONSULTA_ENCARGADO, CONSULTA_SALA, RUTAS_PUBLICAS, RUTAS_PULSO, RUTAS_SALA, SOLO_ENCARGADO } from './permisos'
+import { CONSULTA_ENCARGADO, CONSULTA_SALA, RUTAS_LOCAL, RUTAS_PUBLICAS, RUTAS_PULSO, RUTAS_SALA, SOLO_ENCARGADO } from './permisos'
 import { facturaRoutes } from './routes/facturas'
 import { iniciarMqtt, onImpresorasDetectadas } from './mqtt'
 import { iniciarSyncHQ } from './sync-hq'
-import { iniciarReplicaLocal, MODO_LOCAL } from './local'
+import { iniciarReplicaLocal, MODO_LOCAL, servirWeb } from './local'
 
 const app = Fastify({ logger: true })
 export const prisma = new PrismaClient()
@@ -65,6 +65,11 @@ async function start() {
     const ruta = req.routeOptions?.url
     if (!ruta || !ruta.startsWith('/api/') || req.method === 'OPTIONS') return
     const clave = `${req.method} ${ruta}`
+    // Dentro de la Box solo existe lo de comandar. No es un 5xx a propósito: la app toma esos por
+    // "no hay conexión", y aquí el servidor sí contesta.
+    if (MODO_LOCAL && !RUTAS_LOCAL.has(clave)) {
+      return reply.status(403).send({ error: 'No disponible sin internet: espera a que vuelva la conexión', codigo: 'modo_local' })
+    }
     if (RUTAS_PUBLICAS.has(clave)) return
     // EventSource no puede mandar cabeceras: los canales de eventos aceptan la sesión en la dirección
     if (ruta.startsWith('/api/events') && !req.headers.authorization) {
@@ -160,8 +165,12 @@ async function start() {
   // responde a cualquier origen. No lleva ningún dato del cliente.
   app.get('/api/instalacion', async (_req, reply) => {
     reply.header('Access-Control-Allow-Origin', '*')
-    return { ok: true }
+    // local = esta es la copia que corre dentro de la Box (la app lo muestra con un aviso fijo)
+    return MODO_LOCAL ? { ok: true, local: true } : { ok: true }
   })
+
+  // La Box sirve también la web de sala: no tiene un Nginx delante
+  if (MODO_LOCAL) servirWeb(app)
 
   const port = Number(process.env.PORT) || 3001
   // Nginx le habla por localhost:3001 (ver /etc/nginx/sites-available/almacen) — en producción

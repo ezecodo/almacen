@@ -33,6 +33,21 @@ export const RUTAS_PULSO = new Set([
 
 // Lo que usa un empleado con su PIN: la app de sala, el almacén (/retiro) y "mis propinas".
 // Sale de lo que realmente llaman esas pantallas (SalaMesasPage y sus componentes).
+// Lo único que existe dentro de la Box, en modo local (docs/modo-local.md): entrar con el PIN, ver
+// el salón y la carta, y comandar. Sin cobros, turno, mermas ni nada de administración: eso espera
+// a que vuelva internet. Si una ruta no está aquí, en la Box responde "no disponible sin internet".
+export const RUTAS_LOCAL = new Set([
+  'GET /api/instalacion', 'POST /api/empleados/auth', 'GET /api/restaurantes',
+  'GET /api/events', 'GET /api/red/estado',
+  'GET /api/salon', 'GET /api/turnos/activo',
+  'GET /api/menu', 'GET /api/menu/categorias', 'GET /api/alergenos',
+  'GET /api/comandas', 'GET /api/comandas/:id', 'POST /api/comandas', 'POST /api/comandas/merge',
+  'POST /api/comandas/:id/items', 'PATCH /api/comandas/:id/items/:itemId', 'DELETE /api/comandas/:id/items/:itemId',
+  'PATCH /api/comandas/:id/enviar', 'PATCH /api/comandas/:id/facturar', 'PATCH /api/comandas/:id/liberar',
+  'PATCH /api/comandas/:id/mover-mesa', 'PATCH /api/comandas/:id/pax',
+  'GET /api/mermas',
+])
+
 export const RUTAS_SALA = new Set([
   // tiempo real
   'GET /api/events', 'GET /api/events/global',

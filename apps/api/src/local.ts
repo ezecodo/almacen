@@ -1,4 +1,6 @@
 import { readFile } from 'fs/promises'
+import path from 'path'
+import { FastifyInstance } from 'fastify'
 import { PrismaClient } from '@prisma/client'
 import { aplicarReplica, Replica } from './replica'
 
@@ -48,4 +50,48 @@ export function iniciarReplicaLocal(prisma: PrismaClient) {
     setTimeout(ciclo, CADA_MS)
   }
   void ciclo()
+}
+
+// ── Impresión directa ──────────────────────────────────────────────────────────
+// En la nube un ticket viaja por MQTT hasta la Box. Aquí ya estamos en la Box: se le entrega al
+// servicio de impresión, que escucha en esta misma máquina (ver printer-server, _servidor_local).
+const IMPRESION_URL = process.env.IMPRESION_LOCAL_URL || 'http://127.0.0.1:9101/trabajo'
+
+export async function imprimirEnLaBox(ticket: object) {
+  const res = await fetch(IMPRESION_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(ticket),
+    signal: AbortSignal.timeout(5_000),
+  })
+  if (!res.ok) throw new Error(`el servicio de impresión respondió ${res.status}`)
+}
+
+// ── Web de sala ────────────────────────────────────────────────────────────────
+const TIPOS: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp',
+  '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.webmanifest': 'application/manifest+json',
+}
+
+// Sirve el build de la web (el mismo de la nube). Cualquier dirección que no sea un archivo
+// devuelve la app, que es quien resuelve la ruta; la raíz va directa a la sala.
+export function servirWeb(app: FastifyInstance) {
+  const raiz = path.resolve(process.env.WEB_DIST || path.join(process.cwd(), '../web/dist'))
+  app.setNotFoundHandler(async (req, reply) => {
+    const ruta = decodeURIComponent(req.url.split('?')[0])
+    if (req.method !== 'GET' || ruta.startsWith('/api/')) return reply.status(404).send({ error: 'No encontrado' })
+    if (ruta === '/') return reply.redirect('/sala')
+    const archivo = path.join(raiz, path.normalize(ruta))
+    const esArchivo = archivo.startsWith(raiz + path.sep) && path.extname(archivo) !== ''
+    try {
+      const contenido = await readFile(esArchivo ? archivo : path.join(raiz, 'index.html'))
+      const ext = esArchivo ? path.extname(archivo) : '.html'
+      // Los archivos de /assets llevan su huella en el nombre: se pueden guardar para siempre
+      reply.header('Cache-Control', ruta.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache')
+      return reply.type(TIPOS[ext] ?? 'application/octet-stream').send(contenido)
+    } catch {
+      return reply.status(404).send({ error: 'No encontrado' })
+    }
+  })
 }
