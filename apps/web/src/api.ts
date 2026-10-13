@@ -1,3 +1,5 @@
+import { pedir } from './lib/conexion'
+
 const BASE = '/api'
 
 // Si el backend responde con { error: "..." } lo usamos como mensaje; si no, el fallback genérico.
@@ -12,14 +14,14 @@ async function errorMessage(res: Response, fallback: string): Promise<string> {
 // Todas las llamadas mandan la sesión si la hay (admin dentro de /admin, empleado en la app de sala):
 // las rutas que la exigen la reciben, y a las que no, no les molesta.
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, { headers: authHeaders() })
+  const res = await pedir(`${BASE}${path}`, { headers: authHeaders() })
   sesionRechazada(res, path)
   if (!res.ok) throw new Error(await errorMessage(res, `GET ${path} failed: ${res.status}`))
   return res.json() as Promise<T>
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await pedir(`${BASE}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(body),
@@ -211,7 +213,7 @@ export interface Producto {
 }
 
 async function patch<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await pedir(`${BASE}${path}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(body),
@@ -222,13 +224,13 @@ async function patch<T>(path: string, body: unknown): Promise<T> {
 }
 
 async function del(path: string): Promise<void> {
-  const res = await fetch(`${BASE}${path}`, { method: 'DELETE', headers: authHeaders() })
+  const res = await pedir(`${BASE}${path}`, { method: 'DELETE', headers: authHeaders() })
   sesionRechazada(res, path)
   if (!res.ok) throw new Error(await errorMessage(res, `DELETE ${path} failed: ${res.status}`))
 }
 
 async function put<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await pedir(`${BASE}${path}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(body),
@@ -894,7 +896,7 @@ async function authFetch(path: string, init: { method?: string; json?: unknown; 
   const headers = authHeaders()
   if (init.json !== undefined) headers['Content-Type'] = 'application/json'
   if (init.contentType) headers['Content-Type'] = init.contentType
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await pedir(`${BASE}${path}`, {
     method: init.method ?? 'GET',
     headers,
     body: init.json !== undefined ? JSON.stringify(init.json) : init.body,

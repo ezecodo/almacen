@@ -44,6 +44,7 @@ import VerifactuPage from './pages/VerifactuPage'
 import RestaurantesPage from './pages/RestaurantesPage'
 import RedPage from './pages/RedPage'
 import AccesosPage from './pages/AccesosPage'
+import SinConexion from './components/SinConexion'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -61,9 +62,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           <Route path="/entrar" element={<EntrarPage />} />
           <Route path="/acceder" element={<Navigate to="/admin" replace />} />
           <Route path="/logo-lab" element={<LogoLabPage />} />
-          <Route path="/sala/setup" element={<SetupPage />} />
-          <Route path="/sala" element={<SalaLoginPage />} />
-          <Route path="/sala/mesas" element={<SalaMesasPage />} />
+          <Route element={<SinConexion />}>
+            <Route path="/sala/setup" element={<SetupPage />} />
+            <Route path="/sala" element={<SalaLoginPage />} />
+            <Route path="/sala/mesas" element={<SalaMesasPage />} />
+          </Route>
           <Route path="/retiro" element={<RetiroPage />} />
           <Route path="/verificar/:id" element={<VerificarPage />} />
           <Route path="/mis-propinas" element={<MisPropinasPage />} />
