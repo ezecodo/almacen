@@ -90,5 +90,6 @@ sleep 6
 systemctl is-active oidoops-local
 journalctl -u oidoops-local -n 6 --no-pager -o cat | grep -v '"level":30' || true
 echo "  memoria:"; free -m | sed -n 2p
-echo "  sala en: http://$(hostname -I | awk '{print $1}'):8080/sala"
+# La Box puede estar en dos redes (cable hacia las impresoras y WiFi): vale la de la red de los móviles
+for ip in $(hostname -I); do echo "  sala en: http://$ip:8080/sala"; done
 REMOTO
