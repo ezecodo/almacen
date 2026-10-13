@@ -2,7 +2,7 @@ import { useEffect, useSyncExternalStore } from 'react'
 import { Outlet } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEsModoLocal } from '../lib/instalacion'
-import { alCambiarDeDestino, conexionActual, corteSimulado, reintentarAhora, suscribirConexion, vigilarConexion } from '../lib/conexion'
+import { alCambiarDeDestino, conexionActual, corteSimulado, reintentarAhora, salaDeRespaldo, suscribirConexion, vigilarConexion } from '../lib/conexion'
 
 // Envuelve las pantallas de sala. Cuando la app deja de llegar al servidor tapa todo con un aviso,
 // sin desmontar lo de abajo: lo que el camarero tenía a medias sigue ahí cuando vuelve la conexión.
@@ -25,7 +25,7 @@ export default function SinConexion() {
         <div className="pointer-events-none fixed inset-x-0 top-0 z-[900] flex flex-col items-center">
           <div className="h-1 w-full bg-amber-400" />
           <span className="rounded-b-lg bg-amber-400 px-3 py-0.5 text-[11px] font-black uppercase tracking-wide text-slate-900 shadow">
-            Modo local · {corteSimulado() ? 'corte simulado' : 'sin internet'}
+            Modo local · {corteSimulado() ? 'activado a mano' : 'sin internet'}
           </span>
         </div>
       )}
@@ -53,6 +53,14 @@ export default function SinConexion() {
             className="rounded-2xl bg-white/10 px-6 py-3 text-base font-bold text-white active:scale-95 transition-transform">
             Reintentar ahora
           </button>
+          {/* La app no llegó sola a la Box, pero conoce su dirección dentro del local */}
+          {salaDeRespaldo() && (
+            <a href={salaDeRespaldo()!}
+              className="mt-3 rounded-2xl px-6 py-3 text-base font-black text-white active:scale-95 transition-transform"
+              style={{ background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)' }}>
+              Pasar a modo local
+            </a>
+          )}
         </div>
       )}
     </>

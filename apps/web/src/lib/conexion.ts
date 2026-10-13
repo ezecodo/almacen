@@ -15,6 +15,7 @@ const ESPERA_MS = 5_000        // cuánto se espera la respuesta antes de darla 
 const SALUDO_BOX_MS = 4 * 60_000 // cada cuánto se saluda a la Box con internet (ver saludarBox)
 
 const CLAVE_BOX = 'oidoops_box'
+const CLAVE_BOX_IP = 'oidoops_box_ip' // la dirección numérica de la Box en la red del teléfono
 
 export interface Conexion {
   caida: boolean       // ni la nube ni la Box contestan
@@ -44,9 +45,10 @@ function boxGuardada(): string | null {
   try { return localStorage.getItem(CLAVE_BOX) } catch { return null }
 }
 
-// Para probar y enseñar el modo local sin desenchufar nada: abrir la sala con ?corte=1 hace que este
-// dispositivo se comporte como si la nube no contestara (con ?corte=0 se quita). Solo afecta a este
-// dispositivo y dura hasta cerrar la pestaña; el aviso de modo local lo dice ("corte simulado").
+// Modo local a mano, para probarlo y enseñarlo sin desenchufar nada: abrir la sala con ?corte=1 hace
+// que este dispositivo deje de hablar con la nube y trabaje contra la Box (con ?corte=0 vuelve).
+// No es de mentira: mientras está puesto, nada de la sala sale a internet. Solo afecta a este
+// dispositivo y dura hasta cerrar la app; la franja de modo local lo dice ("activado a mano").
 const CLAVE_CORTE = 'oidoops_corte_simulado'
 try {
   const pedido = new URLSearchParams(location.search).get('corte')
@@ -55,6 +57,18 @@ try {
 } catch { /* sin almacenamiento no hay simulación */ }
 export function corteSimulado(): boolean {
   try { return sessionStorage.getItem(CLAVE_CORTE) === '1' } catch { return false }
+}
+
+// El mismo interruptor desde dentro de la app instalada, que no tiene barra de direcciones
+// (gesto oculto en el panel de perfil de la sala)
+export function alternarCorteSimulado(): boolean {
+  const nuevo = !corteSimulado()
+  try {
+    if (nuevo) sessionStorage.setItem(CLAVE_CORTE, '1')
+    else sessionStorage.removeItem(CLAVE_CORTE)
+  } catch { return false }
+  reintentarAhora()
+  return nuevo
 }
 
 // Base de todas las llamadas a la API: la nube (misma dirección que la app) o la Box
@@ -68,7 +82,7 @@ function publicar(nuevo: Conexion) {
   if (cambioDestino) alCambiar.forEach(f => f())
 }
 
-async function contesta(url: string, hacePropia: (cuerpo: { ok?: boolean; local?: boolean }) => boolean): Promise<boolean> {
+async function contesta(url: string, hacePropia: (cuerpo: { ok?: boolean; local?: boolean; ip?: string }) => boolean): Promise<boolean> {
   const corte = new AbortController()
   const limite = setTimeout(() => corte.abort(), ESPERA_MS)
   try {
@@ -83,7 +97,23 @@ async function contesta(url: string, hacePropia: (cuerpo: { ok?: boolean; local?
 // La nube: la instalación de siempre, en la misma dirección que la app
 const contestaNube = async () => !corteSimulado() && contesta('/api/instalacion', c => c.ok === true && c.local !== true)
 // La Box: tiene que decir que es una Box (en esa dirección podría contestar otra cosa)
-const contestaBox = (url: string) => contesta(`${url}/api/instalacion`, c => c.ok === true && c.local === true)
+const contestaBox = (url: string) => contesta(`${url}/api/instalacion`, c => {
+  if (c.ok !== true || c.local !== true) return false
+  try {
+    if (c.ip && /^[0-9.]+$/.test(c.ip)) localStorage.setItem(CLAVE_BOX_IP, c.ip)
+  } catch { /* sin almacenamiento */ }
+  return true
+})
+
+// Respaldo: la sala que sirve la propia Box por su dirección numérica, sin candado. Un número no
+// hay que buscarlo en ningún sitio, así que funciona aunque el teléfono no encuentre el nombre de
+// la Box. Es otra dirección: ahí se vuelve a pedir el PIN y no es la app instalada.
+export function salaDeRespaldo(): string | null {
+  try {
+    const ip = localStorage.getItem(CLAVE_BOX_IP)
+    return ip ? `http://${ip}:8080/sala` : null
+  } catch { return null }
+}
 
 // Con internet, saludar a la Box de vez en cuando hace tres cosas: el teléfono recuerda dónde está
 // su nombre (sin internet no podría preguntarlo), Chrome pide ya el permiso de "dispositivos de tu

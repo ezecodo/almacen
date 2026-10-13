@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, Alergeno, Comanda, ComandaItem, FloorPlan, GrupoAgendado, GrupoMenuTemplate, InventarioCategoria, Mesa, MenuCategoria, MenuItem, MermaMotivo, MiTurno, Reserva, Turno, WikiCategoria, WikiArticulo, ChecklistSector, sugerirCantidadesMenu, totalComanda, valorItem, waLink } from '../api'
 import { speak, VozSelector, LANGS, Lang } from '../lib/tts'
+import { alternarCorteSimulado } from '../lib/conexion'
 import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
 import { usePoolEvents } from '../hooks/usePoolEvents'
 import FacturasSala from '../components/FacturasSala'
@@ -2653,6 +2654,19 @@ function PerfilPanel({ camarero, restaurantNombre, isDark, onToggleTheme, onClos
   const fmt = (n: number) => n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   const fmtFecha = (iso: string) => new Date(iso).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
 
+  // Gesto oculto para probar y enseñar el modo local: mantener apretado el nombre del restaurante
+  // ~1 s hace que este dispositivo se comporte como si no hubiera internet (y otra vez lo quita).
+  const pulsacion = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const soltar = () => { if (pulsacion.current) clearTimeout(pulsacion.current); pulsacion.current = null }
+  const apretar = () => {
+    soltar()
+    pulsacion.current = setTimeout(() => {
+      alternarCorteSimulado()
+      navigator.vibrate?.(60)
+      onClose()
+    }, 1000)
+  }
+
   return (
     <div className="fixed inset-0 bg-black/70 flex items-end z-50" onClick={onClose}>
       <div className="w-full bg-[var(--sala-hdr)] rounded-t-3xl shadow-2xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
@@ -2664,7 +2678,9 @@ function PerfilPanel({ camarero, restaurantNombre, isDark, onToggleTheme, onClos
         {/* Header */}
         <div className="px-5 pt-2 pb-4 border-b border-[var(--sala-brd)] flex items-center justify-between">
           <div>
-            <p className="text-[#4CC8A0] text-xs font-semibold">{restaurantNombre}</p>
+            <p className="text-[#4CC8A0] text-xs font-semibold select-none" style={{ WebkitTouchCallout: 'none' }}
+              onPointerDown={apretar} onPointerUp={soltar} onPointerLeave={soltar} onPointerCancel={soltar}
+              onContextMenu={e => e.preventDefault()}>{restaurantNombre}</p>
             <h2 className="text-[var(--sala-txt)] font-bold text-lg">{camarero.nombre}</h2>
             <p className="text-[var(--sala-tx3)] text-xs mt-0.5">Propinas este mes</p>
           </div>

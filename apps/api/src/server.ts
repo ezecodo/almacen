@@ -172,10 +172,12 @@ async function start() {
   // de un cliente o en la vidriera (que es el mismo build servido sin API detrás), y la vidriera
   // para comprobar que un grupo existe antes de mandar a alguien a su dirección — por eso
   // responde a cualquier origen. No lleva ningún dato del cliente.
-  app.get('/api/instalacion', async (_req, reply) => {
+  app.get('/api/instalacion', async (req, reply) => {
     reply.header('Access-Control-Allow-Origin', '*')
-    // local = esta es la copia que corre dentro de la Box (la app lo muestra con un aviso fijo)
-    return MODO_LOCAL ? { ok: true, local: true } : { ok: true }
+    // local = esta es la copia que corre dentro de la Box (la app lo muestra con un aviso fijo).
+    // ip = la dirección de la Box por la que entró esta llamada, o sea, la de la red del teléfono
+    // (la Box puede estar en dos redes): la app la guarda como respaldo por si un día no encuentra el nombre.
+    return MODO_LOCAL ? { ok: true, local: true, ip: (req.socket.localAddress ?? '').replace(/^::ffff:/, '') } : { ok: true }
   })
 
   // La Box sirve también la web de sala: no tiene un Nginx delante
