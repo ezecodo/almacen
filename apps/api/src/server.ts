@@ -31,6 +31,7 @@ import { CONSULTA_ENCARGADO, CONSULTA_SALA, RUTAS_PUBLICAS, RUTAS_PULSO, RUTAS_S
 import { facturaRoutes } from './routes/facturas'
 import { iniciarMqtt, onImpresorasDetectadas } from './mqtt'
 import { iniciarSyncHQ } from './sync-hq'
+import { iniciarReplicaLocal, MODO_LOCAL } from './local'
 
 const app = Fastify({ logger: true })
 export const prisma = new PrismaClient()
@@ -168,6 +169,12 @@ async function start() {
   // 0.0.0.0 por defecto para que en dev se pueda probar desde otros dispositivos de la LAN (tablets/celus).
   const host = process.env.HOST || '0.0.0.0'
   await app.listen({ port, host })
+
+  // Dentro de la Box no se habla con el canal de impresión ni con HQ: solo se mantiene la copia de la sala
+  if (MODO_LOCAL) {
+    iniciarReplicaLocal(prisma)
+    return
+  }
 
   // Empieza a escuchar el estado (online/offline) de las Pi de impresión y lo que detectan en la red
   onImpresorasDetectadas(sincronizarImpresoras)

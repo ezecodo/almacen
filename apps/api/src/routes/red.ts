@@ -5,6 +5,7 @@ import { prisma } from '../server'
 import { requireAdmin } from '../auth'
 import { normalizarPiCodigo, onConectado, publicarConfigPi } from '../mqtt'
 import { avisoDeHQ } from '../sync-hq'
+import { armarReplica, huellaDe } from '../replica'
 
 // "Dónde estás": la sala de un restaurante solo se opera desde la red del local.
 // El servidor aprende esa red sin que nadie la cargue: la Pi, que vive enchufada al router del
@@ -78,15 +79,25 @@ export async function redRoutes(app: FastifyInstance) {
     }
   })
 
+  // Quién llama: la Pi vinculada a un restaurante, que se identifica con su código y su secreto
+  async function restauranteDeLaPi(codigoCrudo: string, token: string) {
+    const codigo = normalizarPiCodigo(codigoCrudo)
+    if (!codigo) return null
+    const r = await prisma.restaurant.findUnique({ where: { piCodigo: codigo }, select: { id: true, piSecreto: true } })
+    const a = Buffer.from(token)
+    const b = Buffer.from(r?.piSecreto ?? '')
+    if (!r || !b.length || a.length !== b.length || !timingSafeEqual(a, b)) return null
+    return { id: r.id, codigo }
+  }
+  const credencialPi = z.object({ codigo: z.string().max(20), token: z.string().max(100) })
+
   // POST /pi/latido { codigo, token } — la Pi, cada minuto. Pública: se valida con su secreto.
   app.post('/pi/latido', async (req, reply) => {
-    const body = z.object({ codigo: z.string().max(20), token: z.string().max(100) }).safeParse(req.body)
-    const codigo = body.success ? normalizarPiCodigo(body.data.codigo) : null
-    if (!body.success || !codigo) return reply.status(400).send({ error: 'Datos inválidos' })
-    const r = await prisma.restaurant.findUnique({ where: { piCodigo: codigo }, select: { id: true, piSecreto: true } })
-    const a = Buffer.from(body.data.token)
-    const b = Buffer.from(r?.piSecreto ?? '')
-    if (!r || !b.length || a.length !== b.length || !timingSafeEqual(a, b)) return reply.status(401).send({ error: 'No autorizado' })
+    const body = credencialPi.safeParse(req.body)
+    if (!body.success || !normalizarPiCodigo(body.data.codigo)) return reply.status(400).send({ error: 'Datos inválidos' })
+    const r = await restauranteDeLaPi(body.data.codigo, body.data.token)
+    if (!r) return reply.status(401).send({ error: 'No autorizado' })
+    const codigo = r.codigo
 
     const ip = ipDe(req)
     const antes = await prisma.redLocal.findUnique({ where: { restaurantId_ip: { restaurantId: r.id, ip } } })
@@ -100,6 +111,19 @@ export async function redRoutes(app: FastifyInstance) {
       console.log(`[red] la Pi ${codigo} informó una red nueva para el restaurante ${r.id}`)
     }
     return { ok: true }
+  })
+
+  // POST /pi/replica { codigo, token, huella? } — la Box pide la copia de la sala de su local para el
+  // modo local (ver replica.ts). Pública: se valida con su secreto, igual que el latido. Si manda la
+  // huella de la copia que ya tiene y no cambió nada, no se le vuelve a mandar.
+  app.post('/pi/replica', async (req, reply) => {
+    const body = credencialPi.extend({ huella: z.string().max(100).nullish() }).safeParse(req.body)
+    if (!body.success) return reply.status(400).send({ error: 'Datos inválidos' })
+    const r = await restauranteDeLaPi(body.data.codigo, body.data.token)
+    if (!r) return reply.status(401).send({ error: 'No autorizado' })
+    const replica = await armarReplica(prisma, r.id)
+    const huella = huellaDe(replica)
+    return huella === body.data.huella ? { huella } : { huella, replica }
   })
 
   // POST /suite/sincronizar — el back-office avisa de que cambió algo de este cliente (le asignó o

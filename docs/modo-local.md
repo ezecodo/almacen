@@ -63,7 +63,15 @@ Coste: no es invisible. Se vuelve a pedir el PIN (para el navegador la Box es ot
   - *HQ* (`oido-talent`): tabla `PiCorte`; `pis.ts` anota cada vez que una Box pasa a desconectada y cuándo vuelve, y el panel muestra "N cortes en 30 días" por Box. Un corte de menos de ~45 s no se ve (es lo que tarda el canal en darla por caída).
   - *Box* (`printer-server`): al publicar las impresoras manda `encendida_seg`; con eso HQ pone el motivo del corte: `internet` (seguía encendida) o `apagada` (se reinició o no tenía luz). Una Box sin este cambio registra cortes igual, sin motivo.
   - Hallazgo: la caché de `/api` del service worker (`vite.config.ts`, `urlPattern: /^\/api\/…/`) **no llega a aplicarse nunca**: workbox compara la expresión con la dirección completa y el `^` no casa. Hoy ninguna respuesta de la API se guarda. Se deja así a propósito (servir comandas viejas sería peor); no "arreglarlo" sin pensarlo.
-- **Etapa 1 — la Box sirve la sala**: copia hacia abajo, API local, comandar e imprimir.
+- **Etapa 1 — la Box sirve la sala** — en curso desde el 2026-10-13. Se prueba sobre la instalación `sensi` (no opera en ningún restaurante todavía) con la Box `OIDO-13FAEE`. Cinco pasos:
+  1. *Preparar la Box*: Node y Postgres instalados, la API arranca dentro. **Pendiente** (los comandos los corre Eze).
+  2. *Copia hacia abajo* — **hecho el lado del servidor y el código de la Box, probado solo en el Mac** (dos procesos y dos bases). `src/replica.ts`: `armarReplica` (un restaurante, solo sala: carta, alérgenos, salón, personal de sala, impresoras y rutas, turno abierto y comandas sin cerrar) y `aplicarReplica` (reemplaza todo en una transacción). `POST /api/pi/replica { codigo, token, huella? }`, pública, se valida con el secreto de la Pi igual que el latido; con la misma huella no reenvía nada. Lado Box: `src/local.ts`, se activa con `MODO_LOCAL=1`, pide la copia cada 15 s y lee a quién pedírsela de `enlace.json`, que deja escrito el `printer-server` al recibir su config. Con Sensi: 72 KB, se arma en ~0,1 s y se carga en menos.
+     - Los PIN viajan tal cual (con el nombre `clave`, porque el filtro global borra toda clave `pin`). Se descartó mandarlos como huella: con 4 cifras se prueban las 10.000 combinaciones en nada, no protege. La protección es que la base de la Box solo escuche en la propia Box.
+     - Lo que la Box crea se numera desde 1.000.000.000 para no chocar con números de la nube.
+     - ⚠️ Hoy cada copia nueva **borra** lo creado en la Box. Antes de comandar de verdad en modo local hay que frenar las copias mientras haya algo sin subir (paso 4 / etapa 2).
+  3. *La Box sirve la sala*: la misma web en `http://<ip>:8080/sala`, solo las rutas del alcance, franja "MODO LOCAL". Pendiente.
+  4. *Imprimir directo*, sin pasar por el servidor. Pendiente.
+  5. *Salto automático* desde la pantalla "Sin conexión". Pendiente.
 - **Etapa 2 — volver**: subida por lotes, pendientes de cobro, bloqueo mientras sincroniza.
 - **Etapa 3 — pulir**: ticket con QR, avisos en HQ, limpieza.
 
