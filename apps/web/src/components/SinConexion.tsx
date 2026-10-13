@@ -2,7 +2,7 @@ import { useEffect, useSyncExternalStore } from 'react'
 import { Outlet } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEsModoLocal } from '../lib/instalacion'
-import { alCambiarDeDestino, conexionActual, reintentarAhora, suscribirConexion, vigilarConexion } from '../lib/conexion'
+import { alCambiarDeDestino, conexionActual, corteSimulado, reintentarAhora, suscribirConexion, vigilarConexion } from '../lib/conexion'
 
 // Envuelve las pantallas de sala. Cuando la app deja de llegar al servidor tapa todo con un aviso,
 // sin desmontar lo de abajo: lo que el camarero tenía a medias sigue ahí cuando vuelve la conexión.
@@ -25,7 +25,7 @@ export default function SinConexion() {
         <div className="pointer-events-none fixed inset-x-0 top-0 z-[900] flex flex-col items-center">
           <div className="h-1 w-full bg-amber-400" />
           <span className="rounded-b-lg bg-amber-400 px-3 py-0.5 text-[11px] font-black uppercase tracking-wide text-slate-900 shadow">
-            Modo local · sin internet
+            Modo local · {corteSimulado() ? 'corte simulado' : 'sin internet'}
           </span>
         </div>
       )}

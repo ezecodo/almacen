@@ -44,6 +44,19 @@ function boxGuardada(): string | null {
   try { return localStorage.getItem(CLAVE_BOX) } catch { return null }
 }
 
+// Para probar y enseñar el modo local sin desenchufar nada: abrir la sala con ?corte=1 hace que este
+// dispositivo se comporte como si la nube no contestara (con ?corte=0 se quita). Solo afecta a este
+// dispositivo y dura hasta cerrar la pestaña; el aviso de modo local lo dice ("corte simulado").
+const CLAVE_CORTE = 'oidoops_corte_simulado'
+try {
+  const pedido = new URLSearchParams(location.search).get('corte')
+  if (pedido === '1') sessionStorage.setItem(CLAVE_CORTE, '1')
+  if (pedido === '0') sessionStorage.removeItem(CLAVE_CORTE)
+} catch { /* sin almacenamiento no hay simulación */ }
+export function corteSimulado(): boolean {
+  try { return sessionStorage.getItem(CLAVE_CORTE) === '1' } catch { return false }
+}
+
 // Base de todas las llamadas a la API: la nube (misma dirección que la app) o la Box
 export const baseApi = () => (estado.local ? `${boxGuardada()}/api` : '/api')
 export const enModoLocal = () => estado.local
@@ -68,7 +81,7 @@ async function contesta(url: string, hacePropia: (cuerpo: { ok?: boolean; local?
   }
 }
 // La nube: la instalación de siempre, en la misma dirección que la app
-const contestaNube = () => contesta('/api/instalacion', c => c.ok === true && c.local !== true)
+const contestaNube = async () => !corteSimulado() && contesta('/api/instalacion', c => c.ok === true && c.local !== true)
 // La Box: tiene que decir que es una Box (en esa dirección podría contestar otra cosa)
 const contestaBox = (url: string) => contesta(`${url}/api/instalacion`, c => c.ok === true && c.local === true)
 
@@ -100,6 +113,7 @@ export function sinRespuesta() {
 export async function pedir(url: string, init?: RequestInit): Promise<Response> {
   let res: Response
   try {
+    if (corteSimulado() && !estado.local) throw new TypeError('corte simulado')
     res = await fetch(url, init)
   } catch (e) {
     sinRespuesta()
