@@ -31,7 +31,7 @@ import { CONSULTA_ENCARGADO, CONSULTA_SALA, RUTAS_LOCAL, RUTAS_PUBLICAS, RUTAS_P
 import { facturaRoutes } from './routes/facturas'
 import { iniciarMqtt, onImpresorasDetectadas } from './mqtt'
 import { iniciarSyncHQ } from './sync-hq'
-import { iniciarReplicaLocal, MODO_LOCAL, servirWeb } from './local'
+import { claveSesionDeLaBox, iniciarReplicaLocal, MODO_LOCAL, origenDeLaInstalacion, servirHttps, servirWeb } from './local'
 
 const app = Fastify({ logger: true })
 export const prisma = new PrismaClient()
@@ -51,13 +51,22 @@ function sinSecretos(valor: unknown, esAdmin: boolean): unknown {
 
 async function start() {
   await app.register(cors, {
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173'
+    // En la Box quien llama desde otro origen es la app instalada de su instalación
+    origin: (MODO_LOCAL && origenDeLaInstalacion()) || process.env.FRONTEND_URL || 'http://localhost:5173'
   })
 
   // Sin JWT_SECRET en el .env se usa uno aleatorio: todo sigue funcionando, pero las
   // sesiones firmadas se invalidan en cada reinicio de la API.
   if (!process.env.JWT_SECRET) app.log.warn('JWT_SECRET no configurado — usando secreto efímero')
-  await app.register(jwt, { secret: process.env.JWT_SECRET || randomBytes(32).toString('hex') })
+  await app.register(jwt, { secret: (MODO_LOCAL && claveSesionDeLaBox()) || process.env.JWT_SECRET || randomBytes(32).toString('hex') })
+
+  // Chrome pide este permiso expreso antes de dejar que una página de internet llame a un aparato
+  // de la red del local (Private Network Access). Solo tiene sentido en la Box.
+  if (MODO_LOCAL) {
+    app.addHook('onRequest', async (req, reply) => {
+      if (req.headers['access-control-request-private-network']) reply.header('Access-Control-Allow-Private-Network', 'true')
+    })
+  }
 
   // Toda la API exige sesión, y cada tipo de sesión llega solo a lo suyo (ver permisos.ts).
   // Lo que no figura en esas listas es de administración: una ruta nueva nace cerrada.
@@ -182,6 +191,7 @@ async function start() {
   // Dentro de la Box no se habla con el canal de impresión ni con HQ: solo se mantiene la copia de la sala
   if (MODO_LOCAL) {
     iniciarReplicaLocal(prisma)
+    servirHttps(app)
     return
   }
 

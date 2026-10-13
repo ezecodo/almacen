@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { enModoLocal } from '../lib/conexion'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 
@@ -45,7 +46,9 @@ export default function SalaLoginPage() {
           nombre: empleado.nombre,
           rol: empleado.rol ?? null,
           accesoEncargadoApp: empleado.accesoEncargadoApp ?? false,
-          token: empleado.token ?? null,
+          // Entrando en modo local el pase lo firma la Box: vale allí, no en la nube
+          token: enModoLocal() ? null : empleado.token ?? null,
+          tokenLocal: enModoLocal() ? empleado.token ?? null : empleado.local?.token ?? null,
         }))
         navigate('/sala/mesas', { replace: true })
       }

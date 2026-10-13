@@ -1,4 +1,6 @@
 import { FastifyInstance } from 'fastify'
+import { firmarPaseLocal, MODO_LOCAL, urlDeBox } from '../local'
+import { Sesion } from '../auth'
 import { z } from 'zod'
 import { prisma } from '../server'
 import { requireAdmin } from '../auth'
@@ -112,15 +114,25 @@ export async function empleadoRoutes(app: FastifyInstance) {
 
     // Sesión firmada para las rutas protegidas (hoy: facturas). Mismo criterio de
     // encargado que la app de sala: rol 'encargado' o superpoder accesoEncargadoApp.
-    const token = app.jwt.sign({
+    const sesion: Sesion = {
       tipo: 'sala',
       nombre: empleado.nombre,
       empleadoId: empleado.id,
       ...(Number.isInteger(restaurantId) ? { restaurantId } : {}),
       encargado: empleado.tipo === 'sala' && (empleado.rol === 'encargado' || empleado.accesoEncargadoApp),
-    }, { expiresIn: '16h' })
+    }
+    const token = app.jwt.sign(sesion, { expiresIn: '16h' })
 
-    return { ...empleado, token }
+    // Si el local tiene Box, la app recibe también dónde encontrarla y un pase que vale en ella:
+    // así, si se cae internet, sigue comandando contra la Box sin volver a pedir el PIN.
+    let local: { url: string; token: string } | undefined
+    if (!MODO_LOCAL && Number.isInteger(restaurantId)) {
+      const r = await prisma.restaurant.findUnique({ where: { id: restaurantId }, select: { piCodigo: true, piSecreto: true } })
+      const url = r?.piCodigo ? urlDeBox(r.piCodigo) : null
+      if (r?.piSecreto && url) local = { url, token: firmarPaseLocal(sesion, r.piSecreto, 16) }
+    }
+
+    return { ...empleado, token, ...(local ? { local } : {}) }
   })
 
   // Listar empleados con filtro opcional por tipo

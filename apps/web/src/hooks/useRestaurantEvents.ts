@@ -1,14 +1,17 @@
-import { useEffect } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { conSesion } from '../api'
+import { conexionActual, suscribirConexion } from '../lib/conexion'
 
 export function useRestaurantEvents(restaurantId: number | null) {
   const queryClient = useQueryClient()
+  // Nube o Box: al cambiar, el canal se abre de nuevo contra quien toque
+  const { local } = useSyncExternalStore(suscribirConexion, conexionActual)
 
   useEffect(() => {
     if (!restaurantId) return
 
-    const es = new EventSource(conSesion(`/api/events?restaurantId=${restaurantId}`))
+    const es = new EventSource(conSesion(`/events?restaurantId=${restaurantId}`))
 
     es.onmessage = (e) => {
       try {
@@ -33,5 +36,5 @@ export function useRestaurantEvents(restaurantId: number | null) {
     }
 
     return () => es.close()
-  }, [restaurantId, queryClient])
+  }, [restaurantId, queryClient, local])
 }

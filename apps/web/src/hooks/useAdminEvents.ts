@@ -7,7 +7,7 @@ export function useAdminEvents() {
   const queryClient = useQueryClient()
 
   useEffect(() => {
-    const es = new EventSource(conSesion('/api/events/global'))
+    const es = new EventSource(conSesion('/events/global'))
 
     es.onmessage = (e) => {
       try {

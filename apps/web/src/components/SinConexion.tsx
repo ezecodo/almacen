@@ -2,18 +2,20 @@ import { useEffect, useSyncExternalStore } from 'react'
 import { Outlet } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEsModoLocal } from '../lib/instalacion'
-import { alVolverLaConexion, conexionActual, reintentarAhora, suscribirConexion, vigilarConexion } from '../lib/conexion'
+import { alCambiarDeDestino, conexionActual, reintentarAhora, suscribirConexion, vigilarConexion } from '../lib/conexion'
 
 // Envuelve las pantallas de sala. Cuando la app deja de llegar al servidor tapa todo con un aviso,
 // sin desmontar lo de abajo: lo que el camarero tenía a medias sigue ahí cuando vuelve la conexión.
 export default function SinConexion() {
   const queryClient = useQueryClient()
-  const { caida, desde } = useSyncExternalStore(suscribirConexion, conexionActual)
-  const modoLocal = useEsModoLocal()
+  const { caida, desde, local } = useSyncExternalStore(suscribirConexion, conexionActual)
+  // Modo local de dos formas: la app instalada hablando con la Box, o la web servida por la propia Box
+  const servidaPorLaBox = useEsModoLocal()
+  const modoLocal = local || servidaPorLaBox
 
   useEffect(() => vigilarConexion(), [])
-  // Al volver, todo lo que hay en pantalla puede estar viejo: se vuelve a pedir
-  useEffect(() => alVolverLaConexion(() => { void queryClient.invalidateQueries() }), [queryClient])
+  // Al volver la conexión o cambiar entre nube y Box, lo que hay en pantalla puede estar viejo
+  useEffect(() => alCambiarDeDestino(() => { void queryClient.invalidateQueries() }), [queryClient])
 
   return (
     <>

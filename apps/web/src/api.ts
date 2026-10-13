@@ -1,6 +1,4 @@
-import { pedir } from './lib/conexion'
-
-const BASE = '/api'
+import { baseApi, enModoLocal, guardarBox, pedir } from './lib/conexion'
 
 // Si el backend responde con { error: "..." } lo usamos como mensaje; si no, el fallback genérico.
 async function errorMessage(res: Response, fallback: string): Promise<string> {
@@ -14,14 +12,14 @@ async function errorMessage(res: Response, fallback: string): Promise<string> {
 // Todas las llamadas mandan la sesión si la hay (admin dentro de /admin, empleado en la app de sala):
 // las rutas que la exigen la reciben, y a las que no, no les molesta.
 async function get<T>(path: string): Promise<T> {
-  const res = await pedir(`${BASE}${path}`, { headers: authHeaders() })
+  const res = await pedir(`${baseApi()}${path}`, { headers: authHeaders() })
   sesionRechazada(res, path)
   if (!res.ok) throw new Error(await errorMessage(res, `GET ${path} failed: ${res.status}`))
   return res.json() as Promise<T>
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
-  const res = await pedir(`${BASE}${path}`, {
+  const res = await pedir(`${baseApi()}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(body),
@@ -213,7 +211,7 @@ export interface Producto {
 }
 
 async function patch<T>(path: string, body: unknown): Promise<T> {
-  const res = await pedir(`${BASE}${path}`, {
+  const res = await pedir(`${baseApi()}${path}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(body),
@@ -224,13 +222,13 @@ async function patch<T>(path: string, body: unknown): Promise<T> {
 }
 
 async function del(path: string): Promise<void> {
-  const res = await pedir(`${BASE}${path}`, { method: 'DELETE', headers: authHeaders() })
+  const res = await pedir(`${baseApi()}${path}`, { method: 'DELETE', headers: authHeaders() })
   sesionRechazada(res, path)
   if (!res.ok) throw new Error(await errorMessage(res, `DELETE ${path} failed: ${res.status}`))
 }
 
 async function put<T>(path: string, body: unknown): Promise<T> {
-  const res = await pedir(`${BASE}${path}`, {
+  const res = await pedir(`${baseApi()}${path}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(body),
@@ -857,8 +855,13 @@ export const PULSO_TOKEN_KEY = 'pulso_token'
 // Pantallas que piden el PIN del empleado sin guardar sesión (almacén, mis propinas)
 let tokenEmpleadoEfimero: string | null = null
 
+// La sesión de sala lleva dos pases: el de la nube y, si el local tiene Box, el que vale en ella
+// (modo local). Quien entró con el PIN estando ya en modo local solo tiene el de la Box.
 function tokenSala(): string | null {
-  try { return JSON.parse(sessionStorage.getItem('oidoops_camarero') ?? '').token ?? null } catch { return null }
+  try {
+    const sesion = JSON.parse(sessionStorage.getItem('oidoops_camarero') ?? '')
+    return (enModoLocal() ? sesion.tokenLocal : sesion.token) ?? null
+  } catch { return null }
 }
 
 export function tokenActual(): string | null {
@@ -874,8 +877,11 @@ function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
-// Para los canales de eventos: EventSource no puede mandar cabeceras, la sesión va en la dirección
-export function conSesion(url: string): string {
+// Para los canales de eventos: EventSource no puede mandar cabeceras, la sesión va en la dirección.
+// `ruta` es la de la API sin el /api (ej. "/events?restaurantId=1"): la base depende de si se está
+// hablando con la nube o con la Box.
+export function conSesion(ruta: string): string {
+  const url = `${baseApi()}${ruta}`
   const token = tokenActual()
   return token ? `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}` : url
 }
@@ -896,7 +902,7 @@ async function authFetch(path: string, init: { method?: string; json?: unknown; 
   const headers = authHeaders()
   if (init.json !== undefined) headers['Content-Type'] = 'application/json'
   if (init.contentType) headers['Content-Type'] = init.contentType
-  const res = await pedir(`${BASE}${path}`, {
+  const res = await pedir(`${baseApi()}${path}`, {
     method: init.method ?? 'GET',
     headers,
     body: init.json !== undefined ? JSON.stringify(init.json) : init.body,
@@ -988,8 +994,10 @@ export const api = {
     darBadge: (id: number, body: BadgeBody) =>
       authFetch(`/empleados/${id}/badge`, { method: 'POST', json: body }).then(r => r.json() as Promise<{ codigo: string; url: string; avisado: boolean }>),
     // restaurantId: el local del dispositivo; la sesión queda atada a él (ver "red del local")
-    auth:   (pin: string, restaurantId?: number) => post<Empleado & { token?: string }>('/empleados/auth', { pin, restaurantId }).then(e => {
+    // `local` solo viene de la nube y si el local tiene Box: dónde está y el pase que vale en ella
+    auth:   (pin: string, restaurantId?: number) => post<Empleado & { token?: string; local?: { url: string; token: string } }>('/empleados/auth', { pin, restaurantId }).then(e => {
       tokenEmpleadoEfimero = e.token ?? null
+      guardarBox(e.local?.url ?? null)
       return e
     }),
     create: (body: { nombre: string; tipo: 'cocina' | 'sala'; pin?: string; telefono?: string; email?: string; horasSemanales?: number; rol?: string; puedeEncargado?: boolean; accesoEncargadoApp?: boolean; puedeJefeCocina?: boolean; excluirPlanning?: boolean; diasLibresFijos?: number[]; restaurantId?: number | null }) => post<Empleado>('/empleados', body),
