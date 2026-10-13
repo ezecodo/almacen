@@ -85,7 +85,9 @@ Coste: no es invisible. Se vuelve a pedir el PIN (para el navegador la Box es ot
      - **Sin probar**: un corte de internet de verdad (router sin salida). La duda es si el teléfono encuentra el nombre de la Box sin internet; depende de que lo recuerde o de que el router lo resuelva.
      - Gotcha visto: un nombre nuevo bajo `*.oidoops` consultado antes de existir su registro devuelve la IP del servidor (comodín, TTL 1 h) y esa respuesta se queda guardada en el servidor de nombres del teléfono hasta que caduca.
      - **Falta**: certificado y registro DNS de cada Box (hoy un registro A hecho a mano para `13faee.box.oidoops…` → `192.168.1.24`), automatizarlos desde HQ, y probarlo en un teléfono real con internet cortado de verdad.
-- **Etapa 2 — volver**: subida por lotes, pendientes de cobro, bloqueo mientras sincroniza.
+- **Etapa 2 — volver**: subida por lotes, pendientes de cobro, bloqueo mientras sincroniza. **Es lo siguiente (acordado con Eze para el 2026-10-14).** Va junto con esto:
+  - **Cuándo acepta comandas la Box** (apuntado el 2026-10-13): la app de la Box corre siempre, también con internet, para tener la copia al día. Hoy cualquiera en el WiFi del local puede abrir su sala y comandar ahí con la nube funcionando: esas comandas se pierden o se duplican. Regla a implementar: la Box solo acepta escrituras cuando ella misma no llega a su instalación, o cuando el dispositivo activó el modo local a mano (el caso de la demo de Eze — hay que decidir cómo se lo dice la app a la Box). Con internet y sin eso, solo lectura.
+  - Mientras la Box tenga algo sin subir, no debe aplicar copias nuevas (hoy las aplica y borra lo local).
 - **Etapa 3 — pulir**: ticket con QR, avisos en HQ, limpieza.
 
 ## 8. Casos a probar antes de producción
