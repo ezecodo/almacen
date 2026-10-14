@@ -6,7 +6,7 @@ import { requireAdmin } from '../auth'
 import { normalizarPiCodigo, onConectado, publicarConfigPi } from '../mqtt'
 import { avisoDeHQ } from '../sync-hq'
 import { aplicarSubida, armarReplica, huellaDe } from '../replica'
-import { broadcast } from '../sse'
+import { broadcast, subscribe, unsubscribe } from '../sse'
 
 // "Dónde estás": la sala de un restaurante solo se opera desde la red del local.
 // El servidor aprende esa red sin que nadie la cargue: la Pi, que vive enchufada al router del
@@ -142,6 +142,37 @@ export async function redRoutes(app: FastifyInstance) {
     const replica = await armarReplica(prisma, r.id)
     const huella = huellaDe(replica)
     return huella === body.data.huella ? { huella } : { huella, replica }
+  })
+
+  // POST /pi/eventos { codigo, token } — la Box deja abierta esta línea todo el tiempo (la nube no
+  // puede llamarla: está detrás del router del local). Cada vez que la sala de su restaurante guarda
+  // algo, se le avisa por aquí y la Box se trae el cambio al momento. Es POST para que el secreto
+  // no quede en la dirección (ni en los registros de Nginx).
+  app.post('/pi/eventos', async (req, reply) => {
+    const body = credencialPi.safeParse(req.body)
+    if (!body.success) return reply.status(400).send({ error: 'Datos inválidos' })
+    const r = await restauranteDeLaPi(body.data.codigo, body.data.token)
+    if (!r) return reply.status(401).send({ error: 'No autorizado' })
+
+    reply.hijack()
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    })
+    const send = (data: string) => {
+      try { reply.raw.write(data) } catch { unsubscribe(r.id, send) }
+    }
+    subscribe(r.id, send)
+    const ping = setInterval(() => {
+      try { reply.raw.write(': ping\n\n') } catch { clearInterval(ping); unsubscribe(r.id, send) }
+    }, 25_000)
+    req.raw.on('close', () => {
+      clearInterval(ping)
+      unsubscribe(r.id, send)
+    })
+    reply.raw.write('data: {"type":"connected"}\n\n')
   })
 
   // POST /pi/subida { codigo, token, subida } — al volver internet, la Box sube lo que se comandó en

@@ -14,7 +14,7 @@ export const MODO_LOCAL = process.env.MODO_LOCAL === '1'
 // El servicio de impresión de la Box (printer-server) deja aquí a qué instalación pertenece y
 // con qué secreto se identifica: { codigo, latido_url, token }. Lo recibe por MQTT al vincularla.
 const ARCHIVO_ENLACE = process.env.ENLACE_BOX || '/home/oido/printer-server/enlace.json'
-const CADA_MS = 5_000
+const CADA_MS = 10_000 // respaldo: lo normal es el aviso al instante por la línea abierta (escucharNube)
 
 interface Enlace { codigo: string; latido_url: string; token: string }
 
@@ -152,18 +152,58 @@ async function sincronizar(prisma: PrismaClient) {
 }
 
 export function iniciarReplicaLocal(prisma: PrismaClient) {
+  // Una sola sincronización a la vez; si llega un aviso mientras tanto, se repite al terminar
+  let enMarcha = false
+  let otraVez = false
   const ciclo = async () => {
-    try {
-      await sincronizar(prisma)
-    } catch (e) {
-      const motivo = e instanceof Error ? e.message : String(e)
-      // Sin internet esto falla cada vez: se avisa una sola vez por racha
-      if (estadoReplica.error !== motivo) console.warn('[local] no se pudo traer la copia de la sala:', motivo)
-      estadoReplica.error = motivo
-    }
-    setTimeout(ciclo, CADA_MS)
+    if (enMarcha) { otraVez = true; return }
+    enMarcha = true
+    do {
+      otraVez = false
+      try {
+        await sincronizar(prisma)
+      } catch (e) {
+        const motivo = e instanceof Error ? e.message : String(e)
+        // Sin internet esto falla cada vez: se avisa una sola vez por racha
+        if (estadoReplica.error !== motivo) console.warn('[local] no se pudo traer la copia de la sala:', motivo)
+        estadoReplica.error = motivo
+      }
+    } while (otraVez)
+    enMarcha = false
   }
+  // Lo normal es el aviso al instante (escucharNube); esto es el respaldo por si se pierde alguno
+  setInterval(() => void ciclo(), CADA_MS)
   void ciclo()
+  void escucharNube(ciclo)
+}
+
+// La línea abierta con la nube: cada vez que la sala de este local guarda algo, la nube avisa por
+// aquí y la Box se trae el cambio en el momento. La nube no puede llamar a la Box (está detrás del
+// router del local), así que es la Box la que deja la línea abierta. Si se corta, se vuelve a abrir.
+async function escucharNube(alAvisar: () => void) {
+  for (;;) {
+    try {
+      const enlace = JSON.parse(await readFile(ARCHIVO_ENLACE, 'utf8')) as Enlace
+      const res = await fetch(enlace.latido_url.replace(/\/pi\/latido$/, '/pi/eventos'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigo: enlace.codigo, token: enlace.token }),
+      })
+      if (!res.ok || !res.body) throw new Error(`la instalación respondió ${res.status}`)
+      // La nube manda un ping cada 25 s: si pasa mucho más sin nada, la línea está muerta
+      const lector = res.body.getReader()
+      for (;;) {
+        let vigilante: ReturnType<typeof setTimeout> | undefined
+        const silencio = new Promise<never>((_, mal) => { vigilante = setTimeout(() => mal(new Error('la línea con la nube se quedó muda')), 60_000) })
+        const { done, value } = await Promise.race([lector.read(), silencio]).finally(() => clearTimeout(vigilante))
+        if (done) break
+        // Cualquier aviso (también el de "conectada", por lo que se perdió mientras estaba cortada)
+        if (Buffer.from(value).toString().includes('data:')) alAvisar()
+      }
+      void lector.cancel().catch(() => {})
+    } catch { /* sin internet: se reintenta abajo */ }
+    await new Promise(r => setTimeout(r, 3_000))
+  }
 }
 
 // ── Impresión directa ──────────────────────────────────────────────────────────
