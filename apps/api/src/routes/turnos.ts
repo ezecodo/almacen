@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../server'
 import { broadcast } from '../sse'
+import { boxSinSincronizar } from './red'
 
 export async function turnoRoutes(app: FastifyInstance) {
 
@@ -117,6 +118,17 @@ export async function turnoRoutes(app: FastifyInstance) {
     const turno = await prisma.turno.findUnique({ where: { id } })
     if (!turno) return reply.status(404).send({ error: 'Turno no encontrado' })
     if (turno.estado === 'cerrado') return reply.status(409).send({ error: 'El turno ya está cerrado' })
+
+    // Modo local: si la Box del local no sincroniza desde hace un rato, puede tener comandas que
+    // solo están en ella. Se avisa; quien cierra puede cerrar igual (la Box apagada no debe bloquear).
+    const hace = boxSinSincronizar(turno.restaurantId)
+    if (hace !== null && !(req.body as { forzar?: boolean } | undefined)?.forzar) {
+      const min = Math.max(1, Math.round(hace / 60_000))
+      return reply.status(409).send({
+        error: `La Oído Box no sincroniza desde hace ${min} min: si se comandó sin internet, puede tener mesas sin subir. Espera a que vuelva la conexión o cierra igual.`,
+        codigo: 'box_sin_sincronizar',
+      })
+    }
 
     // Comandas cerradas durante el turno
     const comandas = await prisma.comanda.findMany({

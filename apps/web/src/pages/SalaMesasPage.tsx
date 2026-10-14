@@ -4,9 +4,10 @@ const ThemeCtx = createContext<boolean>(true) // true = dark
 import CheckOverlay from '../components/CheckOverlay'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, Alergeno, Comanda, ComandaItem, FloorPlan, GrupoAgendado, GrupoMenuTemplate, InventarioCategoria, Mesa, MenuCategoria, MenuItem, MermaMotivo, MiTurno, Reserva, Turno, WikiCategoria, WikiArticulo, ChecklistSector, sugerirCantidadesMenu, totalComanda, valorItem, waLink } from '../api'
+import { api, Alergeno, Comanda, ComandaItem, FloorPlan, GrupoAgendado, GrupoMenuTemplate, InventarioCategoria, Mesa, MenuCategoria, MenuItem, MermaMotivo, MiTurno, Reserva, Turno, WikiCategoria, WikiArticulo, ChecklistSector, sugerirCantidadesMenu, totalComanda, valorItem, waLink, esAvisoBox } from '../api'
 import { speak, VozSelector, LANGS, Lang } from '../lib/tts'
 import { alternarCorteSimulado } from '../lib/conexion'
+import { useSalaEnModoLocal } from '../lib/instalacion'
 import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
 import { usePoolEvents } from '../hooks/usePoolEvents'
 import FacturasSala from '../components/FacturasSala'
@@ -731,6 +732,8 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
   const [ordenarFull, setOrdenarFull] = useState(false)
   const [verCuenta, setVerCuenta] = useState(false)
   const [mermaItem, setMermaItem] = useState<ComandaItem | null>(null)
+  // Sin internet (la sala trabaja contra la Box) no hay mermas, invitaciones ni cobros
+  const enLocal = useSalaEnModoLocal()
   const [confirmarCerrar, setConfirmarCerrar] = useState(false)
   const [oidoAnim, setOidoAnim] = useState(false)
   const [dotsAnim, setDotsAnim] = useState(false)
@@ -1248,7 +1251,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                             onUpdate={cantidad => updateItem.mutate({ itemId: item.id, cantidad })}
                             onDelete={() => deleteItem.mutate(item.id)}
                             onSaveNota={v => saveNota.mutate({ itemId: item.id, value: v })}
-                            onMerma={() => setMermaItem(item)}
+                            onMerma={enLocal ? undefined : () => setMermaItem(item)}
                                     onInvitar={esEncargado ? () => invitarItem.mutate({ item }) : undefined} />
                         ))}
                       </div>
@@ -1274,7 +1277,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                                       onUpdate={cantidad => updateItem.mutate({ itemId: item.id, cantidad })}
                                       onDelete={() => deleteItem.mutate(item.id)}
                                       onSaveNota={v => saveNota.mutate({ itemId: item.id, value: v })}
-                                      onMerma={() => setMermaItem(item)}
+                                      onMerma={enLocal ? undefined : () => setMermaItem(item)}
                                     onInvitar={esEncargado ? () => invitarItem.mutate({ item }) : undefined} />
                                   ))}
                                 </div>
@@ -1297,7 +1300,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                                         onUpdate={cantidad => updateItem.mutate({ itemId: item.id, cantidad })}
                                         onDelete={() => deleteItem.mutate(item.id)}
                                         onSaveNota={v => saveNota.mutate({ itemId: item.id, value: v })}
-                                        onMerma={() => setMermaItem(item)}
+                                        onMerma={enLocal ? undefined : () => setMermaItem(item)}
                                         onInvitar={esEncargado ? () => invitarItem.mutate({ item }) : undefined}
                                         onRepeat={() => repeatItem.mutate(item)} />
                                     ))}
@@ -1331,7 +1334,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                                 onUpdate={newQty => updateItem.mutate({ itemId: firstItem.id, cantidad: firstItem.cantidad + (newQty - cantidad) })}
                                 onDelete={() => deleteItem.mutate(firstItem.id)}
                                 onSaveNota={v => saveNota.mutate({ itemId: firstItem.id, value: v })}
-                                onMerma={() => setMermaItem(firstItem)}
+                                onMerma={enLocal ? undefined : () => setMermaItem(firstItem)}
                                 onInvitar={esEncargado ? () => invitarItem.mutate({ item: firstItem }) : undefined} />
                             ))}
                           </div>
@@ -1668,7 +1671,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                   className="w-full py-2.5 rounded-xl bg-amber-500/20 border-2 border-amber-500 text-amber-400 text-sm font-black active:scale-95 transition-transform">
                   🧾 Reimprimir cuenta ({total.toFixed(2)} €)
                 </button>
-              ) : esEncargado && (
+              ) : esEncargado && !enLocal && (
                 <button
                   onClick={e => { e.stopPropagation(); setShowCobro(true) }}
                   className="w-full py-2.5 rounded-xl bg-amber-500 text-black text-sm font-black active:scale-95 transition-transform hover:bg-amber-400">
@@ -2643,9 +2646,11 @@ function PerfilPanel({ camarero, restaurantNombre, isDark, onToggleTheme, onClos
   const ahora  = new Date()
   const desde  = `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, '0')}-01`
 
+  const enLocal = useSalaEnModoLocal()
   const { data: turnos, isLoading } = useQuery({
     queryKey: ['mis-turnos', camarero.id],
     queryFn: () => api.propinas.misTurnos(camarero.id, desde),
+    enabled: !enLocal,
   })
 
   const totalMes    = turnos?.reduce((s, t) => s + t.propina, 0) ?? 0
@@ -2719,6 +2724,11 @@ function PerfilPanel({ camarero, restaurantNombre, isDark, onToggleTheme, onClos
           </div>
         </div>
 
+        {enLocal ? (
+          <p className="mx-5 my-4 rounded-2xl bg-amber-400/10 px-4 py-3 text-sm text-amber-500">
+            Sin internet: propinas, producción, checklists y wiki vuelven cuando vuelva la conexión.
+          </p>
+        ) : (<>
         {/* Resumen */}
         <div className="grid grid-cols-2 gap-3 px-5 py-4">
           <div className="bg-[var(--sala-srf)] rounded-2xl p-4">
@@ -2783,11 +2793,12 @@ function PerfilPanel({ camarero, restaurantNombre, isDark, onToggleTheme, onClos
             </div>
           </button>
         </div>
+        </>)}
 
         {/* Lista de turnos */}
         <div className="flex-1 overflow-y-auto px-5 pb-6">
-          {isLoading && <p className="text-[var(--sala-tx4)] text-sm text-center py-6">Cargando…</p>}
-          {!isLoading && !turnos?.length && (
+          {isLoading && !enLocal && <p className="text-[var(--sala-tx4)] text-sm text-center py-6">Cargando…</p>}
+          {!isLoading && !enLocal && !turnos?.length && (
             <p className="text-[var(--sala-tx4)] text-sm text-center py-6">Sin propinas registradas este mes</p>
           )}
           {turnos?.map((t: MiTurno) => (
@@ -3415,7 +3426,7 @@ function EncargadoPanel({
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['turno-activo', rid] }),
   })
   const cerrarTurno = useMutation({
-    mutationFn: () => api.turnos.cerrar(turnoActivo!.id),
+    mutationFn: (forzar: boolean) => api.turnos.cerrar(turnoActivo!.id, forzar),
     onSuccess: t => {
       setArmadoCierre(false)
       setResumenCierre(t)
@@ -3642,15 +3653,20 @@ function EncargadoPanel({
                       </p>
                     </div>
                   )}
+                  {cerrarTurno.error instanceof Error && (
+                    <div className="bg-red-500/10 rounded-xl px-4 py-3">
+                      <p className="text-red-400 text-xs font-bold">{cerrarTurno.error.message}</p>
+                    </div>
+                  )}
                   {armadoCierre ? (
                     <div className="flex gap-2">
-                      <button onClick={() => setArmadoCierre(false)}
+                      <button onClick={() => { setArmadoCierre(false); cerrarTurno.reset() }}
                         className="flex-1 py-3 rounded-xl bg-[var(--sala-btn2)] text-[var(--sala-tx2)] text-sm font-semibold">
                         Cancelar
                       </button>
-                      <button onClick={() => cerrarTurno.mutate()} disabled={cerrarTurno.isPending}
+                      <button onClick={() => cerrarTurno.mutate(esAvisoBox(cerrarTurno.error))} disabled={cerrarTurno.isPending}
                         className="flex-1 py-3 rounded-xl bg-red-600 text-white text-sm font-black active:scale-95 transition-transform disabled:opacity-50">
-                        {cerrarTurno.isPending ? 'Cerrando…' : '¿Seguro? Cerrar turno'}
+                        {cerrarTurno.isPending ? 'Cerrando…' : esAvisoBox(cerrarTurno.error) ? 'Cerrar igual' : '¿Seguro? Cerrar turno'}
                       </button>
                     </div>
                   ) : (
@@ -4051,6 +4067,7 @@ export default function SalaMesasPage() {
   // Modo encargado: rol 'encargado' o superpoder accesoEncargadoApp (toggle 💼 en /admin/empleados,
   // independiente de puedeEncargado que es un concepto del planning)
   const esEncargado = camarero?.rol === 'encargado' || camarero?.accesoEncargadoApp === true
+  const enLocal = useSalaEnModoLocal()
 
   useRestaurantEvents(restaurant?.id ?? null)
 
@@ -4286,7 +4303,9 @@ export default function SalaMesasPage() {
           </span>
         </div>
         <p className="text-[var(--sala-txt)] font-black text-xl mb-2">Turno no iniciado</p>
-        {esEncargado ? (
+        {enLocal ? (
+          <p className="text-[var(--sala-tx3)] text-sm">Sin internet no se puede abrir el turno: la sala sigue en cuanto vuelva la conexión.</p>
+        ) : esEncargado ? (
           <>
             <p className="text-[var(--sala-tx3)] text-sm mb-6">Sos encargado — podés abrir el turno ahora mismo.</p>
             <button
@@ -4330,8 +4349,8 @@ export default function SalaMesasPage() {
           </button>
           <div className="flex-1 min-w-0 flex items-center gap-1.5 flex-wrap">
           <div className="order-2 ml-auto flex items-center gap-3">
-            {/* Modo encargado */}
-            {esEncargado && (
+            {/* Modo encargado (sin internet no hay nada de lo que tiene dentro) */}
+            {esEncargado && !enLocal && (
               <button
                 onClick={() => setShowEncargado(true)}
                 aria-label="Modo encargado" title="Modo encargado: cobros, turno, checklists, mermas"

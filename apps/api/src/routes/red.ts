@@ -5,7 +5,8 @@ import { prisma } from '../server'
 import { requireAdmin } from '../auth'
 import { normalizarPiCodigo, onConectado, publicarConfigPi } from '../mqtt'
 import { avisoDeHQ } from '../sync-hq'
-import { armarReplica, huellaDe } from '../replica'
+import { aplicarSubida, armarReplica, huellaDe } from '../replica'
+import { broadcast } from '../sse'
 
 // "Dónde estás": la sala de un restaurante solo se opera desde la red del local.
 // El servidor aprende esa red sin que nadie la cargue: la Pi, que vive enchufada al router del
@@ -59,6 +60,21 @@ export async function anunciarLatido(restaurantId: number) {
   const r = await prisma.restaurant.findUnique({ where: { id: restaurantId }, select: { piCodigo: true, piSecreto: true } })
   if (!r?.piCodigo || !r.piSecreto || !process.env.FRONTEND_URL) return
   publicarConfigPi(r.piCodigo, { latido_url: `${process.env.FRONTEND_URL}/api/pi/latido`, token: r.piSecreto })
+}
+
+// Modo local: cuándo terminó cada Box de sincronizar por última vez (lo subió todo y pidió la copia).
+// Solo en memoria: tras un reinicio de la API no se sabe nada y no se frena ningún cierre.
+const sincronizadaAt = new Map<number, number>()
+const BOX_AL_DIA_MS = 30_000
+const BOX_EN_USO_MS = 24 * 60 * 60 * 1000
+
+// Si la Box de un restaurante está en modo local (sincronizaba hasta hace poco) y lleva un rato sin
+// sincronizar, puede tener comandas que solo están en ella. Devuelve cuánto hace, o null si está al día.
+export function boxSinSincronizar(restaurantId: number): number | null {
+  const at = sincronizadaAt.get(restaurantId)
+  if (!at) return null
+  const hace = Date.now() - at
+  return hace > BOX_AL_DIA_MS && hace < BOX_EN_USO_MS ? hace : null
 }
 
 export async function redRoutes(app: FastifyInstance) {
@@ -121,9 +137,30 @@ export async function redRoutes(app: FastifyInstance) {
     if (!body.success) return reply.status(400).send({ error: 'Datos inválidos' })
     const r = await restauranteDeLaPi(body.data.codigo, body.data.token)
     if (!r) return reply.status(401).send({ error: 'No autorizado' })
+    // La Box solo pide copia cuando ya no le queda nada por subir
+    sincronizadaAt.set(r.id, Date.now())
     const replica = await armarReplica(prisma, r.id)
     const huella = huellaDe(replica)
     return huella === body.data.huella ? { huella } : { huella, replica }
+  })
+
+  // POST /pi/subida { codigo, token, subida } — al volver internet, la Box sube lo que se comandó en
+  // modo local (ver aplicarSubida en replica.ts). Repetirla no duplica nada.
+  const fila = z.record(z.string(), z.unknown())
+  const esquemaSubida = z.object({
+    comandas: z.array(z.object({ id: z.number().int().positive(), nueva: z.boolean(), campos: fila })).max(5000),
+    items: z.array(z.object({ id: z.number().int().positive(), nuevo: z.boolean(), campos: fila })).max(50000),
+    itemsBorrados: z.array(z.number().int().positive()).max(50000),
+  })
+  app.post('/pi/subida', { bodyLimit: 10 * 1024 * 1024 }, async (req, reply) => {
+    const body = credencialPi.extend({ subida: esquemaSubida }).safeParse(req.body)
+    if (!body.success) return reply.status(400).send({ error: 'Datos inválidos' })
+    const r = await restauranteDeLaPi(body.data.codigo, body.data.token)
+    if (!r) return reply.status(401).send({ error: 'No autorizado' })
+    const resultado = await aplicarSubida(prisma, r.id, body.data.subida)
+    console.log(`[local] la Box ${r.codigo} subió lo comandado sin internet:`, resultado)
+    broadcast(r.id, 'update')
+    return { ok: true, ...resultado }
   })
 
   // POST /suite/sincronizar — el back-office avisa de que cambió algo de este cliente (le asignó o

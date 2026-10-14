@@ -31,7 +31,7 @@ import { CONSULTA_ENCARGADO, CONSULTA_SALA, RUTAS_LOCAL, RUTAS_PUBLICAS, RUTAS_P
 import { facturaRoutes } from './routes/facturas'
 import { iniciarMqtt, onImpresorasDetectadas } from './mqtt'
 import { iniciarSyncHQ } from './sync-hq'
-import { claveSesionDeLaBox, iniciarReplicaLocal, MODO_LOCAL, origenDeLaInstalacion, servirHttps, servirWeb } from './local'
+import { antesDeEscribir, claveSesionDeLaBox, despuesDeEscribir, iniciarReplicaLocal, MODO_LOCAL, origenDeLaInstalacion, servirHttps, servirWeb } from './local'
 
 const app = Fastify({ logger: true })
 export const prisma = new PrismaClient()
@@ -65,6 +65,16 @@ async function start() {
   if (MODO_LOCAL) {
     app.addHook('onRequest', async (req, reply) => {
       if (req.headers['access-control-request-private-network']) reply.header('Access-Control-Allow-Private-Network', 'true')
+    })
+    // Una escritura no puede cruzarse con la carga de una copia nueva de la sala (ver local.ts)
+    const escribiendo = new WeakSet<object>()
+    app.addHook('preHandler', async req => {
+      if (req.method === 'GET' || req.method === 'OPTIONS' || req.method === 'HEAD') return
+      await antesDeEscribir()
+      escribiendo.add(req)
+    })
+    app.addHook('onResponse', async req => {
+      if (escribiendo.delete(req)) despuesDeEscribir()
     })
   }
 

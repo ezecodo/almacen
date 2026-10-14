@@ -1,6 +1,10 @@
 import { baseApi, enModoLocal, guardarBox, pedir } from './lib/conexion'
 
 // Si el backend responde con { error: "..." } lo usamos como mensaje; si no, el fallback genérico.
+// El cierre de turno se frena si la Oído Box del local (modo local) lleva un rato sin sincronizar:
+// puede tener mesas comandadas sin internet. Quien cierra puede cerrar igual.
+export const esAvisoBox = (e: unknown) => e instanceof Error && e.message.startsWith('La Oído Box no sincroniza')
+
 async function errorMessage(res: Response, fallback: string): Promise<string> {
   try {
     const data = await res.clone().json()
@@ -1217,7 +1221,8 @@ export const api = {
     getStats:   () => get<{ restaurantId: number; nombre: string; activo: boolean; aperturaAt: string | null; turnoId: number | null; totalEfectivo: number; totalTarjeta: number; totalVentas: number; numComandas: number }[]>('/turnos/activos/stats'),
     abrir:     (restaurantId: number, encargadoNombre?: string) =>
       post<Turno>('/turnos', { restaurantId, encargadoNombre }),
-    cerrar:    (id: number) => patch<Turno>(`/turnos/${id}/cerrar`, {}),
+    // forzar: cerrar aunque la Oído Box tenga mesas sin sincronizar (ver esAvisoBox)
+    cerrar:    (id: number, forzar = false) => patch<Turno>(`/turnos/${id}/cerrar`, forzar ? { forzar } : {}),
     list:      (restaurantId: number) => get<Turno[]>(`/turnos?restaurantId=${restaurantId}`),
     getComanadas: (turnoId: number) => get<Comanda[]>(`/turnos/${turnoId}/comandas`),
     delete:    (id: number) => del(`/turnos/${id}`),

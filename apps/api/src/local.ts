@@ -1,11 +1,11 @@
 import { createHmac } from 'crypto'
 import { existsSync, readFileSync } from 'fs'
-import { readFile } from 'fs/promises'
+import { readFile, writeFile } from 'fs/promises'
 import https from 'https'
 import path from 'path'
 import { FastifyInstance } from 'fastify'
 import { PrismaClient } from '@prisma/client'
-import { aplicarReplica, Replica } from './replica'
+import { aplicarReplica, cuantoFaltaSubir, loQueFaltaSubir, Replica } from './replica'
 
 // Este mismo código corre también dentro de la Box de cada local, en "modo local" (MODO_LOCAL=1),
 // para que la sala siga comandando cuando se cae internet. Ver docs/modo-local.md.
@@ -14,7 +14,7 @@ export const MODO_LOCAL = process.env.MODO_LOCAL === '1'
 // El servicio de impresión de la Box (printer-server) deja aquí a qué instalación pertenece y
 // con qué secreto se identifica: { codigo, latido_url, token }. Lo recibe por MQTT al vincularla.
 const ARCHIVO_ENLACE = process.env.ENLACE_BOX || '/home/oido/printer-server/enlace.json'
-const CADA_MS = 15_000
+const CADA_MS = 5_000
 
 interface Enlace { codigo: string; latido_url: string; token: string }
 
@@ -60,38 +60,101 @@ export const origenDeLaInstalacion = () => {
   try { return enlaceAlArrancar ? new URL(enlaceAlArrancar.latido_url).origin : null } catch { return null }
 }
 
+// ── Copia de la sala y subida al volver ────────────────────────────────────────
+// Cada pocos segundos: (1) si se comandó algo en la Box desde la última copia, se sube a la nube;
+// (2) solo si no queda nada por subir, se trae la copia nueva y se carga. Así una copia nunca borra
+// lo comandado sin internet. La última copia aplicada se guarda en disco: si la Box se reinicia en
+// pleno corte, al volver sigue sabiendo qué es suyo y qué vino de la nube.
+const ARCHIVO_COPIA = process.env.COPIA_SALA || path.join(process.cwd(), 'copia-sala.json')
+
 let huella: string | null = null
+let copia: Replica | null = null
+try {
+  if (MODO_LOCAL) copia = JSON.parse(readFileSync(ARCHIVO_COPIA, 'utf8')) as Replica
+} catch { /* primera vez: no hay copia guardada */ }
+
 // Para el panel y los registros: cuándo se trajo la última copia
 export const estadoReplica = { ultimaAt: null as Date | null, error: null as string | null }
 
-async function traerCopia(prisma: PrismaClient) {
+// Mientras se carga una copia no se atiende ninguna escritura (y al revés): una comanda que entrara
+// en medio se perdería. Cargar la copia tarda menos de un segundo; quien escribe espera ese rato.
+let cargando: Promise<void> | null = null
+let escrituras = 0
+export async function antesDeEscribir() {
+  while (cargando) await cargando
+  escrituras++
+}
+export const despuesDeEscribir = () => { escrituras = Math.max(0, escrituras - 1) }
+
+async function sinEscrituras<T>(fn: () => Promise<T>): Promise<T> {
+  let soltar!: () => void
+  cargando = new Promise(r => (soltar = r))
+  try {
+    // Se espera a que terminen las que ya estaban en marcha (con tope, por si alguna quedó colgada)
+    const hasta = Date.now() + 10_000
+    while (escrituras > 0 && Date.now() < hasta) await new Promise(r => setTimeout(r, 25))
+    return await fn()
+  } finally {
+    cargando = null
+    soltar()
+  }
+}
+
+async function llamarInstalacion(enlace: Enlace, ruta: string, cuerpo: object) {
+  const res = await fetch(enlace.latido_url.replace(/\/pi\/latido$/, ruta), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ codigo: enlace.codigo, token: enlace.token, ...cuerpo }),
+    signal: AbortSignal.timeout(15_000),
+  })
+  if (!res.ok) throw new Error(`la instalación respondió ${res.status} en ${ruta}`)
+  return res.json()
+}
+
+async function sincronizar(prisma: PrismaClient) {
   const enlace = JSON.parse(await readFile(ARCHIVO_ENLACE, 'utf8')) as Enlace
   if (enlace.token !== enlaceAlArrancar?.token || enlace.latido_url !== enlaceAlArrancar?.latido_url) {
     console.log('[local] cambió el enlace con la instalación: se reinicia para tomarlo')
     process.exit(0)
   }
-  const url = enlace.latido_url.replace(/\/pi\/latido$/, '/pi/replica')
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ codigo: enlace.codigo, token: enlace.token, huella }),
-    signal: AbortSignal.timeout(20_000),
-  })
-  if (!res.ok) throw new Error(`la instalación respondió ${res.status}`)
-  const data = (await res.json()) as { huella: string; replica?: Replica }
-  if (data.replica) {
-    await aplicarReplica(prisma, data.replica)
-    huella = data.huella
-    console.log(`[local] copia de la sala actualizada (${data.replica.tablas.menuItem.length} platos, ${data.replica.tablas.comanda.length} comandas abiertas)`)
+
+  // 1. Subir lo comandado aquí desde la última copia
+  let subida = copia ? await loQueFaltaSubir(prisma, copia) : null
+  if (subida && cuantoFaltaSubir(subida) > 0) {
+    const r = await llamarInstalacion(enlace, '/pi/subida', { subida })
+    console.log('[local] subido a la nube lo comandado sin internet:', r)
+    huella = null // la nube cambió: hay que traer la copia sí o sí
   }
+
+  // 2. Traer la copia (la nube no manda nada si no cambió)
+  const data = (await llamarInstalacion(enlace, '/pi/replica', { huella })) as { huella: string; replica?: Replica }
   estadoReplica.ultimaAt = new Date()
   estadoReplica.error = null
+  if (!data.replica) return
+  const nueva = data.replica
+
+  // 3. Cargarla, salvo que mientras tanto se haya comandado algo más (se subirá en la próxima vuelta)
+  const cargada = await sinEscrituras(async () => {
+    const ahora = copia ? await loQueFaltaSubir(prisma, copia) : null
+    if (ahora && JSON.stringify(ahora) !== JSON.stringify(subida)) return false
+    await aplicarReplica(prisma, nueva)
+    return true
+  })
+  if (!cargada) return
+  copia = nueva
+  huella = data.huella
+  try {
+    await writeFile(ARCHIVO_COPIA, JSON.stringify(nueva))
+  } catch (e) {
+    console.warn('[local] no se pudo guardar la copia en disco:', e)
+  }
+  console.log(`[local] copia de la sala actualizada (${nueva.tablas.menuItem.length} platos, ${nueva.tablas.comanda.length} comandas abiertas)`)
 }
 
 export function iniciarReplicaLocal(prisma: PrismaClient) {
   const ciclo = async () => {
     try {
-      await traerCopia(prisma)
+      await sincronizar(prisma)
     } catch (e) {
       const motivo = e instanceof Error ? e.message : String(e)
       // Sin internet esto falla cada vez: se avisa una sola vez por racha

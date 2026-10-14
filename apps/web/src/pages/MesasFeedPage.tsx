@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
-import { api, Comanda, ComandaItem, ComandaMerma, FloorPlan, Mesa, Restaurante, MermaMotivo, Turno, totalComanda, valorItem } from '../api'
+import { api, Comanda, ComandaItem, ComandaMerma, FloorPlan, Mesa, Restaurante, MermaMotivo, Turno, totalComanda, valorItem, esAvisoBox } from '../api'
 
 function timeAgo(iso: string) {
   const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000)
@@ -636,13 +636,15 @@ type TurnoPreview = {
   propinas: number; numComandas: number
 }
 
-function CierreTurnoModal({ turno, mesasAbiertas, preview, onConfirm, onClose, loading }: {
+function CierreTurnoModal({ turno, mesasAbiertas, preview, onConfirm, onClose, loading, error, forzar }: {
   turno: Turno
   mesasAbiertas: number
   preview: TurnoPreview
   onConfirm: () => void
   onClose: () => void
   loading: boolean
+  error: string | null
+  forzar: boolean // la Oído Box avisó que puede tener mesas sin subir: el botón cierra igual
 }) {
   const duracion = () => {
     const mins = Math.floor((Date.now() - new Date(turno.aperturaAt).getTime()) / 60000)
@@ -696,6 +698,12 @@ function CierreTurnoModal({ turno, mesasAbiertas, preview, onConfirm, onClose, l
               </p>
             </div>
           )}
+
+          {error && (
+            <div className="bg-red-900/30 border border-red-700/50 rounded-2xl p-4">
+              <p className="text-red-300 text-sm font-medium">{error}</p>
+            </div>
+          )}
         </div>
 
         <div className="px-6 pb-6 flex gap-3">
@@ -705,7 +713,7 @@ function CierreTurnoModal({ turno, mesasAbiertas, preview, onConfirm, onClose, l
           </button>
           <button onClick={onConfirm} disabled={loading}
             className="flex-1 py-3 rounded-xl bg-red-600 text-white font-bold hover:bg-red-500 disabled:opacity-50 transition-colors">
-            {loading ? 'Cerrando…' : 'Confirmar cierre'}
+            {loading ? 'Cerrando…' : forzar ? 'Cerrar igual' : 'Confirmar cierre'}
           </button>
         </div>
       </div>
@@ -794,7 +802,7 @@ export default function MesasFeedPage() {
   })
 
   const cerrarTurno = useMutation({
-    mutationFn: () => api.turnos.cerrar(turnoActivo!.id),
+    mutationFn: (forzar: boolean) => api.turnos.cerrar(turnoActivo!.id, forzar),
     onSuccess: (turno) => {
       setTurnoResumen(turno)
       setShowCierre(false)
@@ -1054,9 +1062,11 @@ export default function MesasFeedPage() {
           turno={turnoActivo}
           mesasAbiertas={numActivas}
           preview={turnoPreview}
-          onClose={() => setShowCierre(false)}
-          onConfirm={() => cerrarTurno.mutate()}
+          onClose={() => { setShowCierre(false); cerrarTurno.reset() }}
+          onConfirm={() => cerrarTurno.mutate(esAvisoBox(cerrarTurno.error))}
           loading={cerrarTurno.isPending}
+          error={cerrarTurno.error instanceof Error ? cerrarTurno.error.message : null}
+          forzar={esAvisoBox(cerrarTurno.error)}
         />
       )}
 

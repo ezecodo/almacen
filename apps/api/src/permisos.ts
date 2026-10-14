@@ -22,6 +22,7 @@ export const RUTAS_PUBLICAS = new Set([
   'POST /api/reviews/sync',           // cron: se valida con SYNC_SECRET
   'POST /api/pi/latido',              // la Pi del local: se valida con su secreto
   'POST /api/pi/replica',             // la Pi pide la copia de la sala para el modo local (mismo secreto)
+  'POST /api/pi/subida',              // y al volver internet sube lo comandado sin él (mismo secreto)
   'POST /api/suite/sincronizar',      // aviso del back-office: se valida con el secreto de la suite
 ])
 

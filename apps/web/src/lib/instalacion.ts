@@ -1,4 +1,6 @@
+import { useSyncExternalStore } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { conexionActual, suscribirConexion } from './conexion'
 
 // El mismo build se sirve en dos sitios: la instalación de cada cliente (con su API detrás)
 // y la vidriera del producto (solo archivos, sin API). Se distinguen preguntando si hay API.
@@ -24,6 +26,13 @@ export function useEsModoLocal(): boolean {
     staleTime: Infinity,
     retry: false,
   }).data === true
+}
+
+// ¿La sala está trabajando contra la Box ahora mismo? Sea la app instalada que pasó a hablarle a la
+// Box, o la web servida por la propia Box. Para esconder lo que sin internet no funciona.
+export function useSalaEnModoLocal(): boolean {
+  const { local } = useSyncExternalStore(suscribirConexion, conexionActual)
+  return useEsModoLocal() || local
 }
 
 // undefined mientras se averigua
