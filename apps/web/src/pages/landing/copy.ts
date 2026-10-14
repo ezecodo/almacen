@@ -252,8 +252,8 @@ export const copy = {
       },
       {
         num: '03',
-        title: 'No pierde un ticket',
-        body: 'Si la Box pierde la conexión un momento, las comandas esperan y se imprimen en cuanto vuelve. Y no abre ninguna puerta en tu red: es la Box la que llama, nunca al revés.',
+        title: 'Sigue sin internet',
+        body: 'Cada comanda se guarda en la nube y, al instante, en la Oído Box de tu local. Si se cae internet, la sala sigue comandando e imprimiendo con la Box, y cuando vuelve, todo se sincroniza solo.',
       },
       {
         num: '04',
