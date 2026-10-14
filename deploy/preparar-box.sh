@@ -71,6 +71,8 @@ box 'cd ~/printer-server && { [ -x venv/bin/python3 ] || python3 -m venv venv; }
 # internet (las impresoras van por ahí): que gane el WiFi, y el cable solo si no hay WiFi.
 box 'printf "[connection-oido-cable]\nmatch-device=type:ethernet\nipv4.route-metric=700\nipv6.route-metric=700\n" | sudo tee /etc/NetworkManager/conf.d/oido-cable.conf > /dev/null && sudo systemctl reload NetworkManager && { c=$(nmcli -g GENERAL.CONNECTION device show eth0 2>/dev/null); [ -z "$c" ] || sudo nmcli con up "$c" > /dev/null; }' \
   && bien "Internet por WiFi primero; el cable, de respaldo" || aviso "No pude ajustar la prioridad del cable"
+box 'sudo tee /usr/local/bin/oido > /dev/null && sudo chmod 755 /usr/local/bin/oido' < deploy/oido-box.sh
+bien "Comando oido instalado (oido estado | corte | vuelve | sin-wifi | clave | registro)"
 bien "Librerías:$(box '~/printer-server/venv/bin/pip list 2>/dev/null | grep -iE "^(paho-mqtt|python-escpos|pillow) " | tr -s " " | paste -sd, -')"
 
 # ── 4 ──────────────────────────────────────────────────────────────────────────────────────────
