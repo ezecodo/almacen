@@ -9,11 +9,12 @@
 # La tarjeta tiene que estar grabada con Raspberry Pi OS Lite (64-bit), usuario "oido" y SSH con la
 # clave de este Mac. Se puede repetir: lo que ya está hecho no se rehace (salvo copiar el programa).
 #
-# Lo único que no hace solo: crear la credencial del canal, que necesita root en el VPS. El script
-# dice el comando exacto y pide pegar la clave que muestra.
+# La clave del canal la pide al VPS solo (una vez antes, como root: deploy/permitir-claves-box.sh);
+# si el VPS no lo permite, dice el comando y pide pegarla.
 #
 # Variables opcionales: PRINTER_SERVER (carpeta del servicio de impresión, por defecto
-# ~/Desktop/dev/printer-server), VPS (por defecto eze@82.165.93.34), SIN_MODO_LOCAL=1.
+# ~/Desktop/dev/printer-server), VPS (por defecto eze@82.165.93.34), SIN_MODO_LOCAL=1,
+# RENOVAR_CLAVE=1 (genera una clave nueva del canal aunque la Box ya tenga una).
 
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -77,15 +78,22 @@ bien "Librerías:$(box '~/printer-server/venv/bin/pip list 2>/dev/null | grep -i
 
 # ── 4 ──────────────────────────────────────────────────────────────────────────────────────────
 paso "4/7 · Credencial del canal (MQTT)"
-if box "grep -q '^MQTT_PASS=..' ~/printer-server/.env 2>/dev/null && grep -q '^MQTT_USER=$CODIGO\$' ~/printer-server/.env"; then
+if [ "${RENOVAR_CLAVE:-}" != 1 ] && box "grep -q '^MQTT_PASS=..' ~/printer-server/.env 2>/dev/null && grep -q '^MQTT_USER=$CODIGO\$' ~/printer-server/.env"; then
   bien "La Box ya tiene su credencial (no la toco)"
 else
-  echo "  Esta Box necesita su credencial. En otra terminal, en el VPS como root, corre:"
-  echo
-  echo "      bash /root/almacen/deploy/mqtt.sh pi $CODIGO"
-  echo
-  echo "  Muestra MQTT_USER y MQTT_PASS. Pega aquí solo la clave (lo que va después de MQTT_PASS=)."
-  read -rsp "  MQTT_PASS: " CLAVE; echo
+  # Se la pide al VPS (lo permite deploy/permitir-claves-box.sh). La clave va del VPS a la Box sin mostrarse.
+  CLAVE=$(ssh "${SSH_OPC[@]}" "$VPS" "sudo -n bash /root/almacen/deploy/mqtt.sh pi $CODIGO" 2>/dev/null | sed -n 's/^MQTT_PASS=//p' || true)
+  if [ -n "$CLAVE" ]; then
+    bien "Clave creada en el servidor"
+  else
+    aviso "El VPS no me deja crear la clave solo (falta, una vez como root: bash /root/almacen/deploy/permitir-claves-box.sh)"
+    echo "  Mientras tanto, a mano: en el VPS como root corre"
+    echo
+    echo "      bash /root/almacen/deploy/mqtt.sh pi $CODIGO"
+    echo
+    echo "  y pega aquí solo la clave (lo que va después de MQTT_PASS=)."
+    read -rsp "  MQTT_PASS: " CLAVE; echo
+  fi
   CLAVE="${CLAVE#MQTT_PASS=}"; CLAVE="$(echo "$CLAVE" | tr -d '[:space:]')"
   [[ "$CLAVE" =~ ^[0-9a-f]{20,}$ ]] || mal "Eso no parece la clave (son letras a-f y números). Vuelve a correr el script."
   box "umask 077; cd ~/printer-server; { grep -vE '^MQTT_(USER|PASS)=' .env 2>/dev/null || grep -vE '^MQTT_(USER|PASS)=' .env.example; echo MQTT_USER=$CODIGO; echo MQTT_PASS=$CLAVE; } > .env.nuevo && mv .env.nuevo .env"
