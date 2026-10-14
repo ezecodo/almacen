@@ -350,6 +350,8 @@ Tres momentos: en casa con la Pi, en el back-office, y en el local.
 
 ### A. En casa: preparar la Pi
 
+**Desde el 2026-10-14 lo hace `deploy/preparar-box.sh`** (desde el Mac, en la raíz del repo, con la tarjeta recién grabada con Raspberry Pi OS Lite 64-bit, usuario `oido`, SSH con la clave del Mac): paquetes, `printer-server` y portal, credencial del canal (dice el comando del VPS y pide pegar la clave), certificado, modo local y comprobación final. Los pasos de abajo quedan como referencia de lo que hace.
+
 1. **Grabar la tarjeta** con el `printer-server` actual (el de `~/Desktop/dev/printer-server`, con el latido). Si se clona una tarjeta ya preparada, **hay que cambiarle el `.env`** en el paso 3: cada Pi lleva su propia credencial.
 2. **Arrancarla y leer su código.** Sale en el registro: `journalctl -u printer-server -n 20 --no-pager` → "Código de esta Pi: OIDO-XXXXXX". Pegarle una etiqueta con ese código.
 3. **Crearle su credencial del canal.** Sin esto no se conecta.

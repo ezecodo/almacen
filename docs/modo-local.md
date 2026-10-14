@@ -98,6 +98,10 @@ Coste: no es invisible. Se vuelve a pedir el PIN (para el navegador la Box es ot
 
 ## 8. Casos a probar antes de producción
 
+**Prueba de punta a punta con la Box real (2026-10-14), pasada**: tarjeta grabada desde cero → `deploy/preparar-box.sh` (7/7) → portal WiFi desde el teléfono (dos veces) → la Box aparece sola en el panel de Sensi y "Probar" imprime → comanda con internet → corte (Box con `ip route add blackhole 82.165.93.34/32` + teléfono en modo local a mano): mesa nueva y marcha pasa en una mesa abierta con internet, salen los tickets y la nube no los ve → se quita el corte: en unos segundos la nube tiene las dos mesas, sin duplicados (1 plato de antes + 2 del corte = 3) y sin reimprimir nada → desenchufar y enchufar la Box: vuelve sola. **Sin probar**: el teléfono con el router del local de verdad sin internet (¿resuelve `<código>.box…`?), el cierre de turno con aviso, y los botones ocultos en modo local en el teléfono. Durante un apagón no se puede hacer nada (sin luz no hay router ni impresoras): Eze entregará comanderos de papel.
+
+Encontrado en la prueba y corregido en el instalador: Raspberry Pi OS reciente pide contraseña para `sudo` (se le quita a `oido`; solo se entra con la clave del Mac), y con WiFi y cable a la vez la Box salía a internet por el cable del router del kit, que no tiene internet (`/etc/NetworkManager/conf.d/oido-cable.conf`: el cable con prioridad menor que el WiFi). Lo que sigue siendo manual y **hay que automatizar** (Eze: instalar una Box tiene que ser grabar y enchufar): la credencial MQTT (root en el VPS), el registro DNS y el certificado de cada Box.
+
 - Corte a mitad de una comanda sin enviar; corte con la cuenta impresa y sin cobrar.
 - Internet que va y viene cada pocos segundos (no entrar y salir de modo local sin parar).
 - La subida se corta a medias y se repite: no duplica.
