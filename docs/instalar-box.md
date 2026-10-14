@@ -90,4 +90,21 @@ Resultado del 2026-10-14: todo ✅. Sin probar: el teléfono con el router del l
 
 Contra del comodín: todas las Box llevan la misma clave privada. Quien robe una podría hacerse pasar por otra Box, pero solo dentro de un local cuya red controle. Riesgo bajo.
 
-Con esto, preparar una Box = grabar la tarjeta + `bash deploy/preparar-box.sh`, sin pasos en el VPS.
+## 6. Decidido: todo desde HQ, en el navegador (Eze, 2026-10-14)
+
+Eze no quiere entrar al VPS para nada relacionado con una Box, **ni siquiera una vez** ("muy importante poder hacerlo desde una plataforma web"). Por eso la fila "Clave del canal" de la sección 5 queda **superada**: `deploy/permitir-claves-box.sh` existe pero **no se usa** (Eze no lo corrió), y el paso 4 del instalador sigue pidiendo pegar la clave hasta que exista la etapa 1. La clave de IONOS se pegará en un formulario de HQ, nunca en el VPS.
+
+Cómo queda:
+
+1. Oído graba la tarjeta (etapa 1: + `preparar-box.sh`; etapa 2: la **imagen de Oído**, con todo instalado) y enchufa la Box.
+2. La Box se **presenta sola a HQ** ("soy OIDO-XXXXXX") con un secreto que genera ella en el primer arranque.
+3. **HQ → Boxes → "Esperando activación"**: Eze comprueba el código con la etiqueta y toca **Activar**. Hasta ese clic la Box no recibe nada: la seguridad la pone una persona.
+4. HQ encarga al **instalador del VPS** (`deploy/runner.sh`, root por cron, el mismo patrón que "Instalar su OidoOps") la clave del canal, el registro DNS `<código>.box…` con la IP que informa la Box (y su corrección si cambia) y el certificado comodín `*.box.oidoops…` (renovación automática por la API de IONOS).
+5. La Box recoge su clave y su certificado de HQ con su secreto. Después, la asignación a un local sigue como hoy.
+
+| Etapa | Qué | Trabajo de Eze después |
+|---|---|---|
+| **1** | HQ → Boxes (presentarse, Activar, clave, DNS, certificado) + clave de IONOS en HQ. Toca `oido-talent` (HQ), `deploy/` de este repo (runner) y `printer-server` (presentarse y recoger) | Grabar + `preparar-box.sh` (sin VPS) + Activar en HQ |
+| **2** | Imagen de Oído + que la Box se actualice sola | Grabar la imagen + Activar en HQ. Cero terminal |
+
+Siguiente paso: diseñar y construir la etapa 1.
