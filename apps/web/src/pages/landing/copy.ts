@@ -255,11 +255,6 @@ export const copy = {
         title: 'Sigue sin internet',
         body: 'Cada comanda se guarda en la nube y, al instante, en la Oído Box de tu local. Si se cae internet, la sala sigue comandando e imprimiendo con la Box, y cuando vuelve, todo se sincroniza solo.',
       },
-      {
-        num: '04',
-        title: 'Tu sala, solo desde tu local',
-        body: 'Si lo activas, la Box le dice a OidoOps cuál es la red del restaurante. Fuera de ella el equipo consulta la carta y sus propinas, pero nadie toca una mesa ni cobra.',
-      },
     ],
     foot: ['Impresoras térmicas de tickets por red', 'Probada con Epson TM-T20', 'Una por local'],
   },
