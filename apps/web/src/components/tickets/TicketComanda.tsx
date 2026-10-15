@@ -32,33 +32,27 @@ export default function TicketComanda({
 
   return (
     <div className="ticket-80mm mx-auto px-2 py-3 uppercase">
-      <div className="flex flex-col items-center leading-none">
-        <span
-          className="font-black leading-none"
-          style={{
-            fontSize: '64px',
-            color: '#fff',
-            WebkitTextStroke: '3px #000',
-            paintOrder: 'stroke fill',
-          }}
-        >
-          {comanda.mesa?.numero ?? '-'}
-        </span>
-        <span className="text-[11px] font-black tracking-[0.2em] -mt-1">MESA</span>
-      </div>
-      <div className="flex justify-between text-[10px] mt-1">
-        <span>{primerNombre}</span>
-        <span>{comanda.pax} pax · {fmtHora(comanda.enviadaAt)}</span>
+      {/* Hueco para la pinza de las comandas y línea de puntos, como en papel */}
+      <div className="h-12 border-b-2 border-dotted border-black" />
+      <div className="flex items-start justify-between mt-1">
+        <div className="flex flex-col items-center leading-none">
+          <span className="font-black text-[56px] leading-none">{comanda.mesa?.numero ?? '-'}</span>
+          <span className="font-black text-[13px] normal-case">{comanda.pax} pax</span>
+        </div>
+        <div className="flex flex-col items-center leading-tight pt-1 pr-2 normal-case">
+          <span className="font-black text-[12px]">{primerNombre}</span>
+          <span className="text-[18px]">{fmtHora(comanda.enviadaAt)}</span>
+        </div>
       </div>
       {tipo === 'cocina' && comanda.noComparten && (
-        <p className="mt-2 bg-black text-white text-center font-black text-[14px] tracking-wide py-1">NO COMPARTEN</p>
+        <p className="mt-1 font-black text-[10px]">COM: NO COMPARTEN</p>
       )}
 
       {tipo === 'cocina' ? (
         niveles.map(nivel => (
           <div key={nivel} className="mt-3">
-            <p className="text-center font-black text-[11px] tracking-wider">{nombreNivel(nivel)}</p>
-            <div className="h-1.5 bg-black" />
+            <p className="font-black text-[10px] tracking-wide">{nombreNivel(nivel)}</p>
+            <div className="h-0.5 bg-black" />
             {items.filter(i => i.nivel === nivel).map(i => <ItemLine key={i.id} item={i} />)}
           </div>
         ))

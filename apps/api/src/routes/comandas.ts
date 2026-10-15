@@ -44,6 +44,20 @@ async function imprimirTicketComanda(comanda: ComandaConMesa, items: ComandaItem
       .filter((r) => r.tipoTicket === tipoTicket)
       .map((r) => ({ impresora: r.impresora.nombre, ip: r.impresora.ip, copias: r.copias }))
 
+  // Qué platos son postres (su categoría o su sección se llaman así): un nivel que es todo
+  // postres sale en el ticket como POSTRES en vez de CUARTOS, QUINTOS…
+  const deLaCarta = await prisma.menuItem.findMany({
+    where: { nombre: { in: items.map((i) => i.nombre) }, OR: [{ restaurantId: comanda.restaurantId }, { restaurantId: null }] },
+    select: { nombre: true, categoria: true },
+  })
+  const categorias = await prisma.menuCategoria.findMany({
+    where: { nombre: { in: deLaCarta.map((m) => m.categoria) } },
+    select: { nombre: true, grupo: true },
+  })
+  const esPostre = (t: string | null | undefined) => !!t && /postre/i.test(t)
+  const catsPostre = new Set(categorias.filter((c) => esPostre(c.nombre) || esPostre(c.grupo)).map((c) => c.nombre))
+  const postres = new Set(deLaCarta.filter((m) => esPostre(m.categoria) || catsPostre.has(m.categoria)).map((m) => m.nombre))
+
   publicarTicket(restaurante.piCodigo, {
     ticket_id: `cmd-${comanda.id}-r${nextRonda}`,
     sala: comanda.mesa?.floorPlan?.nombre ?? '',
@@ -58,6 +72,7 @@ async function imprimirTicketComanda(comanda: ComandaConMesa, items: ComandaItem
       tipo: i.tipo === 'barra' ? 'Bebida' : 'Comida',
       notas: i.nota || null,
       nivel: i.nivel,
+      postre: postres.has(i.nombre),
     })),
   })
 }

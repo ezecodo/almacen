@@ -143,7 +143,7 @@ export function normalizarPiCodigo(raw: string): string | null {
   return /^[0-9A-F]{6}$/.test(limpio) ? `OIDO-${limpio}` : null
 }
 
-type TicketItem = { nombre: string; cantidad: number; tipo: 'Bebida' | 'Comida'; notas: string | null; nivel: number | null }
+type TicketItem = { nombre: string; cantidad: number; tipo: 'Bebida' | 'Comida'; notas: string | null; nivel: number | null; postre?: boolean }
 
 // Destino ya resuelto desde las rutas de /admin/tickets: la Pi imprime ahí, no decide nada.
 export type DestinoImpresion = { impresora: string; ip: string; copias: number }
