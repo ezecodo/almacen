@@ -180,8 +180,11 @@ export async function turnoRoutes(app: FastifyInstance) {
         numComandas:  comandas.length,
       },
     })
+    // El turno siguiente arranca con toda la carta: lo agotado vuelve a estar disponible
+    await prisma.itemAgotado.deleteMany({ where: { restaurantId: updated.restaurantId } })
 
     broadcast(updated.restaurantId, 'update')
+    broadcast(updated.restaurantId, 'agotados')
     return updated
   })
 

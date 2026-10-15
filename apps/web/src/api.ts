@@ -939,6 +939,13 @@ export interface EscandalloDetalle {
 }
 export type IngredienteBody = { nombre: string; unidad: string; precioCoste: number | null; unidadBase?: string | null; contenido?: number | null; mermaPct?: number }
 
+export interface ItemAgotado {
+  menuItemId: number
+  marcadoPor: string
+  createdAt: string
+  menuItem: { nombre: string }
+}
+
 export const api = {
   escandallos: {
     matriz: (restaurantId: number) => authFetch(`/admin/escandallos?restaurantId=${restaurantId}`).then(r => r.json() as Promise<EscandalloMatriz>),
@@ -1187,6 +1194,12 @@ export const api = {
       if (hasta) params.set('hasta', hasta)
       return get<MermasResponse>(`/mermas?${params}`)
     },
+  },
+  // Platos que se acabaron en el servicio (por local). Marcar y reponer: solo encargado.
+  agotados: {
+    list:    (restaurantId: number) => get<ItemAgotado[]>(`/agotados?restaurantId=${restaurantId}`),
+    marcar:  (restaurantId: number, menuItemId: number) => post<unknown>('/agotados', { restaurantId, menuItemId }),
+    reponer: (restaurantId: number, menuItemId: number) => del(`/agotados/${menuItemId}?restaurantId=${restaurantId}`),
   },
   grupoMenu: {
     list:   (restaurantId: number) => get<GrupoMenuTemplate[]>(`/grupo-menu?restaurantId=${restaurantId}`),

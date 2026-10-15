@@ -42,6 +42,7 @@ model Restaurant {
   ticketConfig           TicketConfig?
   impresoras             Impresora[]
   facturas               Factura[]
+  agotados               ItemAgotado[]
   // Código de la Raspberry Pi de impresión vinculada a este restaurante (ej. "OIDO-7F3A2C",
   // sale del número de serie de la Pi). null = sin Pi → las comandas no se imprimen.
   piCodigo               String?               @unique
@@ -295,7 +296,23 @@ model MenuItem {
   precioCombinado Float?                   // precio del combinado, refresco incluido (null = usar precio)
   esMixer         Boolean @default(false)  // sirve de mezcla (refrescos, tónicas…)
   suplementoMixer Float   @default(0)      // extra si el mixer es premium (Red Bull +1.50)
+  agotadoEn    ItemAgotado[]
   createdAt    DateTime   @default(now())
+}
+
+// Plato que se acabó durante el servicio en un local (la carta es común: no se toca MenuItem.activo).
+// Lo marca el encargado desde el panel 💼; sale un ticket "ALTO" en todas las impresoras del local
+// y en la sala el plato se ve apagado. Se borra al reponerlo o al cerrar el turno.
+model ItemAgotado {
+  id           Int        @id @default(autoincrement())
+  restaurantId Int
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  menuItemId   Int
+  menuItem     MenuItem   @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  marcadoPor   String
+  createdAt    DateTime   @default(now())
+
+  @@unique([restaurantId, menuItemId])
 }
 
 // Escandallo de un plato: qué ingredientes (productos del catálogo de Inventario) lleva y cuánto.

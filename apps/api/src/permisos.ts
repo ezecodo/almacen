@@ -48,6 +48,7 @@ export const RUTAS_LOCAL = new Set([
   'PATCH /api/comandas/:id/enviar', 'PATCH /api/comandas/:id/facturar', 'PATCH /api/comandas/:id/liberar',
   'PATCH /api/comandas/:id/mover-mesa', 'PATCH /api/comandas/:id/pax',
   'GET /api/mermas',
+  'GET /api/agotados', // solo ver: sin internet no se marcan (el panel 💼 no está en modo local)
 ])
 
 export const RUTAS_SALA = new Set([
@@ -60,6 +61,8 @@ export const RUTAS_SALA = new Set([
   'PATCH /api/comandas/:id/enviar', 'PATCH /api/comandas/:id/facturar', 'PATCH /api/comandas/:id/liberar',
   'PATCH /api/comandas/:id/mover-mesa', 'PATCH /api/comandas/:id/pax', 'PATCH /api/comandas/:id/cerrar',
   'GET /api/mermas', 'POST /api/mermas', 'DELETE /api/mermas/:id',
+  // platos agotados en el servicio
+  'GET /api/agotados', 'POST /api/agotados', 'DELETE /api/agotados/:menuItemId',
   // carta (solo lectura), wiki y alérgenos
   'GET /api/menu', 'GET /api/menu/categorias', 'GET /api/alergenos', 'GET /api/wiki',
   // menús de grupo
@@ -90,6 +93,8 @@ export const SOLO_ENCARGADO = new Set([
   'PATCH /api/comandas/:id/cerrar',   // cobrar
   'POST /api/turnos',                 // abrir turno
   'PATCH /api/turnos/:id/cerrar',     // cerrar turno
+  'POST /api/agotados',               // marcar un plato agotado
+  'DELETE /api/agotados/:menuItemId', // reponerlo
 ])
 
 // ── Dónde está el dispositivo ────────────────────────────────────────────────────────────────

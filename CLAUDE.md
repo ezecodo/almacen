@@ -281,6 +281,14 @@ Un empleado con `rol='encargado'` **o** `accesoEncargadoApp=true` ve la app de s
 - **Cobro directo en `ComandaPanel`**: prop `esEncargado` — en mesas `facturada` aparecen botones "💶 Cobrar efectivo / 💳 Cobrar tarjeta" junto a "Mesa libre".
 - **Backend endurecido**: `PATCH /comandas/:id/cerrar` ahora exige `metodoPago` (cash|tarjeta) y estado previo `facturada`|`liberada` (409 si no; antes no validaba nada).
 
+### Platos agotados en el servicio (2026-10-15)
+
+Cuando se acaba un plato a mitad del servicio, el encargado lo marca en **💼 → 🚫 Agotados** (buscar → "Sí, se acabó"). Tabla `ItemAgotado` (`restaurantId` + `menuItemId` únicos, `marcadoPor`): es **por local**, no toca `MenuItem.activo` (la carta es común a los cinco). Rutas en `routes/agotados.ts`: `GET /agotados?restaurantId`, `POST /agotados` y `DELETE /agotados/:menuItemId?restaurantId` (las dos últimas en `SOLO_ENCARGADO`). Efectos:
+- **Impresoras**: sale un aviso `ALTO · <PLATO>` (y `HAY · <PLATO>` al reponerlo) en **todas las impresoras del local**, una vez por IP (`publicarAviso` en `mqtt.ts`; en el printer-server, `ticket.aviso` → `_construir_aviso`). Una Box con el programa anterior lo descarta sin imprimir.
+- **Sala**: el plato sigue en su sitio pero apagado, tachado y con "AGOTADO", sin poder tocarlo (`PlatoAgotado` en `SalaMesasPage.tsx`; también en la búsqueda y en las mezclas de los combinados). Una línea **sin comandar** de ese plato muestra "⚠ Agotado — quítalo antes de comandar" (se compara por nombre). Llega al instante por SSE (`'agotados'`).
+- **Cierre de turno**: se borran todos los del local (`turnos.ts`), así el turno siguiente arranca con toda la carta.
+- **Sin internet**: la Box los copia (`replica.ts`) y la sala los sigue viendo apagados, pero no se pueden marcar ni reponer (el 💼 no está en modo local).
+
 ### Dashboard encargado (MesasFeedPage)
 
 - Vista en tiempo real (SSE) de todas las mesas

@@ -4,7 +4,7 @@ const ThemeCtx = createContext<boolean>(true) // true = dark
 import CheckOverlay from '../components/CheckOverlay'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, Alergeno, Comanda, ComandaItem, FloorPlan, GrupoAgendado, GrupoMenuTemplate, InventarioCategoria, Mesa, MenuCategoria, MenuItem, MermaMotivo, MiTurno, Reserva, Turno, WikiCategoria, WikiArticulo, ChecklistSector, sugerirCantidadesMenu, totalComanda, valorItem, waLink, esAvisoBox } from '../api'
+import { api, Alergeno, Comanda, ComandaItem, FloorPlan, GrupoAgendado, GrupoMenuTemplate, InventarioCategoria, Mesa, MenuCategoria, MenuItem, MermaMotivo, MiTurno, ItemAgotado, Reserva, Turno, WikiCategoria, WikiArticulo, ChecklistSector, sugerirCantidadesMenu, totalComanda, valorItem, waLink, esAvisoBox } from '../api'
 import { speak, VozSelector, LANGS, Lang } from '../lib/tts'
 import { alternarCorteSimulado } from '../lib/conexion'
 import { useSalaEnModoLocal } from '../lib/instalacion'
@@ -627,8 +627,20 @@ function MermaModal({ item, onConfirm, onClose, onInvitar }: {
 }
 
 // ── Fila de item reutilizable ─────────────────────────────────────────────────
-function ItemRow({ item, nota, setNota, onUpdate, onDelete, onSaveNota, onMerma, onRepeat, onInvitar }: {
+// Plato que se acabó en este servicio: en su sitio, apagado y sin poder tocarlo
+function PlatoAgotado({ nombre, detalle }: { nombre: string; detalle?: string }) {
+  return (
+    <div aria-disabled className="w-full text-left rounded-xl px-4 py-3.5 relative select-none bg-[var(--sala-srf)] opacity-40 cursor-not-allowed">
+      <span className="text-[var(--sala-txt)] text-base font-medium line-through">{nombre}</span>
+      {detalle ? <p className="text-[var(--sala-tx3)] text-xs mt-0.5 truncate">{detalle}</p> : null}
+      <span className="absolute right-3 inset-y-0 flex items-center text-red-400 text-xs font-black tracking-wider">AGOTADO</span>
+    </div>
+  )
+}
+
+function ItemRow({ item, nota, setNota, onUpdate, onDelete, onSaveNota, onMerma, onRepeat, onInvitar, agotado }: {
   item: ComandaItem
+  agotado?: boolean
   nota: { itemId: number; value: string } | null
   setNota: (v: { itemId: number; value: string } | null) => void
   onUpdate: (cantidad: number) => void
@@ -653,6 +665,7 @@ function ItemRow({ item, nota, setNota, onUpdate, onDelete, onSaveNota, onMerma,
             {item.nombre}
             {item.autoGenerado && <span className="ml-1.5 text-[10px] font-bold text-[var(--sala-tx4)] uppercase">🔇 sin cocina</span>}
           </p>
+          {agotado && <p className="text-red-400 text-xs font-bold">⚠ Agotado — quítalo antes de comandar</p>}
           {item.invitacion && (
             <p className="text-amber-500 text-xs font-bold truncate">
               🎁 Invitación{item.invitadoPor ? ` · ${item.invitadoPor}` : ''}{item.invitacionMotivo ? ` — ${item.invitacionMotivo}` : ''}
@@ -734,6 +747,16 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
   const [mermaItem, setMermaItem] = useState<ComandaItem | null>(null)
   // Sin internet (la sala trabaja contra la Box) no hay mermas, invitaciones ni cobros
   const enLocal = useSalaEnModoLocal()
+  // Platos que se acabaron en este servicio: se ven apagados y no se pueden pedir
+  const { data: agotadosLista = [] } = useQuery({
+    queryKey: ['agotados', comanda.restaurantId],
+    queryFn: () => api.agotados.list(comanda.restaurantId),
+    staleTime: 30_000,
+  })
+  const agotadoIds = new Set(agotadosLista.map(a => a.menuItemId))
+  const agotadoNombres = new Set(agotadosLista.map(a => a.menuItem.nombre))
+  // Línea sin comandar de un plato que ya no hay: aviso para quitarla antes de enviar
+  const sinComandarAgotada = (i: ComandaItem) => i.nivel == null && !i.autoGenerado && agotadoNombres.has(i.nombre)
   const [confirmarCerrar, setConfirmarCerrar] = useState(false)
   const [oidoAnim, setOidoAnim] = useState(false)
   const [dotsAnim, setDotsAnim] = useState(false)
@@ -959,6 +982,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
   // ── Long-press sobre un plato → box de comentario antes de añadir ──
   const startLongPress = (item: MenuItem) => {
     lpFired.current = false
+    if (agotadoIds.has(item.id)) return
     if (lpTimer.current) clearTimeout(lpTimer.current)
     lpTimer.current = setTimeout(() => {
       lpFired.current = true
@@ -983,6 +1007,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
   }
   const tapItem = (item: MenuItem) => {
     if (lpFired.current) { lpFired.current = false; return } // el long-press ya abrió el box
+    if (agotadoIds.has(item.id)) return // se acabó: apagado, sin efecto
     // Modo sin cocina: añade al instante (sin timer de cantidad) y vuelve a la vista del pedido
     if (modoSinCocina && !item.combinable) {
       addItem.mutate({ item, cantidad: 1 }, { onSuccess: () => setTimeout(() => setTab('pedido'), 600) })
@@ -1100,6 +1125,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
   const renderItemBtn = (item: MenuItem) => {
     const isPending = qtyPending?.id === item.id
     const isAdded   = addedId === item.id
+    if (agotadoIds.has(item.id)) return <PlatoAgotado key={item.id} nombre={item.nombre} detalle={item.descripcion} />
     return (
       <button key={item.id} onClick={() => tapItem(item)}
         onPointerDown={() => startLongPress(item)} onPointerUp={cancelLongPress} onPointerLeave={cancelLongPress}
@@ -1247,7 +1273,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                       // Comanda nueva: lista plana
                       <div className="space-y-2">
                         {itemsCocina.map((item: ComandaItem) => (
-                          <ItemRow key={item.id} item={item} nota={nota} setNota={setNota}
+                          <ItemRow key={item.id} agotado={sinComandarAgotada(item)} item={item} nota={nota} setNota={setNota}
                             onUpdate={cantidad => updateItem.mutate({ itemId: item.id, cantidad })}
                             onDelete={() => deleteItem.mutate(item.id)}
                             onSaveNota={v => saveNota.mutate({ itemId: item.id, value: v })}
@@ -1273,7 +1299,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                                 </div>
                                 <div className="space-y-2">
                                   {pendientesCocina.map((item: ComandaItem) => (
-                                    <ItemRow key={item.id} item={item} nota={nota} setNota={setNota}
+                                    <ItemRow key={item.id} agotado={sinComandarAgotada(item)} item={item} nota={nota} setNota={setNota}
                                       onUpdate={cantidad => updateItem.mutate({ itemId: item.id, cantidad })}
                                       onDelete={() => deleteItem.mutate(item.id)}
                                       onSaveNota={v => saveNota.mutate({ itemId: item.id, value: v })}
@@ -1296,7 +1322,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                                   </div>
                                   <div className="space-y-2">
                                     {items.map((item: ComandaItem) => (
-                                      <ItemRow key={item.id} item={item} nota={nota} setNota={setNota}
+                                      <ItemRow key={item.id} agotado={sinComandarAgotada(item)} item={item} nota={nota} setNota={setNota}
                                         onUpdate={cantidad => updateItem.mutate({ itemId: item.id, cantidad })}
                                         onDelete={() => deleteItem.mutate(item.id)}
                                         onSaveNota={v => saveNota.mutate({ itemId: item.id, value: v })}
@@ -1330,7 +1356,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                           </div>
                           <div className="space-y-2">
                             {grouped.map(({ firstItem, cantidad }) => (
-                              <ItemRow key={firstItem.id} item={{ ...firstItem, cantidad }} nota={nota} setNota={setNota}
+                              <ItemRow key={firstItem.id} agotado={sinComandarAgotada(firstItem)} item={{ ...firstItem, cantidad }} nota={nota} setNota={setNota}
                                 onUpdate={newQty => updateItem.mutate({ itemId: firstItem.id, cantidad: firstItem.cantidad + (newQty - cantidad) })}
                                 onDelete={() => deleteItem.mutate(firstItem.id)}
                                 onSaveNota={v => saveNota.mutate({ itemId: firstItem.id, value: v })}
@@ -1431,6 +1457,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                   {filteredMenu.map((item: MenuItem) => {
                     const isPending = qtyPending?.id === item.id
                     const isAdded   = addedId === item.id
+                    if (agotadoIds.has(item.id)) return <PlatoAgotado key={item.id} nombre={item.nombre} detalle={item.categoria} />
                     return (
                       <button key={item.id} onClick={() => tapItem(item)}
                         onPointerDown={() => startLongPress(item)} onPointerUp={cancelLongPress} onPointerLeave={cancelLongPress}
@@ -1626,6 +1653,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                 </button>
                 {menu.filter(m => m.esMixer && m.activo).map(mx => {
                   const precioTotal = (mixerPick.precioCombinado ?? mixerPick.precio) + (mx.suplementoMixer || 0)
+                  if (agotadoIds.has(mx.id)) return <PlatoAgotado key={mx.id} nombre={`+ ${mx.nombre}`} />
                   return (
                     <button key={mx.id}
                       onClick={() => { addCombinado.mutate({ item: mixerPick, mixer: mx }); setMixerPick(null) }}
@@ -3349,6 +3377,85 @@ function CobroSheet({ comanda, onClose, onDone }: { comanda: Comanda; onClose: (
   )
 }
 
+// Pestaña 🚫 Agotados del panel 💼: marcar un plato que se acabó (sale "ALTO" en las impresoras
+// del local y en la sala se ve apagado) y reponerlo ("HAY"). Al cerrar el turno se reponen solos.
+function AgotadosSala({ restaurantId, agotados }: { restaurantId: number; agotados: ItemAgotado[] }) {
+  const queryClient = useQueryClient()
+  const [buscar, setBuscar] = useState('')
+  const [confirmar, setConfirmar] = useState<MenuItem | null>(null)
+  const { data: menu = [] } = useQuery({ queryKey: ['menu', restaurantId], queryFn: () => api.menu.list(restaurantId) })
+  const refrescar = () => queryClient.invalidateQueries({ queryKey: ['agotados', restaurantId] })
+  const marcar = useMutation({
+    mutationFn: (item: MenuItem) => api.agotados.marcar(restaurantId, item.id),
+    onSuccess: () => { setConfirmar(null); setBuscar(''); refrescar() },
+  })
+  const reponer = useMutation({ mutationFn: (menuItemId: number) => api.agotados.reponer(restaurantId, menuItemId), onSuccess: refrescar })
+  const ids = new Set(agotados.map(a => a.menuItemId))
+  const q = normTxt(buscar.trim())
+  const resultados = q
+    ? menu.filter(m => m.activo && !m.ocultoEnCarta && !m.autoPorPax && !ids.has(m.id) && normTxt(m.nombre).includes(q)).slice(0, 12)
+    : []
+  const error = (marcar.error ?? reponer.error) as Error | null
+
+  return (
+    <>
+      <p className="text-[var(--sala-tx3)] text-xs px-1">
+        Al marcar un plato sale <b>ALTO</b> en todas las impresoras del local y en la sala se ve apagado. Al cerrar el turno vuelve todo.
+      </p>
+      {error && <p className="text-red-400 text-sm font-bold px-1">{error.message}</p>}
+
+      {agotados.length > 0 && (
+        <div className="space-y-2">
+          {agotados.map(a => (
+            <div key={a.menuItemId} className="bg-[var(--sala-srf)] rounded-xl px-4 py-3 flex items-center gap-3 border border-red-500/30">
+              <div className="flex-1 min-w-0">
+                <p className="text-[var(--sala-txt)] text-base font-black uppercase truncate">{a.menuItem.nombre}</p>
+                <p className="text-[var(--sala-tx3)] text-xs">Agotado · {a.marcadoPor} · {fmtHora(a.createdAt)}</p>
+              </div>
+              <button onClick={() => reponer.mutate(a.menuItemId)} disabled={reponer.isPending}
+                className="shrink-0 px-3 py-2 rounded-lg bg-[#4CC8A0] text-white text-sm font-black active:scale-95 disabled:opacity-50">
+                Vuelve a haber
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {confirmar ? (
+        <div className="bg-[var(--sala-srf)] rounded-xl p-4 border-2 border-red-500/60">
+          <p className="text-[var(--sala-tx2)] text-sm">¿Se acabó?</p>
+          <p className="text-[var(--sala-txt)] text-xl font-black uppercase mt-0.5">{confirmar.nombre}</p>
+          <p className="text-[var(--sala-tx3)] text-xs mt-1">Sale ALTO en las impresoras y nadie más lo puede pedir.</p>
+          <div className="flex gap-2 mt-3">
+            <button onClick={() => marcar.mutate(confirmar)} disabled={marcar.isPending}
+              className="flex-1 py-3 rounded-xl bg-red-500 text-white font-black active:scale-95 disabled:opacity-50">
+              {marcar.isPending ? 'Avisando…' : 'Sí, se acabó'}
+            </button>
+            <button onClick={() => setConfirmar(null)} className="px-4 py-3 rounded-xl bg-[var(--sala-btn2)] text-[var(--sala-tx2)] font-bold">Cancelar</button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <input value={buscar} onChange={e => setBuscar(e.target.value)} placeholder="🔍 ¿Qué se acabó? (ej. carrillera)"
+            className="w-full bg-[var(--sala-srf)] text-[var(--sala-txt)] text-base px-4 py-3 rounded-xl outline-none border border-[var(--sala-brd)] focus:border-red-400" />
+          {resultados.map(m => (
+            <button key={m.id} onClick={() => setConfirmar(m)}
+              className="w-full text-left bg-[var(--sala-srf)] rounded-xl px-4 py-3 flex items-center justify-between active:scale-[0.98]">
+              <span className="min-w-0">
+                <span className="block text-[var(--sala-txt)] text-sm font-bold truncate">{m.nombre}</span>
+                <span className="block text-[var(--sala-tx3)] text-xs truncate">{m.categoria}</span>
+              </span>
+              <span className="shrink-0 text-red-400 text-xs font-black">SE ACABÓ</span>
+            </button>
+          ))}
+          {q && resultados.length === 0 && <p className="text-center text-[var(--sala-tx4)] text-sm py-4">Sin resultados</p>}
+          {!q && agotados.length === 0 && <p className="text-center text-[var(--sala-tx4)] text-sm py-6">No hay nada agotado 👌</p>}
+        </div>
+      )}
+    </>
+  )
+}
+
 function EncargadoPanel({
   restaurant,
   camarero,
@@ -3367,7 +3474,12 @@ function EncargadoPanel({
 }) {
   const queryClient = useQueryClient()
   const rid = restaurant.id
-  const [tab, setTab] = useState<'cobros' | 'turno' | 'checklists' | 'mermas' | 'reviews' | 'reservas' | 'facturas'>(soloConsulta ? 'reservas' : 'cobros')
+  const [tab, setTab] = useState<'cobros' | 'turno' | 'agotados' | 'checklists' | 'mermas' | 'reviews' | 'reservas' | 'facturas'>(soloConsulta ? 'reservas' : 'cobros')
+  const { data: agotados = [] } = useQuery({
+    queryKey: ['agotados', restaurant.id],
+    queryFn: () => api.agotados.list(restaurant.id),
+    enabled: !soloConsulta,
+  })
   const [armadoCierre, setArmadoCierre] = useState(false)
   const [resumenCierre, setResumenCierre] = useState<Turno | null>(null)
   const [cobroDe, setCobroDe] = useState<Comanda | null>(null)
@@ -3521,6 +3633,7 @@ function EncargadoPanel({
   const TABS = [
     { key: 'cobros' as const, icon: '💶', label: 'Cobros', badge: pendientes.length },
     { key: 'turno' as const, icon: '⏱', label: 'Turno', badge: 0 },
+    { key: 'agotados' as const, icon: '🚫', label: 'Agotados', badge: agotados.length },
     { key: 'checklists' as const, icon: '✅', label: 'Checklists', badge: 0 },
     { key: 'mermas' as const, icon: '🗑', label: 'Mermas', badge: 0 },
     { key: 'reservas' as const, icon: '📅', label: 'Reservas', badge: pool.length },
@@ -3726,6 +3839,8 @@ function EncargadoPanel({
 
           {/* ── Facturas de proveedor ── */}
           {tab === 'facturas' && <FacturasSala restaurantId={rid} empleadoId={camarero.id} />}
+
+          {tab === 'agotados' && <AgotadosSala restaurantId={rid} agotados={agotados} />}
 
           {/* ── Mermas de hoy ── */}
           {tab === 'mermas' && (

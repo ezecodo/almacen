@@ -10,7 +10,7 @@ import { Prisma, PrismaClient } from '@prisma/client'
 
 // Orden de carga (el de borrado es el inverso): cada tabla después de las que referencia.
 const TABLAS = [
-  'restaurant', 'empresaConfig', 'ticketConfig', 'alergeno', 'menuCategoria', 'menuItem',
+  'restaurant', 'empresaConfig', 'ticketConfig', 'alergeno', 'menuCategoria', 'menuItem', 'itemAgotado',
   'floorPlan', 'mesa', 'impresora', 'impresionRuta', 'empleado', 'turno', 'comanda', 'comandaItem', 'merma',
 ] as const
 type Tabla = (typeof TABLAS)[number]
@@ -31,13 +31,14 @@ const NUMERADAS_EN_LOCAL = ['Comanda', 'ComandaItem', 'Merma']
 
 export async function armarReplica(prisma: PrismaClient, restaurantId: number): Promise<Replica> {
   const deEsteLocal = { OR: [{ restaurantId }, { restaurantId: null }] }
-  const [restaurant, empresaConfig, ticketConfig, alergeno, menuCategoria, items, floorPlan, impresora, empleados, turno, comandas] = await Promise.all([
+  const [restaurant, empresaConfig, ticketConfig, alergeno, menuCategoria, items, itemAgotado, floorPlan, impresora, empleados, turno, comandas] = await Promise.all([
     prisma.restaurant.findMany({ where: { id: restaurantId } }),
     prisma.empresaConfig.findMany(),
     prisma.ticketConfig.findMany({ where: { restaurantId } }),
     prisma.alergeno.findMany(),
     prisma.menuCategoria.findMany({ where: deEsteLocal }),
     prisma.menuItem.findMany({ where: deEsteLocal, include: { alergenos: { select: { id: true } } } }),
+    prisma.itemAgotado.findMany({ where: { restaurantId } }),
     prisma.floorPlan.findMany({ where: { restaurantId }, include: { mesas: true, rutas: true } }),
     prisma.impresora.findMany({ where: { restaurantId } }),
     prisma.empleado.findMany({ where: { activo: true, tipo: 'sala', ...deEsteLocal } }),
@@ -55,6 +56,7 @@ export async function armarReplica(prisma: PrismaClient, restaurantId: number): 
       alergeno,
       menuCategoria,
       menuItem: items.map(({ alergenos: _, ...item }) => item),
+      itemAgotado,
       floorPlan: floorPlan.map(({ mesas: _m, rutas: _r, ...plano }) => plano),
       mesa: floorPlan.flatMap(p => p.mesas),
       impresora,

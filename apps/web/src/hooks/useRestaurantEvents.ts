@@ -28,6 +28,7 @@ export function useRestaurantEvents(restaurantId: number | null) {
           queryClient.invalidateQueries({ queryKey: ['enc-cobros', restaurantId] })
           queryClient.invalidateQueries({ queryKey: ['turno-activo', restaurantId] })
         }
+        if (type === 'agotados') queryClient.invalidateQueries({ queryKey: ['agotados', restaurantId] })
       } catch {}
     }
 

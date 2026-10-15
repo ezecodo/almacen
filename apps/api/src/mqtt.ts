@@ -150,6 +150,24 @@ export type DestinoImpresion = { impresora: string; ip: string; copias: number }
 
 // Nunca debe tirar abajo el flujo de comandas: cualquier fallo de MQTT queda
 // contenido acá adentro (broker caído, credenciales mal, lo que sea).
+function enviarTrabajo(piCodigo: string, ticketId: string, cuerpo: object) {
+  try {
+    const payload = { ...cuerpo, ticket_id: ticketId, timestamp: new Date().toISOString() }
+    if (MODO_LOCAL) {
+      imprimirEnLaBox(payload)
+        .catch(err => console.error('[local] fallo al imprimir el ticket', ticketId, err instanceof Error ? err.message : err))
+      return
+    }
+    const c = getClient()
+    if (!c) return
+    c.publish(`pi/${piCodigo}/trabajo/${ticketId}`, JSON.stringify(payload), { qos: 1 }, (err) => {
+      if (err) console.error('[mqtt] fallo al publicar ticket', ticketId, err.message)
+    })
+  } catch (err) {
+    console.error('[mqtt] error inesperado publicando ticket', ticketId, err)
+  }
+}
+
 export function publicarTicket(piCodigo: string, ticket: {
   ticket_id: string
   sala: string
@@ -160,20 +178,18 @@ export function publicarTicket(piCodigo: string, ticket: {
   // Por tipo de item. Un tipo sin destinos no se imprime en ningún lado.
   destinos: Record<TicketItem['tipo'], DestinoImpresion[]>
 }) {
-  try {
-    if (MODO_LOCAL) {
-      imprimirEnLaBox({ ...ticket, timestamp: new Date().toISOString() })
-        .catch(err => console.error('[local] fallo al imprimir el ticket', ticket.ticket_id, err instanceof Error ? err.message : err))
-      return
-    }
-    const c = getClient()
-    if (!c) return
+  enviarTrabajo(piCodigo, ticket.ticket_id, ticket)
+}
 
-    const payload = JSON.stringify({ ...ticket, timestamp: new Date().toISOString() })
-    c.publish(`pi/${piCodigo}/trabajo/${ticket.ticket_id}`, payload, { qos: 1 }, (err) => {
-      if (err) console.error('[mqtt] fallo al publicar ticket', ticket.ticket_id, err.message)
-    })
-  } catch (err) {
-    console.error('[mqtt] error inesperado publicando ticket', ticket.ticket_id, err)
-  }
+// Aviso a cocina y sala sin mesa: "ALTO · CARRILLERA" (se acabó) o "HAY · CARRILLERA" (volvió).
+// Sale en las impresoras que se le pasen. Una Box con el programa anterior lo descarta (no trae items).
+export function publicarAviso(piCodigo: string, aviso: {
+  ticket_id: string
+  titulo: 'ALTO' | 'HAY'
+  plato: string
+  por: string
+  destinos: DestinoImpresion[]
+}) {
+  const { destinos, ...resto } = aviso
+  enviarTrabajo(piCodigo, aviso.ticket_id, { ...resto, aviso: true, items: [], destinos: { Aviso: destinos } })
 }
