@@ -53,8 +53,9 @@ export default function TicketComanda({
       {tipo === 'cocina' ? (
         niveles.map(nivel => (
           <div key={nivel} className="mt-3">
-            <p className="font-black text-[10px] tracking-wide">{nombreNivel(nivel)}</p>
-            <div className="h-0.5 bg-black" />
+            <div className="border-b-2 border-black">
+              <span className="inline-block bg-black text-white font-black text-[10px] tracking-wide px-1.5 py-0.5">{nombreNivel(nivel)}</span>
+            </div>
             {items.filter(i => i.nivel === nivel).map(i => <ItemLine key={i.id} item={i} />)}
           </div>
         ))
