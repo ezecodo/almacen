@@ -254,10 +254,31 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
     comanda.items.forEach(i => { r[i.id] = i.nota ?? '' })
     return r
   })
+  // Categorías de "bloque propio" (🎫 Nombre en ticket en /admin/menu, ej. POSTRES): sus platos van
+  // juntos en un solo nivel, el último, y en el ticket salen con el nombre de la categoría.
+  // Una subcategoría hereda la opción de su categoría padre.
+  const bloqueDe = (nombre: string): string | null => {
+    const cat = categorias.find(c => c.nombre === menu.find(m => m.nombre === nombre)?.categoria)
+    if (!cat) return null
+    if (cat.nombreEnTicket) return cat.nombre
+    const padre = cat.parentId ? categorias.find(c => c.id === cat.parentId) : undefined
+    return padre?.nombreEnTicket ? padre.nombre : null
+  }
+  // Los platos de bloque sin comandar van detrás de todo lo demás de la mesa, un nivel por bloque
+  const conBloques = (r: Record<number, number>) => {
+    const cocina = comanda.items.filter(i => i.tipo !== 'barra' && !i.autoGenerado)
+    const pendientesBloque = cocina.filter(i => i.nivel == null && bloqueDe(i.nombre))
+    if (pendientesBloque.length === 0) return r
+    const deBloque = new Set(pendientesBloque.map(i => i.id))
+    const ultimo = Math.max(0, ...cocina.filter(i => !deBloque.has(i.id)).map(i => r[i.id] ?? i.nivel ?? 0))
+    const bloques = [...new Set(pendientesBloque.map(i => bloqueDe(i.nombre) as string))]
+    for (const i of pendientesBloque) r[i.id] = ultimo + 1 + bloques.indexOf(bloqueDe(i.nombre) as string)
+    return r
+  }
   const [niveles, setNiveles] = useState<Record<number, number>>(() => {
     const r: Record<number, number> = {}
     comanda.items.forEach(i => { r[i.id] = i.nivel ?? suggestNivel(i.nombre, menu) })
-    return r
+    return conBloques(r)
   })
   const [notaModal, setNotaModal] = useState<{ itemId: number; value: string } | null>(null)
   // Información de la mesa para cocina: si no comparte (cocina emplata individual) y una nota
@@ -323,10 +344,24 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
     setNiveles(prev => {
       const next = { ...prev }
       let changed = false
+      const nuevos = new Set<number>()
       comanda.items.forEach(item => {
-        if (!(item.id in next)) { next[item.id] = item.nivel ?? suggestNivel(item.nombre, menu); changed = true }
+        if (!(item.id in next)) { next[item.id] = item.nivel ?? suggestNivel(item.nombre, menu); nuevos.add(item.id); changed = true }
       })
-      return changed ? next : prev
+      if (!changed) return prev
+      // Un plato de bloque recién añadido va con los de su bloque (o detrás de todo si es el primero)
+      for (const id of nuevos) {
+        const item = comanda.items.find(i => i.id === id)
+        const bloque = item && item.nivel == null ? bloqueDe(item.nombre) : null
+        if (!bloque) continue
+        const companero = comanda.items.find(i => i.id !== id && !nuevos.has(i.id) && i.nivel == null && bloqueDe(i.nombre) === bloque)
+        if (companero) next[id] = next[companero.id]
+        else {
+          const resto = comanda.items.filter(i => i.id !== id && i.tipo !== 'barra' && !i.autoGenerado)
+          next[id] = Math.max(0, ...resto.map(i => next[i.id] ?? i.nivel ?? 0)) + 1
+        }
+      }
+      return next
     })
     setNotas(prev => {
       const next = { ...prev }

@@ -511,8 +511,8 @@ function CategoriaPanel({
                   : 'border-gray-200 text-gray-400 hover:border-gray-300'
               }`}
               title={cat.nombreEnTicket
-                ? `En la comanda de cocina, sus platos salen bajo "${cat.nombre.toUpperCase()}" — tocá para que salgan en su nivel normal`
-                : `Que en la comanda de cocina sus platos salgan bajo "${cat.nombre.toUpperCase()}" en vez de PRIMEROS, SEGUNDOS…`}>
+                ? `Bloque propio: al ordenar van juntos al final y en cocina salen bajo "${cat.nombre.toUpperCase()}" — tocá para que vayan en su nivel normal`
+                : `Bloque propio (ej. postres): al ordenar, sus platos van juntos en el último nivel y en la comanda de cocina salen bajo "${cat.nombre.toUpperCase()}"`}>
               🎫 Nombre en ticket
             </button>
           )}
