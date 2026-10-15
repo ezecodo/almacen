@@ -147,7 +147,7 @@ export const cuantoFaltaSubir = (s: Subida) => s.comandas.length + s.items.lengt
 
 // En la nube: aplica una subida de la Box de un restaurante. Solo toca comandas de ese restaurante
 // que no estén cobradas, y solo los campos que la sala puede cambiar (la Box no cobra).
-const CAMPOS_COMANDA = ['mesaId', 'pax', 'estado', 'camareroNombre', 'cuentaDesactualizada', 'noComparten', 'enviadaAt', 'createdAt']
+const CAMPOS_COMANDA = ['mesaId', 'pax', 'estado', 'camareroNombre', 'cuentaDesactualizada', 'noComparten', 'notaMesa', 'enviadaAt', 'createdAt']
 const CAMPOS_ITEM = ['comandaId', 'nombre', 'precio', 'cantidad', 'nota', 'nivel', 'ronda', 'tipo', 'autoGenerado', 'invitacion', 'invitadoPor', 'invitacionMotivo']
 const FECHAS = new Set(['enviadaAt', 'createdAt'])
 

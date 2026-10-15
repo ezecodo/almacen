@@ -250,6 +250,7 @@ export interface MenuCategoria {
   icono: string
   orden: number
   ordenAlfabetico: boolean
+  nombreEnTicket?: boolean // en la comanda de cocina, un nivel solo con platos de aquí sale con este nombre (ej. POSTRES)
   parentId: number | null
   itemCount: number
 }
@@ -380,7 +381,8 @@ export interface Comanda {
   propina:        number
   camareroNombre: string | null
   cuentaDesactualizada: boolean // items cambiados tras imprimir la cuenta → reimprimir antes de cobrar
-  noComparten?: boolean // la mesa no comparte: franja NO COMPARTEN en los tickets de cocina
+  noComparten?: boolean // la mesa no comparte: COM: NO COMPARTEN en los tickets de cocina
+  notaMesa?: string     // nota del camarero para cocina sobre toda la mesa (COM: al final del ticket)
   enviadaAt:      string | null // primera vez que se comandó a cocina
   items:          ComandaItem[]
   mermas:         ComandaMerma[]
@@ -1095,7 +1097,7 @@ export const api = {
     list:   (restaurantId: number | null) => get<MenuCategoria[]>(`/menu/categorias${restaurantId !== null ? `?restaurantId=${restaurantId}` : ''}`),
     create: (body: { restaurantId: number | null; grupo?: string; nombre: string; icono?: string; orden?: number; parentId?: number | null }) =>
       post<MenuCategoria>('/menu/categorias', body),
-    update: (id: number, body: Partial<{ grupo: string; nombre: string; icono: string; orden: number; ordenAlfabetico: boolean }>) =>
+    update: (id: number, body: Partial<{ grupo: string; nombre: string; icono: string; orden: number; ordenAlfabetico: boolean; nombreEnTicket: boolean }>) =>
       put<MenuCategoria>(`/menu/categorias/${id}`, body),
     delete: (id: number) => del(`/menu/categorias/${id}`),
     anidar: (id: number, parentId: number | null) =>
@@ -1151,7 +1153,7 @@ export const api = {
     enviar:    (id: number, niveles: { itemId: number; nivel: number; nota?: string }[]) =>
       patch<Comanda>(`/comandas/${id}/enviar`, { niveles }),
     cambiarPax:(id: number, pax: number) => patch<Comanda>(`/comandas/${id}/pax`, { pax }),
-    noComparten:(id: number, noComparten: boolean) => patch<Comanda>(`/comandas/${id}/no-comparten`, { noComparten }),
+    paraCocina:(id: number, datos: { noComparten?: boolean; notaMesa?: string }) => patch<Comanda>(`/comandas/${id}/para-cocina`, datos),
     facturar:  (id: number) => patch<Comanda>(`/comandas/${id}/facturar`, {}),
     liberar:   (id: number) => patch<Comanda>(`/comandas/${id}/liberar`, {}),
     cerrar:    (id: number, metodoPago: 'cash' | 'tarjeta', propina = 0) =>

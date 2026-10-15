@@ -143,7 +143,7 @@ export function normalizarPiCodigo(raw: string): string | null {
   return /^[0-9A-F]{6}$/.test(limpio) ? `OIDO-${limpio}` : null
 }
 
-type TicketItem = { nombre: string; cantidad: number; tipo: 'Bebida' | 'Comida'; notas: string | null; nivel: number | null; postre?: boolean }
+type TicketItem = { nombre: string; cantidad: number; tipo: 'Bebida' | 'Comida'; notas: string | null; nivel: number | null; seccion?: string | null }
 
 // Destino ya resuelto desde las rutas de /admin/tickets: la Pi imprime ahí, no decide nada.
 export type DestinoImpresion = { impresora: string; ip: string; copias: number }
@@ -174,7 +174,8 @@ export function publicarTicket(piCodigo: string, ticket: {
   mesa: string
   camarero: string
   pax?: number
-  no_comparten?: boolean // franja NO COMPARTEN en los tickets de cocina
+  no_comparten?: boolean // COM: NO COMPARTEN en los tickets de cocina
+  nota_mesa?: string     // COM: nota del camarero para toda la mesa
   items: TicketItem[]
   // Por tipo de item. Un tipo sin destinos no se imprime en ningún lado.
   destinos: Record<TicketItem['tipo'], DestinoImpresion[]>

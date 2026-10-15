@@ -44,19 +44,23 @@ async function imprimirTicketComanda(comanda: ComandaConMesa, items: ComandaItem
       .filter((r) => r.tipoTicket === tipoTicket)
       .map((r) => ({ impresora: r.impresora.nombre, ip: r.impresora.ip, copias: r.copias }))
 
-  // Qué platos son postres (su categoría o su sección se llaman así): un nivel que es todo
-  // postres sale en el ticket como POSTRES en vez de CUARTOS, QUINTOS…
+  // Categorías que salen con su nombre (ej. POSTRES): un nivel que es todo platos de una de ellas
+  // sale en el ticket con ese nombre en vez de PRIMEROS, SEGUNDOS… Una subcategoría hereda la
+  // opción de su categoría padre (y sale con el nombre del padre).
   const deLaCarta = await prisma.menuItem.findMany({
     where: { nombre: { in: items.map((i) => i.nombre) }, OR: [{ restaurantId: comanda.restaurantId }, { restaurantId: null }] },
     select: { nombre: true, categoria: true },
   })
   const categorias = await prisma.menuCategoria.findMany({
-    where: { nombre: { in: deLaCarta.map((m) => m.categoria) } },
-    select: { nombre: true, grupo: true },
+    where: { nombre: { in: deLaCarta.map((m) => m.categoria) }, OR: [{ restaurantId: comanda.restaurantId }, { restaurantId: null }] },
+    select: { nombre: true, nombreEnTicket: true, parent: { select: { nombre: true, nombreEnTicket: true } } },
   })
-  const esPostre = (t: string | null | undefined) => !!t && /postre/i.test(t)
-  const catsPostre = new Set(categorias.filter((c) => esPostre(c.nombre) || esPostre(c.grupo)).map((c) => c.nombre))
-  const postres = new Set(deLaCarta.filter((m) => esPostre(m.categoria) || catsPostre.has(m.categoria)).map((m) => m.nombre))
+  const seccionDeCat = new Map<string, string>()
+  for (const c of categorias) {
+    if (c.nombreEnTicket) seccionDeCat.set(c.nombre, c.nombre)
+    else if (c.parent?.nombreEnTicket) seccionDeCat.set(c.nombre, c.parent.nombre)
+  }
+  const seccionDe = new Map(deLaCarta.map((m) => [m.nombre, seccionDeCat.get(m.categoria) ?? null]))
 
   publicarTicket(restaurante.piCodigo, {
     ticket_id: `cmd-${comanda.id}-r${nextRonda}`,
@@ -66,13 +70,14 @@ async function imprimirTicketComanda(comanda: ComandaConMesa, items: ComandaItem
     camarero: comanda.camareroNombre ?? '',
     pax: comanda.pax,
     no_comparten: comanda.noComparten,
+    nota_mesa: comanda.notaMesa || undefined,
     items: items.map((i) => ({
       nombre: i.nombre,
       cantidad: i.cantidad,
       tipo: i.tipo === 'barra' ? 'Bebida' : 'Comida',
       notas: i.nota || null,
       nivel: i.nivel,
-      postre: postres.has(i.nombre),
+      seccion: seccionDe.get(i.nombre) ?? null,
     })),
   })
 }
@@ -314,14 +319,15 @@ export async function comandaRoutes(app: FastifyInstance) {
   })
 
   // Enviar comanda a cocina (con niveles de salida)
-  // La mesa no comparte: cocina emplata individual. Lo marca el camarero al ordenar los niveles
-  // y vale para todas las comandadas siguientes de la mesa (franja NO COMPARTEN en cocina).
-  app.patch('/comandas/:id/no-comparten', async (req, reply) => {
+  // Información de la mesa para cocina, que el camarero pone al ordenar los niveles y vale para
+  // esta comandada y las siguientes: si no comparte (cocina emplata individual) y una nota general.
+  // Sale como COM: al final de los tickets.
+  app.patch('/comandas/:id/para-cocina', async (req, reply) => {
     const id = Number((req.params as { id: string }).id)
-    const { noComparten } = z.object({ noComparten: z.boolean() }).parse(req.body)
+    const datos = z.object({ noComparten: z.boolean().optional(), notaMesa: z.string().trim().max(200).optional() }).parse(req.body)
     const existe = await prisma.comanda.findUnique({ where: { id }, select: { id: true } })
     if (!existe) return reply.status(404).send({ error: 'Comanda no encontrada' })
-    const comanda = await prisma.comanda.update({ where: { id }, data: { noComparten } })
+    const comanda = await prisma.comanda.update({ where: { id }, data: datos })
     broadcast(comanda.restaurantId, 'update')
     return comanda
   })

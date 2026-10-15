@@ -260,11 +260,21 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
     return r
   })
   const [notaModal, setNotaModal] = useState<{ itemId: number; value: string } | null>(null)
-  // La mesa no comparte: cocina emplata individual. Se guarda en la mesa al tocarlo (vale para
-  // esta comandada y las siguientes) y sale como franja NO COMPARTEN en los tickets de cocina.
+  // Información de la mesa para cocina: si no comparte (cocina emplata individual) y una nota
+  // general. Se guarda en la mesa (vale para esta comandada y las siguientes) y sale como COM:
+  // al final de los tickets.
   const [noComparten, setNoComparten] = useState(!!comanda.noComparten)
+  const [notaMesa, setNotaMesa] = useState(comanda.notaMesa ?? '')
+  const notaGuardada = useRef(comanda.notaMesa ?? '')
+  const guardarNotaMesa = async () => {
+    const v = notaMesa.trim()
+    if (v === notaGuardada.current) return
+    notaGuardada.current = v
+    await api.comandas.paraCocina(comanda.id, { notaMesa: v }).catch(() => { notaGuardada.current = '' })
+    queryClient.invalidateQueries({ queryKey: ['comanda-sala', comanda.id] })
+  }
   const cambiarNoComparten = useMutation({
-    mutationFn: (v: boolean) => api.comandas.noComparten(comanda.id, v),
+    mutationFn: (v: boolean) => api.comandas.paraCocina(comanda.id, { noComparten: v }),
     onMutate: v => setNoComparten(v),
     onError: (_e, v) => setNoComparten(!v),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['comanda-sala', comanda.id] }),
@@ -374,6 +384,9 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
               </span>
             </button>
           )}
+          <input value={notaMesa} onChange={e => setNotaMesa(e.target.value)} onBlur={() => void guardarNotaMesa()}
+            maxLength={200} placeholder="📝 Nota para cocina (toda la mesa)"
+            className="w-full mb-3 bg-[var(--sala-btn2)] text-[var(--sala-txt)] text-sm px-4 py-2.5 rounded-xl outline-none placeholder:text-[var(--sala-tx4)]" />
           {/* Search rápido para añadir items */}
           <div className="relative">
             <input value={search} onChange={e => setSearch(e.target.value)}
@@ -497,7 +510,8 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
             e.stopPropagation()
             if (oidoAnim) return
             setOidoAnim(true)
-            setTimeout(() => {
+            setTimeout(async () => {
+              await guardarNotaMesa() // que la nota llegue antes que el ticket
               setOidoAnim(false)
               const nivelesArray = Object.entries(nivelesActivos).map(([id, nivel]) => ({ itemId: Number(id), nivel, nota: notas[Number(id)] ?? '' }))
               const barraArray  = itemsBarra.map(i => ({ itemId: i.id, nivel: 1, nota: notas[i.id] ?? '' }))
@@ -1205,6 +1219,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                   <span className="ml-2 px-1.5 py-0.5 rounded bg-[var(--sala-txt)] text-[var(--sala-bg)] text-[10px] font-black uppercase tracking-wide align-middle">🍽 No comparten</span>
                 )}
               </h2>
+              {comanda.notaMesa && <p className="text-[var(--sala-tx2)] text-xs truncate">📝 {comanda.notaMesa}</p>}
               <div className="flex items-center gap-2 mt-0.5">
                 <button onClick={() => cambiarPax.mutate(Math.max(1, comanda.pax - 1))}
                   className="w-6 h-6 rounded-md bg-[var(--sala-btn)] text-[var(--sala-tx1)] text-sm font-bold hover:bg-gray-600 flex items-center justify-center leading-none">−</button>

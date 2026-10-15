@@ -9,11 +9,15 @@ function fmtHora(iso: string | null) {
 const NIVELES = ['PRIMEROS', 'SEGUNDOS', 'TERCEROS', 'CUARTOS', 'QUINTOS', 'SEXTOS', 'SÉPTIMOS', 'OCTAVOS', 'NOVENOS', 'DÉCIMOS']
 const nombreNivel = (n: number) => NIVELES[n - 1] ?? `NIVEL ${n}`
 
+// Como en papel: cantidad en columna fija y la nota alineada con el nombre del plato
 function ItemLine({ item }: { item: ComandaItem }) {
   return (
-    <div className="mt-1.5 pl-1">
-      <p className="font-black text-[16px] leading-tight">{item.cantidad} {item.nombre}</p>
-      {item.nota && <p className="font-bold text-[12px] pl-3">⚠ {item.nota}</p>}
+    <div className="mt-1 pl-3 flex gap-1.5 font-black text-[13px] leading-tight">
+      <span className="w-5 text-right shrink-0">{item.cantidad}</span>
+      <div className="min-w-0">
+        <p>{item.nombre}</p>
+        {item.nota && <p className="font-normal text-[11px] normal-case">» {item.nota}</p>}
+      </div>
     </div>
   )
 }
@@ -36,17 +40,15 @@ export default function TicketComanda({
       <div className="h-12 border-b-2 border-dotted border-black" />
       <div className="flex items-start justify-between mt-1">
         <div className="flex flex-col items-center leading-none">
-          <span className="font-black text-[56px] leading-none">{comanda.mesa?.numero ?? '-'}</span>
-          <span className="font-black text-[13px] normal-case">{comanda.pax} pax</span>
+          <span className="font-black text-[46px] leading-none">{comanda.mesa?.numero ?? '-'}</span>
+          <span className="font-black text-[11px] normal-case">{comanda.pax} pax</span>
         </div>
         <div className="flex flex-col items-center leading-tight pt-1 pr-2 normal-case">
           <span className="font-black text-[12px]">{primerNombre}</span>
           <span className="text-[18px]">{fmtHora(comanda.enviadaAt)}</span>
+          <span className="text-[10px]">{comanda.enviadaAt ? new Date(comanda.enviadaAt).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' }) : ''}</span>
         </div>
       </div>
-      {tipo === 'cocina' && comanda.noComparten && (
-        <p className="mt-1 font-black text-[10px]">COM: NO COMPARTEN</p>
-      )}
 
       {tipo === 'cocina' ? (
         niveles.map(nivel => (
@@ -61,6 +63,14 @@ export default function TicketComanda({
           {items.map(i => <ItemLine key={i.id} item={i} />)}
         </div>
       )}
+
+      {/* COM: al final, como en papel: si no comparte (solo cocina) y la nota del camarero */}
+      {(() => {
+        const com = [tipo === 'cocina' && comanda.noComparten ? 'NO COMPARTEN' : '', comanda.notaMesa ?? ''].filter(Boolean)
+        return com.length > 0 && (
+          <p className="mt-3 pt-1 border-t border-black text-[10px] normal-case"><b>COM:</b> {com.join(' · ')}</p>
+        )
+      })()}
 
       {items.length === 0 && (
         <p className="text-center text-[10px] mt-4 normal-case">Sin items de {tipo} en esta comanda.</p>

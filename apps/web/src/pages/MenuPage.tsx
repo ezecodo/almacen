@@ -460,6 +460,12 @@ function CategoriaPanel({
     mutationFn: () => api.menuCategorias.update(cat.id, { ordenAlfabetico: !cat.ordenAlfabetico }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['menu-cats'] }),
   })
+  // En la comanda de cocina, un nivel solo con platos de esta categoría sale con su nombre
+  // (ej. POSTRES) en vez de PRIMEROS, SEGUNDOS…
+  const toggleNombreEnTicket = useMutation({
+    mutationFn: () => api.menuCategorias.update(cat.id, { nombreEnTicket: !cat.nombreEnTicket }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['menu-cats'] }),
+  })
   const itemsOrdenados = cat.ordenAlfabetico
     ? [...items].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
     : items
@@ -494,6 +500,20 @@ function CategoriaPanel({
                 ? 'Orden alfabético activado — tocá para volver al orden manual (carta física)'
                 : 'Mostrar los items en orden alfabético (ayuda al camarero en categorías largas)'}>
               A→Z
+            </button>
+          )}
+          {!creando && !editando && !creandoSub && !cat.parentId && !(esGlobalCat && restaurantId !== null) && (
+            <button onClick={() => toggleNombreEnTicket.mutate()}
+              disabled={toggleNombreEnTicket.isPending}
+              className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
+                cat.nombreEnTicket
+                  ? 'bg-cyan-500 border-cyan-500 text-white'
+                  : 'border-gray-200 text-gray-400 hover:border-gray-300'
+              }`}
+              title={cat.nombreEnTicket
+                ? `En la comanda de cocina, sus platos salen bajo "${cat.nombre.toUpperCase()}" — tocá para que salgan en su nivel normal`
+                : `Que en la comanda de cocina sus platos salgan bajo "${cat.nombre.toUpperCase()}" en vez de PRIMEROS, SEGUNDOS…`}>
+              🎫 Nombre en ticket
             </button>
           )}
           {!creando && !editando && !creandoSub && !cat.parentId && !(esGlobalCat && restaurantId !== null) && (

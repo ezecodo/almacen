@@ -269,6 +269,7 @@ model MenuCategoria {
   icono        String     @default("")
   orden        Int        @default(0)
   ordenAlfabetico Boolean @default(false) // mostrar los items A→Z en vez del orden manual (carta física)
+  nombreEnTicket  Boolean @default(false) // en la comanda de cocina, un nivel solo con platos de aquí sale con este nombre (ej. POSTRES) en vez de PRIMEROS, SEGUNDOS…
   parentId     Int?       // subcategoría: id de la categoría contenedora (1 solo nivel)
   parent       MenuCategoria?  @relation("SubCategorias", fields: [parentId], references: [id])
   children     MenuCategoria[] @relation("SubCategorias")
@@ -387,6 +388,7 @@ model Comanda {
   propina        Float         @default(0)
   camareroNombre String?
   cuentaDesactualizada Boolean @default(false) // los items cambiaron tras imprimir la cuenta → reimprimir antes de cobrar
+  notaMesa             String    @default("") // nota del camarero para cocina sobre toda la mesa: sale como COM: al final de los tickets
   noComparten          Boolean   @default(false) // la mesa no comparte: cocina emplata individual (franja NO COMPARTEN en sus tickets)
   enviadaAt      DateTime?     // primera vez que la comanda se envió a cocina ("hora de comandada")
   items        ComandaItem[]
