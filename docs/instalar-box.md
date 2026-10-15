@@ -2,7 +2,7 @@
 
 Cómo se prepara una Box, cómo la activa el cliente y cómo se prueba. Probado de punta a punta el 2026-10-14 con la Box `OIDO-13FAEE` (Raspberry Pi 4, 2 GB, Raspberry Pi OS Lite 64-bit, Debian 13).
 
-**Regla de Eze**: instalar una Box tiene que ser *grabar la tarjeta y enchufar*. El cliente no toca terminales ni nadie entra al VPS. Lo que hoy todavía es manual está en la sección 5, y es lo siguiente a automatizar.
+**Regla de Eze**: instalar una Box tiene que ser *grabar la tarjeta y enchufar*. El cliente no toca terminales ni nadie entra al VPS. Desde el 2026-10-15 la clave del canal, el nombre DNS y el certificado salen de **HQ → Oído Box → Activar** (sección 6); lo que queda es la imagen de Oído (etapa 2).
 
 Detalle técnico del kit (canal MQTT, portal WiFi, impresoras): [`kit-impresion.md`](kit-impresion.md). Modo sin internet: [`modo-local.md`](modo-local.md).
 
@@ -37,8 +37,8 @@ Internet del restaurante ── router del local (WiFi de clientes)
    1. Entra, quita la contraseña de `sudo` a `oido` (la pide una vez) y lee el código de la Box.
    2. Paquetes: Python, Node, Postgres, fuentes. Tarda 5-10 min la primera vez.
    3. `printer-server`, portal WiFi, comando `oido` y prioridad WiFi/cable. Pillow se compila: unos minutos.
-   4. **Clave del canal**: la pide sola al VPS y la mete en la Box (requiere, una vez, `deploy/permitir-claves-box.sh`; si no, dice el comando y pide pegarla). Renovarla: `SIN_MODO_LOCAL=1 RENOVAR_CLAVE=1 bash deploy/preparar-box.sh`.
-   5. Certificado del nombre de la Box: ⚠️ hoy solo existe el de `13faee` (sección 5).
+   4. **Activación en HQ**: la Box se presenta sola. El script dice "abre HQ → Oído Box" y espera: en **Esperando activación** aparece su código; se comprueba con la etiqueta y se toca **Activar**. En menos de un minuto la Box recibe su clave del canal y conecta. Renovar la clave: "renovar clave" en su fila de HQ.
+   5. Certificado de su nombre: llega de HQ junto con la clave (el comodín `*.box…`).
    6. Modo local (`deploy/box.sh`).
    7. Comprobación: servicios, IPs, nombre → IP, enlace con la instalación.
 5. En **HQ** (`hq.oidoops…/admin` → Suite OidoOps): asignar la Box al local del cliente. En segundos le llega su enlace.
@@ -65,7 +65,7 @@ Viene instalado en cada Box. Desde el Mac:
 | `ssh oido@oido.local oido corte` | La Box deja de llegar a la nube: simula que se cayó internet |
 | `ssh oido@oido.local oido vuelve` | Quita el corte. Reiniciar la Box también lo quita |
 | `ssh oido@oido.local oido sin-wifi` | Olvida el WiFi y reinicia: arranca como recién sacada de la caja (portal) |
-| `ssh -t oido@oido.local oido clave` | Pega una clave nueva del canal y comprueba que conecta |
+| `ssh -t oido@oido.local oido clave` | Emergencia: pegar a mano una clave del canal. Lo normal es "renovar clave" en HQ |
 | `ssh oido@oido.local oido registro` | Últimas líneas de los tres servicios |
 
 Fuente: `deploy/oido-box.sh` (el instalador lo copia a `/usr/local/bin/oido`).
@@ -80,7 +80,7 @@ Fuente: `deploy/oido-box.sh` (el instalador lo copia a `/usr/local/bin/oido`).
 
 Resultado del 2026-10-14: todo ✅. Sin probar: el teléfono con el router del local **de verdad** sin internet (¿encuentra `<código>.box…`?), el aviso al cerrar turno y los botones ocultos en modo local.
 
-## 5. Lo que hoy es manual y se va a automatizar
+## 5. Lo que era manual (historia, superado por la sección 6)
 
 | Qué | Hoy | Propuesta (2026-10-14) | Lo que hace Eze, una vez |
 |---|---|---|---|
@@ -107,4 +107,18 @@ Cómo queda:
 | **1** | HQ → Boxes (presentarse, Activar, clave, DNS, certificado) + clave de IONOS en HQ. Toca `oido-talent` (HQ), `deploy/` de este repo (runner) y `printer-server` (presentarse y recoger) | Grabar + `preparar-box.sh` (sin VPS) + Activar en HQ |
 | **2** | Imagen de Oído + que la Box se actualice sola | Grabar la imagen + Activar en HQ. Cero terminal |
 
-Siguiente paso: diseñar y construir la etapa 1.
+### Etapa 1, hecha (2026-10-15)
+
+Cambio sobre lo de arriba, acordado con Eze: el instalador del VPS hace **solo la clave del canal** (el archivo de claves de Mosquitto pide root). El nombre DNS y el certificado los hace **HQ directamente** con la API de IONOS; no hay certbot ni plugins en el VPS.
+
+| Pieza | Dónde | Qué hace |
+|---|---|---|
+| Presentarse y recoger | printer-server → `activacion.py` | `POST <HQ>/api/box/hola` con código + secreto (`~/.config/oido/secreto`, lo inventa la Box) + IP local. Cada 15 s mientras espera; activa, cada 10 min o al cambiar de IP. Al recibir la clave la escribe en `.env` y se reinicia; el certificado va a `~/oidoops/cert` y reinicia `oidoops-local`. Sin clave no llama al broker |
+| La única puerta pública | oido-talent → `routes/boxes.ts` | `/api/box/hola`. La primera vez la Box queda **esperando**; otro secreto con el mismo código → 409 (en HQ, "Olvidar"). La clave se entrega hasta que la Box confirma que conecta con ella (manda su huella) y entonces HQ la borra |
+| Activar, Olvidar, IONOS, certificado | oido-talent → `routes/boxes.ts` + `AdminSuite.tsx` | Sección Oído Box: tarjetas "Esperando activación", estado de cada Box (nombre → IP, "renovar clave") y al pie los ajustes: clave de IONOS (se prueba antes de guardar), certificado, instalador |
+| Clave del canal | este repo → `deploy/runner.sh` (`activar_box`) | Cada minuto: `GET /api/interno/boxes/siguiente` → `mqtt.sh pi <código>` → `POST /api/interno/boxes/<código>/clave` |
+| Nombre DNS | oido-talent → `src/boxes.ts` + `src/ionos.ts` | Registro A `<código>.box…` → la IP de la conexión por donde la Box sale a internet. Al activar y cuando cambia; repaso cada hora |
+| Certificado comodín | oido-talent → `src/boxes.ts` (`acme-client`) | Let's Encrypt por DNS-01 con la API de IONOS. Se pide al guardar la clave de IONOS y se renueva solo con menos de 30 días; tras un fallo espera 6 h. `ACME_STAGING=1` para pruebas |
+| Secretos en HQ | oido-talent → `src/cifrado.ts` | Clave de IONOS, clave privada del certificado y claves pendientes, cifradas (AES-GCM, llave derivada de `JWT_SECRET`: si se cambia, hay que volver a pegar la de IONOS) |
+
+Quedó **sin usar y borrado**: `deploy/permitir-claves-box.sh`. Las Box con el programa anterior (la `13FAEE`) se presentan solas al actualizarlas; activarlas les da una clave nueva.

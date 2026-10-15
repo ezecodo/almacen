@@ -9,12 +9,11 @@
 # La tarjeta tiene que estar grabada con Raspberry Pi OS Lite (64-bit), usuario "oido" y SSH con la
 # clave de este Mac. Se puede repetir: lo que ya está hecho no se rehace (salvo copiar el programa).
 #
-# La clave del canal la pide al VPS solo (una vez antes, como root: deploy/permitir-claves-box.sh);
-# si el VPS no lo permite, dice el comando y pide pegarla.
+# No toca el VPS: la Box se presenta sola a HQ y, cuando alguien toca Activar en HQ → Oído Box,
+# recibe su clave del canal y el certificado de su nombre (ver docs/instalar-box.md).
 #
 # Variables opcionales: PRINTER_SERVER (carpeta del servicio de impresión, por defecto
-# ~/Desktop/dev/printer-server), VPS (por defecto eze@82.165.93.34), SIN_MODO_LOCAL=1,
-# RENOVAR_CLAVE=1 (genera una clave nueva del canal aunque la Box ya tenga una).
+# ~/Desktop/dev/printer-server), SIN_MODO_LOCAL=1.
 
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -23,7 +22,6 @@ unset LC_CTYPE LC_ALL
 
 BOX="${1:-oido@oido.local}"
 PS_LOCAL="${PRINTER_SERVER:-$HOME/Desktop/dev/printer-server}"
-VPS="${VPS:-eze@82.165.93.34}"
 DOMINIO_BOX=box.oidoops.ezeangeloni.xyz
 SSH_OPC=(-o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
 
@@ -77,51 +75,38 @@ bien "Comando oido instalado (oido estado | corte | vuelve | sin-wifi | clave | 
 bien "Librerías:$(box '~/printer-server/venv/bin/pip list 2>/dev/null | grep -iE "^(paho-mqtt|python-escpos|pillow) " | tr -s " " | paste -sd, -')"
 
 # ── 4 ──────────────────────────────────────────────────────────────────────────────────────────
-paso "4/7 · Credencial del canal (MQTT)"
-if [ "${RENOVAR_CLAVE:-}" != 1 ] && box "grep -q '^MQTT_PASS=..' ~/printer-server/.env 2>/dev/null && grep -q '^MQTT_USER=$CODIGO\$' ~/printer-server/.env"; then
-  bien "La Box ya tiene su credencial (no la toco)"
-else
-  # Se la pide al VPS (lo permite deploy/permitir-claves-box.sh). La clave va del VPS a la Box sin mostrarse.
-  CLAVE=$(ssh "${SSH_OPC[@]}" "$VPS" "sudo -n bash /root/almacen/deploy/mqtt.sh pi $CODIGO" 2>/dev/null | sed -n 's/^MQTT_PASS=//p' || true)
-  if [ -n "$CLAVE" ]; then
-    bien "Clave creada en el servidor"
-  else
-    aviso "El VPS no me deja crear la clave solo (falta, una vez como root: bash /root/almacen/deploy/permitir-claves-box.sh)"
-    echo "  Mientras tanto, a mano: en el VPS como root corre"
-    echo
-    echo "      bash /root/almacen/deploy/mqtt.sh pi $CODIGO"
-    echo
-    echo "  y pega aquí solo la clave (lo que va después de MQTT_PASS=)."
-    read -rsp "  MQTT_PASS: " CLAVE; echo
-  fi
-  CLAVE="${CLAVE#MQTT_PASS=}"; CLAVE="$(echo "$CLAVE" | tr -d '[:space:]')"
-  [[ "$CLAVE" =~ ^[0-9a-f]{20,}$ ]] || mal "Eso no parece la clave (son letras a-f y números). Vuelve a correr el script."
-  box "umask 077; cd ~/printer-server; { grep -vE '^MQTT_(USER|PASS)=' .env 2>/dev/null || grep -vE '^MQTT_(USER|PASS)=' .env.example; echo MQTT_USER=$CODIGO; echo MQTT_PASS=$CLAVE; } > .env.nuevo && mv .env.nuevo .env"
-  bien "Credencial guardada en ~/printer-server/.env"
-fi
+paso "4/7 · Activación en HQ"
 DESDE=$(box "date '+%Y-%m-%d %H:%M:%S'")
 box 'sudo cp ~/printer-server/printer-server.service ~/printer-server/oido-portal.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable -q printer-server oido-portal && sudo systemctl restart printer-server oido-portal'
-echo "  esperando a que conecte…"
-for _ in $(seq 1 20); do
+if box "grep -q '^MQTT_PASS=..' ~/printer-server/.env 2>/dev/null"; then
+  echo "  La Box ya tiene su clave del canal; compruebo que conecta…"
+  ESPERA=20
+else
+  # La Box se presenta sola a HQ y espera. La clave la crea la nube al tocar Activar (sin VPS).
+  echo
+  printf '  \033[1m→ Abre HQ → Oído Box. En "Esperando activación" aparece %s:\033[0m\n' "$CODIGO"
+  echo "    comprueba que coincide con la etiqueta de la caja y toca Activar. Te espero aquí (10 min)."
+  echo
+  ESPERA=300
+fi
+for _ in $(seq 1 "$ESPERA"); do
   sleep 2
   REG=$(box "sudo journalctl -u printer-server --since '$DESDE' --no-pager -o cat" || true)
   grep -q "Conectado al broker" <<< "$REG" && break
-  grep -q "rc=5" <<< "$REG" && mal "El canal rechaza la clave (rc=5). Vuelve a generarla con mqtt.sh pi $CODIGO, borra las dos líneas MQTT de ~/printer-server/.env en la Box y repite."
+  grep -q "rc=5" <<< "$REG" && mal "El canal rechaza la clave de la Box. En HQ → Oído Box: 'renovar clave' en $CODIGO, y vuelve a correr esto."
 done
-grep -q "Conectado al broker" <<< "$REG" || mal "No conecta al canal en 40 s. Mira: journalctl -u printer-server -n 30 --no-pager"
+grep -q "Conectado al broker" <<< "$REG" || mal "No conecta al canal. ¿La activaste en HQ? Mira: ssh $BOX oido registro"
 bien "printer-server: conectado al canal"
 [ "$(box systemctl is-active oido-portal)" = active ] && bien "oido-portal: activo" || aviso "oido-portal no está activo"
 
 # ── 5 ──────────────────────────────────────────────────────────────────────────────────────────
 paso "5/7 · Certificado de $NOMBRE"
-ORIGEN="box-certs/config/live/$NOMBRE"
-if ssh "${SSH_OPC[@]}" "$VPS" "test -r $ORIGEN/privkey.pem"; then
-  box 'mkdir -p ~/oidoops/cert && chmod 700 ~/oidoops/cert'
-  ssh "$VPS" "cat $ORIGEN/fullchain.pem" | box 'cat > ~/oidoops/cert/fullchain.pem'
-  ssh "$VPS" "cat $ORIGEN/privkey.pem" | box 'umask 077; cat > ~/oidoops/cert/privkey.pem'
-  bien "Copiado. Caduca: $(box 'openssl x509 -enddate -noout -in ~/oidoops/cert/fullchain.pem | cut -d= -f2')"
+# Lo da HQ junto con la clave (el comodín *.$DOMINIO_BOX, que HQ pide y renueva solo)
+for _ in $(seq 1 15); do box 'test -s ~/oidoops/cert/fullchain.pem' && break; sleep 2; done
+if box 'test -s ~/oidoops/cert/fullchain.pem'; then
+  bien "Recibido de HQ. Caduca: $(box 'openssl x509 -enddate -noout -in ~/oidoops/cert/fullchain.pem | cut -d= -f2')"
 else
-  aviso "No hay certificado para $NOMBRE en el VPS: el modo local irá solo por http://<ip>:8080/sala"
+  aviso "HQ todavía no tiene certificado (¿falta la clave de IONOS en HQ → Oído Box?). Llegará solo; mientras, el modo local va por http://<ip>:8080/sala"
 fi
 
 # ── 6 ──────────────────────────────────────────────────────────────────────────────────────────
@@ -141,11 +126,11 @@ IPS=$(box hostname -I)
 DNS=$(dig +short "$NOMBRE" | tail -1)
 bien "IPs de la Box: $IPS"
 if [ -z "$DNS" ]; then
-  aviso "$NOMBRE no existe en el DNS: los teléfonos no encontrarán la Box sin internet"
+  aviso "$NOMBRE todavía no existe en el DNS (lo pone HQ al activarla; mira HQ → Oído Box)"
 elif grep -qwF "$DNS" <<< "$IPS"; then
   bien "$NOMBRE → $DNS (coincide con la Box)"
 else
-  aviso "$NOMBRE apunta a $DNS, pero la Box tiene $IPS. Hay que reservarle $DNS en el router o cambiar el registro en IONOS"
+  aviso "$NOMBRE apunta a $DNS, pero la Box tiene $IPS. HQ lo corrige solo en unos minutos (si no, mira HQ → Oído Box)"
 fi
 box 'test -f ~/printer-server/enlace.json' && bien "Enlace con la instalación recibido" \
   || aviso "Todavía sin enlace con ninguna instalación: asígnala a un local en HQ (llega en segundos)"

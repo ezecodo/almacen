@@ -6,7 +6,7 @@
 #   ssh oido@oido.local oido corte       la Box deja de llegar a la nube (simula que se cayó internet)
 #   ssh oido@oido.local oido vuelve      quita el corte
 #   ssh oido@oido.local oido sin-wifi    olvida el WiFi y reinicia: arranca como recién sacada de la caja
-#   ssh -t oido@oido.local oido clave    pega una credencial nueva del canal (tras mqtt.sh pi en el VPS)
+#   ssh -t oido@oido.local oido clave    emergencia: pegar a mano una clave del canal (lo normal: HQ)
 #   ssh oido@oido.local oido registro    últimas líneas de los tres servicios
 #
 # El corte no sobrevive a un reinicio (a propósito: una Box reiniciada nunca queda cortada).

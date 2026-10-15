@@ -20,6 +20,26 @@ source "$CONF"   # HQ_URL, RUNNER_TOKEN, DOMINIO_BASE
 # el canal todavía no tiene reglas (deploy/mqtt.sh instalar).
 bash "$DIR/mqtt.sh" sincronizar || true
 
+# Oído Box que alguien activó en HQ: se le crea su clave del canal y se devuelve a HQ, que se la da
+# a la Box (ver oido-talent → src/boxes.ts). Lo único que llega de HQ es el código, validado aquí.
+activar_box() {
+  local r codigo salida clave
+  r=$(curl -s -m 10 -w '\n%{http_code}' -H "X-Runner-Token: $RUNNER_TOKEN" "$HQ_URL/api/interno/boxes/siguiente") || return 0
+  [ "$(tail -n1 <<< "$r")" = "200" ] || return 0
+  codigo=$(sed '$d' <<< "$r" | python3 -c 'import sys,json; print(json.load(sys.stdin)["codigo"])') || return 0
+  [[ "$codigo" =~ ^OIDO-[0-9A-F]{6}$ ]] || { echo "$(date '+%F %T') código de Box no válido: $codigo"; return 0; }
+  echo "$(date '+%F %T') clave del canal para $codigo"
+  salida=$(bash "$DIR/mqtt.sh" pi "$codigo" 2>&1)
+  clave=$(sed -n 's/^MQTT_PASS=//p' <<< "$salida")
+  python3 - "$clave" "$salida" <<'PY' | curl -s -m 20 -o /dev/null -X POST -H "X-Runner-Token: $RUNNER_TOKEN" -H 'Content-Type: application/json' --data-binary @- "$HQ_URL/api/interno/boxes/$codigo/clave"
+import sys, json
+clave, salida = sys.argv[1], sys.argv[2]
+print(json.dumps({'ok': True, 'clave': clave} if clave else {'ok': False, 'log': salida[-4000:]}))
+PY
+  [ -n "$clave" ] || echo "$salida" | tail -n 5
+}
+activar_box
+
 respuesta=$(curl -s -m 10 -w '\n%{http_code}' -H "X-Runner-Token: $RUNNER_TOKEN" "$HQ_URL/api/interno/instalaciones/siguiente") || exit 0
 [ "$(tail -n1 <<< "$respuesta")" = "200" ] || exit 0   # 204 = no hay pedidos
 pedido=$(sed '$d' <<< "$respuesta")
