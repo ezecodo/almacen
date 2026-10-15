@@ -262,16 +262,29 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
   const [notaModal, setNotaModal] = useState<{ itemId: number; value: string } | null>(null)
   // Información de la mesa para cocina: si no comparte (cocina emplata individual) y una nota
   // general. Se guarda en la mesa (vale para esta comandada y las siguientes) y sale como COM:
-  // al final de los tickets.
+  // al final de los tickets. La nota se escribe manteniendo apretado "Oído" (como el comentario
+  // de un plato): toque corto = enviar; apretado = recuadro de nota y "Oído" con la nota.
   const [noComparten, setNoComparten] = useState(!!comanda.noComparten)
   const [notaMesa, setNotaMesa] = useState(comanda.notaMesa ?? '')
-  const notaGuardada = useRef(comanda.notaMesa ?? '')
-  const guardarNotaMesa = async () => {
-    const v = notaMesa.trim()
-    if (v === notaGuardada.current) return
-    notaGuardada.current = v
-    await api.comandas.paraCocina(comanda.id, { notaMesa: v }).catch(() => { notaGuardada.current = '' })
-    queryClient.invalidateQueries({ queryKey: ['comanda-sala', comanda.id] })
+  const [notaMesaBox, setNotaMesaBox] = useState<string | null>(null)
+  const oidoLp = useRef<{ timer: ReturnType<typeof setTimeout> | null; fired: boolean }>({ timer: null, fired: false })
+  const cancelarOidoLp = () => { if (oidoLp.current.timer) { clearTimeout(oidoLp.current.timer); oidoLp.current.timer = null } }
+  // conNota: la nota recién escrita en el recuadro (undefined = se envía sin tocar la nota)
+  const enviarConOido = (conNota?: string) => {
+    if (oidoAnim) return
+    setOidoAnim(true)
+    setTimeout(async () => {
+      if (conNota !== undefined && conNota !== (comanda.notaMesa ?? '')) {
+        // que la nota llegue antes que el ticket
+        await api.comandas.paraCocina(comanda.id, { notaMesa: conNota }).catch(() => {})
+        queryClient.invalidateQueries({ queryKey: ['comanda-sala', comanda.id] })
+      }
+      setOidoAnim(false)
+      const nivelesArray = Object.entries(nivelesActivos).map(([id, nivel]) => ({ itemId: Number(id), nivel, nota: notas[Number(id)] ?? '' }))
+      const barraArray  = itemsBarra.map(i => ({ itemId: i.id, nivel: 1, nota: notas[i.id] ?? '' }))
+      const autoArray   = autoItemsPendientes.map(i => ({ itemId: i.id, nivel: 1, nota: '' }))
+      onEnviar([...nivelesArray, ...barraArray, ...autoArray])
+    }, 500)
   }
   const cambiarNoComparten = useMutation({
     mutationFn: (v: boolean) => api.comandas.paraCocina(comanda.id, { noComparten: v }),
@@ -384,9 +397,12 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
               </span>
             </button>
           )}
-          <input value={notaMesa} onChange={e => setNotaMesa(e.target.value)} onBlur={() => void guardarNotaMesa()}
-            maxLength={200} placeholder="📝 Nota para cocina (toda la mesa)"
-            className="w-full mb-3 bg-[var(--sala-btn2)] text-[var(--sala-txt)] text-sm px-4 py-2.5 rounded-xl outline-none placeholder:text-[var(--sala-tx4)]" />
+          {notaMesa && (
+            <button onClick={() => setNotaMesaBox(notaMesa)}
+              className="w-full mb-3 text-left text-xs text-[var(--sala-tx2)] bg-[var(--sala-btn2)] rounded-xl px-4 py-2 truncate">
+              📝 {notaMesa}
+            </button>
+          )}
           {/* Search rápido para añadir items */}
           <div className="relative">
             <input value={search} onChange={e => setSearch(e.target.value)}
@@ -506,19 +522,21 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
         )}
 
         <div className="p-4 border-t border-[var(--sala-brd)]">
-          <button onClick={e => {
-            e.stopPropagation()
-            if (oidoAnim) return
-            setOidoAnim(true)
-            setTimeout(async () => {
-              await guardarNotaMesa() // que la nota llegue antes que el ticket
-              setOidoAnim(false)
-              const nivelesArray = Object.entries(nivelesActivos).map(([id, nivel]) => ({ itemId: Number(id), nivel, nota: notas[Number(id)] ?? '' }))
-              const barraArray  = itemsBarra.map(i => ({ itemId: i.id, nivel: 1, nota: notas[i.id] ?? '' }))
-              const autoArray   = autoItemsPendientes.map(i => ({ itemId: i.id, nivel: 1, nota: '' }))
-              onEnviar([...nivelesArray, ...barraArray, ...autoArray])
-            }, 500)
-          }} className="w-full rounded-2xl flex items-center justify-center gap-3 py-4 active:scale-95 transition-all">
+          <button
+            onPointerDown={() => {
+              oidoLp.current.fired = false
+              oidoLp.current.timer = setTimeout(() => {
+                oidoLp.current.fired = true
+                navigator.vibrate?.(30)
+                setNotaMesaBox(notaMesa)
+              }, 450)
+            }}
+            onPointerUp={cancelarOidoLp} onPointerLeave={cancelarOidoLp} onContextMenu={e => e.preventDefault()}
+            onClick={e => {
+              e.stopPropagation()
+              if (oidoLp.current.fired) { oidoLp.current.fired = false; return } // el apretado ya abrió la nota
+              enviarConOido()
+            }} className="w-full rounded-2xl flex items-center justify-center gap-3 py-4 active:scale-95 transition-all">
             <span style={{ fontFamily: "'Helvetica Neue', Arial, sans-serif", fontWeight: 800, fontSize: '2rem', color: '#4CC8A0', opacity: oidoAnim ? 0 : 1, transition: 'opacity 0.15s' }}>
               Oído
             </span>
@@ -537,6 +555,31 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
           </button>
         </div>
       </div>
+
+      {notaMesaBox !== null && (
+        <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-6" onClick={e => { e.stopPropagation(); setNotaMesaBox(null) }}>
+          <div className="w-full max-w-sm bg-[var(--sala-hdr)] border border-[var(--sala-brd2)] rounded-2xl p-5 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <p className="text-[var(--sala-tx3)] text-[11px] font-semibold uppercase tracking-wider mb-1">📝 Nota para cocina</p>
+            <h3 className="text-[var(--sala-txt)] font-bold text-lg mb-3">Mesa {comanda.mesa.numero} · toda la mesa</h3>
+            <textarea autoFocus value={notaMesaBox} maxLength={200} rows={3}
+              onChange={e => setNotaMesaBox(e.target.value)}
+              placeholder="Cumpleaños, tienen prisa, una embarazada…"
+              className="w-full bg-[var(--sala-btn2)] text-[var(--sala-txt)] text-sm px-3 py-2.5 rounded-xl outline-none placeholder:text-[var(--sala-tx4)] resize-none" />
+            <p className="text-[var(--sala-tx4)] text-[11px] mt-1">Sale como COM: al final de esta comanda y de las siguientes de la mesa.</p>
+            <div className="flex gap-2 mt-3">
+              <button onClick={() => setNotaMesaBox(null)}
+                className="px-4 py-2.5 rounded-xl bg-[var(--sala-btn2)] text-[var(--sala-tx2)] text-sm font-semibold">
+                Cancelar
+              </button>
+              <button onClick={() => { const v = notaMesaBox.trim(); setNotaMesa(v); setNotaMesaBox(null); enviarConOido(v) }}
+                className="flex-1 py-2.5 rounded-xl text-white text-sm font-bold active:scale-95 transition-transform"
+                style={{ background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)' }}>
+                Oído con nota
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
