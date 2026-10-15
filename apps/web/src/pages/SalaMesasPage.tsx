@@ -260,6 +260,15 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
     return r
   })
   const [notaModal, setNotaModal] = useState<{ itemId: number; value: string } | null>(null)
+  // La mesa no comparte: cocina emplata individual. Se guarda en la mesa al tocarlo (vale para
+  // esta comandada y las siguientes) y sale como franja NO COMPARTEN en los tickets de cocina.
+  const [noComparten, setNoComparten] = useState(!!comanda.noComparten)
+  const cambiarNoComparten = useMutation({
+    mutationFn: (v: boolean) => api.comandas.noComparten(comanda.id, v),
+    onMutate: v => setNoComparten(v),
+    onError: (_e, v) => setNoComparten(!v),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['comanda-sala', comanda.id] }),
+  })
   const [oidoAnim, setOidoAnim] = useState(false)
   const [barraOpen, setBarraOpen] = useState(false)
   const [search, setSearch] = useState('')
@@ -355,6 +364,16 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
             </div>
             <button onClick={onClose} className="text-[var(--sala-tx3)] text-xl">✕</button>
           </div>
+          {itemsActivos.length > 0 && (
+            <button onClick={() => cambiarNoComparten.mutate(!noComparten)} disabled={cambiarNoComparten.isPending}
+              className={`w-full mb-3 flex items-center justify-between rounded-xl px-4 py-3 transition-colors active:scale-[0.98] ${
+                noComparten ? 'bg-[var(--sala-txt)] text-[var(--sala-bg)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx2)]'}`}>
+              <span className="text-sm font-black uppercase tracking-wide">🍽 No comparten</span>
+              <span className={`w-11 h-6 rounded-full relative transition-colors ${noComparten ? 'bg-[#4CC8A0]' : 'bg-[var(--sala-btn)]'}`}>
+                <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${noComparten ? 'left-[22px]' : 'left-0.5'}`} />
+              </span>
+            </button>
+          )}
           {/* Search rápido para añadir items */}
           <div className="relative">
             <input value={search} onChange={e => setSearch(e.target.value)}
@@ -1182,6 +1201,9 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                 <span className="ml-2 text-sm font-bold text-amber-400 tabular-nums align-middle">
                   🕐 {fmtHora(comanda.enviadaAt ?? comanda.createdAt)}
                 </span>
+                {comanda.noComparten && (
+                  <span className="ml-2 px-1.5 py-0.5 rounded bg-[var(--sala-txt)] text-[var(--sala-bg)] text-[10px] font-black uppercase tracking-wide align-middle">🍽 No comparten</span>
+                )}
               </h2>
               <div className="flex items-center gap-2 mt-0.5">
                 <button onClick={() => cambiarPax.mutate(Math.max(1, comanda.pax - 1))}

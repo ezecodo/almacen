@@ -281,6 +281,12 @@ Un empleado con `rol='encargado'` **o** `accesoEncargadoApp=true` ve la app de s
 - **Cobro directo en `ComandaPanel`**: prop `esEncargado` — en mesas `facturada` aparecen botones "💶 Cobrar efectivo / 💳 Cobrar tarjeta" junto a "Mesa libre".
 - **Backend endurecido**: `PATCH /comandas/:id/cerrar` ahora exige `metodoPago` (cash|tarjeta) y estado previo `facturada`|`liberada` (409 si no; antes no validaba nada).
 
+### No comparten (2026-10-15)
+
+`Comanda.noComparten Boolean`: la mesa no comparte y cocina emplata individual. Lo activa **cualquier camarero** con el interruptor "🍽 No comparten" arriba del **`OrdenarModal`** (solo si hay platos de cocina); se guarda al momento con `PATCH /comandas/:id/no-comparten` y vale para esta comandada y las siguientes de la mesa (se quita con el mismo interruptor). La cabecera del `ComandaPanel` lo muestra como etiqueta, sin botón. En papel: franja negra con **NO COMPARTEN** en blanco, debajo de la cabecera, **solo en los tickets de cocina** (`no_comparten` en el ticket → `_imagen_aviso_invertido` en el printer-server); también en la vista previa de `/admin/tickets`. Sin internet funciona igual y sube al volver (`CAMPOS_COMANDA` en `replica.ts`).
+
+Los niveles del ticket de cocina se imprimen **en palabras** (PRIMEROS, SEGUNDOS… hasta DÉCIMOS) y en letra pequeña, porque un número grande se confundía con la cantidad del plato. `ejemplo_ticket.py <ip> [--no-comparten]` en la Box imprime una comanda de ejemplo sin pasar por la nube.
+
 ### Platos agotados en el servicio (2026-10-15)
 
 Cuando se acaba un plato a mitad del servicio, el encargado lo marca en **💼 → 🚫 Agotados** (buscar → "Sí, se acabó"). Tabla `ItemAgotado` (`restaurantId` + `menuItemId` únicos, `marcadoPor`): es **por local**, no toca `MenuItem.activo` (la carta es común a los cinco). Rutas en `routes/agotados.ts`: `GET /agotados?restaurantId`, `POST /agotados` y `DELETE /agotados/:menuItemId?restaurantId` (las dos últimas en `SOLO_ENCARGADO`). Efectos:

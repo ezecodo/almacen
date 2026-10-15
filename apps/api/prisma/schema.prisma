@@ -387,6 +387,7 @@ model Comanda {
   propina        Float         @default(0)
   camareroNombre String?
   cuentaDesactualizada Boolean @default(false) // los items cambiaron tras imprimir la cuenta → reimprimir antes de cobrar
+  noComparten          Boolean   @default(false) // la mesa no comparte: cocina emplata individual (franja NO COMPARTEN en sus tickets)
   enviadaAt      DateTime?     // primera vez que la comanda se envió a cocina ("hora de comandada")
   items        ComandaItem[]
   mermas       Merma[]

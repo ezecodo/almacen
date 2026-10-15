@@ -50,6 +50,9 @@ export default function TicketComanda({
         <span>{primerNombre}</span>
         <span>{comanda.pax} pax · {fmtHora(comanda.enviadaAt)}</span>
       </div>
+      {tipo === 'cocina' && comanda.noComparten && (
+        <p className="mt-2 bg-black text-white text-center font-black text-[14px] tracking-wide py-1">NO COMPARTEN</p>
+      )}
 
       {tipo === 'cocina' ? (
         niveles.map(nivel => (

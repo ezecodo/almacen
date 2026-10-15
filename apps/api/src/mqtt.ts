@@ -174,6 +174,7 @@ export function publicarTicket(piCodigo: string, ticket: {
   mesa: string
   camarero: string
   pax?: number
+  no_comparten?: boolean // franja NO COMPARTEN en los tickets de cocina
   items: TicketItem[]
   // Por tipo de item. Un tipo sin destinos no se imprime en ningún lado.
   destinos: Record<TicketItem['tipo'], DestinoImpresion[]>

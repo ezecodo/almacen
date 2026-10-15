@@ -380,6 +380,7 @@ export interface Comanda {
   propina:        number
   camareroNombre: string | null
   cuentaDesactualizada: boolean // items cambiados tras imprimir la cuenta → reimprimir antes de cobrar
+  noComparten?: boolean // la mesa no comparte: franja NO COMPARTEN en los tickets de cocina
   enviadaAt:      string | null // primera vez que se comandó a cocina
   items:          ComandaItem[]
   mermas:         ComandaMerma[]
@@ -1150,6 +1151,7 @@ export const api = {
     enviar:    (id: number, niveles: { itemId: number; nivel: number; nota?: string }[]) =>
       patch<Comanda>(`/comandas/${id}/enviar`, { niveles }),
     cambiarPax:(id: number, pax: number) => patch<Comanda>(`/comandas/${id}/pax`, { pax }),
+    noComparten:(id: number, noComparten: boolean) => patch<Comanda>(`/comandas/${id}/no-comparten`, { noComparten }),
     facturar:  (id: number) => patch<Comanda>(`/comandas/${id}/facturar`, {}),
     liberar:   (id: number) => patch<Comanda>(`/comandas/${id}/liberar`, {}),
     cerrar:    (id: number, metodoPago: 'cash' | 'tarjeta', propina = 0) =>

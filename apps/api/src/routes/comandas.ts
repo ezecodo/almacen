@@ -51,6 +51,7 @@ async function imprimirTicketComanda(comanda: ComandaConMesa, items: ComandaItem
     mesa: String(comanda.mesa?.numero ?? '?'),
     camarero: comanda.camareroNombre ?? '',
     pax: comanda.pax,
+    no_comparten: comanda.noComparten,
     items: items.map((i) => ({
       nombre: i.nombre,
       cantidad: i.cantidad,
@@ -298,6 +299,18 @@ export async function comandaRoutes(app: FastifyInstance) {
   })
 
   // Enviar comanda a cocina (con niveles de salida)
+  // La mesa no comparte: cocina emplata individual. Lo marca el camarero al ordenar los niveles
+  // y vale para todas las comandadas siguientes de la mesa (franja NO COMPARTEN en cocina).
+  app.patch('/comandas/:id/no-comparten', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    const { noComparten } = z.object({ noComparten: z.boolean() }).parse(req.body)
+    const existe = await prisma.comanda.findUnique({ where: { id }, select: { id: true } })
+    if (!existe) return reply.status(404).send({ error: 'Comanda no encontrada' })
+    const comanda = await prisma.comanda.update({ where: { id }, data: { noComparten } })
+    broadcast(comanda.restaurantId, 'update')
+    return comanda
+  })
+
   app.patch('/comandas/:id/enviar', async (req, reply) => {
     const id = Number((req.params as { id: string }).id)
     const { niveles } = req.body as { niveles: { itemId: number; nivel: number; nota?: string }[] }
