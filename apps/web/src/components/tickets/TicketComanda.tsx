@@ -5,6 +5,10 @@ function fmtHora(iso: string | null) {
   return new Date(iso).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
 }
 
+// Como en papel (printer-server → printer.py): el nivel en palabras, para no confundirlo con la cantidad
+const NIVELES = ['PRIMEROS', 'SEGUNDOS', 'TERCEROS', 'CUARTOS', 'QUINTOS', 'SEXTOS', 'SÉPTIMOS', 'OCTAVOS', 'NOVENOS', 'DÉCIMOS']
+const nombreNivel = (n: number) => NIVELES[n - 1] ?? `NIVEL ${n}`
+
 function ItemLine({ item }: { item: ComandaItem }) {
   return (
     <div className="mt-1.5 pl-1">
@@ -50,9 +54,8 @@ export default function TicketComanda({
       {tipo === 'cocina' ? (
         niveles.map(nivel => (
           <div key={nivel} className="mt-3">
-            <div className="border-2 border-black text-center py-0.5">
-              <span className="font-black text-[20px] tracking-wide">NIVEL {nivel}</span>
-            </div>
+            <p className="text-center font-black text-[11px] tracking-wider">{nombreNivel(nivel)}</p>
+            <div className="h-1.5 bg-black" />
             {items.filter(i => i.nivel === nivel).map(i => <ItemLine key={i.id} item={i} />)}
           </div>
         ))
