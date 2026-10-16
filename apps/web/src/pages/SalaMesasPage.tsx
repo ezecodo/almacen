@@ -12,6 +12,7 @@ import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
 import { usePoolEvents } from '../hooks/usePoolEvents'
 import FacturasSala from '../components/FacturasSala'
 import MaridajeSheet from '../components/MaridajeSheet'
+import BotonVino from '../components/BotonVino'
 
 const POOL_LOCK_TIMEOUT_MS = 10 * 60 * 1000 // debe coincidir con POOL_LOCK_TIMEOUT_MS del backend
 function lockActivoPool(r: Reserva) {
@@ -317,6 +318,22 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
   const [oidoAnim, setOidoAnim] = useState(false)
   const [barraOpen, setBarraOpen] = useState(false)
   const [search, setSearch] = useState('')
+  // 🍷 Asistente de vinos: el mejor momento para ofrecerlo es aquí, con toda la comida ya pedida.
+  // La copa late si la mesa todavía no tiene ninguna botella; el vino elegido sale con este mismo Oído.
+  const [verVinos, setVerVinos] = useState(false)
+  const { data: maridajes } = useQuery({
+    queryKey: ['maridajes', comanda.restaurantId],
+    queryFn: () => api.maridajes.sala(comanda.restaurantId),
+    staleTime: 5 * 60_000,
+  })
+  const { data: agotadosLista = [] } = useQuery({
+    queryKey: ['agotados', comanda.restaurantId],
+    queryFn: () => api.agotados.list(comanda.restaurantId),
+    staleTime: 30_000,
+  })
+  const idsVino = new Set(maridajes?.vinos.map(v => v.id))
+  const nombresVino = new Set(menu.filter(m => idsVino.has(m.id)).map(m => m.nombre))
+  const mesaSinBotella = !comanda.items.some(i => nombresVino.has(i.nombre))
   // Swipe horizontal = salir del modal sin enviar (los niveles locales se descartan, como la ✕)
   const swipeSalirRef = useRef<{ x: number; y: number } | null>(null)
 
@@ -401,6 +418,7 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
   const maxNivel = Math.max(...Object.values(nivelesActivos), 1)
 
   return (
+    <>
     <div className="fixed inset-0 bg-black/80 flex items-stretch sm:items-center justify-center z-50" onClick={onClose}>
       <div className="bg-[var(--sala-hdr)] w-full sm:max-w-md sm:rounded-2xl overflow-hidden shadow-2xl flex flex-col sm:max-h-[90vh]" onClick={e => e.stopPropagation()}
         onTouchStart={e => { swipeSalirRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY } }}
@@ -421,7 +439,12 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
               </h3>
               <p className="text-[var(--sala-tx2)] text-xs mt-0.5">Mesa {comanda.mesa.numero} · {itemsActivos.length} cocina · {itemsBarra.length} barra</p>
             </div>
-            <button onClick={onClose} className="text-[var(--sala-tx3)] text-xl">✕</button>
+            <div className="flex items-center gap-4">
+              {itemsActivos.length > 0 && idsVino.size > 0 && (
+                <BotonVino onClick={() => setVerVinos(true)} invita={mesaSinBotella} titulo="¿Y de vino?" />
+              )}
+              <button onClick={onClose} className="text-[var(--sala-tx3)] text-xl">✕</button>
+            </div>
           </div>
           {itemsActivos.length > 0 && (
             <button onClick={() => cambiarNoComparten.mutate(!noComparten)} disabled={cambiarNoComparten.isPending}
@@ -617,6 +640,13 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
         </div>
       )}
     </div>
+    {/* Fuera del modal: así sus toques y swipes no lo cierran */}
+    {verVinos && (
+      <MaridajeSheet comanda={comanda} menu={menu} agotadoIds={new Set(agotadosLista.map(a => a.menuItemId))}
+        onAdd={vino => { addItem.mutate(vino); setBarraOpen(true) }}
+        onClose={() => setVerVinos(false)} />
+    )}
+    </>
   )
 }
 
