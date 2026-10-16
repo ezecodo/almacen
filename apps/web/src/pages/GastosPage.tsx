@@ -4,8 +4,9 @@ import { api, Gasto, GastoHabitual, GastoHabitualBody, PagoGasto } from '../api'
 import { textoLineas } from '../components/GastosSala'
 
 // /admin/gastos — la libreta del encargado vista desde arriba.
-// Arriba: los gastos habituales (los botones que ve el encargado en 💼 → Gastos), comunes a todos los
-// locales. Abajo: lo apuntado en el mes por local y lo que se debe a cuenta.
+// Selector 🌐 Global / local, como la carta. Arriba: los gastos habituales (los botones que ve el
+// encargado en 💼 → Gastos): en Global los de todos los locales; en un local, esos (solo lectura) + los
+// propios. Abajo: lo apuntado en el mes (todos los locales o ese) y lo que se debe a cuenta.
 
 const eur = (n: number) => `${n.toFixed(2).replace('.', ',')} €`
 const aNumero = (t: string) => { const n = parseFloat(t.replace(',', '.')); return Number.isFinite(n) ? n : null }
@@ -15,7 +16,7 @@ const inputCls = 'w-full border border-gray-200 rounded-xl px-3 py-2 text-sm out
 
 interface FormTipo { nombre: string; precio: string }
 
-function HabitualForm({ inicial, onDone }: { inicial?: GastoHabitual; onDone: () => void }) {
+function HabitualForm({ inicial, restaurantId, onDone }: { inicial?: GastoHabitual; restaurantId: number | null; onDone: () => void }) {
   const qc = useQueryClient()
   const [nombre, setNombre] = useState(inicial?.nombre ?? '')
   const [icono, setIcono] = useState(inicial?.icono ?? '')
@@ -27,6 +28,7 @@ function HabitualForm({ inicial, onDone }: { inicial?: GastoHabitual; onDone: ()
   const guardar = useMutation({
     mutationFn: () => {
       const body: GastoHabitualBody = {
+        restaurantId,
         nombre: nombre.trim(), icono: icono.trim(), unidad: unidad.trim(), pago, orden: inicial?.orden ?? 0,
         precio: tipos.length ? null : aNumero(precio),
         tipos: tipos.filter(t => t.nombre.trim()).map(t => ({ nombre: t.nombre.trim(), precio: aNumero(t.precio) })),
@@ -156,9 +158,9 @@ export default function GastosPage() {
   const qc = useQueryClient()
   const [editando, setEditando] = useState<GastoHabitual | 'nuevo' | null>(null)
   const [mes, setMes] = useState(mesActual())
-  const [restaurantId, setRestaurantId] = useState<number | undefined>(undefined)
+  const [restaurantId, setRestaurantId] = useState<number | undefined>(undefined) // undefined = 🌐 Global
 
-  const { data: habituales = [] } = useQuery({ queryKey: ['gastos-habituales', 'admin'], queryFn: api.gastos.habitualesAdmin })
+  const { data: habituales = [] } = useQuery({ queryKey: ['gastos-habituales', 'admin', restaurantId], queryFn: () => api.gastos.habitualesAdmin(restaurantId) })
   const { data: restaurantes = [] } = useQuery({ queryKey: ['restaurantes'], queryFn: api.restaurantes.list })
   const { data } = useQuery({ queryKey: ['gastos-admin', mes, restaurantId], queryFn: () => api.gastos.mes(mes, restaurantId) })
   const quitar = useMutation({
@@ -171,12 +173,16 @@ export default function GastosPage() {
         nombre: h.nombre, icono: h.icono, unidad: h.unidad, precio: h.precio, pago: h.pago, orden,
         tipos: h.tipos.map(t => ({ nombre: t.nombre, precio: t.precio })),
       })
-      const ia = habituales.indexOf(a), ib = habituales.indexOf(b)
+      const ia = propios.indexOf(a), ib = propios.indexOf(b)
       await Promise.all([api.gastos.editarHabitual(a.id, body(a, ib)), api.gastos.editarHabitual(b.id, body(b, ia))])
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['gastos-habituales'] }),
   })
 
+  // En la vista de un local, los globales se ven pero se editan en 🌐 Global
+  const soloLectura = (h: GastoHabitual) => restaurantId !== undefined && h.restaurantId === null
+  const propios = habituales.filter(h => !soloLectura(h))
+  const nombreLocal = restaurantes.find(r => r.id === restaurantId)?.nombre
   const unidadDe = (g: Gasto) => habituales.find(h => h.id === g.habitualId)?.unidad ?? ''
   const gastos = data?.gastos ?? []
   const pendientes = data?.pendientes ?? []
@@ -200,30 +206,49 @@ export default function GastosPage() {
         </p>
       </div>
 
+      {/* Global / local, como la carta */}
+      <div className="flex flex-wrap gap-2">
+        {[{ id: undefined as number | undefined, nombre: '🌐 Global' }, ...restaurantes].map(r => (
+          <button key={r.id ?? 'global'} onClick={() => { setRestaurantId(r.id); setEditando(null) }}
+            className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-colors ${
+              restaurantId === r.id ? (r.id === undefined ? 'bg-indigo-500 border-indigo-500 text-white' : 'bg-cyan-500 border-cyan-500 text-white') : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
+            }`}>
+            {r.nombre}
+          </button>
+        ))}
+      </div>
+
       {/* Habituales */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="font-bold text-gray-800">Gastos habituales <span className="text-xs font-normal text-gray-400">· comunes a todos los locales</span></h2>
+          <h2 className="font-bold text-gray-800">Gastos habituales <span className="text-xs font-normal text-gray-400">
+            · {restaurantId === undefined ? 'los globales salen en todos los locales' : `globales + los propios de ${nombreLocal ?? 'este local'}`}
+          </span></h2>
           {!editando && (
             <button onClick={() => setEditando('nuevo')} className="bg-cyan-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-cyan-400">+ Añadir</button>
           )}
         </div>
-        {editando === 'nuevo' && <HabitualForm onDone={() => setEditando(null)} />}
+        {editando === 'nuevo' && <HabitualForm restaurantId={restaurantId ?? null} onDone={() => setEditando(null)} />}
         {habituales.length === 0 && !editando && (
           <p className="text-sm text-gray-400 py-2">Todavía no hay ninguno. Añade los que se repiten (PAN, HIELO con sus tipos…).</p>
         )}
         <div className="divide-y divide-gray-50">
-          {habituales.map((h, i) => editando !== 'nuevo' && editando?.id === h.id ? (
-            <HabitualForm key={h.id} inicial={h} onDone={() => setEditando(null)} />
+          {habituales.map(h => {
+            const i = propios.indexOf(h)
+            return editando !== 'nuevo' && editando?.id === h.id ? (
+            <HabitualForm key={h.id} inicial={h} restaurantId={h.restaurantId} onDone={() => setEditando(null)} />
           ) : (
             <div key={h.id} className="flex items-center gap-3 py-2.5">
-              <div className="flex flex-col text-[10px] text-gray-300 leading-none">
-                <button disabled={i === 0 || mover.isPending} onClick={() => mover.mutate({ a: h, b: habituales[i - 1] })} className="hover:text-gray-600 disabled:opacity-30">▲</button>
-                <button disabled={i === habituales.length - 1 || mover.isPending} onClick={() => mover.mutate({ a: h, b: habituales[i + 1] })} className="hover:text-gray-600 disabled:opacity-30">▼</button>
+              <div className={`flex flex-col text-[10px] text-gray-300 leading-none ${soloLectura(h) ? 'invisible' : ''}`}>
+                <button disabled={i <= 0 || mover.isPending} onClick={() => mover.mutate({ a: h, b: propios[i - 1] })} className="hover:text-gray-600 disabled:opacity-30">▲</button>
+                <button disabled={i === propios.length - 1 || mover.isPending} onClick={() => mover.mutate({ a: h, b: propios[i + 1] })} className="hover:text-gray-600 disabled:opacity-30">▼</button>
               </div>
               <span className="text-2xl w-8 text-center">{h.icono || '🧾'}</span>
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-gray-800">{h.nombre} {h.unidad && <span className="text-xs font-normal text-gray-400">({h.unidad})</span>}</p>
+                <p className="font-semibold text-gray-800">
+                  {h.nombre} {h.unidad && <span className="text-xs font-normal text-gray-400">({h.unidad})</span>}
+                  {soloLectura(h) && <span className="ml-2 text-[10px] font-bold text-indigo-500 bg-indigo-50 rounded px-1.5 py-0.5">🌐 GLOBAL</span>}
+                </p>
                 <p className="text-xs text-gray-500">
                   {h.tipos.length
                     ? h.tipos.map(t => `${t.nombre}${t.precio != null ? ` ${eur(t.precio)}` : ''}`).join(' · ')
@@ -231,22 +256,24 @@ export default function GastosPage() {
                   {' · '}{h.pago === 'efectivo' ? '💶 efectivo' : '📒 a cuenta'}
                 </p>
               </div>
-              <button onClick={() => setEditando(h)} className="text-xs text-gray-400 hover:text-cyan-600">Editar</button>
-              <button onClick={() => quitar.mutate(h.id)} disabled={quitar.isPending} title="Quitarlo de la sala (los apuntes ya hechos se quedan)"
-                className="text-xs text-gray-300 hover:text-red-500">✕</button>
+              {soloLectura(h) ? (
+                <span className="text-[11px] text-gray-400">se edita en 🌐 Global</span>
+              ) : (
+                <>
+                  <button onClick={() => setEditando(h)} className="text-xs text-gray-400 hover:text-cyan-600">Editar</button>
+                  <button onClick={() => quitar.mutate(h.id)} disabled={quitar.isPending} title="Quitarlo de la sala (los apuntes ya hechos se quedan)"
+                    className="text-xs text-gray-300 hover:text-red-500">✕</button>
+                </>
+              )}
             </div>
-          ))}
+          )})}
         </div>
       </div>
 
       {/* Filtros */}
       <div className="flex flex-wrap gap-3 items-center">
         <input type="month" value={mes} onChange={e => setMes(e.target.value || mesActual())} className="border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white" />
-        <select value={restaurantId ?? ''} onChange={e => setRestaurantId(e.target.value ? Number(e.target.value) : undefined)}
-          className="border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white">
-          <option value="">Todos los locales</option>
-          {restaurantes.map(r => <option key={r.id} value={r.id}>{r.nombre}</option>)}
-        </select>
+        <span className="text-sm text-gray-500">Apuntes de {restaurantId === undefined ? 'todos los locales' : nombreLocal}</span>
       </div>
 
       {/* Cifras */}

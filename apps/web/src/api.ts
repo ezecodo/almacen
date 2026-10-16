@@ -964,10 +964,11 @@ export interface MaridajesAdmin {
 export type PagoGasto = 'efectivo' | 'cuenta'
 export interface GastoTipo { id: number; nombre: string; precio: number | null }
 export interface GastoHabitual {
-  id: number; nombre: string; icono: string; unidad: string; precio: number | null
+  id: number; restaurantId: number | null; nombre: string; icono: string; unidad: string; precio: number | null
   pago: PagoGasto; orden: number; tipos: GastoTipo[]; _count?: { gastos: number }
 }
 export interface GastoHabitualBody {
+  restaurantId?: number | null // solo al crear: null = global
   nombre: string; icono: string; unidad: string; precio: number | null; pago: PagoGasto; orden: number
   tipos: { nombre: string; precio: number | null }[]
 }
@@ -1239,14 +1240,14 @@ export const api = {
   },
   // Platos que se acabaron en el servicio (por local). Marcar y reponer: solo encargado.
   gastos: {
-    habituales: () => get<GastoHabitual[]>('/gastos/habituales'),
+    habituales: (restaurantId: number) => get<GastoHabitual[]>(`/gastos/habituales?restaurantId=${restaurantId}`),
     delTurno: (restaurantId: number) => get<{ desde: string; hoy: Gasto[]; pendientes: Gasto[]; efectivo: number }>(`/gastos?restaurantId=${restaurantId}`),
     apuntar: (body: { restaurantId: number; habitualId?: number | null; nombre?: string; lineas: Gasto['lineas']; importe: number | null; pago: PagoGasto }) =>
       post<Gasto>('/gastos', body),
     borrar: (id: number) => del(`/gastos/${id}`),
     pagar: (id: number, body: { importe?: number | null; con: 'efectivo' | 'otro' }) => patch<Gasto>(`/gastos/${id}/pagar`, body),
     // admin
-    habitualesAdmin: () => get<GastoHabitual[]>('/admin/gastos/habituales'),
+    habitualesAdmin: (restaurantId?: number) => get<GastoHabitual[]>(`/admin/gastos/habituales${restaurantId ? `?restaurantId=${restaurantId}` : ''}`),
     crearHabitual: (body: GastoHabitualBody) => post<GastoHabitual>('/admin/gastos/habituales', body),
     editarHabitual: (id: number, body: GastoHabitualBody) => put<GastoHabitual>(`/admin/gastos/habituales/${id}`, body),
     borrarHabitual: (id: number) => del(`/admin/gastos/habituales/${id}`),

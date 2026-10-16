@@ -28,7 +28,7 @@ export default function GastosSala({ restaurantId }: { restaurantId: number }) {
   const [pagando, setPagando] = useState<Gasto | null>(null)
   const [importePago, setImportePago] = useState('')
 
-  const { data: habituales = [] } = useQuery({ queryKey: ['gastos-habituales'], queryFn: api.gastos.habituales, staleTime: 5 * 60_000 })
+  const { data: habituales = [] } = useQuery({ queryKey: ['gastos-habituales', restaurantId], queryFn: () => api.gastos.habituales(restaurantId), staleTime: 5 * 60_000 })
   const { data } = useQuery({ queryKey: ['gastos', restaurantId], queryFn: () => api.gastos.delTurno(restaurantId), refetchInterval: 60_000 })
   const refrescar = () => qc.invalidateQueries({ queryKey: ['gastos', restaurantId] })
 

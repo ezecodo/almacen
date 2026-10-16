@@ -27,6 +27,7 @@ const pagarSchema = z.object({
 })
 const tipoSchema = z.object({ nombre: z.string().trim().min(1).max(60), precio: z.number().min(0).nullable().optional() })
 const habitualSchema = z.object({
+  restaurantId: z.number().int().positive().nullable().optional(), // solo al crear: null = global
   nombre: z.string().trim().min(1).max(60),
   icono: z.string().max(8).default(''),
   unidad: z.string().trim().max(30).default(''),
@@ -78,8 +79,14 @@ async function pagar(req: FastifyRequest, soloLocal: boolean) {
 
 export async function gastoRoutes(app: FastifyInstance) {
   // ── Sala (encargado) ────────────────────────────────────────────────────────────────────────
-  app.get('/gastos/habituales', async () =>
-    prisma.gastoHabitual.findMany({ where: { activo: true }, include: conTipos, orderBy: [{ orden: 'asc' }, { nombre: 'asc' }] }))
+  // Los globales + los de este local
+  app.get('/gastos/habituales', async req => {
+    const { restaurantId } = restQuery.parse(req.query)
+    return prisma.gastoHabitual.findMany({
+      where: { activo: true, OR: [{ restaurantId: null }, { restaurantId }] },
+      include: conTipos, orderBy: [{ restaurantId: { sort: 'asc', nulls: 'first' } }, { orden: 'asc' }, { nombre: 'asc' }],
+    })
+  })
 
   // Lo apuntado en el turno + lo que el local debe a cuenta (de cualquier día)
   app.get('/gastos', { preHandler: requireEncargado }, async (req, reply) => {
@@ -133,13 +140,20 @@ export async function gastoRoutes(app: FastifyInstance) {
   })
 
   // ── Admin ───────────────────────────────────────────────────────────────────────────────────
-  app.get('/admin/gastos/habituales', async () =>
-    prisma.gastoHabitual.findMany({ where: { activo: true }, include: { ...conTipos, _count: { select: { gastos: true } } }, orderBy: [{ orden: 'asc' }, { nombre: 'asc' }] }))
+  // Sin restaurantId: solo los globales. Con él: globales + los de ese local
+  app.get('/admin/gastos/habituales', async req => {
+    const { restaurantId } = z.object({ restaurantId: z.coerce.number().int().positive().optional() }).parse(req.query)
+    return prisma.gastoHabitual.findMany({
+      where: { activo: true, OR: [{ restaurantId: null }, ...(restaurantId ? [{ restaurantId }] : [])] },
+      include: { ...conTipos, _count: { select: { gastos: true } } },
+      orderBy: [{ restaurantId: { sort: 'asc', nulls: 'first' } }, { orden: 'asc' }, { nombre: 'asc' }],
+    })
+  })
 
   app.post('/admin/gastos/habituales', async (req, reply) => {
     const { tipos, ...d } = habitualSchema.parse(req.body)
     const h = await prisma.gastoHabitual.create({
-      data: { ...d, nombre: d.nombre.toUpperCase(), tipos: { create: tipos.map((t, i) => ({ nombre: t.nombre.toUpperCase(), precio: t.precio ?? null, orden: i })) } },
+      data: { ...d, restaurantId: d.restaurantId ?? null, nombre: d.nombre.toUpperCase(), tipos: { create: tipos.map((t, i) => ({ nombre: t.nombre.toUpperCase(), precio: t.precio ?? null, orden: i })) } },
       include: conTipos,
     })
     return reply.status(201).send(h)
@@ -148,7 +162,7 @@ export async function gastoRoutes(app: FastifyInstance) {
   // Reemplaza los tipos enteros (los apuntes viejos guardan el nombre del tipo, no su id)
   app.put('/admin/gastos/habituales/:id', async req => {
     const { id } = idParams.parse(req.params)
-    const { tipos, ...d } = habitualSchema.parse(req.body)
+    const { tipos, restaurantId: _, ...d } = habitualSchema.parse(req.body) // el ámbito no se cambia al editar
     return prisma.$transaction(async tx => {
       await tx.gastoTipo.deleteMany({ where: { habitualId: id } })
       return tx.gastoHabitual.update({

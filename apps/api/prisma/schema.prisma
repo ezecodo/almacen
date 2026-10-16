@@ -44,6 +44,7 @@ model Restaurant {
   facturas               Factura[]
   agotados               ItemAgotado[]
   gastos                 Gasto[]
+  gastosHabituales       GastoHabitual[]
   // Código de la Raspberry Pi de impresión vinculada a este restaurante (ej. "OIDO-7F3A2C",
   // sale del número de serie de la Pi). null = sin Pi → las comandas no se imprimen.
   piCodigo               String?               @unique
@@ -797,10 +798,12 @@ model Factura {
 
 // ── Gastos del día (libreta del encargado) ───────────────────────────────────────────────────
 // Lo que se compra o recibe en el turno sin pedido formal: pan, hielo, frutería, velas…
-// GastoHabitual = botones que se cargan en /admin/gastos (comunes a todos los locales); un habitual
+// GastoHabitual = botones que se cargan en /admin/gastos (globales o de un local, como la carta); un habitual
 // puede tener tipos (HIELO → PILE, CUBO) o no (PAN). Gasto = cada apunte del encargado desde 💼.
 model GastoHabitual {
   id      Int         @id @default(autoincrement())
+  restaurantId Int?                       // null = global (todos los locales), X = solo ese local (como la carta)
+  restaurant   Restaurant? @relation(fields: [restaurantId], references: [id])
   nombre  String
   icono   String      @default("")
   unidad  String      @default("")        // "barras", "sacos"… (solo para mostrar)
