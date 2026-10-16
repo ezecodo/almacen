@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, MenuCategoria, MenuItem, Restaurante } from '../api'
 import { AlergenosPicker, AlergenosBadges } from '../components/Alergenos'
+import IconoPicker from '../components/IconoPicker'
 
 function formatEur(n: number) {
   return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
@@ -78,8 +79,7 @@ function CategoriaForm({
       <div className="flex gap-3">
         <div className="w-20">
           <label className="block text-xs font-medium text-gray-500 mb-1">Icono</label>
-          <input value={icono} onChange={e => setIcono(e.target.value)}
-            className={inputCls + ' text-center text-xl'} placeholder="🍽️" maxLength={4} />
+          <IconoPicker valor={icono} onChange={setIcono} />
         </div>
         <div className="flex-1">
           <label className="block text-xs font-medium text-gray-500 mb-1">Nombre</label>

@@ -1067,6 +1067,10 @@ Ambos envían un ping cada 25s y confirman conexión con `{"type":"connected"}`.
 
 ## Componentes compartidos (`apps/web/src/components/`)
 
+### IconoPicker
+
+`components/IconoPicker.tsx` (2026-10-16): selector de icono del admin — botón con el emoji actual que abre una rejilla de ~100 emojis de hostelería agrupados (Comida, Bebida, Local y limpieza, Sala y otros) + "Pega otro emoji" + Quitar. Se guarda el emoji como texto (igual que antes, sin cambios de datos). Usado en gastos habituales, categorías de la carta y categorías de la wiki. Para sumar emojis, añadirlos a `GRUPOS`.
+
 ### CheckOverlay
 
 Overlay de confirmación animado — la viñeta de OidoOps (speech bubble con gradiente azul-verde) con la tilde blanca que se dibuja animadamente, seguida del texto "OidoOps".

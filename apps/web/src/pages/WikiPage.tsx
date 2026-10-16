@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, WikiCategoria, WikiArticulo } from '../api'
 import { speak, VozSelector, LANGS, Lang } from '../lib/tts'
+import IconoPicker from '../components/IconoPicker'
 
 const inputCls = 'w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyan-400'
 
@@ -42,12 +43,7 @@ function CategoriaModal({
         </div>
         <div className="px-5 py-4 space-y-3">
           <div className="flex gap-2">
-            <input
-              value={icono}
-              onChange={e => setIcono(e.target.value)}
-              placeholder="📖"
-              className="w-16 border border-gray-200 rounded-xl px-3 py-2 text-center text-xl focus:outline-none focus:border-cyan-400"
-            />
+            <div className="w-16 shrink-0"><IconoPicker valor={icono} onChange={setIcono} className="h-[42px]" /></div>
             <input
               value={nombre}
               onChange={e => setNombre(e.target.value)}

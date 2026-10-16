@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, Gasto, GastoHabitual, GastoHabitualBody, PagoGasto } from '../api'
 import { textoLineas } from '../components/GastosSala'
+import IconoPicker from '../components/IconoPicker'
 
 // /admin/gastos — la libreta del encargado vista desde arriba.
 // Selector 🌐 Global / local, como la carta. Arriba: los gastos habituales (los botones que ve el
@@ -43,7 +44,7 @@ function HabitualForm({ inicial, restaurantId, onDone }: { inicial?: GastoHabitu
       <div className="flex gap-3">
         <div className="w-20">
           <label className="block text-xs font-medium text-gray-500 mb-1">Icono</label>
-          <input value={icono} onChange={e => setIcono(e.target.value)} maxLength={4} placeholder="🥖" className={inputCls + ' text-center text-xl'} />
+          <IconoPicker valor={icono} onChange={setIcono} />
         </div>
         <div className="flex-1">
           <label className="block text-xs font-medium text-gray-500 mb-1">Nombre</label>
