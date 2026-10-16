@@ -43,6 +43,7 @@ model Restaurant {
   impresoras             Impresora[]
   facturas               Factura[]
   agotados               ItemAgotado[]
+  gastos                 Gasto[]
   // Código de la Raspberry Pi de impresión vinculada a este restaurante (ej. "OIDO-7F3A2C",
   // sale del número de serie de la Pi). null = sin Pi → las comandas no se imprimen.
   piCodigo               String?               @unique
@@ -153,6 +154,7 @@ model Turno {
   totalMermas     Float?
   totalPropinas   Float?
   totalInvitaciones Float?  // valor de items marcados como invitación de la casa (no suman a ventas)
+  totalGastos     Float?     // gastos pagados en efectivo durante el turno (salieron de la caja)
   numComandas     Int?
   propina         PropinaDia?
   createdAt       DateTime   @default(now())
@@ -789,6 +791,51 @@ model Factura {
   estado       String     @default("subiendo") // 'subiendo' (aún cargando páginas) | 'pendiente' | 'revisada'
   revisadaAt   DateTime?
   createdAt    DateTime   @default(now())
+
+  @@index([restaurantId, createdAt])
+}
+
+// ── Gastos del día (libreta del encargado) ───────────────────────────────────────────────────
+// Lo que se compra o recibe en el turno sin pedido formal: pan, hielo, frutería, velas…
+// GastoHabitual = botones que se cargan en /admin/gastos (comunes a todos los locales); un habitual
+// puede tener tipos (HIELO → PILE, CUBO) o no (PAN). Gasto = cada apunte del encargado desde 💼.
+model GastoHabitual {
+  id      Int         @id @default(autoincrement())
+  nombre  String
+  icono   String      @default("")
+  unidad  String      @default("")        // "barras", "sacos"… (solo para mostrar)
+  precio  Float?                          // precio por unidad si no tiene tipos (opcional)
+  pago    String      @default("efectivo") // forma de pago habitual: 'efectivo' | 'cuenta'
+  orden   Int         @default(0)
+  activo  Boolean     @default(true)
+  tipos   GastoTipo[]
+  gastos  Gasto[]
+}
+
+model GastoTipo {
+  id        Int           @id @default(autoincrement())
+  habitualId Int
+  habitual  GastoHabitual @relation(fields: [habitualId], references: [id], onDelete: Cascade)
+  nombre    String                    // PILE, CUBO
+  precio    Float?                    // precio por unidad (opcional)
+  orden     Int           @default(0)
+}
+
+model Gasto {
+  id           Int            @id @default(autoincrement())
+  restaurantId Int
+  restaurant   Restaurant     @relation(fields: [restaurantId], references: [id])
+  habitualId   Int?                       // null = gasto libre ("VELAS")
+  habitual     GastoHabitual? @relation(fields: [habitualId], references: [id], onDelete: SetNull)
+  nombre       String                     // copia del nombre al apuntarlo (o el texto libre)
+  lineas       Json                       // [{ tipo: string | null, cantidad: number }]
+  importe      Float?                     // lo pagado; null = a cuenta sin precio conocido
+  pago         String                     // 'efectivo' | 'cuenta'
+  pagadoAt     DateTime?                  // a cuenta: cuándo se saldó
+  pagadoPor    String?
+  pagadoCon    String?                    // 'efectivo' (sale de la caja de ese turno) | 'otro' (transferencia, tarjeta…)
+  creadoPor    String
+  createdAt    DateTime       @default(now())
 
   @@index([restaurantId, createdAt])
 }

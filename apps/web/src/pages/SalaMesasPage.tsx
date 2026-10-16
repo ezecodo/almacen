@@ -11,6 +11,7 @@ import { useSalaEnModoLocal } from '../lib/instalacion'
 import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
 import { usePoolEvents } from '../hooks/usePoolEvents'
 import FacturasSala from '../components/FacturasSala'
+import GastosSala from '../components/GastosSala'
 import MaridajeSheet from '../components/MaridajeSheet'
 import BotonVino from '../components/BotonVino'
 
@@ -3643,7 +3644,7 @@ function EncargadoPanel({
 }) {
   const queryClient = useQueryClient()
   const rid = restaurant.id
-  const [tab, setTab] = useState<'cobros' | 'turno' | 'agotados' | 'checklists' | 'mermas' | 'reviews' | 'reservas' | 'facturas'>(soloConsulta ? 'reservas' : 'cobros')
+  const [tab, setTab] = useState<'cobros' | 'turno' | 'agotados' | 'checklists' | 'mermas' | 'reviews' | 'reservas' | 'facturas' | 'gastos'>(soloConsulta ? 'reservas' : 'cobros')
   const { data: agotados = [] } = useQuery({
     queryKey: ['agotados', restaurant.id],
     queryFn: () => api.agotados.list(restaurant.id),
@@ -3803,6 +3804,7 @@ function EncargadoPanel({
     { key: 'cobros' as const, icon: '💶', label: 'Cobros', badge: pendientes.length },
     { key: 'turno' as const, icon: '⏱', label: 'Turno', badge: 0 },
     { key: 'agotados' as const, icon: '🚫', label: 'Agotados', badge: agotados.length },
+    { key: 'gastos' as const, icon: '🥖', label: 'Gastos', badge: 0 },
     { key: 'checklists' as const, icon: '✅', label: 'Checklists', badge: 0 },
     { key: 'mermas' as const, icon: '🗑', label: 'Mermas', badge: 0 },
     { key: 'reservas' as const, icon: '📅', label: 'Reservas', badge: pool.length },
@@ -3904,6 +3906,7 @@ function EncargadoPanel({
                     ['Tarjeta', resumenCierre.totalTarjeta],
                     ['Mermas', resumenCierre.totalMermas],
                     ['🎁 Invitaciones', resumenCierre.totalInvitaciones],
+                    ['🥖 Gastos en efectivo', resumenCierre.totalGastos],
                   ].map(([label, val]) => (
                     <div key={label as string} className="flex justify-between text-sm">
                       <span className="text-[var(--sala-tx3)]">{label}</span>
@@ -4007,6 +4010,7 @@ function EncargadoPanel({
           )}
 
           {/* ── Facturas de proveedor ── */}
+          {tab === 'gastos' && <GastosSala restaurantId={rid} />}
           {tab === 'facturas' && <FacturasSala restaurantId={rid} empleadoId={camarero.id} />}
 
           {tab === 'agotados' && <AgotadosSala restaurantId={rid} agotados={agotados} />}

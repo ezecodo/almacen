@@ -30,6 +30,7 @@ import { algunRestringido, ipDe, redDe, redRoutes } from './routes/red'
 import { CONSULTA_ENCARGADO, CONSULTA_SALA, RUTAS_LOCAL, RUTAS_PUBLICAS, RUTAS_PULSO, RUTAS_SALA, SOLO_ENCARGADO } from './permisos'
 import { facturaRoutes } from './routes/facturas'
 import { agotadoRoutes } from './routes/agotados'
+import { gastoRoutes } from './routes/gastos'
 import { maridajeRoutes } from './routes/maridajes'
 import { iniciarMqtt, onImpresorasDetectadas } from './mqtt'
 import { iniciarSyncHQ } from './sync-hq'
@@ -178,6 +179,7 @@ async function start() {
   await app.register(redRoutes, { prefix: '/api' })
   await app.register(facturaRoutes, { prefix: '/api' })
   await app.register(agotadoRoutes, { prefix: '/api' })
+  await app.register(gastoRoutes, { prefix: '/api' })
   await app.register(maridajeRoutes, { prefix: '/api' })
 
   app.get('/health', async () => ({ status: 'ok', timestamp: new Date() }))

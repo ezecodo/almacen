@@ -29,6 +29,7 @@ export function useRestaurantEvents(restaurantId: number | null) {
           queryClient.invalidateQueries({ queryKey: ['turno-activo', restaurantId] })
         }
         if (type === 'agotados') queryClient.invalidateQueries({ queryKey: ['agotados', restaurantId] })
+        if (type === 'gastos') queryClient.invalidateQueries({ queryKey: ['gastos', restaurantId] })
       } catch {}
     }
 

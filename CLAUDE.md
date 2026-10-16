@@ -299,6 +299,15 @@ Cuando se acaba un plato a mitad del servicio, el encargado lo marca en **💼 �
 - **Cierre de turno**: se borran todos los del local (`turnos.ts`), así el turno siguiente arranca con toda la carta.
 - **Sin internet**: la Box los copia (`replica.ts`) y la sala los sigue viendo apagados, pero no se pueden marcar ni reponer (el 💼 no está en modo local).
 
+### Gastos del día — la libreta del encargado (2026-10-16)
+
+Lo que se compra o recibe en el turno sin pedido formal: pan (efectivo, al momento), hielo (anotado, se paga después), frutería, agua del personal, velas de cumpleaños… Rutas en `routes/gastos.ts`.
+- **`/admin/gastos`** (`GastosPage`, grupo Compras, "Gastos del día"): **gastos habituales** comunes a todos los locales (`GastoHabitual`: nombre, icono, unidad, precio opcional, forma de pago habitual `efectivo`|`cuenta`, orden ▲▼) con **tipos** opcionales (`GastoTipo`, ej. HIELO → PILE, CUBO, cada uno con precio opcional). Quitar uno con apuntes solo lo desactiva. Debajo: apuntes del mes por local, total por gasto, y lo **pendiente a cuenta** con "Pagar" (de la caja / transferencia u otra) y borrar.
+- **Sala, 💼 → 🥖 Gastos** (`components/GastosSala.tsx`, solo encargado): botones con los habituales + **✏️ Otro** (texto libre, ej. VELAS). Cada apunte lleva **cantidad** (por tipo si los tiene), **importe** (se calcula solo si hay precio; se puede cambiar) y **💶 efectivo / 📒 a cuenta** (sale marcada la habitual). Lista "Pendiente de pagar" (cualquier día) con Pagar, y "Este turno" con "Salió de caja: X €" y ✕ para borrar un apunte equivocado (solo del turno y sin pagar; lo demás desde el admin).
+- **`Gasto`** guarda copia del nombre y las líneas `[{ tipo, cantidad }]` (no ids de tipo: editar un habitual no cambia lo apuntado). Efectivo exige importe; a cuenta puede ir sin importe y se pone al pagar. `pagadoCon: 'efectivo'` = salió de la caja ese turno.
+- **Cierre de turno**: `Turno.totalGastos` = apuntes en efectivo + deudas pagadas en efectivo durante el turno (`efectivoGastado`); el resumen del panel lo muestra como "🥖 Gastos en efectivo". Pensado para el informe Z.
+- Sin internet no funciona (el 💼 no está en modo local). No abre el cajón todavía.
+
 ### Dashboard encargado (MesasFeedPage)
 
 - Vista en tiempo real (SSE) de todas las mesas

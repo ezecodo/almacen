@@ -41,6 +41,7 @@ import WikiPage from './pages/WikiPage'
 import ChecklistsPage from './pages/ChecklistsPage'
 import TicketsPage from './pages/TicketsPage'
 import FacturasPage from './pages/FacturasPage'
+import GastosPage from './pages/GastosPage'
 import VerifactuPage from './pages/VerifactuPage'
 import RestaurantesPage from './pages/RestaurantesPage'
 import RedPage from './pages/RedPage'
@@ -102,6 +103,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               <Route path="/admin/checklists" element={<ChecklistsPage />} />
               <Route path="/admin/tickets" element={<TicketsPage />} />
               <Route path="/admin/facturas" element={<FacturasPage />} />
+              <Route path="/admin/gastos" element={<GastosPage />} />
               <Route path="/admin/verifactu" element={<VerifactuPage />} />
               <Route path="/admin/restaurantes" element={<RestaurantesPage />} />
               <Route path="/admin/red" element={<RedPage />} />

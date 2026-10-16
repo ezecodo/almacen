@@ -64,6 +64,8 @@ export const RUTAS_SALA = new Set([
   'GET /api/mermas', 'POST /api/mermas', 'DELETE /api/mermas/:id',
   // platos agotados en el servicio
   'GET /api/agotados', 'POST /api/agotados', 'DELETE /api/agotados/:menuItemId',
+  // gastos del día (libreta del encargado: pan, hielo…)
+  'GET /api/gastos/habituales', 'GET /api/gastos', 'POST /api/gastos', 'DELETE /api/gastos/:id', 'PATCH /api/gastos/:id/pagar',
   // carta (solo lectura), wiki y alérgenos
   'GET /api/menu', 'GET /api/menu/categorias', 'GET /api/alergenos', 'GET /api/wiki',
   'GET /api/maridajes', // 🍷 qué vino recomendar con lo que pidió la mesa
@@ -97,6 +99,7 @@ export const SOLO_ENCARGADO = new Set([
   'PATCH /api/turnos/:id/cerrar',     // cerrar turno
   'POST /api/agotados',               // marcar un plato agotado
   'DELETE /api/agotados/:menuItemId', // reponerlo
+  'GET /api/gastos', 'POST /api/gastos', 'DELETE /api/gastos/:id', 'PATCH /api/gastos/:id/pagar', // gastos del día
 ])
 
 // ── Dónde está el dispositivo ────────────────────────────────────────────────────────────────

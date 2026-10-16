@@ -49,6 +49,7 @@ const NAV_GROUPS = [
     icon: '🧾',
     items: [
       { to: '/admin/facturas', label: 'Facturas' },
+      { to: '/admin/gastos',   label: 'Gastos del día' },
     ],
   },
   {

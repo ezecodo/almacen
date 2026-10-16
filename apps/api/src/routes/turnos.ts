@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { prisma } from '../server'
 import { broadcast } from '../sse'
 import { boxSinSincronizar } from './red'
+import { efectivoGastado } from './gastos'
 
 export async function turnoRoutes(app: FastifyInstance) {
 
@@ -166,6 +167,8 @@ export async function turnoRoutes(app: FastifyInstance) {
       (s, c) => s + c.items.reduce((ss, i) => ss + (i.invitacion ? i.precio * i.cantidad : 0), 0), 0)
 
     const now = new Date()
+    // Gastos pagados en efectivo durante el turno (pan, frutería…): salieron de la caja
+    const totalGastos = await efectivoGastado(turno.restaurantId, turno.aperturaAt, now)
     const updated = await prisma.turno.update({
       where: { id },
       data: {
@@ -177,6 +180,7 @@ export async function turnoRoutes(app: FastifyInstance) {
         totalMermas,
         totalPropinas,
         totalInvitaciones,
+        totalGastos,
         numComandas:  comandas.length,
       },
     })

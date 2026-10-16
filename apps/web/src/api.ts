@@ -73,6 +73,7 @@ export interface Turno {
   totalMermas?:    number
   totalPropinas?:  number
   totalInvitaciones?: number
+  totalGastos?:    number   // gastos pagados en efectivo durante el turno (pan, frutería…)
   numComandas?:    number
   propina?:        PropinaDia | null
 }
@@ -959,6 +960,26 @@ export interface MaridajesAdmin {
   perfiles: (PerfilVino & { vinoId: number; editado: boolean })[]
 }
 
+// 🧾 Gastos del día (libreta del encargado): habituales cargados en /admin/gastos + apuntes desde 💼
+export type PagoGasto = 'efectivo' | 'cuenta'
+export interface GastoTipo { id: number; nombre: string; precio: number | null }
+export interface GastoHabitual {
+  id: number; nombre: string; icono: string; unidad: string; precio: number | null
+  pago: PagoGasto; orden: number; tipos: GastoTipo[]; _count?: { gastos: number }
+}
+export interface GastoHabitualBody {
+  nombre: string; icono: string; unidad: string; precio: number | null; pago: PagoGasto; orden: number
+  tipos: { nombre: string; precio: number | null }[]
+}
+export interface Gasto {
+  id: number; restaurantId: number; habitualId: number | null; nombre: string
+  lineas: { tipo: string | null; cantidad: number }[]
+  importe: number | null; pago: PagoGasto
+  pagadoAt: string | null; pagadoPor: string | null; pagadoCon: 'efectivo' | 'otro' | null
+  creadoPor: string; createdAt: string
+  restaurant?: { nombre: string }
+}
+
 export interface ItemAgotado {
   menuItemId: number
   marcadoPor: string
@@ -1217,6 +1238,23 @@ export const api = {
     },
   },
   // Platos que se acabaron en el servicio (por local). Marcar y reponer: solo encargado.
+  gastos: {
+    habituales: () => get<GastoHabitual[]>('/gastos/habituales'),
+    delTurno: (restaurantId: number) => get<{ desde: string; hoy: Gasto[]; pendientes: Gasto[]; efectivo: number }>(`/gastos?restaurantId=${restaurantId}`),
+    apuntar: (body: { restaurantId: number; habitualId?: number | null; nombre?: string; lineas: Gasto['lineas']; importe: number | null; pago: PagoGasto }) =>
+      post<Gasto>('/gastos', body),
+    borrar: (id: number) => del(`/gastos/${id}`),
+    pagar: (id: number, body: { importe?: number | null; con: 'efectivo' | 'otro' }) => patch<Gasto>(`/gastos/${id}/pagar`, body),
+    // admin
+    habitualesAdmin: () => get<GastoHabitual[]>('/admin/gastos/habituales'),
+    crearHabitual: (body: GastoHabitualBody) => post<GastoHabitual>('/admin/gastos/habituales', body),
+    editarHabitual: (id: number, body: GastoHabitualBody) => put<GastoHabitual>(`/admin/gastos/habituales/${id}`, body),
+    borrarHabitual: (id: number) => del(`/admin/gastos/habituales/${id}`),
+    mes: (mes: string, restaurantId?: number) =>
+      get<{ gastos: Gasto[]; pendientes: Gasto[] }>(`/admin/gastos?mes=${mes}${restaurantId ? `&restaurantId=${restaurantId}` : ''}`),
+    pagarAdmin: (id: number, body: { importe?: number | null; con: 'efectivo' | 'otro' }) => patch<Gasto>(`/admin/gastos/${id}/pagar`, body),
+    borrarAdmin: (id: number) => del(`/admin/gastos/${id}`),
+  },
   agotados: {
     list:    (restaurantId: number) => get<ItemAgotado[]>(`/agotados?restaurantId=${restaurantId}`),
     marcar:  (restaurantId: number, menuItemId: number) => post<unknown>('/agotados', { restaurantId, menuItemId }),
