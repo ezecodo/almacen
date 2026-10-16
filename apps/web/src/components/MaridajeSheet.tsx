@@ -40,8 +40,12 @@ const A_LA_VISTA = 3      // cuántos se ven antes de "Ver más"
 const TECHO_X = 1.5       // techo de precio = comida × esto…
 const TECHO_MIN = 35      // …y nunca menos que esto
 
-// Rasgo 1-5 vs lo pedido: igual = 10, a un punto = 7,5, a dos = 5…
-const notaRasgo = (valor: number, objetivo: number) => Math.max(0, 10 - Math.abs(valor - objetivo) * 2.5)
+// Rasgo 1-5 vs lo pedido. Cada gusto es "de aquí para arriba" (objetivo 4-5 → le vale ≥4) o "de aquí
+// para abajo" (objetivo 1 → le vale ≤2): dentro = 10, cada punto que falta resta 2,5
+const notaRasgo = (valor: number, objetivo: number) => {
+  const falta = objetivo >= 3 ? Math.max(0, 4 - valor) : Math.max(0, valor - 2)
+  return Math.max(0, 10 - falta * 2.5)
+}
 
 // Lo que destaca de un vino, en dos palabras, para que el camarero lo cuente
 function rasgosDestacados(p: PerfilVino | null): string[] {

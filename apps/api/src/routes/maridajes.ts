@@ -39,7 +39,9 @@ async function cartaParaMaridar() {
     const barra = esGrupoBarra(cat?.grupo ?? '')
     if (barra) {
       const color = colorDe(cat?.nombre, padre?.nombre)
-      if (color && i.ficha.trim()) vinos.push({ id: i.id, nombre: i.nombre, precio: i.precio, color, ficha: i.ficha, restaurantId: i.restaurantId })
+      // Los vinos de la casa / por copa no se recomiendan, aunque alguien les escriba una ficha
+      const porCopa = /casa|copa/i.test(`${cat?.nombre ?? ''} ${padre?.nombre ?? ''}`)
+      if (color && !porCopa && i.ficha.trim()) vinos.push({ id: i.id, nombre: i.nombre, precio: i.precio, color, ficha: i.ficha, restaurantId: i.restaurantId })
     } else if (!i.autoPorPax && !i.ocultoEnCarta) {
       platos.push(i)
     }
