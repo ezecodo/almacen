@@ -11,6 +11,7 @@ const catSchema = z.object({
   orden:        z.number().int().default(0),
   ordenAlfabetico: z.boolean().default(false),
   nombreEnTicket: z.boolean().default(false),
+  asistente:    z.enum(['', 'vinos']).optional(), // '' = ninguno
   parentId:     z.number().int().positive().nullable().optional(),
 })
 
@@ -119,6 +120,7 @@ export async function menuRoutes(app: FastifyInstance) {
       orden:        result.data.orden,
       ordenAlfabetico: result.data.ordenAlfabetico,
       nombreEnTicket: result.data.nombreEnTicket,
+      asistente: parentId ? null : result.data.asistente || null, // las subcategorías lo heredan del padre
       parentId,
     }})
     return reply.status(201).send({ ...cat, itemCount: 0 })
@@ -331,7 +333,7 @@ export async function menuRoutes(app: FastifyInstance) {
       })
       if (!catExiste) {
         await prisma.menuCategoria.create({
-          data: { restaurantId: rid, nombre: cat.nombre, icono: cat.icono, grupo: cat.grupo, orden: cat.orden, ordenAlfabetico: cat.ordenAlfabetico, nombreEnTicket: cat.nombreEnTicket },
+          data: { restaurantId: rid, nombre: cat.nombre, icono: cat.icono, grupo: cat.grupo, orden: cat.orden, ordenAlfabetico: cat.ordenAlfabetico, nombreEnTicket: cat.nombreEnTicket, asistente: cat.asistente },
         })
       }
 

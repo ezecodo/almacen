@@ -270,6 +270,7 @@ model MenuCategoria {
   orden        Int        @default(0)
   ordenAlfabetico Boolean @default(false) // mostrar los items A→Z en vez del orden manual (carta física)
   nombreEnTicket  Boolean @default(false) // en la comanda de cocina, un nivel solo con platos de aquí sale con este nombre (ej. POSTRES) en vez de PRIMEROS, SEGUNDOS…
+  asistente    String?    // asistente de sala conectado ('vinos'); sus subcategorías lo heredan. null = nunca tocado, '' = ninguno
   parentId     Int?       // subcategoría: id de la categoría contenedora (1 solo nivel)
   parent       MenuCategoria?  @relation("SubCategorias", fields: [parentId], references: [id])
   children     MenuCategoria[] @relation("SubCategorias")
@@ -335,6 +336,7 @@ model PerfilVino {
   madera    Int      // 1 sin barrica … 5 mucha crianza en madera
   frescor   Int      // 1 suave, poca acidez … 5 muy fresco y ácido
   aromatico Int      // 1 neutro … 5 muy aromático
+  color     String?  // tinto|blanco|rosado|espumoso — lo dice Claude cuando no sale del nombre de la categoría
   editado   Boolean  @default(false) // tocado a mano: el recálculo no lo cambia
   updatedAt DateTime @updatedAt
 }

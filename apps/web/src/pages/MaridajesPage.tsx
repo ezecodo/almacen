@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, ColorVino, ParejaMaridajeAdmin, MaridajesAdmin, RasgoVino } from '../api'
@@ -6,11 +7,12 @@ import { api, ColorVino, ParejaMaridajeAdmin, MaridajesAdmin, RasgoVino } from '
 // aquí se revisa y corrige. Lo que se toca a mano queda fijado: el siguiente recálculo no lo cambia.
 // La sala usa esto en el botón 🍷 del pedido de una mesa.
 
-const COLORES: { id: ColorVino; label: string; cls: string }[] = [
+const COLORES: { id: ColorVino | null; label: string; cls: string }[] = [
   { id: 'blanco', label: 'Blancos', cls: 'bg-amber-50 text-amber-700' },
   { id: 'tinto', label: 'Tintos', cls: 'bg-rose-50 text-rose-700' },
   { id: 'rosado', label: 'Rosados', cls: 'bg-pink-50 text-pink-700' },
   { id: 'espumoso', label: 'Cavas y espumosos', cls: 'bg-sky-50 text-sky-700' },
+  { id: null, label: 'Color por decidir (lo dice la IA al recalcular)', cls: 'bg-gray-100 text-gray-600' },
 ]
 
 const fmtFecha = (iso: string) => new Date(iso).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
@@ -99,7 +101,7 @@ function PerfilesVinos({ data }: { data: MaridajesAdmin }) {
           const vinos = data.vinos.filter(v => v.color === c.id).sort((a, b) => a.precio - b.precio)
           if (vinos.length === 0) return null
           return (
-            <tbody key={c.id}>
+            <tbody key={c.label}>
               <tr><td colSpan={RASGOS.length + 2} className="pt-4 pb-1">
                 <span className={`inline-block text-[11px] font-bold uppercase tracking-wide rounded-lg px-2 py-0.5 ${c.cls}`}>{c.label}</span>
               </td></tr>
@@ -195,7 +197,7 @@ export default function MaridajesPage() {
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
         <div className="flex flex-wrap items-center gap-3 justify-between">
           <div className="text-sm text-gray-600">
-            <b>{data.vinos.length}</b> vinos con ficha · <b>{conParejas}</b> de {data.platos.length} platos calculados
+            <b>{data.vinos.length}</b> vinos · <b>{conParejas}</b> de {data.platos.length} platos calculados
             {ultima && <span className="text-gray-400"> · último cambio {fmtFecha(ultima)}</span>}
           </div>
           <div className="flex gap-2">
@@ -209,6 +211,18 @@ export default function MaridajesPage() {
             </button>
           </div>
         </div>
+        {data.vinos.length === 0 && (
+          <p className="text-xs text-amber-600 mt-3">
+            No hay vinos para el asistente. Conéctalo en <Link to="/admin/menu" className="underline font-semibold">Menú</Link>: abre
+            la categoría de los vinos (por ejemplo "Vinos botella") → <b>Asistente → 🍷 Vinos</b>. Entra todo lo que cuelga de ella.
+          </p>
+        )}
+        {data.vinos.some(v => v.sinFicha) && (
+          <p className="text-xs text-amber-600 mt-3" title={data.vinos.filter(v => v.sinFicha).map(v => v.nombre).join(', ')}>
+            {data.vinos.filter(v => v.sinFicha).length} vinos sin ficha: la IA solo tiene su nombre y descripción, así que sus
+            sugerencias serán más pobres. La ficha (uvas, crianza, notas) se escribe en Menú, en cada vino.
+          </p>
+        )}
         {!data.hayClave && (
           <p className="text-xs text-amber-600 mt-3">Falta la clave de Anthropic (<code>ANTHROPIC_API_KEY</code>) en el servidor: sin ella no se puede calcular.</p>
         )}
@@ -273,7 +287,7 @@ export default function MaridajesPage() {
                 const filas = parejasPlato.filter(p => vinoPorId.get(p.vinoId)?.color === c.id).sort((a, b) => b.puntos - a.puntos)
                 if (filas.length === 0) return null
                 return (
-                  <div key={c.id} className="mb-5">
+                  <div key={c.label} className="mb-5">
                     <span className={`inline-block text-[11px] font-bold uppercase tracking-wide rounded-lg px-2 py-0.5 mb-1 ${c.cls}`}>{c.label}</span>
                     {filas.map(p => {
                       const v = vinoPorId.get(p.vinoId)!

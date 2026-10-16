@@ -250,6 +250,7 @@ export interface MenuCategoria {
   icono: string
   orden: number
   ordenAlfabetico: boolean
+  asistente?: string | null // asistente de sala conectado ('vinos'); las subcategorías lo heredan. '' o null = ninguno
   nombreEnTicket?: boolean // en la comanda de cocina, un nivel solo con platos de aquí sale con este nombre (ej. POSTRES)
   parentId: number | null
   itemCount: number
@@ -947,12 +948,12 @@ export type ColorVino = 'tinto' | 'blanco' | 'rosado' | 'espumoso'
 export interface ParejaMaridaje { platoId: number; vinoId: number; puntos: number; motivo: string; motivoEn: string }
 export type RasgoVino = 'cuerpo' | 'dulzor' | 'fruta' | 'madera' | 'frescor' | 'aromatico'
 export type PerfilVino = Record<RasgoVino, number> // del 1 al 5
-export interface MaridajesSala { vinos: { id: number; color: ColorVino; perfil: PerfilVino | null }[]; parejas: ParejaMaridaje[] }
+export interface MaridajesSala { vinos: { id: number; color: ColorVino | null; perfil: PerfilVino | null }[]; parejas: ParejaMaridaje[] }
 export interface ParejaMaridajeAdmin extends ParejaMaridaje { id: number; oculto: boolean; editado: boolean; updatedAt: string }
 export interface MaridajesAdmin {
   estado: { enCurso: boolean; hechos: number; total: number; errores: string[]; empezo: string | null; termino: string | null }
   hayClave: boolean
-  vinos: { id: number; nombre: string; precio: number; color: ColorVino; restaurantId: number | null }[]
+  vinos: { id: number; nombre: string; precio: number; color: ColorVino | null; sinFicha: boolean; restaurantId: number | null }[]
   platos: { id: number; nombre: string; categoria: string }[]
   parejas: ParejaMaridajeAdmin[]
   perfiles: (PerfilVino & { vinoId: number; editado: boolean })[]
@@ -1111,9 +1112,9 @@ export const api = {
   },
   menuCategorias: {
     list:   (restaurantId: number | null) => get<MenuCategoria[]>(`/menu/categorias${restaurantId !== null ? `?restaurantId=${restaurantId}` : ''}`),
-    create: (body: { restaurantId: number | null; grupo?: string; nombre: string; icono?: string; orden?: number; parentId?: number | null }) =>
+    create: (body: { restaurantId: number | null; grupo?: string; nombre: string; icono?: string; orden?: number; parentId?: number | null; asistente?: '' | 'vinos' }) =>
       post<MenuCategoria>('/menu/categorias', body),
-    update: (id: number, body: Partial<{ grupo: string; nombre: string; icono: string; orden: number; ordenAlfabetico: boolean; nombreEnTicket: boolean }>) =>
+    update: (id: number, body: Partial<{ grupo: string; nombre: string; icono: string; orden: number; ordenAlfabetico: boolean; nombreEnTicket: boolean; asistente: '' | 'vinos' }>) =>
       put<MenuCategoria>(`/menu/categorias/${id}`, body),
     delete: (id: number) => del(`/menu/categorias/${id}`),
     anidar: (id: number, parentId: number | null) =>

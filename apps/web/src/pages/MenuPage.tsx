@@ -10,6 +10,34 @@ function formatEur(n: number) {
 const inputCls = 'w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyan-400'
 
 // ── Formulario de categoría ───────────────────────────────────────────────────
+// Asistentes de sala que se pueden conectar a una categoría de primer nivel (sus subcategorías lo heredan).
+// Hoy solo el de vinos: todo lo que cuelga de la categoría es la carta que recomienda el botón 🍷 de la sala.
+type AsistenteId = '' | 'vinos'
+const ASISTENTES: { id: AsistenteId; label: string; ayuda: string }[] = [
+  { id: '', label: 'Ninguno', ayuda: '' },
+  { id: 'vinos', label: '🍷 Vinos', ayuda: 'Todo lo que cuelga de esta categoría entra en el asistente de vinos de la sala. Después, en Carta → Maridajes, "Recalcular con IA".' },
+]
+
+function SelectorAsistente({ valor, onChange }: { valor: AsistenteId; onChange: (v: AsistenteId) => void }) {
+  const ayuda = ASISTENTES.find(a => a.id === valor)?.ayuda
+  return (
+    <div>
+      <label className="block text-xs font-medium text-gray-500 mb-1">Asistente de sala</label>
+      <div className="flex flex-wrap gap-1.5">
+        {ASISTENTES.map(a => (
+          <button key={a.id} type="button" onClick={() => onChange(a.id)}
+            className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
+              valor === a.id ? 'bg-cyan-500 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+            }`}>
+            {a.label}
+          </button>
+        ))}
+      </div>
+      {ayuda && <p className="text-[11px] text-gray-400 mt-1.5">{ayuda}</p>}
+    </div>
+  )
+}
+
 function CategoriaForm({
   restaurantId,
   grupoDefault,
@@ -29,11 +57,13 @@ function CategoriaForm({
   const [nombre, setNombre] = useState(initial?.nombre ?? '')
   const [icono, setIcono]   = useState(initial?.icono ?? '')
   const [grupo, setGrupo]   = useState(initial?.grupo ?? grupoDefault ?? '')
+  const [asistente, setAsistente] = useState<AsistenteId>((initial?.asistente as AsistenteId) || '')
+  const conAsistente = !parent && !initial?.parentId
 
   const save = useMutation({
     mutationFn: () => initial
-      ? api.menuCategorias.update(initial.id, { nombre, icono, grupo })
-      : api.menuCategorias.create({ restaurantId: restaurantId ?? null, grupo, nombre, icono, ...(parent ? { parentId: parent.id } : {}) }),
+      ? api.menuCategorias.update(initial.id, { nombre, icono, grupo, ...(conAsistente && (initial.asistente || '') !== asistente ? { asistente } : {}) })
+      : api.menuCategorias.create({ restaurantId: restaurantId ?? null, grupo, nombre, icono, ...(parent ? { parentId: parent.id } : { asistente }) }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['menu-cats', restaurantId] })
       onDone()
@@ -76,6 +106,7 @@ function CategoriaForm({
           className={inputCls} placeholder="O escribe una sección nueva…" />
       </div>
       )}
+      {conAsistente && <SelectorAsistente valor={asistente} onChange={setAsistente} />}
       <div className="flex justify-end gap-3">
         <button onClick={onDone} className="text-sm text-gray-400 hover:text-gray-600">Cancelar</button>
         <button
@@ -466,6 +497,15 @@ function CategoriaPanel({
     mutationFn: () => api.menuCategorias.update(cat.id, { nombreEnTicket: !cat.nombreEnTicket }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['menu-cats'] }),
   })
+  // Asistente de sala conectado (🍷 vinos…), solo en categorías de primer nivel
+  const cambiarAsistente = useMutation({
+    mutationFn: (asistente: AsistenteId) => api.menuCategorias.update(cat.id, { asistente }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['menu-cats'] })
+      qc.invalidateQueries({ queryKey: ['maridajes'] })
+      qc.invalidateQueries({ queryKey: ['maridajes-admin'] })
+    },
+  })
   const itemsOrdenados = cat.ordenAlfabetico
     ? [...items].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
     : items
@@ -515,6 +555,16 @@ function CategoriaPanel({
                 : `Bloque propio (ej. postres): al ordenar, sus platos van juntos en el último nivel y en la comanda de cocina salen bajo "${cat.nombre.toUpperCase()}"`}>
               🎫 Nombre en ticket
             </button>
+          )}
+          {!creando && !editando && !creandoSub && !cat.parentId && !(esGlobalCat && restaurantId !== null) && (
+            <select value={(cat.asistente as AsistenteId) || ''} disabled={cambiarAsistente.isPending}
+              onChange={e => cambiarAsistente.mutate(e.target.value as AsistenteId)}
+              title="Asistente de sala conectado a esta categoría (sus subcategorías lo heredan)"
+              className={`text-xs font-semibold px-2 py-1.5 rounded-lg border transition-colors ${
+                cat.asistente ? 'bg-cyan-500 border-cyan-500 text-white' : 'border-gray-200 text-gray-400 hover:border-gray-300'
+              }`}>
+              {ASISTENTES.map(a => <option key={a.id} value={a.id}>{a.id ? `Asistente: ${a.label}` : 'Sin asistente'}</option>)}
+            </select>
           )}
           {!creando && !editando && !creandoSub && !cat.parentId && !(esGlobalCat && restaurantId !== null) && (
             <button onClick={() => setCreandoSub(true)}

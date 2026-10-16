@@ -9,6 +9,7 @@ import { prisma } from '../server'
 // Una pareja corregida a mano (editado) no la pisa el siguiente recálculo.
 
 type Color = 'tinto' | 'blanco' | 'rosado' | 'espumoso'
+const COLORES: Color[] = ['tinto', 'blanco', 'rosado', 'espumoso']
 const esGrupoBarra = (g: string) => /vino|bebida/i.test(g) // mismo criterio que la sala
 
 function colorDe(...nombres: (string | undefined)[]): Color | null {
@@ -20,29 +21,29 @@ function colorDe(...nombres: (string | undefined)[]): Color | null {
   return null
 }
 
-// Vinos = bebidas con ficha en una categoría de color (TINTO BOTELLA, CAVA & CHAMPAGNE…).
+// Vinos = lo que cuelga de una categoría con el asistente de vinos conectado en /admin/menu (o de
+// una subcategoría suya). El color sale del nombre de la categoría o, si no se puede, lo dice Claude.
 // Platos = lo que no es de barra, visible en la carta y que no se cobra solo (pan ×pax).
 async function cartaParaMaridar() {
-  const [items, cats] = await Promise.all([
+  const [items, cats, colores] = await Promise.all([
     prisma.menuItem.findMany({ where: { activo: true }, orderBy: [{ categoria: 'asc' }, { orden: 'asc' }] }),
     prisma.menuCategoria.findMany(),
+    prisma.perfilVino.findMany({ where: { color: { not: null } }, select: { vinoId: true, color: true } }),
   ])
+  const colorIA = new Map(colores.map(c => [c.vinoId, c.color as Color]))
   const porNombre = new Map<string, (typeof cats)[number]>()
   for (const c of cats) if (!porNombre.has(c.nombre) || c.restaurantId === null) porNombre.set(c.nombre, c)
   const porId = new Map(cats.map(c => [c.id, c]))
 
-  const vinos: { id: number; nombre: string; precio: number; color: Color; ficha: string; restaurantId: number | null }[] = []
+  const vinos: { id: number; nombre: string; precio: number; color: Color | null; ficha: string; descripcion: string; restaurantId: number | null }[] = []
   const platos: typeof items = []
   for (const i of items) {
     const cat = porNombre.get(i.categoria)
     const padre = cat?.parentId ? porId.get(cat.parentId) : undefined
-    const barra = esGrupoBarra(cat?.grupo ?? '')
-    if (barra) {
-      const color = colorDe(cat?.nombre, padre?.nombre)
-      // Los vinos de la casa / por copa no se recomiendan, aunque alguien les escriba una ficha
-      const porCopa = /casa|copa/i.test(`${cat?.nombre ?? ''} ${padre?.nombre ?? ''}`)
-      if (color && !porCopa && i.ficha.trim()) vinos.push({ id: i.id, nombre: i.nombre, precio: i.precio, color, ficha: i.ficha, restaurantId: i.restaurantId })
-    } else if (!i.autoPorPax && !i.ocultoEnCarta) {
+    if ((padre ?? cat)?.asistente === 'vinos' || cat?.asistente === 'vinos') {
+      const color = colorDe(cat?.nombre, padre?.nombre) ?? colorIA.get(i.id) ?? null
+      vinos.push({ id: i.id, nombre: i.nombre, precio: i.precio, color, ficha: i.ficha, descripcion: i.descripcion, restaurantId: i.restaurantId })
+    } else if (!esGrupoBarra(cat?.grupo ?? '') && !i.autoPorPax && !i.ocultoEnCarta) {
       platos.push(i)
     }
   }
@@ -60,6 +61,11 @@ interface Estado { enCurso: boolean; hechos: number; total: number; errores: str
 const estado: Estado = { enCurso: false, hechos: 0, total: 0, errores: [], empezo: null, termino: null }
 
 const NOMBRE_COLOR: Record<Color, string> = { tinto: 'TINTO', blanco: 'BLANCO', rosado: 'ROSADO', espumoso: 'ESPUMOSO' }
+
+// Cómo se le presenta un vino a Claude: color (si se sabe), nombre, y ficha + descripción (la ficha es opcional)
+type VinoCarta = Awaited<ReturnType<typeof cartaParaMaridar>>['vinos'][number]
+const textoVino = (v: VinoCarta) =>
+  [v.descripcion.trim(), v.ficha.trim()].filter(Boolean).join('\n') || '(sin ficha: razona con el nombre)'
 
 const herramienta = {
   name: 'guardar_maridaje',
@@ -96,7 +102,7 @@ const herramienta = {
 
 function instrucciones(vinos: Awaited<ReturnType<typeof cartaParaMaridar>>['vinos']) {
   const lista = vinos
-    .map(v => `[${v.id}] ${NOMBRE_COLOR[v.color]} · ${v.nombre} · ${v.precio.toFixed(2)} €\n${v.ficha.trim()}`)
+    .map(v => `[${v.id}] ${v.color ? NOMBRE_COLOR[v.color] : 'VINO'} · ${v.nombre} · ${v.precio.toFixed(2)} €\n${textoVino(v)}`)
     .join('\n\n')
   return `Eres el sumiller de un restaurante de tapas de Barcelona. Te paso un plato de la carta y tienes que decir qué tal va cada vino de la carta con él.
 
@@ -175,6 +181,7 @@ const herramientaPerfiles = {
           type: 'object',
           properties: {
             vino: { type: 'integer', description: 'id del vino' },
+            color: { type: 'string', enum: COLORES, description: 'espumoso = cava, champagne y demás vinos con burbuja' },
             cuerpo: { type: 'integer', minimum: 1, maximum: 5, description: '1 ligero … 5 con mucho cuerpo' },
             dulzor: { type: 'integer', minimum: 1, maximum: 5, description: '1 seco … 5 dulce' },
             fruta: { type: 'integer', minimum: 1, maximum: 5, description: '1 poca fruta … 5 muy afrutado' },
@@ -182,7 +189,7 @@ const herramientaPerfiles = {
             frescor: { type: 'integer', minimum: 1, maximum: 5, description: '1 suave, poca acidez … 5 muy fresco y ácido' },
             aromatico: { type: 'integer', minimum: 1, maximum: 5, description: '1 neutro … 5 muy aromático' },
           },
-          required: ['vino', ...RASGOS],
+          required: ['vino', 'color', ...RASGOS],
         },
       },
     },
@@ -192,20 +199,24 @@ const herramientaPerfiles = {
 
 async function perfilarVinos(vinos: Awaited<ReturnType<typeof cartaParaMaridar>>['vinos']) {
   if (vinos.length === 0) return
-  const lista = vinos.map(v => `[${v.id}] ${NOMBRE_COLOR[v.color]} · ${v.nombre}\n${v.ficha.trim()}`).join('\n\n')
+  const lista = vinos.map(v => `[${v.id}] ${v.color ? NOMBRE_COLOR[v.color] : 'VINO'} · ${v.nombre}\n${textoVino(v)}`).join('\n\n')
   const sistema = `Eres el sumiller de un restaurante de tapas de Barcelona. Describe cada vino de la carta del 1 al 5 en seis rasgos, para que un camarero pueda recomendar cuando el cliente pide por gusto ("algo con cuerpo", "seco", "afrutado"…).
 - Básate en la ficha; si dice poco, razona con la uva, la zona y la crianza. Compáralos entre ellos: usa toda la escala dentro de cada color.
+- Di también su color (tinto, blanco, rosado o espumoso); si la lista ya lo dice, repítelo.
 - Un brut nature es 1 de dulzor. Sin crianza en barrica = madera 1.
 - Responde SIEMPRE llamando a la herramienta guardar_perfiles, sin texto aparte.`
-  const uso = await preguntar<{ perfiles?: ({ vino: number } & Record<Rasgo, number>)[] }>(sistema, `Vinos:\n\n${lista}`, herramientaPerfiles)
+  const uso = await preguntar<{ perfiles?: ({ vino: number; color?: string } & Record<Rasgo, number>)[] }>(sistema, `Vinos:\n\n${lista}`, herramientaPerfiles)
   if (!uso?.perfiles?.length) throw new Error('respuesta sin perfiles')
 
   const ids = new Set(vinos.map(v => v.id))
   const editados = new Set((await prisma.perfilVino.findMany({ where: { editado: true }, select: { vinoId: true } })).map(p => p.vinoId))
   const a15 = (n: number) => Math.max(1, Math.min(5, Math.round(Number(n) || 3)))
   for (const p of uso.perfiles) {
-    if (!ids.has(p.vino) || editados.has(p.vino)) continue
-    const datos = Object.fromEntries(RASGOS.map(r => [r, a15(p[r])])) as Record<Rasgo, number>
+    if (!ids.has(p.vino)) continue
+    const color = COLORES.includes(p.color as Color) ? p.color as Color : null
+    // Perfil corregido a mano: solo se le apunta el color
+    if (editados.has(p.vino)) { await prisma.perfilVino.update({ where: { vinoId: p.vino }, data: { color } }); continue }
+    const datos = { ...Object.fromEntries(RASGOS.map(r => [r, a15(p[r])])) as Record<Rasgo, number>, color }
     await prisma.perfilVino.upsert({ where: { vinoId: p.vino }, create: { vinoId: p.vino, ...datos }, update: datos })
   }
 }
@@ -255,7 +266,23 @@ const editarSchema = z.object({
   editado: z.boolean().optional(), // false = "que lo vuelva a decidir la IA"
 })
 
+// Antes el asistente adivinaba los vinos (categorías de color con ficha). Una instalación que ya los
+// tenía perfilados y todavía no ha tocado el selector de asistente queda conectada igual que estaba:
+// la categoría de primer nivel de esos vinos (en Sensi, VINOS BOTELLA). Corre una vez: al conectar o
+// desconectar algo, `asistente` deja de ser null en alguna categoría y ya no vuelve a hacer nada.
+async function conectarComoAntes() {
+  if (await prisma.menuCategoria.count({ where: { asistente: { not: null } } })) return
+  const perfilados = await prisma.perfilVino.findMany({ select: { vino: { select: { categoria: true } } } })
+  if (perfilados.length === 0) return
+  const nombres = [...new Set(perfilados.map(p => p.vino.categoria))]
+  const cats = await prisma.menuCategoria.findMany({ where: { nombre: { in: nombres } }, select: { id: true, parentId: true } })
+  const ids = [...new Set(cats.map(c => c.parentId ?? c.id))]
+  await prisma.menuCategoria.updateMany({ where: { id: { in: ids } }, data: { asistente: 'vinos' } })
+  console.log(`[maridajes] asistente de vinos conectado a ${ids.length} categoría(s), como funcionaba antes`)
+}
+
 export async function maridajeRoutes(app: FastifyInstance) {
+  conectarComoAntes().catch(err => console.error('[maridajes] conectarComoAntes:', err))
   // Sala: los vinos (con su color) y las parejas de la carta de este local, sin las ocultas
   app.get('/maridajes', async req => {
     const { restaurantId } = restQuery.parse(req.query)
@@ -287,7 +314,7 @@ export async function maridajeRoutes(app: FastifyInstance) {
     return {
       estado,
       hayClave: !!process.env.ANTHROPIC_API_KEY,
-      vinos: vinos.map(({ ficha: _, ...v }) => v),
+      vinos: vinos.map(({ ficha, descripcion: _, ...v }) => ({ ...v, sinFicha: !ficha.trim() })),
       platos: platos.map(p => ({ id: p.id, nombre: p.nombre, categoria: p.categoria })),
       parejas,
       perfiles,
