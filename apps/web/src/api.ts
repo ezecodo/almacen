@@ -942,6 +942,22 @@ export interface EscandalloDetalle {
 }
 export type IngredienteBody = { nombre: string; unidad: string; precioCoste: number | null; unidadBase?: string | null; contenido?: number | null; mermaPct?: number }
 
+// 🍷 Maridajes: puntos de cada vino con cada plato (los calcula Claude en /admin/maridajes)
+export type ColorVino = 'tinto' | 'blanco' | 'rosado' | 'espumoso'
+export interface ParejaMaridaje { platoId: number; vinoId: number; puntos: number; motivo: string; motivoEn: string }
+export type RasgoVino = 'cuerpo' | 'dulzor' | 'fruta' | 'madera' | 'frescor' | 'aromatico'
+export type PerfilVino = Record<RasgoVino, number> // del 1 al 5
+export interface MaridajesSala { vinos: { id: number; color: ColorVino; perfil: PerfilVino | null }[]; parejas: ParejaMaridaje[] }
+export interface ParejaMaridajeAdmin extends ParejaMaridaje { id: number; oculto: boolean; editado: boolean; updatedAt: string }
+export interface MaridajesAdmin {
+  estado: { enCurso: boolean; hechos: number; total: number; errores: string[]; empezo: string | null; termino: string | null }
+  hayClave: boolean
+  vinos: { id: number; nombre: string; precio: number; color: ColorVino; restaurantId: number | null }[]
+  platos: { id: number; nombre: string; categoria: string }[]
+  parejas: ParejaMaridajeAdmin[]
+  perfiles: (PerfilVino & { vinoId: number; editado: boolean })[]
+}
+
 export interface ItemAgotado {
   menuItemId: number
   marcadoPor: string
@@ -1204,6 +1220,15 @@ export const api = {
     list:    (restaurantId: number) => get<ItemAgotado[]>(`/agotados?restaurantId=${restaurantId}`),
     marcar:  (restaurantId: number, menuItemId: number) => post<unknown>('/agotados', { restaurantId, menuItemId }),
     reponer: (restaurantId: number, menuItemId: number) => del(`/agotados/${menuItemId}?restaurantId=${restaurantId}`),
+  },
+  maridajes: {
+    sala:       (restaurantId: number) => get<MaridajesSala>(`/maridajes?restaurantId=${restaurantId}`),
+    admin:      () => get<MaridajesAdmin>('/admin/maridajes'),
+    recalcular: (soloNuevos: boolean) => post<unknown>('/admin/maridajes/recalcular', { soloNuevos }),
+    editar:     (id: number, body: Partial<{ puntos: number; oculto: boolean; motivo: string; motivoEn: string; editado: boolean }>) =>
+      patch<ParejaMaridajeAdmin>(`/admin/maridajes/${id}`, body),
+    editarPerfil: (vinoId: number, body: Partial<PerfilVino & { editado: boolean }>) =>
+      patch<unknown>(`/admin/maridajes/perfil/${vinoId}`, body),
   },
   grupoMenu: {
     list:   (restaurantId: number) => get<GrupoMenuTemplate[]>(`/grupo-menu?restaurantId=${restaurantId}`),

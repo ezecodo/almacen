@@ -11,6 +11,7 @@ import { useSalaEnModoLocal } from '../lib/instalacion'
 import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
 import { usePoolEvents } from '../hooks/usePoolEvents'
 import FacturasSala from '../components/FacturasSala'
+import MaridajeSheet from '../components/MaridajeSheet'
 
 const POOL_LOCK_TIMEOUT_MS = 10 * 60 * 1000 // debe coincidir con POOL_LOCK_TIMEOUT_MS del backend
 function lockActivoPool(r: Reserva) {
@@ -849,6 +850,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [notaNueva, setNotaNueva] = useState<{ item: MenuItem; qty: number; value: string } | null>(null)
   const [mixerPick, setMixerPick] = useState<MenuItem | null>(null)
+  const [verVinos, setVerVinos] = useState(false) // 🍷 ¿Qué vino? con lo que pidió la mesa
   const lpTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lpFired = useRef(false)
   const [ordenando, setOrdenando] = useState(false)
@@ -1376,6 +1378,13 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
 
                 return (
                   <div className="space-y-4">
+                    {/* 🍷 Asistente de vinos: con la comida de la mesa o, si piden el vino antes, por gusto */}
+                    {!yaFacturada && (
+                      <button onClick={() => setVerVinos(true)}
+                        className="w-full py-2.5 rounded-xl border-2 border-dashed border-rose-700/50 text-rose-300 text-sm font-bold active:scale-[0.98] transition-transform hover:border-rose-500/70">
+                        🍷 ¿Qué vino? {itemsCocina.some(i => !i.autoGenerado) ? 'Recomendar con esta comida' : 'Recomendar por gusto'}
+                      </button>
+                    )}
                     {/* Reordenar niveles — mismas herramientas que el orden de salida original */}
                     {tienenNivel && !yaFacturada && (
                       <button onClick={() => setOrdenarFull(true)}
@@ -1751,6 +1760,12 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
         {/* Sheet de cobro (encargado, mismo flujo que el dashboard) */}
         {showCobro && (
           <CobroSheet comanda={comanda} onClose={() => setShowCobro(false)} onDone={onClose} />
+        )}
+
+        {verVinos && (
+          <MaridajeSheet comanda={comanda} menu={menu} agotadoIds={agotadoIds}
+            onAdd={vino => addItem.mutate({ item: vino, cantidad: 1 })}
+            onClose={() => setVerVinos(false)} />
         )}
 
         {/* Picker de mixer (item combinable) */}

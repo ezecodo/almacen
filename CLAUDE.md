@@ -476,6 +476,15 @@ Los 4 campos también se editan en el `ItemForm` (sección "Combinados") y se pr
 
 **App camarero**: tocar un item `combinable` NO acumula cantidad — abre un picker bottom-sheet ("🥃 Combinado") con la opción **Solo · sin mezclar** (precio normal) + todos los items `esMixer` activos del menú con el precio resultante (`precioCombinado ?? precio` + `suplementoMixer`). Al elegir, añade **un solo renglón** a la comanda: `"Vodka Absolut + Coca-Cola"` con el precio del combinado y el `tipo` (barra/cocina) del destilado. Los tiles combinables muestran el hint `🥤+`. El long-press (comentario) sigue añadiendo el item solo. No hubo cambios de backend en comandas (los items viajan con nombre/precio libres).
 
+### Asistente de vinos 🍷 (maridajes, 2026-10-16)
+
+Primera función de la app que usa la **API de Anthropic** (`ANTHROPIC_API_KEY` en el `.env` de la API; modelo `ANTHROPIC_MODEL`, por defecto `claude-sonnet-5-5`). Claude **no** se llama desde la sala: calcula una vez y la sala solo cruza lo guardado (instantáneo y sin internet; `maridaje` y `perfilVino` van en `replica.ts`).
+
+- **Qué es vino / plato** (`cartaParaMaridar` en `routes/maridajes.ts`): vino = item de un grupo de barra **con `ficha`** y categoría (o padre) de color (tinto/blanco/rosado/cava-champ-espum); plato = item de un grupo que no es de barra, visible y no `autoPorPax`.
+- **Tablas**: `Maridaje` (plato × vino, `puntos` 0-10, `motivo` ES + `motivoEn` solo para los de ≥7, `oculto` = "este no", `editado`) y `PerfilVino` (por vino, 1-5: cuerpo, dulzor, fruta, madera, frescor, aromático; `editado`). **Lo editado a mano no lo pisa el recálculo**; "↺ IA" lo devuelve.
+- **`/admin/maridajes`** (`MaridajesPage`, grupo Carta): "✨ Recalcular todo con IA" / "Solo platos nuevos" (también perfila vinos sin perfil; un vino nuevo necesita "Recalcular todo" para sus parejas). Corre en segundo plano (`POST` → 202, la página pregunta cada 2 s): una consulta por plato, 4 a la vez, con la carta de vinos en caché de Anthropic, más una para todos los perfiles. ~80 s y céntimos. Pestañas "Por plato" (−/+ puntos, "Este no") y "Perfil de los vinos" (puntos 1-5 clicables). `tool_choice` forzado no lo admite el modelo: se usa `auto` y se pide en las instrucciones.
+- **Sala** (`components/MaridajeSheet.tsx`, botón "🍷 ¿Qué vino?" en la pestaña Pedido de cualquier mesa no facturada): color + gustos opcionales bilingües (Con cuerpo/Full-bodied, Seco/Dry…; los opuestos se excluyen). Nota = media de [maridaje con los platos de la mesa] y [encaje con los gustos]. **Regla de venta (de Eze)**: se quedan los que encajan (≥7; si ninguno, los 3 que más se acercan) y se ofrecen **del más caro al más barato**: los dos más caros + "⭐ El que mejor encaja" de tercero; "Ver más baratos". **Techo con comida**: comida de la mesa × 1,5 (mín. 35 €); lo que lo pasa queda en "💎 Ver más caros". Sin comida, se pide por gusto. 🔊 English lee el motivo (o la ficha). Los agotados no salen. Los platos de la mesa se reconocen por nombre.
+
 ---
 
 ## Módulo: Escandallos (coste de platos)

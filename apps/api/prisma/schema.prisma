@@ -298,7 +298,45 @@ model MenuItem {
   esMixer         Boolean @default(false)  // sirve de mezcla (refrescos, tónicas…)
   suplementoMixer Float   @default(0)      // extra si el mixer es premium (Red Bull +1.50)
   agotadoEn    ItemAgotado[]
+  maridajesComoPlato Maridaje[] @relation("MaridajePlato")
+  maridajesComoVino  Maridaje[] @relation("MaridajeVino")
+  perfilVino         PerfilVino?
   createdAt    DateTime   @default(now())
+}
+
+// Qué tal va cada vino con cada plato (botón 🍷 de la sala). Lo calcula Claude desde las fichas
+// (routes/maridajes.ts → "Recalcular con IA" en /admin/maridajes) y se puede corregir a mano:
+// una pareja editada a mano no la pisa el siguiente recálculo. Común a todos los restaurantes.
+model Maridaje {
+  id        Int      @id @default(autoincrement())
+  platoId   Int
+  plato     MenuItem @relation("MaridajePlato", fields: [platoId], references: [id], onDelete: Cascade)
+  vinoId    Int
+  vino      MenuItem @relation("MaridajeVino", fields: [vinoId], references: [id], onDelete: Cascade)
+  puntos    Int      // 0 = no pega … 10 = perfecto
+  motivo    String   @default("") // para el camarero, en español (solo los mejores de cada color)
+  motivoEn  String   @default("") // lo mismo para decírselo al cliente
+  oculto    Boolean  @default(false) // "este no": no se recomienda nunca con este plato
+  editado   Boolean  @default(false) // tocado a mano: el recálculo no lo cambia
+  updatedAt DateTime @updatedAt
+
+  @@unique([platoId, vinoId])
+}
+
+// Cómo es cada vino, del 1 al 5, para cuando el cliente pide por gusto ("full-bodied", "seco"…)
+// antes de pedir la comida. Lo saca Claude de la ficha en el mismo recálculo; editable a mano.
+model PerfilVino {
+  id        Int      @id @default(autoincrement())
+  vinoId    Int      @unique
+  vino      MenuItem @relation(fields: [vinoId], references: [id], onDelete: Cascade)
+  cuerpo    Int      // 1 ligero … 5 con mucho cuerpo
+  dulzor    Int      // 1 seco … 5 dulce
+  fruta     Int      // 1 poca … 5 muy afrutado
+  madera    Int      // 1 sin barrica … 5 mucha crianza en madera
+  frescor   Int      // 1 suave, poca acidez … 5 muy fresco y ácido
+  aromatico Int      // 1 neutro … 5 muy aromático
+  editado   Boolean  @default(false) // tocado a mano: el recálculo no lo cambia
+  updatedAt DateTime @updatedAt
 }
 
 // Plato que se acabó durante el servicio en un local (la carta es común: no se toca MenuItem.activo).

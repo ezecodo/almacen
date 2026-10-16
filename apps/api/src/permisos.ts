@@ -48,6 +48,7 @@ export const RUTAS_LOCAL = new Set([
   'PATCH /api/comandas/:id/enviar', 'PATCH /api/comandas/:id/facturar', 'PATCH /api/comandas/:id/liberar',
   'PATCH /api/comandas/:id/mover-mesa', 'PATCH /api/comandas/:id/pax', 'PATCH /api/comandas/:id/para-cocina',
   'GET /api/mermas',
+  'GET /api/maridajes', // 🍷 qué vino recomendar
   'GET /api/agotados', // solo ver: sin internet no se marcan (el panel 💼 no está en modo local)
 ])
 
@@ -65,6 +66,7 @@ export const RUTAS_SALA = new Set([
   'GET /api/agotados', 'POST /api/agotados', 'DELETE /api/agotados/:menuItemId',
   // carta (solo lectura), wiki y alérgenos
   'GET /api/menu', 'GET /api/menu/categorias', 'GET /api/alergenos', 'GET /api/wiki',
+  'GET /api/maridajes', // 🍷 qué vino recomendar con lo que pidió la mesa
   // menús de grupo
   'GET /api/grupo-menu', 'POST /api/grupo-menu/:id/generar', 'GET /api/grupo-menu/agendados',
   'POST /api/grupo-menu/agendados', 'PATCH /api/grupo-menu/agendados/:id', 'DELETE /api/grupo-menu/agendados/:id',
@@ -105,7 +107,7 @@ export const SOLO_ENCARGADO = new Set([
 // Cualquier empleado, desde donde esté: estudiar la carta y la wiki, ver sus propinas
 export const CONSULTA_SALA = new Set([
   'GET /api/red/estado',
-  'GET /api/wiki', 'GET /api/menu', 'GET /api/menu/categorias', 'GET /api/alergenos',
+  'GET /api/wiki', 'GET /api/menu', 'GET /api/menu/categorias', 'GET /api/alergenos', 'GET /api/maridajes',
   'GET /api/propinas/mis-turnos',
 ])
 
