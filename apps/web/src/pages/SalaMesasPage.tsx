@@ -881,6 +881,15 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
   const [notaNueva, setNotaNueva] = useState<{ item: MenuItem; qty: number; value: string } | null>(null)
   const [mixerPick, setMixerPick] = useState<MenuItem | null>(null)
   const [verVinos, setVerVinos] = useState(false) // 🍷 ¿Qué vino? con lo que pidió la mesa
+  const { data: maridajes } = useQuery({
+    queryKey: ['maridajes', comanda.restaurantId],
+    queryFn: () => api.maridajes.sala(comanda.restaurantId),
+    staleTime: 5 * 60_000,
+  })
+  const idsVino = new Set(maridajes?.vinos.map(v => v.id))
+  const hayVinos = idsVino.size > 0
+  const nombresVino = new Set(menu.filter(m => idsVino.has(m.id)).map(m => m.nombre))
+  const mesaSinBotella = !comanda.items.some(i => nombresVino.has(i.nombre))
   const lpTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lpFired = useRef(false)
   const [ordenando, setOrdenando] = useState(false)
@@ -1408,19 +1417,19 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
 
                 return (
                   <div className="space-y-4">
-                    {/* 🍷 Asistente de vinos: con la comida de la mesa o, si piden el vino antes, por gusto */}
                     {!yaFacturada && (
-                      <button onClick={() => setVerVinos(true)}
-                        className="w-full py-2.5 rounded-xl border-2 border-dashed border-rose-700/50 text-rose-300 text-sm font-bold active:scale-[0.98] transition-transform hover:border-rose-500/70">
-                        🍷 ¿Qué vino? {itemsCocina.some(i => !i.autoGenerado) ? 'Recomendar con esta comida' : 'Recomendar por gusto'}
-                      </button>
-                    )}
-                    {/* Reordenar niveles — mismas herramientas que el orden de salida original */}
-                    {tienenNivel && !yaFacturada && (
-                      <button onClick={() => setOrdenarFull(true)}
-                        className="w-full py-2.5 rounded-xl border-2 border-dashed border-cyan-700/50 text-cyan-400 text-sm font-bold active:scale-[0.98] transition-transform hover:border-cyan-500/70">
-                        🔀 Ordenar salidas (mover platos y niveles)
-                      </button>
+                      <div className="flex items-center gap-3">
+                        {/* 🍷 Asistente de vinos (con la comida de la mesa o, si piden el vino antes, por gusto).
+                            La copa late si la mesa todavía no tiene ninguna botella. */}
+                        {hayVinos && <BotonVino onClick={() => setVerVinos(true)} invita={mesaSinBotella} />}
+                        {/* Reordenar niveles — mismas herramientas que el orden de salida original */}
+                        {tienenNivel && (
+                          <button onClick={() => setOrdenarFull(true)}
+                            className="flex-1 py-2.5 rounded-xl border-2 border-dashed border-cyan-700/50 text-cyan-400 text-sm font-bold active:scale-[0.98] transition-transform hover:border-cyan-500/70">
+                            🔀 Ordenar salidas
+                          </button>
+                        )}
+                      </div>
                     )}
                     {/* ── Cocina ── */}
                     {!tienenNivel ? (
