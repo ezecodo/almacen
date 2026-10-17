@@ -3,7 +3,8 @@ import { enModoLocal } from '../lib/conexion'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 
-export default function SalaLoginPage() {
+// tpv = PIN del puesto TPV (/tpv): la tablet compartida del local, que vuelve aquí tras cada acción
+export default function SalaLoginPage({ tpv = false }: { tpv?: boolean }) {
   const navigate = useNavigate()
   const restaurant = (() => {
     try { return JSON.parse(localStorage.getItem('oidoops_restaurant') ?? '') }
@@ -16,7 +17,7 @@ export default function SalaLoginPage() {
   const [shake, setShake] = useState(false)
 
   useEffect(() => {
-    if (!restaurant) navigate('/sala/setup', { replace: true })
+    if (!restaurant) navigate(tpv ? '/sala/setup?volver=/tpv' : '/sala/setup', { replace: true })
   }, [])
 
   if (!restaurant) return null
@@ -50,7 +51,7 @@ export default function SalaLoginPage() {
           token: enModoLocal() ? null : empleado.token ?? null,
           tokenLocal: enModoLocal() ? empleado.token ?? null : empleado.local?.token ?? null,
         }))
-        navigate('/sala/mesas', { replace: true })
+        navigate(tpv ? '/tpv/mesas' : '/sala/mesas', { replace: true })
       }
     } catch {
       triggerError('PIN incorrecto')
@@ -72,7 +73,7 @@ export default function SalaLoginPage() {
       <p className="text-[#4CC8A0] font-semibold text-sm mb-10">{restaurant.nombre}</p>
 
       <h2 className="text-white text-xl font-bold mb-1">Introduce tu PIN</h2>
-      <p className="text-gray-500 text-sm mb-8">Personal de sala</p>
+      <p className="text-gray-500 text-sm mb-8">{tpv ? 'Puesto TPV · personal de sala' : 'Personal de sala'}</p>
 
       {/* Dots */}
       <div className={`flex gap-4 mb-8 ${shake ? 'animate-shake' : ''}`}>
@@ -106,7 +107,7 @@ export default function SalaLoginPage() {
 
       {/* Configurar dispositivo */}
       <button
-        onClick={() => navigate('/sala/setup')}
+        onClick={() => navigate(tpv ? '/sala/setup?volver=/tpv' : '/sala/setup')}
         className="mt-16 text-gray-700 text-xs hover:text-gray-500"
       >
         Cambiar restaurante

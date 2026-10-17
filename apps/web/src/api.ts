@@ -902,8 +902,8 @@ function sesionRechazada(res: Response, path: string) {
     sessionStorage.removeItem('admin_auth'); sessionStorage.removeItem(ADMIN_TOKEN_KEY); location.reload()
   } else if (location.pathname.startsWith('/pulso')) {
     sessionStorage.removeItem('pulso_auth'); sessionStorage.removeItem(PULSO_TOKEN_KEY); location.reload()
-  } else if (location.pathname.startsWith('/sala') && tokenSala()) {
-    sessionStorage.removeItem('oidoops_camarero'); location.assign('/sala')
+  } else if ((location.pathname.startsWith('/sala') || location.pathname.startsWith('/tpv')) && tokenSala()) {
+    sessionStorage.removeItem('oidoops_camarero'); location.assign(location.pathname.startsWith('/tpv') ? '/tpv' : '/sala')
   }
 }
 

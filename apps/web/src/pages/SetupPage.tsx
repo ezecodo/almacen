@@ -1,9 +1,12 @@
 import { useQuery } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api, Restaurante } from '../api'
 
 export default function SetupPage() {
   const navigate = useNavigate()
+  // El TPV (/tpv) manda aquí con ?volver=/tpv para regresar a su PIN y no al de la sala
+  const [params] = useSearchParams()
+  const volver = params.get('volver') === '/tpv' ? '/tpv' : '/sala'
 
   const { data: restaurantes, isLoading } = useQuery({
     queryKey: ['restaurantes'],
@@ -12,7 +15,7 @@ export default function SetupPage() {
 
   const seleccionar = (r: Restaurante) => {
     localStorage.setItem('oidoops_restaurant', JSON.stringify({ id: r.id, nombre: r.nombre }))
-    navigate('/sala', { replace: true })
+    navigate(volver, { replace: true })
   }
 
   return (

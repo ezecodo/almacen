@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef, createContext, useContext } from 'react'
 
 const ThemeCtx = createContext<boolean>(true) // true = dark
+// Puesto TPV (/tpv, tablet compartida): el PIN vale para una sola acción. Cobrar llama a esta
+// función, que devuelve la tablet al PIN; fuera del TPV es null y no hace nada.
+const TpvCtx = createContext<(() => void) | null>(null)
 import CheckOverlay from '../components/CheckOverlay'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -14,6 +17,7 @@ import FacturasSala from '../components/FacturasSala'
 import GastosSala from '../components/GastosSala'
 import MaridajeSheet from '../components/MaridajeSheet'
 import BotonVino from '../components/BotonVino'
+import NivelEtiqueta, { bloqueDePlato, nombreNivel, tituloNivel } from '../components/NivelEtiqueta'
 
 const POOL_LOCK_TIMEOUT_MS = 10 * 60 * 1000 // debe coincidir con POOL_LOCK_TIMEOUT_MS del backend
 function lockActivoPool(r: Reserva) {
@@ -259,14 +263,7 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
   })
   // Categorías de "bloque propio" (🎫 Nombre en ticket en /admin/menu, ej. POSTRES): sus platos van
   // juntos en un solo nivel, el último, y en el ticket salen con el nombre de la categoría.
-  // Una subcategoría hereda la opción de su categoría padre.
-  const bloqueDe = (nombre: string): string | null => {
-    const cat = categorias.find(c => c.nombre === menu.find(m => m.nombre === nombre)?.categoria)
-    if (!cat) return null
-    if (cat.nombreEnTicket) return cat.nombre
-    const padre = cat.parentId ? categorias.find(c => c.id === cat.parentId) : undefined
-    return padre?.nombreEnTicket ? padre.nombre : null
-  }
+  const bloqueDe = (nombre: string) => bloqueDePlato(nombre, menu, categorias)
   // Los platos de bloque sin comandar van detrás de todo lo demás de la mesa, un nivel por bloque
   const conBloques = (r: Record<number, number>) => {
     const cocina = comanda.items.filter(i => i.tipo !== 'barra' && !i.autoGenerado)
@@ -319,6 +316,7 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
   const [oidoAnim, setOidoAnim] = useState(false)
   const [barraOpen, setBarraOpen] = useState(false)
   const [search, setSearch] = useState('')
+  const [buscando, setBuscando] = useState(false)
   // 🍷 Asistente de vinos: el mejor momento para ofrecerlo es aquí, con toda la comida ya pedida.
   // La copa late si la mesa todavía no tiene ninguna botella; el vino elegido sale con este mismo Oído.
   const [verVinos, setVerVinos] = useState(false)
@@ -345,6 +343,7 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
     },
     onSuccess: () => {
       setSearch('')
+      setBuscando(false)
       queryClient.invalidateQueries({ queryKey: ['comanda-sala', comanda.id] })
     },
   })
@@ -433,45 +432,63 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
           if (Math.abs(dx) > th.dx && Math.abs(dy) < th.dy) onClose()
         }}>
         <div className="px-5 pt-5 pb-3 border-b border-[var(--sala-brd)]">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <h3 className="text-[var(--sala-txt)] font-bold text-lg">
-                {marchaPasa ? '🔁 Marcha Pasa' : 'Orden de salida'}
-              </h3>
-              <p className="text-[var(--sala-tx2)] text-xs mt-0.5">Mesa {comanda.mesa.numero} · {itemsActivos.length} cocina · {itemsBarra.length} barra</p>
-            </div>
-            <div className="flex items-center gap-4">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-[var(--sala-txt)] font-bold text-lg truncate">
+              {marchaPasa ? '🔁 Marcha Pasa' : 'Orden de salida'}
+            </h3>
+            <div className="flex items-center shrink-0">
+              {/* 🔍 Añadir algo más: la búsqueda solo aparece al tocar la lupa */}
+              <button onClick={() => { setBuscando(b => !b); setSearch('') }} title="Añadir algo más" aria-label="Buscar plato o bebida"
+                className={`w-11 h-11 rounded-full flex items-center justify-center active:scale-90 transition-colors ${
+                  buscando ? 'bg-cyan-600 text-white' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx1)]'}`}>
+                <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+                  <circle cx="10.5" cy="10.5" r="6.5" /><path d="M15.5 15.5 20 20" />
+                </svg>
+              </button>
               {itemsActivos.length > 0 && idsVino.size > 0 && (
-                <BotonVino onClick={() => setVerVinos(true)} invita={mesaSinBotella} titulo="¿Y de vino?" />
+                <span className="ml-3"><BotonVino onClick={() => setVerVinos(true)} invita={mesaSinBotella} titulo="¿Y de vino?" /></span>
               )}
-              <button onClick={onClose} className="text-[var(--sala-tx3)] text-xl">✕</button>
+              {/* la ✕ bien separada de los botones, para no cerrar sin querer */}
+              <button onClick={onClose} aria-label="Cerrar" className="ml-7 w-9 h-11 flex items-center justify-center text-[var(--sala-tx3)] text-xl">✕</button>
             </div>
           </div>
-          {itemsActivos.length > 0 && (
-            <button onClick={() => cambiarNoComparten.mutate(!noComparten)} disabled={cambiarNoComparten.isPending}
-              className={`w-full mb-3 flex items-center justify-between rounded-xl px-4 py-3 transition-colors active:scale-[0.98] ${
-                noComparten ? 'bg-[var(--sala-txt)] text-[var(--sala-bg)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx2)]'}`}>
-              <span className="text-sm font-black uppercase tracking-wide">🍽 No comparten</span>
-              <span className={`w-11 h-6 rounded-full relative transition-colors ${noComparten ? 'bg-[#4CC8A0]' : 'bg-[var(--sala-btn)]'}`}>
-                <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${noComparten ? 'left-[22px]' : 'left-0.5'}`} />
-              </span>
-            </button>
-          )}
+          <div className="flex items-center justify-between gap-3 mt-1 mb-1 min-h-[2.25rem]">
+            <p className="text-[var(--sala-tx2)] text-xs truncate">Mesa {comanda.mesa.numero} · {itemsActivos.length} cocina · {itemsBarra.length} barra</p>
+            {itemsActivos.length > 0 && (
+              // 🍽 No comparten: interruptor con un plato individual (cubiertos a los lados) en la bolita
+              <button onClick={() => cambiarNoComparten.mutate(!noComparten)} disabled={cambiarNoComparten.isPending}
+                role="switch" aria-checked={noComparten} className="flex items-center gap-2 shrink-0 active:scale-95 transition-transform">
+                <span className={`text-[11px] font-black uppercase tracking-wide ${noComparten ? 'text-[var(--sala-txt)]' : 'text-[var(--sala-tx3)]'}`}>No comparten</span>
+                <span className={`w-14 h-8 rounded-full relative transition-colors ${noComparten ? 'bg-[#4CC8A0]' : 'bg-[var(--sala-btn)]'}`}>
+                  <span className={`absolute top-0.5 w-7 h-7 rounded-full bg-white shadow flex items-center justify-center transition-all ${noComparten ? 'left-[26px]' : 'left-0.5'}`}>
+                    <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5" strokeLinecap="round" strokeLinejoin="round"
+                      stroke={noComparten ? '#1f9e78' : '#9ca3af'} strokeWidth="1.8">
+                      <circle cx="12" cy="12" r="5.5" /><circle cx="12" cy="12" r="2.8" />
+                      <path d="M3 4v4.5a1.2 1.2 0 0 0 2.4 0V4M4.2 9.7V20" />
+                      <path d="M20.5 20V4c-1.6 1-2.3 3-2.3 5.5 0 1.3.9 2 2.3 2" />
+                    </svg>
+                  </span>
+                </span>
+              </button>
+            )}
+          </div>
           {notaMesa && (
             <button onClick={() => setNotaMesaBox(notaMesa)}
-              className="w-full mb-3 text-left text-xs text-[var(--sala-tx2)] bg-[var(--sala-btn2)] rounded-xl px-4 py-2 truncate">
+              className="w-full mt-2 text-left text-xs text-[var(--sala-tx2)] bg-[var(--sala-btn2)] rounded-xl px-4 py-2 truncate">
               📝 {notaMesa}
             </button>
           )}
-          {/* Search rápido para añadir items */}
-          <div className="relative">
-            <input value={search} onChange={e => setSearch(e.target.value)}
-              placeholder="Añadir algo más… buscar plato o bebida"
-              className="w-full bg-[var(--sala-btn2)] text-[var(--sala-txt)] text-sm px-4 py-2.5 rounded-xl outline-none placeholder:text-[var(--sala-tx4)] pr-8" />
-            {search && (
-              <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--sala-tx3)] hover:text-[var(--sala-tx1)] text-sm">✕</button>
-            )}
-          </div>
+          {/* Search rápido para añadir items (se abre con la lupa) */}
+          {buscando && (
+            <div className="relative mt-2">
+              <input autoFocus value={search} onChange={e => setSearch(e.target.value)}
+                placeholder="Añadir algo más… buscar plato o bebida"
+                className="w-full bg-[var(--sala-btn2)] text-[var(--sala-txt)] text-sm px-4 py-2.5 rounded-xl outline-none placeholder:text-[var(--sala-tx4)] pr-8" />
+              {search && (
+                <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--sala-tx3)] hover:text-[var(--sala-tx1)] text-sm">✕</button>
+              )}
+            </div>
+          )}
           {/* Resultados del search */}
           {search.trim().length > 0 && (
             <div className="mt-1.5 bg-[var(--sala-btn2)] rounded-xl overflow-hidden max-h-48 overflow-y-auto">
@@ -495,17 +512,15 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
             if (itemsEnNivel.length === 0) return null
             return (
               <div key={nv}>
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="w-8 h-8 rounded-full bg-cyan-600 flex items-center justify-center text-[var(--sala-txt)] text-sm font-black shrink-0">{nv}</div>
+                <NivelEtiqueta titulo={tituloNivel(nv, itemsEnNivel.map(i => i.nombre), menu, categorias)}>
+                  {/* ▲▼ mueven el nivel entero */}
                   <div className="flex gap-1">
                     <button onClick={e => { e.stopPropagation(); if (nv > 1) itemsEnNivel.forEach(i => moveItem(i.id, -1)) }} disabled={nv <= 1}
                       className="w-7 h-7 rounded-lg bg-cyan-600/30 text-cyan-400 text-xs font-black hover:bg-cyan-600/60 disabled:opacity-20 flex items-center justify-center">▲</button>
                     <button onClick={e => { e.stopPropagation(); itemsEnNivel.forEach(i => moveItem(i.id, 1)) }}
                       className="w-7 h-7 rounded-lg bg-cyan-600/30 text-cyan-400 text-xs font-black hover:bg-cyan-600/60 flex items-center justify-center">▼</button>
                   </div>
-                  <span className="text-[var(--sala-tx2)] text-xs font-semibold uppercase tracking-wide">Salida {nv}</span>
-                  <div className="flex-1 h-px bg-[var(--sala-btn)]" />
-                </div>
+                </NivelEtiqueta>
                 <div className="space-y-2">
                   {itemsEnNivel.map(item => (
                     <div key={item.id} className={`bg-[var(--sala-srf)] rounded-xl overflow-hidden ${notaModal?.itemId === item.id ? 'ring-2 ring-cyan-500' : ''}`}>
@@ -852,8 +867,44 @@ function ItemRow({ item, nota, setNota, onUpdate, onDelete, onSaveNota, onMerma,
   )
 }
 
+// ── Teclado en pantalla del puesto TPV (buscar en la carta) ───────────────────
+// Teclas grandes dentro de la columna de la carta: los resultados se ven justo encima y la mesa
+// sigue a la derecha (el teclado del sistema tapaba media tablet). Con Ñ y fila de números.
+const FILAS_TECLADO = ['1234567890', 'QWERTYUIOP', 'ASDFGHJKLÑ', 'ZXCVBNM']
+function TecladoTpv({ onTecla, onBorrar, onLimpiar, onCerrar }: {
+  onTecla: (t: string) => void; onBorrar: () => void; onLimpiar: () => void; onCerrar: () => void
+}) {
+  const pulsar = (fn: () => void) => () => { navigator.vibrate?.(8); fn() }
+  // Grande pero sin tapar los resultados: el 45 % de la columna de la carta (encima caben dos filas
+  // de platos sin desplazar) y cada tecla se estira a lo ancho y a lo alto (filas flex-1)
+  const tecla = 'h-full flex-1 rounded-2xl bg-[var(--sala-srf)] text-[var(--sala-txt)] font-black shadow-sm active:scale-95 active:bg-[#4CC8A0] active:text-white transition-transform select-none flex items-center justify-center'
+  return (
+    <div className="h-[45%] shrink-0 flex flex-col gap-1.5 border-t border-[var(--sala-brd)] bg-[var(--sala-bg)] p-3">
+      {FILAS_TECLADO.map((fila, i) => (
+        <div key={fila} className={`flex gap-1.5 ${i === 0 ? 'flex-[0.75]' : 'flex-1'}`}>
+          {[...fila].map(t => (
+            <button key={t} onClick={pulsar(() => onTecla(t))} className={`${tecla} ${i === 0 ? 'text-xl text-[var(--sala-tx2)]' : 'text-2xl'}`}>{t}</button>
+          ))}
+          {i === 3 && (
+            <button onClick={pulsar(onBorrar)} aria-label="Borrar letra" className={`${tecla} !flex-[2.2]`}>
+              <svg viewBox="0 0 24 24" className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 5H9l-6 7 6 7h12a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1Z" /><path d="m17 9-6 6M11 9l6 6" />
+              </svg>
+            </button>
+          )}
+        </div>
+      ))}
+      <div className="flex gap-1.5 flex-1">
+        <button onClick={pulsar(onCerrar)} className={`${tecla} text-base uppercase`}>✕ Cerrar</button>
+        <button onClick={pulsar(() => onTecla(' '))} className={`${tecla} !flex-[3] text-base uppercase text-[var(--sala-tx3)]`}>espacio</button>
+        <button onClick={pulsar(onLimpiar)} className={`${tecla} text-base uppercase`}>Borrar todo</button>
+      </div>
+    </div>
+  )
+}
+
 // ── Panel comanda (modo camarero) ─────────────────────────────────────────────
-function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar, onCambiarMesa, onFacturar, esEncargado }: {
+function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar, onCambiarMesa, onFacturar, esEncargado, ancho = false }: {
   comanda: Comanda; menu: MenuItem[]; categorias: MenuCategoria[]
   onClose: () => void
   onEnviar: (niveles: { itemId: number; nivel: number; nota?: string }[], silent?: boolean) => void
@@ -861,6 +912,9 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
   onCambiarMesa?: () => void
   onFacturar?: () => void
   esEncargado?: boolean
+  // Puesto TPV (tablet): pantalla completa en dos columnas, la carta a la izquierda y la mesa a la
+  // derecha, sin pestañas ni gestos de deslizar (en una tablet sobra sitio para verlas a la vez)
+  ancho?: boolean
 }) {
   const queryClient = useQueryClient()
   // Pestaña inicial: si la mesa ya está toda comandada (sin pendientes), se entra para pedir
@@ -871,12 +925,21 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
     return hayPendientesSinEnviar ? 'pedido' : 'menu'
   })
   const [searchMenu, setSearchMenu] = useState('')
+  // TPV: teclado propio en pantalla para buscar (el del sistema tapaba media tablet)
+  const [tecladoTpv, setTecladoTpv] = useState(false)
   const [grupoTab, setGrupoTab] = useState<string | null>(null)
   const [selectedCat, setSelectedCat] = useState<string | null>(null)
   const [selectedSub, setSelectedSub] = useState<string | null>(null)
   const swipeRef = useRef<number | null>(null)
   const [nota, setNota] = useState<{ itemId: number; value: string } | null>(null)
-  const [addedId, setAddedId] = useState<number | null>(null)
+  // Aviso de "añadido" abajo a la derecha: no tapa nada, así se pueden seguir tocando platos
+  // rápido (antes un check tapaba el plato un segundo). Se apilan y se van solos.
+  const [avisosAnadido, setAvisosAnadido] = useState<{ id: number; texto: string }[]>([])
+  const avisarAnadido = (texto: string) => {
+    const id = Date.now() + Math.random()
+    setAvisosAnadido(a => [...a.slice(-2), { id, texto }])
+    setTimeout(() => setAvisosAnadido(a => a.filter(x => x.id !== id)), 1800)
+  }
   const [qtyPending, setQtyPending] = useState<{ id: number; qty: number } | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [notaNueva, setNotaNueva] = useState<{ item: MenuItem; qty: number; value: string } | null>(null)
@@ -1072,9 +1135,8 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
   const addItem = useMutation({
     mutationFn: ({ item, cantidad, nota: notaItem }: { item: MenuItem; cantidad: number; nota?: string }) =>
       api.comandas.addItem(comanda.id, { nombre: item.nombre, precio: item.precio, cantidad, tipo: getTipo(item), ...(notaItem ? { nota: notaItem } : {}), ...(modoSinCocina ? { directo: true } : {}) }),
-    onSuccess: (_, { item }) => {
-      setAddedId(item.id)
-      setTimeout(() => setAddedId(null), 1000)
+    onSuccess: (_, { item, cantidad }) => {
+      avisarAnadido(`${cantidad}× ${item.nombre}`)
       setDotsAnim(true)
       setTimeout(() => setDotsAnim(false), 1600)
       queryClient.invalidateQueries({ queryKey: ['comanda-sala', comanda.id] })
@@ -1090,9 +1152,8 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
         : item.precio
       return api.comandas.addItem(comanda.id, { nombre, precio, cantidad: 1, tipo: getTipo(item), ...(modoSinCocina ? { directo: true } : {}) })
     },
-    onSuccess: (_, { item }) => {
-      setAddedId(item.id)
-      setTimeout(() => setAddedId(null), 1000)
+    onSuccess: (_, { item, mixer }) => {
+      avisarAnadido(mixer ? `1× ${item.nombre} + ${mixer.nombre}` : `1× ${item.nombre}`)
       setDotsAnim(true)
       setTimeout(() => setDotsAnim(false), 1600)
       queryClient.invalidateQueries({ queryKey: ['comanda-sala', comanda.id] })
@@ -1114,12 +1175,15 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
     addItem.mutate({ item, cantidad: qty })
   }
 
+  // Tiempo que se esperan más toques del mismo plato antes de mandarlo: en el TPV, más corto,
+  // para que aparezca enseguida en la columna de la mesa
+  const esperaCantidad = ancho ? 700 : 1500
   const handleMenuItemTap = (item: MenuItem) => {
     if (qtyPending?.id === item.id) {
       const newQty = qtyPending.qty + 1
       setQtyPending({ id: item.id, qty: newQty })
       if (timerRef.current) clearTimeout(timerRef.current)
-      timerRef.current = setTimeout(() => commitQty(item, newQty), 1500)
+      timerRef.current = setTimeout(() => commitQty(item, newQty), esperaCantidad)
     } else {
       if (qtyPending && timerRef.current) {
         clearTimeout(timerRef.current)
@@ -1128,7 +1192,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
         setQtyPending(null)
       }
       setQtyPending({ id: item.id, qty: 1 })
-      timerRef.current = setTimeout(() => commitQty(item, 1), 1500)
+      timerRef.current = setTimeout(() => commitQty(item, 1), esperaCantidad)
     }
   }
 
@@ -1277,7 +1341,6 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
   // Botón de plato (vista de categoría) — tap añade, long-press abre comentario
   const renderItemBtn = (item: MenuItem) => {
     const isPending = qtyPending?.id === item.id
-    const isAdded   = addedId === item.id
     if (agotadoIds.has(item.id)) return <PlatoAgotado key={item.id} nombre={item.nombre} detalle={item.descripcion} />
     return (
       <button key={item.id} onClick={() => tapItem(item)}
@@ -1286,23 +1349,120 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
         className={`w-full text-left rounded-xl px-4 py-3.5 transition-colors relative overflow-hidden select-none ${isPending ? 'bg-[var(--sala-srf2)] border-2 border-[#4CC8A0]' : 'bg-[var(--sala-srf)] hover:bg-[var(--sala-srf2)]'}`}>
         <span className="text-[var(--sala-txt)] text-base font-medium">{item.nombre}</span>
         {item.descripcion ? <p className="text-[var(--sala-tx3)] text-xs mt-0.5 truncate">{item.descripcion}</p> : null}
-        {item.combinable && !isPending && !isAdded && (
+        {item.combinable && !isPending && (
           <span className="absolute right-3 inset-y-0 flex items-center text-[var(--sala-tx3)] text-sm font-bold">🥤+</span>
         )}
         {isPending && <span className="absolute right-3 inset-y-0 flex items-center"><span className="text-[#4CC8A0] font-black text-2xl">{qtyPending!.qty}×</span></span>}
-        {isAdded && (
-          <span className="absolute inset-0 flex items-center justify-center bg-[var(--sala-srf)] rounded-xl" style={{ animation: 'fadeInOut 1s ease forwards' }}>
-            <svg viewBox="0 0 52 58" className="h-8 w-8"><defs><linearGradient id="lgfbs3" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#4B9EDF"/><stop offset="100%" stopColor="#4CC8A0"/></linearGradient></defs><path d="M8 2 L44 2 Q50 2 50 8 L50 38 Q50 44 44 44 L32 44 L26 52 L20 44 L8 44 Q2 44 2 38 L2 8 Q2 2 8 2 Z" fill="url(#lgfbs3)"/><path d="M14 22 L23 31 L38 13" stroke="white" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>
-          </span>
-        )}
       </button>
     )
   }
 
+  // ── Carta del puesto TPV (tablet): todo a la vista, sin entrar y salir de niveles ──
+  // Grupos y categorías como pestañas fijas arriba; los platos en cuadrados grandes. Una categoría
+  // con subcategorías muestra todas sus subcategorías seguidas, cada una con su título.
+  const tpvGrupo = grupoTab ?? grupos[0] ?? null
+  const tpvCats = categorias
+    .filter(c => !c.parentId && (c.grupo || 'Otros') === tpvGrupo)
+    .filter(c => itemsDeCat(c.nombre).length > 0 || subcatsDe(c.nombre).some(sc => itemsDeCat(sc.nombre).length > 0))
+    .sort((a, b) => a.orden - b.orden)
+  const tpvCat = tpvCats.find(c => c.nombre === selectedCat) ?? tpvCats[0] ?? null
+  const tpvBloques = !tpvCat ? [] : [
+    { titulo: null as string | null, items: itemsDeCat(tpvCat.nombre) },
+    ...subcatsDe(tpvCat.nombre).map(sc => ({ titulo: sc.nombre as string | null, items: itemsDeCat(sc.nombre) })),
+  ].filter(b => b.items.length > 0)
+  const tpvBarra = esGrupoBarra(tpvGrupo ?? '')
+  const tileTpv = (item: MenuItem) => {
+    const isPending = qtyPending?.id === item.id
+    const barra = esGrupoBarra(catMeta[catTop(item.categoria)]?.grupo ?? '')
+    if (agotadoIds.has(item.id)) return (
+      <div key={item.id} aria-disabled className="aspect-square rounded-2xl p-3 flex flex-col justify-between bg-[var(--sala-srf)] opacity-40 select-none">
+        <span className="text-[var(--sala-txt)] text-lg font-black uppercase leading-tight line-through break-words">{item.nombre}</span>
+        <span className="text-red-400 text-xs font-black tracking-wider">AGOTADO</span>
+      </div>
+    )
+    return (
+      <button key={item.id} onClick={() => tapItem(item)}
+        onPointerDown={() => startLongPress(item)} onPointerUp={cancelLongPress} onPointerLeave={cancelLongPress}
+        onTouchMove={cancelLongPress} onContextMenu={e => e.preventDefault()}
+        className={`aspect-square rounded-2xl p-3 flex flex-col text-center relative overflow-hidden select-none active:scale-95 transition-all border-2 ${
+          isPending ? 'border-[#4CC8A0] bg-[var(--sala-srf2)]'
+          : barra ? 'border-transparent bg-amber-500/10 hover:bg-amber-500/15'
+          : 'border-transparent bg-[var(--sala-srf)] hover:bg-[var(--sala-srf2)]'}`}>
+        {/* Con una palabra muy larga (VALDELACIERVA) la letra baja un punto para no partirla */}
+        {/* Nombre (y descripción) centrados en el cuadrado; el precio abajo */}
+        <span className="flex-1 min-h-0 flex flex-col items-center justify-center gap-1">
+          <span className={`text-[var(--sala-txt)] font-black uppercase leading-tight break-words line-clamp-4 ${
+            item.nombre.split(/\s+/).some(w => w.length >= 10) ? 'text-[15px]' : 'text-lg'}`}>{item.nombre}</span>
+          {item.descripcion && <span className="text-[var(--sala-tx3)] text-[11px] leading-tight line-clamp-2">{item.descripcion}</span>}
+        </span>
+        <span className="text-[var(--sala-tx2)] text-sm font-bold tabular-nums">{item.combinable ? '🥤+' : `${item.precio.toFixed(2)} €`}</span>
+        {isPending && (
+          <span className="absolute top-2 right-2 min-w-9 h-9 px-2 rounded-full bg-[#4CC8A0] text-white font-black text-lg flex items-center justify-center">{qtyPending!.qty}×</span>
+        )}
+      </button>
+    )
+  }
+  const rejillaTpv = 'grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-2.5'
+  const cartaTpv = (
+    <div className="flex-1 min-h-0 flex flex-col">
+      {!searchMenu.trim() && !tecladoTpv && (
+        <div className="px-3 pt-3 pb-2 space-y-2 border-b border-[var(--sala-brd)]">
+          {grupos.length > 1 && (
+            <div className="flex gap-2">
+              {grupos.map(g => (
+                <button key={g} onClick={() => { setGrupoTab(g); setSelectedCat(null); setSelectedSub(null) }}
+                  className={`flex-1 h-12 rounded-xl text-base font-black uppercase tracking-wide active:scale-95 transition-all ${
+                    g === tpvGrupo ? 'text-white shadow-lg' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx2)]'}`}
+                  style={g === tpvGrupo ? { background: esGrupoBarra(g) ? 'linear-gradient(135deg, #d97706, #f59e0b)' : 'linear-gradient(135deg, #4B9EDF, #4CC8A0)' } : undefined}>
+                  {g}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="flex flex-wrap gap-2">
+            {tpvCats.map(c => (
+              <button key={c.id} onClick={() => { setSelectedCat(c.nombre); setSelectedSub(null) }}
+                className={`h-12 px-4 rounded-xl text-sm font-black uppercase tracking-wide active:scale-95 transition-all border-2 ${
+                  c.id === tpvCat?.id
+                    ? (tpvBarra ? 'border-amber-500 bg-amber-500/20 text-[var(--sala-txt)]' : 'border-[#4CC8A0] bg-[#4CC8A0]/15 text-[var(--sala-txt)]')
+                    : 'border-transparent bg-[var(--sala-srf)] text-[var(--sala-tx2)]'}`}>
+                {c.icono ? <span className="mr-1.5">{c.icono}</span> : null}{c.nombre}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      <div className="flex-1 overflow-y-auto p-3 space-y-4">
+        {searchMenu.trim() ? (
+          <>
+            <p className="text-[var(--sala-tx3)] text-xs font-bold uppercase tracking-wide">
+              {filteredMenu.length === 0 ? 'Sin resultados' : filteredMenu.length === 1 ? '1 resultado' : `${filteredMenu.length} resultados`} para «{searchMenu.trim()}»
+            </p>
+            {filteredMenu.length > 0 && <div className={rejillaTpv}>{filteredMenu.map(tileTpv)}</div>}
+          </>
+        ) : tecladoTpv ? (
+          <p className="text-[var(--sala-tx3)] text-lg font-bold text-center py-10">Escribe el nombre del plato o la bebida</p>
+        ) : tpvBloques.map((b, i) => (
+          <div key={b.titulo ?? i}>
+            {b.titulo && <NivelEtiqueta titulo={b.titulo} />}
+            <div className={rejillaTpv}>{b.items.map(tileTpv)}</div>
+          </div>
+        ))}
+      </div>
+      {tecladoTpv && <TecladoTpv
+        onTecla={t => setSearchMenu(v => (v + t).replace(/^ +/, '').slice(0, 30))}
+        onBorrar={() => setSearchMenu(v => v.slice(0, -1))}
+        onLimpiar={() => setSearchMenu('')}
+        onCerrar={() => { setTecladoTpv(false); setSearchMenu('') }} />}
+    </div>
+  )
+
   return (
     <div className="fixed inset-0 z-40 flex justify-end" onClick={onClose}>
-      <div ref={panelRef} className="relative w-full sm:max-w-md bg-[var(--sala-hdr)] h-full flex flex-col shadow-2xl border-l border-[var(--sala-brd)]" onClick={e => e.stopPropagation()}
-        onTouchStart={e => { swipeCloseRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY } }}
+      <div ref={panelRef} className={`relative w-full bg-[var(--sala-hdr)] h-full shadow-2xl ${ancho
+          ? 'grid grid-cols-[minmax(0,1fr)_minmax(0,40%)] grid-rows-[auto_minmax(0,1fr)_auto]'
+          : 'sm:max-w-md flex flex-col border-l border-[var(--sala-brd)]'}`} onClick={e => e.stopPropagation()}
+        onTouchStart={e => { if (!ancho) swipeCloseRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY } }}
         onTouchEnd={e => {
           const s = swipeCloseRef.current
           swipeCloseRef.current = null
@@ -1327,7 +1487,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
           }
         }}>
         {/* Header */}
-        <div className="px-5 pt-5 pb-3 border-b border-[var(--sala-brd)]">
+        <div className={`px-5 pt-5 pb-3 border-b border-[var(--sala-brd)] ${ancho ? 'col-start-2 row-start-1 border-l' : ''}`}>
           <div className="flex items-start justify-between mb-1">
             <div>
               <h2 className="text-[var(--sala-txt)] font-bold text-xl">
@@ -1364,7 +1524,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
               <button onClick={() => itemsNuevos.length > 0 ? setConfirmarCerrar(true) : onClose()} className="text-[var(--sala-tx3)] hover:text-[var(--sala-tx1)] text-xl">✕</button>
             </div>
           </div>
-          <div className="flex gap-1.5 mt-3 items-stretch">
+          {!ancho && <div className="flex gap-1.5 mt-3 items-stretch">
             {/* Tabs gemelos: mismo fondo de marca + contenido blanco gordo; el activo brilla, el inactivo se atenúa */}
             <button onClick={() => setTab('pedido')}
               className={`flex-1 py-2 rounded-lg text-base font-black uppercase tracking-wide text-white transition-all active:scale-95 ${tab === 'pedido' ? 'shadow-lg' : 'opacity-45'}`}
@@ -1380,13 +1540,13 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                 <path d="M5 12h14" />
               </svg>
             </button>
-          </div>
+          </div>}
         </div>
 
-        {/* Contenido */}
-        <div className="flex-1 overflow-y-auto">
-          {tab === 'pedido' && (
-            <>
+        {/* Contenido (en el TPV, 'contents': cada columna es una celda de la rejilla del panel) */}
+        <div className={ancho ? 'contents' : 'flex-1 overflow-y-auto'}>
+          {(tab === 'pedido' || ancho) && (
+            <div className={ancho ? 'col-start-2 row-start-2 overflow-y-auto border-l border-[var(--sala-brd)]' : ''}>
             {/* Marcha pasa sticky — visible mientras scrolleas el pedido */}
             {comanda.items.some(i => i.nivel != null) && itemsNuevos.length > 0 && (
               <div className="sticky top-0 z-10 px-4 pt-3 pb-2 border-b border-amber-900/40 bg-amber-950/95 backdrop-blur-sm">
@@ -1479,11 +1639,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                               if (!items.length) return null
                               return (
                                 <div key={nv}>
-                                  <div className="flex items-center gap-2 mb-2">
-                                    <div className="w-7 h-7 rounded-full bg-cyan-600 flex items-center justify-center text-[var(--sala-txt)] text-xs font-black shrink-0">{nv}</div>
-                                    <span className="text-[var(--sala-tx2)] text-xs font-semibold uppercase tracking-wide">Salida {nv}</span>
-                                    <div className="flex-1 h-px bg-[var(--sala-btn)]" />
-                                  </div>
+                                    <NivelEtiqueta titulo={tituloNivel(nv, items.map(i => i.nombre), menu, categorias)} />
                                   <div className="space-y-2">
                                     {items.map((item: ComandaItem) => (
                                       <ItemRow key={item.id} agotado={sinComandarAgotada(item)} item={item} nota={nota} setNota={setNota}
@@ -1566,13 +1722,13 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                 )
               })()}
             </div>
-            </>
+            </div>
           )}
 
-          {tab === 'menu' && (
-            <div className="flex flex-col h-full">
-              {/* Marcha pasa en curso — visible mientras se añaden items */}
-              {comanda.items.some(i => i.nivel != null) && itemsNuevos.length > 0 && (
+          {(tab === 'menu' || ancho) && (
+            <div className={ancho ? 'col-start-1 row-start-1 row-span-3 flex flex-col min-h-0 relative' : 'flex flex-col h-full'}>
+              {/* Marcha pasa en curso — visible mientras se añaden items (en el TPV ya se ve en la columna de la mesa) */}
+              {!ancho && comanda.items.some(i => i.nivel != null) && itemsNuevos.length > 0 && (
                 <div className="sticky top-0 z-10 px-4 pt-3 pb-2 border-b border-amber-900/40 bg-amber-950/95 backdrop-blur-sm">
                   <div className="flex items-center gap-2 mb-1.5">
                     <div className="w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center text-[var(--sala-txt)] text-xs font-black shrink-0">+</div>
@@ -1591,9 +1747,15 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
               {/* Search global + modo sin cocina (encargado) */}
               <div className={`px-2.5 pt-2 pb-1.5 border-b border-[var(--sala-brd)] ${modoSinCocina ? 'bg-amber-500/10' : ''}`}>
                 <div className="flex items-center gap-2">
-                  <input ref={searchInputRef} value={searchMenu} onChange={e => { setSearchMenu(e.target.value); setSelectedCat(null); setSelectedSub(null) }}
-                    placeholder="Buscar en todo el menú…"
-                    className="flex-1 bg-[var(--sala-btn2)] text-[var(--sala-txt)] text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-[var(--sala-tx4)]" />
+                  {/* En el TPV, inputMode none: no sale el teclado del sistema (sí funciona uno físico)
+                      y al tocarlo se abre el teclado propio de abajo */}
+                  <input ref={searchInputRef} value={searchMenu}
+                    onChange={e => { setSearchMenu(e.target.value); if (!ancho) { setSelectedCat(null); setSelectedSub(null) } }}
+                    inputMode={ancho ? 'none' : undefined}
+                    onPointerDown={() => { if (ancho) setTecladoTpv(true) }}
+                    placeholder={ancho ? '🔍 Buscar en toda la carta…' : 'Buscar en todo el menú…'}
+                    className={`flex-1 bg-[var(--sala-btn2)] text-[var(--sala-txt)] rounded-lg outline-none placeholder:text-[var(--sala-tx4)] ${ancho
+                      ? `text-lg font-bold uppercase px-4 py-3 ${tecladoTpv ? 'ring-2 ring-[#4CC8A0]' : ''}` : 'text-xs px-3 py-1.5'}`} />
                   {esEncargado && (
                     <button onClick={() => setModoSinCocina(v => !v)}
                       title={modoSinCocina
@@ -1615,12 +1777,11 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                 )}
               </div>
 
-              {searchMenu.trim() ? (
+              {ancho ? cartaTpv : searchMenu.trim() ? (
                 /* ── Resultados de búsqueda (lista plana) ── */
-                <div className="flex-1 overflow-y-auto p-4 space-y-1.5">
+                <div className={`flex-1 overflow-y-auto ${ancho ? 'p-3 grid grid-cols-2 gap-2 content-start' : 'p-4 space-y-1.5'}`}>
                   {filteredMenu.map((item: MenuItem) => {
                     const isPending = qtyPending?.id === item.id
-                    const isAdded   = addedId === item.id
                     if (agotadoIds.has(item.id)) return <PlatoAgotado key={item.id} nombre={item.nombre} detalle={item.categoria} />
                     return (
                       <button key={item.id} onClick={() => tapItem(item)}
@@ -1630,11 +1791,6 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                         <p className="text-[var(--sala-txt)] text-sm font-medium">{item.nombre}</p>
                         <p className="text-[var(--sala-tx3)] text-xs">{item.categoria}</p>
                         {isPending && <span className="absolute right-3 inset-y-0 flex items-center"><span className="text-[#4CC8A0] font-black text-2xl">{qtyPending!.qty}×</span></span>}
-                        {isAdded && (
-                          <span className="absolute inset-0 flex items-center justify-center bg-[var(--sala-srf)] rounded-xl" style={{ animation: 'fadeInOut 1s ease forwards' }}>
-                            <svg viewBox="0 0 52 58" className="h-8 w-8"><defs><linearGradient id="lgfbs2" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#4B9EDF"/><stop offset="100%" stopColor="#4CC8A0"/></linearGradient></defs><path d="M8 2 L44 2 Q50 2 50 8 L50 38 Q50 44 44 44 L32 44 L26 52 L20 44 L8 44 Q2 44 2 38 L2 8 Q2 2 8 2 Z" fill="url(#lgfbs2)"/><path d="M14 22 L23 31 L38 13" stroke="white" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>
-                          </span>
-                        )}
                       </button>
                     )
                   })}
@@ -1656,14 +1812,14 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                   </button>
                   {selectedSub ? (
                     /* ── Nivel 4: items de la subcategoría ── */
-                    <div className="p-4 space-y-1.5">
+                    <div className={ancho ? 'p-3 grid grid-cols-2 gap-2' : 'p-4 space-y-1.5'}>
                       {itemsDeCat(selectedSub).map(renderItemBtn)}
                     </div>
                   ) : (
                     <>
                       {/* Tiles de subcategoría (mismo diseño que las categorías) */}
                       {subcatsDe(selectedCat).length > 0 && (
-                        <div className="p-2 grid grid-cols-3 gap-2">
+                        <div className={`p-2 grid ${ancho ? 'grid-cols-4' : 'grid-cols-3'} gap-2`}>
                           {subcatsDe(selectedCat).map(sc => {
                             const count = itemsDeCat(sc.nombre).length
                             const esBarra = esGrupoBarra(sc.grupo || catMeta[selectedCat]?.grupo || '')
@@ -1683,7 +1839,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                         </div>
                       )}
                       {/* Items directos de la categoría */}
-                      <div className="p-4 pt-2 space-y-1.5">
+                      <div className={ancho ? 'p-3 pt-2 grid grid-cols-2 gap-2' : 'p-4 pt-2 space-y-1.5'}>
                         {itemsDeCat(selectedCat).map(renderItemBtn)}
                       </div>
                     </>
@@ -1698,7 +1854,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                       setGrupoTab(null)
                     swipeRef.current = null
                   }}>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className={`grid ${ancho ? 'grid-cols-4' : 'grid-cols-3'} gap-2`}>
                     {categoriasSorted.map(cat => {
                       const meta = categorias.find(c => c.nombre === cat)
                       const count = menuByCategoria[cat]?.length ?? 0
@@ -1748,11 +1904,11 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
         </div>
 
         {/* FAB volver — un nivel atrás (backup del swipe) */}
-        {tab === 'menu' && (selectedSub || selectedCat || (grupoTab && grupos.length > 1)) && !searchMenu.trim() && (
+        {tab === 'menu' && !ancho && (selectedSub || selectedCat || (grupoTab && grupos.length > 1)) && !searchMenu.trim() && (
           <button
             onClick={() => selectedSub ? setSelectedSub(null) : selectedCat ? setSelectedCat(null) : setGrupoTab(null)}
             aria-label="Volver a categorías"
-            className="absolute bottom-24 left-1/2 -translate-x-1/2 z-30 w-16 h-16 rounded-full grid place-items-center text-white active:scale-90 transition-transform"
+            className={`absolute bottom-24 ${ancho ? 'left-[30%]' : 'left-1/2'} -translate-x-1/2 z-30 w-16 h-16 rounded-full grid place-items-center text-white active:scale-90 transition-transform`}
             style={{
               background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)',
               boxShadow: '0 4px 20px rgba(76,200,160,0.45), 0 2px 8px rgba(0,0,0,0.35)',
@@ -1850,7 +2006,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
         )}
 
         {/* Footer */}
-        <div className="px-3 py-2 border-t border-[var(--sala-brd)]">
+        <div className={`px-3 py-2 border-t border-[var(--sala-brd)] ${ancho ? 'col-start-2 row-start-3 border-l' : ''}`}>
           {yaFacturada ? (
             <div className="space-y-1.5">
               <div className={`flex items-center justify-center gap-2 py-1.5 rounded-lg ${comanda.cuentaDesactualizada ? 'bg-red-500/15' : 'bg-amber-500/10'}`}>
@@ -1937,8 +2093,21 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
         </div>
 
 
+        {/* Avisos de "añadido" (no reciben toques: se puede seguir pidiendo por debajo) */}
+        {avisosAnadido.length > 0 && (
+          <div className={`absolute z-30 pointer-events-none flex flex-col items-end gap-1.5 ${ancho ? 'bottom-4 right-[calc(40%+1rem)]' : 'bottom-24 right-4'}`}>
+            {avisosAnadido.map(a => (
+              <span key={a.id} className="flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-full text-white text-sm font-black uppercase shadow-lg max-w-[18rem]"
+                style={{ background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)', animation: 'avisoAnadido 1.8s ease forwards' }}>
+                <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0" fill="none" stroke="white" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
+                <span className="truncate">{a.texto}</span>
+              </span>
+            ))}
+          </div>
+        )}
+
         {/* Lupa flotante — tap: enfoca búsqueda · long-press: arrastrar */}
-        {fabPos && (
+        {fabPos && !ancho && (
           <button
             onPointerDown={handleFabPointerDown}
             style={{ left: fabPos.x, top: fabPos.y, touchAction: 'none' }}
@@ -3296,7 +3465,7 @@ function MenuGrupoSheet({
             <div key={nv.nivel} className="bg-[var(--sala-srf)] rounded-xl p-3">
               <div className="flex items-center gap-2 mb-2">
                 <div className="w-6 h-6 rounded-full bg-cyan-600 flex items-center justify-center text-white text-xs font-black shrink-0">{nv.nivel}</div>
-                <span className="text-[var(--sala-tx2)] text-xs font-semibold uppercase tracking-wide">{nv.nombre || `Salida ${nv.nivel}`}</span>
+                <span className="text-[var(--sala-tx2)] text-xs font-semibold uppercase tracking-wide">{nv.nombre || nombreNivel(nv.nivel)}</span>
                 <div className="flex-1 h-px bg-[var(--sala-btn)]" />
                 <button onClick={() => { setPickerNivel(pickerNivel === nv.nivel ? null : nv.nivel); setSearchExtra('') }}
                   className="text-cyan-400 text-xs font-bold">+ carta</button>
@@ -3407,6 +3576,7 @@ function CobroSheet({ comanda, onClose, onDone }: { comanda: Comanda; onClose: (
   const [importe, setImporte] = useState('')
   const total = totalComanda(comanda.items)
 
+  const terminarTpv = useContext(TpvCtx)
   const cobrar = useMutation({
     mutationFn: ({ metodo, propina }: { metodo: 'cash' | 'tarjeta'; propina: number }) =>
       api.comandas.cerrar(comanda.id, metodo, propina),
@@ -3415,6 +3585,7 @@ function CobroSheet({ comanda, onClose, onDone }: { comanda: Comanda; onClose: (
       queryClient.invalidateQueries({ queryKey: ['comandas-sala'] })
       onDone?.()
       onClose()
+      terminarTpv?.()
     },
   })
 
@@ -4340,7 +4511,11 @@ function EncargadoPanel({
 }
 
 // ── Página principal camarero ─────────────────────────────────────────────────
-export default function SalaMesasPage() {
+// tpv = puesto TPV (/tpv/mesas): tablet compartida del local. Mismo funcionamiento y mismos permisos
+// que el PAD (los da el PIN: camarero o encargado), pero el PIN vale para una sola acción: tras el
+// Oído, tras un cobro o tras un minuto sin tocar la pantalla, vuelve al PIN para el siguiente.
+const TPV_INACTIVIDAD_MS = 60_000
+export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
   const navigate   = useNavigate()
   const queryClient = useQueryClient()
 
@@ -4356,12 +4531,29 @@ export default function SalaMesasPage() {
   // independiente de puedeEncargado que es un concepto del planning)
   const esEncargado = camarero?.rol === 'encargado' || camarero?.accesoEncargadoApp === true
   const enLocal = useSalaEnModoLocal()
+  const pantallaPin = tpv ? '/tpv' : '/sala'
+  const salir = () => { sessionStorage.removeItem('oidoops_camarero'); navigate(pantallaPin, { replace: true }) }
+  // TPV: la viñeta de "hecho" y de vuelta al PIN
+  const terminarTpv = () => {
+    setAnimFacturada(true)
+    setTimeout(salir, 1500)
+  }
+
+  // TPV: un minuto sin tocar la pantalla = vuelve al PIN (lo que quedó sin mandar sigue en la mesa)
+  useEffect(() => {
+    if (!tpv) return
+    let timer = setTimeout(salir, TPV_INACTIVIDAD_MS)
+    const tocar = () => { clearTimeout(timer); timer = setTimeout(salir, TPV_INACTIVIDAD_MS) }
+    window.addEventListener('pointerdown', tocar)
+    window.addEventListener('keydown', tocar)
+    return () => { clearTimeout(timer); window.removeEventListener('pointerdown', tocar); window.removeEventListener('keydown', tocar) }
+  }, [tpv])
 
   useRestaurantEvents(restaurant?.id ?? null)
 
   useEffect(() => {
-    if (!restaurant) navigate('/sala/setup', { replace: true })
-    else if (!camarero) navigate('/sala', { replace: true })
+    if (!restaurant) navigate(tpv ? '/sala/setup?volver=/tpv' : '/sala/setup', { replace: true })
+    else if (!camarero) navigate(pantallaPin, { replace: true })
   }, [])
 
   const [planId, setPlanId]               = useState<number | null>(null)
@@ -4472,7 +4664,8 @@ export default function SalaMesasPage() {
       if (!silent) {
         setComandaAbierta(null)
         setView('mapa')
-        // Comandada exitosa → viñeta OidoOps central con la tilde animada
+        // Comandada exitosa → viñeta OidoOps central con la tilde animada (en el TPV, y vuelta al PIN)
+        if (tpv) { terminarTpv(); return }
         setAnimFacturada(true)
         setTimeout(() => setAnimFacturada(false), 1800)
       }
@@ -4546,7 +4739,7 @@ export default function SalaMesasPage() {
               📅 Reservas y ⭐ reviews
             </button>
           )}
-          <button onClick={() => { sessionStorage.removeItem('oidoops_camarero'); navigate('/sala', { replace: true }) }}
+          <button onClick={salir}
             className="w-full py-3 text-[var(--sala-tx3)] text-sm font-semibold">
             Salir
           </button>
@@ -4607,12 +4800,14 @@ export default function SalaMesasPage() {
         ) : (
           <p className="text-[var(--sala-tx3)] text-sm">El encargado debe abrir el turno desde el panel de sala antes de que puedas usar las mesas.</p>
         )}
+        {tpv && <button onClick={salir} className="mt-8 py-3 px-6 text-[var(--sala-tx3)] text-sm font-semibold">Salir</button>}
       </div>
     )
   }
 
   return (
     <ThemeCtx.Provider value={isDark}>
+    <TpvCtx.Provider value={tpv ? terminarTpv : null}>
     <div data-sala-theme={isDark ? 'dark' : 'light'} className="flex flex-col h-screen bg-[var(--sala-bg)]">
       {/* Header */}
       <div className="bg-[var(--sala-hdr)] border-b border-[var(--sala-brd)] px-3 py-1.5">
@@ -4652,9 +4847,12 @@ export default function SalaMesasPage() {
                 </svg>
               </button>
             )}
-            <button onClick={() => { sessionStorage.removeItem('oidoops_camarero'); navigate('/sala', { replace: true }) }}
+            {/* En el TPV, "Salir" bien visible: devuelve la tablet al PIN para el siguiente */}
+            <button onClick={salir}
               aria-label="Salir" title="Salir (cerrar sesión)"
-              className="text-[var(--sala-tx3)] hover:text-red-400 transition-colors active:scale-90">
+              className={`text-[var(--sala-tx3)] hover:text-red-400 transition-colors active:scale-90 ${tpv
+                ? 'flex items-center gap-2 h-12 px-4 rounded-xl bg-[var(--sala-btn2)] text-[var(--sala-txt)] font-black text-sm uppercase' : ''}`}>
+              {tpv && <span>Salir</span>}
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
                 <polyline points="16 17 21 12 16 7" />
@@ -4879,7 +5077,7 @@ export default function SalaMesasPage() {
           onLiberar={() => liberarMesa.mutate(comandaAbierta)}
           onCambiarMesa={comandaDetalle.estado !== 'facturada' ? () => setShowMoverMesa(true) : undefined}
           onFacturar={() => { setAnimFacturada(true); setTimeout(() => setAnimFacturada(false), 1800) }}
-          esEncargado={esEncargado} />
+          esEncargado={esEncargado} ancho={tpv} />
       )}
 
       {animFacturada && <CheckOverlay />}
@@ -4930,6 +5128,7 @@ export default function SalaMesasPage() {
         />
       )}
     </div>
+    </TpvCtx.Provider>
     </ThemeCtx.Provider>
   )
 }

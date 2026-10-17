@@ -1,0 +1,14 @@
+{
+  "id": "/tpv",
+  "name": "OidoOps TPV",
+  "short_name": "TPV",
+  "start_url": "/tpv",
+  "scope": "/tpv",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#111827",
+  "theme_color": "#111827",
+  "icons": [
+    { "src": "/icon-tpv.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

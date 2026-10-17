@@ -61,6 +61,12 @@ export default function AccesosPage() {
           ruta="/sala"
           nota="Si el local tiene activado «solo desde el local», fuera de su red solo se puede consultar la wiki, la carta y las propinas."
         />
+        <Acceso
+          titulo="Puesto TPV (tablet del local)"
+          para="Una tablet compartida para comandar y cobrar cuando fallan los PADs. Cada uno pone su PIN; el encargado ve además lo suyo."
+          ruta="/tpv"
+          nota="Vuelve al PIN después de cada Oído o cobro, y tras un minuto sin tocarla. Mejor en horizontal."
+        />
         <Acceso titulo="Panel de administración" para="Carta, salón, personal, turnos, facturas. Con el PIN del panel." ruta="/admin" />
         <Acceso titulo="Pulso" para="La facturación en vivo de todos los locales, para el dueño. Con el PIN de Pulso." ruta="/pulso" />
         {restaurantes.map((r, i) => {

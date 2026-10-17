@@ -1,13 +1,12 @@
 import { Comanda, ComandaItem } from '../../api'
+// Como en papel (printer-server → printer.py): el nivel en palabras, para no confundirlo con la cantidad
+import { nombreNivel } from '../NivelEtiqueta'
 
 function fmtHora(iso: string | null) {
   if (!iso) return ''
   return new Date(iso).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
 }
 
-// Como en papel (printer-server → printer.py): el nivel en palabras, para no confundirlo con la cantidad
-const NIVELES = ['PRIMEROS', 'SEGUNDOS', 'TERCEROS', 'CUARTOS', 'QUINTOS', 'SEXTOS', 'SÉPTIMOS', 'OCTAVOS', 'NOVENOS', 'DÉCIMOS']
-const nombreNivel = (n: number) => NIVELES[n - 1] ?? `NIVEL ${n}`
 
 // Como en papel: cantidad en columna fija y la nota alineada con el nombre del plato
 function ItemLine({ item }: { item: ComandaItem }) {

@@ -68,6 +68,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             <Route path="/sala/setup" element={<SetupPage />} />
             <Route path="/sala" element={<SalaLoginPage />} />
             <Route path="/sala/mesas" element={<SalaMesasPage />} />
+            {/* Puesto TPV: tablet compartida del local, el PIN vale para una acción */}
+            <Route path="/tpv" element={<SalaLoginPage tpv />} />
+            <Route path="/tpv/mesas" element={<SalaMesasPage tpv />} />
           </Route>
           <Route path="/retiro" element={<RetiroPage />} />
           <Route path="/verificar/:id" element={<VerificarPage />} />

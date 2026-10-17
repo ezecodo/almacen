@@ -70,6 +70,14 @@
   100% { opacity: 0; transform: scale(0.9); }
 }
 
+/* Aviso "añadido" del panel de la mesa: entra desde la derecha, queda y se va (no bloquea toques) */
+@keyframes avisoAnadido {
+  0%   { opacity: 0; transform: translateX(16px); }
+  12%  { opacity: 1; transform: translateX(0); }
+  75%  { opacity: 1; transform: translateX(0); }
+  100% { opacity: 0; transform: translateY(-6px); }
+}
+
 @keyframes animate-shake {
   0%, 100% { transform: translateX(0); }
   20%       { transform: translateX(-8px); }
