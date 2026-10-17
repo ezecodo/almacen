@@ -86,18 +86,23 @@ export async function comandaRoutes(app: FastifyInstance) {
 
   // Comandas abiertas de un restaurante (para ver estado del salón)
   app.get('/comandas', async (req, reply) => {
-    const { restaurantId, estado } = req.query as { restaurantId?: string; estado?: string }
+    const { restaurantId, estado, desde } = req.query as { restaurantId?: string; estado?: string; desde?: string }
     if (!restaurantId) return reply.status(400).send({ error: 'restaurantId requerido' })
 
     // Por defecto devuelve abierta + enviada (mesa ocupada)
     const estadoFilter = estado
       ? { estado }
       : { estado: { in: ['abierta', 'enviada', 'facturada'] } }
+    // desde (ISO): solo las cerradas a partir de ese momento (las cobradas del turno en el panel del
+    // encargado del TPV; sin él, estado=cerrada traería toda la historia)
+    const fechaDesde = desde ? new Date(desde) : null
+    const desdeFilter = fechaDesde && !isNaN(fechaDesde.getTime()) ? { closedAt: { gte: fechaDesde } } : {}
 
     return prisma.comanda.findMany({
       where: {
         restaurantId: Number(restaurantId),
         ...estadoFilter,
+        ...desdeFilter,
       },
       include: {
         items: true,

@@ -116,6 +116,15 @@ function nivelesPropuestos(items: ComandaItem[], menu: MenuItem[], categorias: M
   return r
 }
 
+// Colores de cada estado de mesa, los mismos que el mapa (MesaBtn): libre verde, abierta verde agua
+// sobre azul, comandada morado, cuenta impresa verde con borde ámbar. Los usa el panel del encargado.
+function coloresMesa(estado: 'libre' | Comanda['estado'], isDark: boolean) {
+  if (estado === 'enviada') return { bg: isDark ? '#2d1a3a' : '#f3e8ff', borde: '#a855f7', texto: isDark ? '#c084fc' : '#9333ea' }
+  if (estado === 'abierta') return { bg: isDark ? '#0f2240' : '#dbeafe', borde: '#4CC8A0', texto: isDark ? '#4CC8A0' : '#0d9488' }
+  if (estado === 'facturada') return { bg: isDark ? '#1a3828' : '#dcfce7', borde: '#f59e0b', texto: '#d97706' }
+  return { bg: isDark ? '#1a3828' : '#dcfce7', borde: '#22c55e', texto: '#16a34a' } // libre, liberada, cerrada
+}
+
 // ── Mesa visual ───────────────────────────────────────────────────────────────
 function MesaBtn({ mesa, comanda, onClick }: { mesa: Mesa; comanda?: Comanda; onClick: () => void }) {
   const isDark = useContext(ThemeCtx)
@@ -1013,6 +1022,26 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
     for (const id of ids) next[id] = Math.max(1, (propuestosTpv[id] ?? 1) + dir)
     return next
   })
+
+  // TPV: Bloq Num (en Mac, "Clear") o Esc salen de la mesa, como la ✕ (con platos sin comandar
+  // pregunta Descartar / Comandar). Si hay otra ventana abierta dentro de la mesa no hace nada, y
+  // si está abierto el teclado de búsqueda, primero lo cierra.
+  const teclaSalir = useRef<(e: KeyboardEvent) => void>(() => {})
+  teclaSalir.current = e => {
+    if (!ancho) return
+    if (!(e.key === 'Escape' || e.code === 'NumLock' || e.key === 'NumLock' || e.key === 'Clear')) return
+    if (confirmarCerrar) { e.preventDefault(); setConfirmarCerrar(false); return }
+    if (tecladoTpv) { e.preventDefault(); setTecladoTpv(false); setSearchMenu(''); return }
+    if (ordenando || ordenarFull || verCuenta || mermaItem || notaNueva || mixerPick || verVinos || showCobro || nota) return
+    e.preventDefault()
+    if (itemsNuevos.length > 0) setConfirmarCerrar(true)
+    else onClose()
+  }
+  useEffect(() => {
+    const escuchar = (e: KeyboardEvent) => teclaSalir.current(e)
+    window.addEventListener('keydown', escuchar)
+    return () => window.removeEventListener('keydown', escuchar)
+  }, [])
 
   const handleOido = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -4082,6 +4111,7 @@ function EncargadoPanel({
   onClose,
   onAbrirComanda,
   soloConsulta = false,
+  tabInicial,
 }: {
   restaurant: { id: number; nombre: string }
   camarero: { id?: number; nombre: string }
@@ -4090,10 +4120,12 @@ function EncargadoPanel({
   onAbrirComanda?: (comandaId: number) => void
   // Fuera del local: solo lo que se puede mirar desde cualquier lado (reviews y reservas)
   soloConsulta?: boolean
+  // Panel del TPV: abrir directamente en una pestaña (los accesos rápidos)
+  tabInicial?: TabEncargado
 }) {
   const queryClient = useQueryClient()
   const rid = restaurant.id
-  const [tab, setTab] = useState<'cobros' | 'turno' | 'agotados' | 'checklists' | 'mermas' | 'reviews' | 'reservas' | 'facturas' | 'gastos'>(soloConsulta ? 'reservas' : 'cobros')
+  const [tab, setTab] = useState<TabEncargado>(tabInicial ?? (soloConsulta ? 'reservas' : 'cobros'))
   const { data: agotados = [] } = useQuery({
     queryKey: ['agotados', restaurant.id],
     queryFn: () => api.agotados.list(restaurant.id),
@@ -4788,6 +4820,213 @@ function EncargadoPanel({
   )
 }
 
+type TabEncargado = 'cobros' | 'turno' | 'agotados' | 'checklists' | 'mermas' | 'reviews' | 'reservas' | 'facturas' | 'gastos'
+
+// ── Panel del encargado en el puesto TPV ─────────────────────────────────────
+// Lo primero que ve un encargado en la tablet (el camarero va al mapa): todas las mesas en
+// tarjetas, ordenadas por urgencia (por cobrar → en servicio, la que más lleva arriba → sin
+// comandar), con sus horas, total y avisos; y a la derecha los accesos a las pestañas del 💼.
+// Todo sale de lo que la sala ya recibe; se actualiza solo por SSE como el mapa.
+const ACCESOS_ENCARGADO: { tab: TabEncargado; icono: string; nombre: string }[] = [
+  { tab: 'cobros', icono: '💶', nombre: 'Cobros' }, { tab: 'turno', icono: '⏱', nombre: 'Turno' },
+  { tab: 'gastos', icono: '🥖', nombre: 'Gastos' }, { tab: 'agotados', icono: '🚫', nombre: 'Agotados' },
+  { tab: 'mermas', icono: '🗑', nombre: 'Mermas' }, { tab: 'reservas', icono: '📅', nombre: 'Reservas' },
+  { tab: 'reviews', icono: '⭐', nombre: 'Reviews' }, { tab: 'checklists', icono: '✅', nombre: 'Checklists' },
+  { tab: 'facturas', icono: '🧾', nombre: 'Facturas' },
+]
+function PanelEncargadoTpv({ restaurantId, comandas, turnoActivo, onAbrirMesa, onCobrar, onAcceso }: {
+  restaurantId: number
+  comandas: Comanda[]
+  turnoActivo: Turno | null
+  onAbrirMesa: (comandaId: number) => void
+  onCobrar: (comanda: Comanda) => void
+  onAcceso: (tab: TabEncargado) => void
+}) {
+  const isDark = useContext(ThemeCtx)
+  // La lista normal no trae las liberadas (mesa ya libre, cuenta sin cobrar)
+  const { data: liberadas = [] } = useQuery({
+    queryKey: ['enc-cobros', restaurantId, 'liberada'],
+    queryFn: () => api.comandas.list(restaurantId, 'liberada'),
+    refetchInterval: 15_000,
+  })
+  const hoy = new Date()
+  const hoyStr = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`
+  const { data: mermasHoy } = useQuery({
+    queryKey: ['enc-mermas', restaurantId, hoyStr],
+    queryFn: () => api.mermas.list(restaurantId, hoyStr, hoyStr),
+    refetchInterval: 60_000,
+  })
+  const totalMermas = (mermasHoy?.mermas ?? []).reduce((s, m) => s + (m.precio ?? 0) * m.cantidad, 0)
+  // Cobradas en este turno (por si hay que revisar algo); la clave empieza por 'enc-cobros' para que
+  // un cobro la refresque al momento
+  const { data: cobradas = [] } = useQuery({
+    queryKey: ['enc-cobros', restaurantId, 'cerrada', turnoActivo?.id],
+    queryFn: () => api.comandas.list(restaurantId, 'cerrada', turnoActivo!.aperturaAt),
+    enabled: !!turnoActivo,
+    refetchInterval: 30_000,
+  })
+  const cobradasOrden = [...cobradas].sort((a, b) => new Date(b.closedAt ?? 0).getTime() - new Date(a.closedAt ?? 0).getTime())
+  const cobradoEfectivo = cobradas.filter(c => c.metodoPago === 'cash').reduce((s, c) => s + totalComanda(c.items), 0)
+  const cobradoTarjeta = cobradas.filter(c => c.metodoPago === 'tarjeta').reduce((s, c) => s + totalComanda(c.items), 0)
+  const [verCobrada, setVerCobrada] = useState<Comanda | null>(null)
+
+  const porCobrar = [...comandas.filter(c => c.estado === 'facturada'), ...liberadas]
+    .filter(c => c.items.length > 0)
+  // En servicio = ya se mandó algo a cocina o barra (aunque luego le añadieran platos y siga "abierta")
+  const yaComandada = (c: Comanda) => c.items.some(i => i.nivel != null && !i.autoGenerado)
+  const enServicio = comandas.filter(c => c.estado !== 'facturada' && yaComandada(c))
+    .sort((a, b) => new Date(a.enviadaAt ?? a.createdAt).getTime() - new Date(b.enviadaAt ?? b.createdAt).getTime())
+  const sinComandar = comandas.filter(c => c.estado !== 'facturada' && !yaComandada(c))
+  const sumar = (lista: Comanda[]) => lista.reduce((s, c) => s + totalComanda(c.items), 0)
+  const eur = (n: number) => `${n.toFixed(2)} €`
+
+  const tarjeta = (c: Comanda) => {
+    const cobrar = c.estado === 'facturada' || c.estado === 'liberada'
+    const sinMandar = c.items.filter(i => i.nivel == null && !i.autoGenerado).length
+    const invitaciones = c.items.filter(i => i.invitacion).length
+    const platos = c.items.filter(i => !i.autoGenerado).reduce((s, i) => s + i.cantidad, 0)
+    // Mismo color que la mesa en el mapa
+    const col = coloresMesa(c.estado, isDark)
+    return (
+      <div key={c.id} onClick={() => onAbrirMesa(c.id)}
+        style={{ background: col.bg, borderColor: c.cuentaDesactualizada ? '#ef4444' : col.borde }}
+        className="rounded-md p-3 flex flex-col gap-1.5 cursor-pointer active:scale-[0.98] transition-transform border-2">
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-2xl font-black" style={{ color: col.texto }}>Mesa {c.mesa.numero}</span>
+          <span className="text-[var(--sala-txt)] text-lg font-black tabular-nums">{eur(totalComanda(c.items))}</span>
+        </div>
+        <p className="text-[var(--sala-tx2)] text-xs">
+          {c.pax} pax{c.camareroNombre ? ` · ${c.camareroNombre.split(' ')[0]}` : ''} · {platos} platos
+        </p>
+        <p className="text-[var(--sala-tx2)] text-xs tabular-nums">
+          abierta {fmtHora(c.createdAt)}{c.enviadaAt ? ` · 1ª comanda ${fmtHora(c.enviadaAt)}` : ''} · <b className="text-[var(--sala-txt)]">{transcurrido(c.enviadaAt ?? c.createdAt)}</b>
+        </p>
+        <div className="flex flex-wrap gap-1 text-[11px] font-bold">
+          {c.estado === 'facturada' && <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-600">🧾 Cuenta impresa</span>}
+          {c.estado === 'liberada' && <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-600">🔓 Mesa libre · sin cobrar</span>}
+          {c.cuentaDesactualizada && <span className="px-1.5 py-0.5 rounded bg-red-500/20 text-red-500">⚠️ La cuenta cambió</span>}
+          {sinMandar > 0 && <span className="px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-600">✋ {sinMandar} sin comandar</span>}
+          {c.mermas.length > 0 && <span className="px-1.5 py-0.5 rounded bg-[var(--sala-btn2)] text-[var(--sala-tx2)]">🗑 {c.mermas.length} merma{c.mermas.length > 1 ? 's' : ''}</span>}
+          {invitaciones > 0 && <span className="px-1.5 py-0.5 rounded bg-[var(--sala-btn2)] text-[var(--sala-tx2)]">🎁 {invitaciones}</span>}
+          {c.noComparten && <span className="px-1.5 py-0.5 rounded bg-[var(--sala-btn2)] text-[var(--sala-tx2)]">🍽 No comparten</span>}
+        </div>
+        {cobrar && (
+          c.cuentaDesactualizada
+            ? <button onClick={e => { e.stopPropagation(); onAbrirMesa(c.id) }}
+                className="mt-1 py-2.5 rounded-xl border-2 border-red-500 text-red-500 text-sm font-black active:scale-95">🧾 Reimprimir cuenta</button>
+            : <button onClick={e => { e.stopPropagation(); onCobrar(c) }}
+                className="mt-1 py-2.5 rounded-xl bg-amber-500 text-black text-sm font-black active:scale-95">💶 Cobrar</button>
+        )}
+      </div>
+    )
+  }
+  const tarjetaCobrada = (c: Comanda) => (
+    <div key={c.id} onClick={() => setVerCobrada(c)}
+      style={{ background: coloresMesa('cerrada', isDark).bg, borderColor: coloresMesa('cerrada', isDark).borde }}
+      className="rounded-md p-3 flex flex-col gap-1 cursor-pointer active:scale-[0.98] transition-transform opacity-70 border-2 hover:opacity-100">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-xl font-black" style={{ color: coloresMesa('cerrada', isDark).texto }}>Mesa {c.mesa.numero}</span>
+        <span className="text-[var(--sala-txt)] text-lg font-black tabular-nums">{eur(totalComanda(c.items))}</span>
+      </div>
+      <p className="text-[var(--sala-tx2)] text-xs tabular-nums">
+        ✅ cobrada {c.closedAt ? fmtHora(c.closedAt) : ''} · {c.metodoPago === 'cash' ? '💶 efectivo' : '💳 tarjeta'}{c.propina > 0 ? ` · propina ${eur(c.propina)}` : ''}
+      </p>
+      <p className="text-[var(--sala-tx3)] text-xs">{c.pax} pax{c.camareroNombre ? ` · ${c.camareroNombre.split(' ')[0]}` : ''}{c.mermas.length ? ` · 🗑 ${c.mermas.length}` : ''}</p>
+    </div>
+  )
+  const seccion = (titulo: string, lista: Comanda[]) => lista.length > 0 && (
+    <div>
+      <NivelEtiqueta titulo={`${titulo} · ${lista.length}`} />
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-2.5">{lista.map(tarjeta)}</div>
+    </div>
+  )
+
+  const cifra = (etiqueta: string, valor: string, color = 'text-[var(--sala-txt)]') => (
+    <div className="flex-1 min-w-0 rounded-xl bg-[var(--sala-srf)] px-3 py-2">
+      <p className="text-[var(--sala-tx3)] text-[11px] font-bold uppercase tracking-wide truncate">{etiqueta}</p>
+      <p className={`text-xl font-black tabular-nums truncate ${color}`}>{valor}</p>
+    </div>
+  )
+
+  return (
+    <div className="flex-1 min-h-0 grid grid-cols-[minmax(0,1fr)_15rem]">
+      <div className="flex flex-col min-h-0">
+        <div className="flex gap-2 p-3 border-b border-[var(--sala-brd)]">
+          {cifra('Turno', turnoActivo ? `desde ${fmtHora(turnoActivo.aperturaAt)}` : 'sin abrir')}
+          {cifra('Cobrado', eur(cobradoEfectivo + cobradoTarjeta), 'text-[#1f9e78]')}
+          {cifra('Mesas abiertas', String(comandas.length))}
+          {cifra('Por cobrar', `${porCobrar.length} · ${eur(sumar(porCobrar))}`, porCobrar.length ? 'text-amber-500' : undefined)}
+          {cifra('En mesas ahora', eur(sumar([...comandas, ...liberadas])))}
+          {cifra('Mermas hoy', eur(totalMermas), totalMermas ? 'text-red-500' : undefined)}
+        </div>
+        <div className="flex-1 overflow-y-auto p-3 space-y-5">
+          {seccion('💶 Por cobrar', porCobrar)}
+          {seccion('🍽 En servicio', enServicio)}
+          {seccion('✋ Abiertas sin comandar', sinComandar)}
+          {comandas.length === 0 && porCobrar.length === 0 && (
+            <p className="text-center text-[var(--sala-tx4)] text-lg py-10">No hay mesas abiertas</p>
+          )}
+          {cobradasOrden.length > 0 && (
+            <div>
+              <NivelEtiqueta titulo={`✅ Cobradas en este turno · ${cobradasOrden.length}`}>
+                <span className="text-[var(--sala-tx3)] text-xs font-bold shrink-0 tabular-nums">💶 {eur(cobradoEfectivo)} · 💳 {eur(cobradoTarjeta)}</span>
+              </NivelEtiqueta>
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-2.5">{cobradasOrden.map(tarjetaCobrada)}</div>
+            </div>
+          )}
+        </div>
+      </div>
+      {verCobrada && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-6" onClick={() => setVerCobrada(null)}>
+          <div className="w-full max-w-md max-h-[85vh] flex flex-col bg-[var(--sala-hdr)] rounded-2xl shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="p-5 border-b border-[var(--sala-brd)] flex items-start justify-between">
+              <div>
+                <p className="text-[var(--sala-tx3)] text-xs font-bold uppercase">✅ Cobrada {verCobrada.closedAt ? fmtHora(verCobrada.closedAt) : ''}</p>
+                <h3 className="text-[var(--sala-txt)] text-2xl font-black">Mesa {verCobrada.mesa.numero}</h3>
+                <p className="text-[var(--sala-tx2)] text-sm">{verCobrada.pax} pax{verCobrada.camareroNombre ? ` · ${verCobrada.camareroNombre}` : ''} · abierta {fmtHora(verCobrada.createdAt)}</p>
+              </div>
+              <button onClick={() => setVerCobrada(null)} aria-label="Cerrar" className="text-[var(--sala-tx3)] text-2xl">✕</button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5 space-y-1.5">
+              {verCobrada.items.map(i => (
+                <div key={i.id} className="flex items-baseline gap-2 text-sm">
+                  <span className="w-7 text-right font-black text-[var(--sala-txt)] tabular-nums">{i.cantidad}</span>
+                  <span className="flex-1 text-[var(--sala-txt)]">{i.nombre}{i.invitacion ? ' 🎁' : ''}</span>
+                  <span className="text-[var(--sala-tx2)] tabular-nums">{eur(valorItem(i))}</span>
+                </div>
+              ))}
+              {verCobrada.mermas.length > 0 && (
+                <div className="pt-3">
+                  <p className="text-[var(--sala-tx3)] text-xs font-bold uppercase mb-1">🗑 Mermas</p>
+                  {verCobrada.mermas.map(m => (
+                    <p key={m.id} className="text-sm text-[var(--sala-tx2)]">{m.cantidad} × {m.itemNombre} · {MOTIVO_MERMA_LABEL[m.motivo] ?? m.motivo}{m.camareroNombre ? ` · ${m.camareroNombre}` : ''}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="p-5 border-t border-[var(--sala-brd)] space-y-1">
+              <div className="flex justify-between text-[var(--sala-txt)] text-xl font-black"><span>Total</span><span className="tabular-nums">{eur(totalComanda(verCobrada.items))}</span></div>
+              <p className="text-[var(--sala-tx2)] text-sm">{verCobrada.metodoPago === 'cash' ? '💶 Efectivo' : '💳 Tarjeta'}{verCobrada.propina > 0 ? ` · propina ${eur(verCobrada.propina)}` : ''}</p>
+            </div>
+          </div>
+        </div>
+      )}
+      <div className="border-l border-[var(--sala-brd)] p-3 overflow-y-auto space-y-2">
+        <p className="text-[var(--sala-tx3)] text-[11px] font-black uppercase tracking-wide px-1">Accesos rápidos</p>
+        {ACCESOS_ENCARGADO.map(a => (
+          <button key={a.tab} onClick={() => onAcceso(a.tab)}
+            className="w-full h-14 rounded-xl bg-[var(--sala-srf)] text-[var(--sala-txt)] text-base font-black flex items-center gap-3 px-4 active:scale-95 transition-transform">
+            <span className="text-xl">{a.icono}</span>{a.nombre}
+            {a.tab === 'cobros' && porCobrar.length > 0 && (
+              <span className="ml-auto min-w-7 h-7 px-2 rounded-full bg-amber-500 text-black text-sm flex items-center justify-center">{porCobrar.length}</span>
+            )}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── Página principal camarero ─────────────────────────────────────────────────
 // tpv = puesto TPV (/tpv/mesas): tablet compartida del local. Mismo funcionamiento y mismos permisos
 // que el PAD (los da el PIN: camarero o encargado), pero el PIN vale para una sola acción: tras el
@@ -4837,7 +5076,10 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
   const [planId, setPlanId]               = useState<number | null>(null)
   const [abrirMesa, setAbrirMesa]         = useState<Mesa | null>(null)
   const [comandaAbierta, setComandaAbierta] = useState<number | null>(null)
-  const [view, setView] = useState<'mapa' | 'mesas' | 'nueva'>('mapa')
+  // En el TPV el encargado entra al panel de mesas; el camarero, al mapa
+  const [view, setView] = useState<'mapa' | 'mesas' | 'nueva' | 'panel'>(tpv && esEncargado ? 'panel' : 'mapa')
+  const [tabEncargado, setTabEncargado] = useState<TabEncargado | undefined>(undefined)
+  const [cobroPanel, setCobroPanel] = useState<Comanda | null>(null)
   const [showPerfil, setShowPerfil]       = useState(false)
   const [showMoverMesa, setShowMoverMesa] = useState(false)
   const [animFacturada, setAnimFacturada] = useState(false)
@@ -4983,6 +5225,58 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
   const todasLasMesas = planes?.flatMap(p => p.mesas.map(m => ({ ...m, planNombre: p.nombre }))) ?? []
   const mesasLibres   = todasLasMesas.filter(m => !comandaByMesa(m.id))
 
+  // TPV: abrir una mesa tecleando (teclado físico o numérico Bluetooth). Con alguien logueado y sin
+  // ninguna ventana abierta: se teclea el número de mesa y Enter; si está ocupada se abre, si está
+  // libre pide los PAX y Enter. Lo tecleado se ve en el visor de abajo. ⌫ borra, Esc cancela.
+  const [atajo, setAtajo] = useState<{ paso: 'mesa' | 'pax'; mesa: string; pax: string; mesaId?: number; error?: string } | null>(null)
+  const teclaAtajo = useRef<(e: KeyboardEvent) => void>(() => {})
+  teclaAtajo.current = e => {
+    const libreDeVentanas = !comandaAbierta && !abrirMesa && !menuGrupo && !showEncargado && !cobroPanel && !showPerfil
+      && !showMoverMesa && !showWiki && !showChecklist && !showProduccion
+    const enCampo = e.target instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)
+    if (!tpv || !libreDeVentanas || enCampo || !turnoActivo || fueraDelLocal) return
+    const digito = /^Numpad([0-9])$/.exec(e.code)?.[1] ?? (/^[0-9]$/.test(e.key) ? e.key : null)
+    if (digito) {
+      e.preventDefault()
+      setAtajo(a => {
+        const actual = a ?? { paso: 'mesa' as const, mesa: '', pax: '' }
+        const campo = actual.paso === 'mesa' ? 'mesa' : 'pax'
+        if (actual[campo].length >= (campo === 'mesa' ? 4 : 2)) return actual
+        return { ...actual, [campo]: actual[campo] + digito, error: undefined }
+      })
+      return
+    }
+    if (!atajo) return
+    if (e.key === 'Escape') { e.preventDefault(); setAtajo(null); return }
+    if (e.key === 'Backspace') {
+      e.preventDefault()
+      setAtajo(a => !a ? a
+        : a.paso === 'pax' ? (a.pax ? { ...a, pax: a.pax.slice(0, -1) } : { paso: 'mesa', mesa: a.mesa, pax: '' })
+        : a.mesa.length > 1 ? { ...a, mesa: a.mesa.slice(0, -1), error: undefined } : null)
+      return
+    }
+    if (e.key === 'Enter' || e.code === 'NumpadEnter') {
+      e.preventDefault()
+      if (atajo.paso === 'mesa') {
+        const mesa = todasLasMesas.find(m => String(m.numero) === atajo.mesa && m.tipo !== 'barra' && !isElemDeco(m.tipo))
+        if (!mesa) { setAtajo({ ...atajo, error: `La mesa ${atajo.mesa} no existe` }); return }
+        const comanda = comandaByMesa(mesa.id)
+        if (comanda) { setComandaAbierta(comanda.id); setAtajo(null); return }
+        setAtajo({ paso: 'pax', mesa: atajo.mesa, pax: '', mesaId: mesa.id })
+        return
+      }
+      const pax = Number(atajo.pax)
+      if (!pax) { setAtajo({ ...atajo, error: '¿Cuántos PAX?' }); return }
+      abrirComanda.mutate({ mesaId: atajo.mesaId!, pax })
+      setAtajo(null)
+    }
+  }
+  useEffect(() => {
+    const escuchar = (e: KeyboardEvent) => teclaAtajo.current(e)
+    window.addEventListener('keydown', escuchar)
+    return () => window.removeEventListener('keydown', escuchar)
+  }, [])
+
   const estadoBadge = (c: Comanda) => {
     if (c.estado === 'facturada') return { label: '🧾 Cuenta', color: 'text-amber-400 bg-amber-500/10' }
     if (c.estado === 'enviada')   return { label: '🚀 Enviada', color: 'text-purple-400 bg-purple-500/10' }
@@ -5085,7 +5379,8 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
 
   return (
     <ThemeCtx.Provider value={isDark}>
-    <TpvCtx.Provider value={tpv ? terminarTpv : null}>
+    {/* Tras cobrar vuelve al PIN, salvo el encargado, que suele encadenar varios cobros */}
+    <TpvCtx.Provider value={tpv && !esEncargado ? terminarTpv : null}>
     <div data-sala-theme={isDark ? 'dark' : 'light'} className="flex flex-col h-screen bg-[var(--sala-bg)]">
       {/* Header */}
       <div className="bg-[var(--sala-hdr)] border-b border-[var(--sala-brd)] px-3 py-1.5">
@@ -5113,7 +5408,7 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
             {/* Modo encargado (sin internet no hay nada de lo que tiene dentro) */}
             {esEncargado && !enLocal && (
               <button
-                onClick={() => setShowEncargado(true)}
+                onClick={() => { setTabEncargado(undefined); setShowEncargado(true) }}
                 aria-label="Modo encargado" title="Modo encargado: cobros, turno, checklists, mermas"
                 className="text-[var(--sala-tx3)] hover:text-[#4CC8A0] transition-colors active:scale-90"
               >
@@ -5140,6 +5435,14 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
           </div>
         {/* Vista tabs — botones cuadrados continuos */}
         <div className="order-1 flex items-center gap-1.5">
+          {/* TPV, encargado: su panel de mesas */}
+          {tpv && esEncargado && (
+            <button onClick={() => setView('panel')} aria-label="Panel" title="Panel del encargado"
+              className={`h-12 px-4 rounded-xl text-sm font-black uppercase inline-flex items-center gap-2 active:scale-95 transition-all ${
+                view === 'panel' ? 'bg-[var(--sala-btna)] text-[var(--sala-txt)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)]'}`}>
+              📊 Panel
+            </button>
+          )}
           {/* Plantas: siempre visibles, llevan al mapa de esa planta */}
           {planes && planes.map(p => {
             const lower = p.nombre.toLowerCase()
@@ -5210,6 +5513,15 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
           <span className="text-indigo-200 text-xs shrink-0">Asignar desde Grupos</span>
         </div>
       )}
+
+      {/* Vista: Panel del encargado (TPV) */}
+      {view === 'panel' && (
+        <PanelEncargadoTpv restaurantId={restaurant.id} comandas={comandas ?? []} turnoActivo={turnoActivo ?? null}
+          onAbrirMesa={id => setComandaAbierta(id)}
+          onCobrar={c => setCobroPanel(c)}
+          onAcceso={t => { setTabEncargado(t); setShowEncargado(true) }} />
+      )}
+      {cobroPanel && <CobroSheet comanda={cobroPanel} onClose={() => setCobroPanel(null)} />}
 
       {/* Vista: Mapa — escala bounding box para llenar ancho y alto */}
       {view === 'mapa' && (activePlan ? (
@@ -5362,6 +5674,28 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
 
       {animFacturada && <CheckOverlay />}
 
+      {/* Visor del atajo de teclado (TPV): estilo display de caja, dígitos verdes encendidos */}
+      {atajo && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none select-none">
+          <div className="rounded-xl px-8 py-4 shadow-2xl border-4 border-[#1f2937] min-w-[22rem]"
+            style={{ background: 'linear-gradient(180deg, #06140c, #0b1f14)', boxShadow: 'inset 0 2px 12px rgba(0,0,0,.8), 0 10px 30px rgba(0,0,0,.4)' }}>
+            <div className="flex items-baseline gap-5" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace", color: '#6dff9e', textShadow: '0 0 8px rgba(109,255,158,.75)' }}>
+              <span className="text-lg font-bold tracking-[0.3em] opacity-70">MESA</span>
+              <span className="text-6xl font-bold tabular-nums tracking-widest">{atajo.mesa || ' '}{atajo.paso === 'mesa' && <span className="animate-pulse">▌</span>}</span>
+              {atajo.paso === 'pax' && (
+                <>
+                  <span className="text-lg font-bold tracking-[0.3em] opacity-70 ml-4">PAX</span>
+                  <span className="text-6xl font-bold tabular-nums">{atajo.pax}<span className="animate-pulse">▌</span></span>
+                </>
+              )}
+            </div>
+            <p className="mt-2 text-sm font-bold tracking-wide" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace", color: atajo.error ? '#ff6b6b' : 'rgba(109,255,158,.55)' }}>
+              {atajo.error ?? (atajo.paso === 'mesa' ? '↵ abrir · ⌫ borrar · Esc cancelar' : 'Mesa libre: ¿cuántos PAX? ↵ abrir')}
+            </p>
+          </div>
+        </div>
+      )}
+
       {showMoverMesa && comandaDetalle && planes && (
         <MoverMesaModal
           comanda={comandaDetalle}
@@ -5405,6 +5739,7 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
           turnoActivo={turnoActivo ?? null}
           onClose={() => setShowEncargado(false)}
           onAbrirComanda={id => { setShowEncargado(false); setComandaAbierta(id) }}
+          tabInicial={tabEncargado}
         />
       )}
     </div>

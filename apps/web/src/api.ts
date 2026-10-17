@@ -1212,8 +1212,9 @@ export const api = {
     setActivo: (restaurantId: number, activo: boolean) => patch<{ restaurantId: number; activo: boolean }>('/reviews/activo', { restaurantId, activo }),
   },
   comandas: {
-    list:      (restaurantId: number, estado?: string) =>
-      get<Comanda[]>(`/comandas?restaurantId=${restaurantId}${estado ? `&estado=${estado}` : ''}`),
+    // desde (ISO): con estado=cerrada, solo las cobradas a partir de ese momento (las del turno)
+    list:      (restaurantId: number, estado?: string, desde?: string) =>
+      get<Comanda[]>(`/comandas?restaurantId=${restaurantId}${estado ? `&estado=${estado}` : ''}${desde ? `&desde=${encodeURIComponent(desde)}` : ''}`),
     abrir:     (restaurantId: number, mesaId: number, pax: number, camareroNombre?: string) =>
       post<Comanda>('/comandas', { restaurantId, mesaId, pax, camareroNombre }),
     get:       (id: number) => get<Comanda>(`/comandas/${id}`),
