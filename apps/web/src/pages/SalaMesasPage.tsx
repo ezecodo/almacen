@@ -3330,6 +3330,8 @@ function MenuGrupoSheet({
   pax,
   camareroNombre,
   menu,
+  categorias = [],
+  ancho = false,
   onClose,
   onDone,
 }: {
@@ -3338,6 +3340,9 @@ function MenuGrupoSheet({
   pax: number
   camareroNombre?: string
   menu: MenuItem[]
+  categorias?: MenuCategoria[]
+  // Puesto TPV (tablet): pantalla completa, los cursos a la izquierda y la carta a la derecha
+  ancho?: boolean
   onClose: () => void
   onDone: (comandaId: number) => void
 }) {
@@ -3385,6 +3390,12 @@ function MenuGrupoSheet({
   const overBudget = spent > budget
   const setQty = (nivel: number, nombre: string, delta: number) =>
     setQtys(prev => ({ ...prev, [k(nivel, nombre)]: Math.max(0, (prev[k(nivel, nombre)] ?? 0) + delta) }))
+  // Sumar un plato de la carta a un curso: si ya está en ese curso, una ración más
+  const anadirACurso = (nivel: number, nombre: string) => {
+    const nv = template?.niveles.find(n => n.nivel === nivel)
+    if (!platosDe(nivel, nv?.platos ?? []).includes(nombre)) setExtras(prev => [...prev, { nombre, nivel }])
+    setQty(nivel, nombre, +1)
+  }
 
   const generar = useMutation({
     mutationFn: () => api.grupoMenu.generar(template!.id, {
@@ -3397,6 +3408,17 @@ function MenuGrupoSheet({
     }),
     onSuccess: comanda => onDone(comanda.id),
   })
+
+  if (ancho) return (
+    <MenuGrupoTpv
+      mesa={mesa} pax={pax} menu={menu} categorias={categorias} templates={templates} template={template}
+      setTemplateId={setTemplateId} incluyePostre={incluyePostre} setPostre={setPostre}
+      nivelesFiltrados={nivelesFiltrados} platosDe={platosDe} qtys={qtys} k={k} setQty={setQty}
+      anadirACurso={anadirACurso} priceMap={priceMap} budget={budget} spent={spent} overBudget={overBudget}
+      generar={() => generar.mutate()} generando={generar.isPending} errorGenerar={generar.isError}
+      nadaElegido={todosPlatos.every(p => (qtys[k(p.nivel, p.nombre)] ?? 0) === 0)}
+      onClose={onClose} />
+  )
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
@@ -3534,6 +3556,184 @@ function MenuGrupoSheet({
             </button>
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+// ── Menú de grupo en el puesto TPV (tablet) ──────────────────────────────────
+// Misma lógica que MenuGrupoSheet (el estado vive allí), con sitio para armarlo a medida: los
+// cursos a la izquierda con filas grandes, y la carta de comida a la derecha para sumar platos al
+// curso elegido (vegetarianos, alergias, alguien que quiere algo más). Arriba, el presupuesto.
+function MenuGrupoTpv({ mesa, pax, menu, categorias, templates, template, setTemplateId, incluyePostre, setPostre,
+  nivelesFiltrados, platosDe, qtys, k, setQty, anadirACurso, priceMap, budget, spent, overBudget,
+  generar, generando, errorGenerar, nadaElegido, onClose }: {
+  mesa: Mesa; pax: number; menu: MenuItem[]; categorias: MenuCategoria[]
+  templates: GrupoMenuTemplate[]; template: GrupoMenuTemplate | null; setTemplateId: (id: number | null) => void
+  incluyePostre: boolean; setPostre: (v: boolean) => void
+  nivelesFiltrados: GrupoMenuTemplate['niveles']; platosDe: (nivel: number, platos: string[]) => string[]
+  qtys: Record<string, number>; k: (nivel: number, nombre: string) => string
+  setQty: (nivel: number, nombre: string, delta: number) => void; anadirACurso: (nivel: number, nombre: string) => void
+  priceMap: Record<string, number>; budget: number; spent: number; overBudget: boolean
+  generar: () => void; generando: boolean; errorGenerar: boolean; nadaElegido: boolean; onClose: () => void
+}) {
+  const [cursoDestino, setCursoDestino] = useState<number | null>(null)
+  const [catSel, setCatSel] = useState<string | null>(null)
+  const [busca, setBusca] = useState('')
+  const [teclado, setTeclado] = useState(false)
+  const destino = cursoDestino ?? nivelesFiltrados[0]?.nivel ?? null
+
+  // Carta de comida: categorías de primer nivel de los grupos que no son de barra (con sus subcategorías)
+  const padre = (c: MenuCategoria) => c.parentId ? categorias.find(x => x.id === c.parentId) : undefined
+  const catsComida = categorias
+    .filter(c => !c.parentId && !esGrupoBarra(c.grupo || ''))
+    .sort((a, b) => a.orden - b.orden)
+  const deCat = (nombre: string) => menu.filter(m => m.activo && !m.ocultoEnCarta && (m.categoria === nombre
+    || padre(categorias.find(c => c.nombre === m.categoria) ?? ({} as MenuCategoria))?.nombre === nombre))
+  const catsConPlatos = catsComida.filter(c => deCat(c.nombre).length > 0)
+  const cat = catsConPlatos.find(c => c.nombre === catSel) ?? catsConPlatos[0] ?? null
+  const q = normTxt(busca.trim())
+  const platosCarta = q
+    ? menu.filter(m => m.activo && !m.ocultoEnCarta && normTxt(m.nombre).includes(q))
+    : cat ? deCat(cat.nombre) : []
+
+  const marco = (hijos: React.ReactNode) => (
+    <div className="fixed inset-0 z-50 bg-[var(--sala-hdr)] flex flex-col">
+      <div className="px-5 py-3 border-b border-[var(--sala-brd)] flex items-center gap-4">
+        <div className="min-w-0">
+          <p className="text-[var(--sala-tx3)] text-xs font-semibold uppercase tracking-wider">🍽 Menú de grupo · Mesa {mesa.numero}</p>
+          <h2 className="text-[var(--sala-txt)] font-black text-2xl truncate">{pax} PAX{template ? ` · ${template.nombre}` : ''}</h2>
+        </div>
+        {template && (
+          <>
+            <button onClick={() => setTemplateId(null)} className="h-11 px-4 rounded-xl bg-[var(--sala-btn2)] text-[var(--sala-tx1)] text-sm font-bold shrink-0">← Cambiar menú</button>
+            <button onClick={() => setPostre(!incluyePostre)} role="switch" aria-checked={incluyePostre}
+              className={`h-11 px-4 rounded-xl text-sm font-black uppercase shrink-0 border-2 ${incluyePostre ? 'border-[#4CC8A0] bg-[#4CC8A0]/15 text-[var(--sala-txt)]' : 'border-transparent bg-[var(--sala-btn2)] text-[var(--sala-tx3)]'}`}>
+              🍰 {incluyePostre ? 'Con postre' : 'Sin postre'}
+            </button>
+            {/* Presupuesto: valor en carta de lo elegido frente al precio del menú × pax */}
+            <div className="flex-1 min-w-0">
+              <div className="flex justify-between text-sm font-black mb-1">
+                <span className={overBudget ? 'text-red-400' : 'text-[var(--sala-tx2)]'}>
+                  {overBudget ? '⚠️ Se pasa del menú' : 'Valor en carta'}: {spent.toFixed(2)} €
+                </span>
+                <span className="text-[var(--sala-tx2)]">Menú: {budget.toFixed(2)} €</span>
+              </div>
+              <div className="h-3 rounded-full bg-[var(--sala-btn2)] overflow-hidden">
+                <div className={`h-full transition-all ${overBudget ? 'bg-red-500' : 'bg-[#4CC8A0]'}`}
+                  style={{ width: `${Math.min(100, budget ? (spent / budget) * 100 : 0)}%` }} />
+              </div>
+            </div>
+          </>
+        )}
+        <button onClick={onClose} aria-label="Cerrar" className="ml-auto w-11 h-11 shrink-0 flex items-center justify-center text-[var(--sala-tx3)] text-2xl">✕</button>
+      </div>
+      {hijos}
+    </div>
+  )
+
+  // Paso 1: elegir el menú, en tarjetas grandes
+  if (!template) return marco(
+    <div className="flex-1 overflow-y-auto p-5">
+      {templates.length === 0 && <p className="text-center text-[var(--sala-tx4)] text-lg py-16">Este restaurante no tiene menús de grupo configurados</p>}
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-4">
+        {templates.map(t => (
+          <button key={t.id} onClick={() => setTemplateId(t.id)}
+            className="rounded-2xl p-5 bg-[var(--sala-srf)] text-left flex flex-col gap-2 min-h-40 active:scale-[0.98] transition-transform border-2 border-transparent hover:border-[#4CC8A0]">
+            <span className="text-[var(--sala-txt)] font-black text-2xl uppercase">{t.nombre}</span>
+            <span className="text-[var(--sala-tx3)] text-sm">{t.precio.toFixed(2)} €/pax · {t.niveles.length} cursos · 1 ración cada {t.paxPorRacion || 3} pax</span>
+            <span className="mt-auto text-[#4CC8A0] font-black text-3xl tabular-nums">{(t.precio * pax).toFixed(2)} €</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+
+  // Paso 2: cursos | carta
+  return marco(
+    <div className="flex-1 min-h-0 grid grid-cols-[minmax(0,1fr)_minmax(0,42%)]">
+      {/* Cursos */}
+      <div className="flex flex-col min-h-0">
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {nivelesFiltrados.map(nv => {
+            const esDestino = nv.nivel === destino
+            return (
+              <div key={nv.nivel} onClick={() => setCursoDestino(nv.nivel)}
+                className={`rounded-2xl p-3 border-2 transition-colors ${esDestino ? 'border-[#4CC8A0] bg-[#4CC8A0]/5' : 'border-transparent bg-[var(--sala-srf)]'}`}>
+                <NivelEtiqueta titulo={nv.nombre || nombreNivel(nv.nivel)}>
+                  {esDestino
+                    ? <span className="text-[#4CC8A0] text-xs font-black uppercase shrink-0">← aquí entra lo de la carta</span>
+                    : <span className="text-[var(--sala-tx4)] text-xs font-bold uppercase shrink-0">tocar para añadir aquí</span>}
+                </NivelEtiqueta>
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(17rem,1fr))] gap-2">
+                  {platosDe(nv.nivel, nv.platos ?? []).map(nombre => {
+                    const qty = qtys[k(nv.nivel, nombre)] ?? 0
+                    return (
+                      <div key={nombre} className={`flex items-center gap-2 rounded-xl px-3 py-2 bg-[var(--sala-bg)] ${qty === 0 ? 'opacity-45' : ''}`}>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[var(--sala-txt)] text-base font-black uppercase leading-tight">{nombre}</p>
+                          {priceMap[nombre] !== undefined && <p className="text-[var(--sala-tx3)] text-xs">{priceMap[nombre].toFixed(2)} € en carta</p>}
+                        </div>
+                        <button onClick={e => { e.stopPropagation(); setQty(nv.nivel, nombre, -1) }}
+                          className="w-12 h-12 rounded-xl bg-[var(--sala-btn)] text-[var(--sala-txt)] text-2xl font-black flex items-center justify-center active:scale-90">−</button>
+                        <span className="text-[var(--sala-txt)] font-black text-2xl w-8 text-center tabular-nums">{qty}</span>
+                        <button onClick={e => { e.stopPropagation(); setQty(nv.nivel, nombre, +1) }}
+                          className="w-12 h-12 rounded-xl bg-[var(--sala-btn)] text-[var(--sala-txt)] text-2xl font-black flex items-center justify-center active:scale-90">+</button>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        <div className="px-4 py-3 border-t border-[var(--sala-brd)]">
+          {errorGenerar && <p className="text-red-400 text-sm font-bold mb-2 text-center">No se pudo armar el menú — ¿la mesa ya tiene una comanda abierta?</p>}
+          <button onClick={generar} disabled={generando || overBudget || nadaElegido}
+            className="w-full py-4 rounded-2xl text-white font-black text-lg disabled:opacity-30 active:scale-95 transition-transform"
+            style={{ background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)' }}>
+            {generando ? 'Armando…' : overBudget ? '⚠️ Se pasa del precio del menú' : `🍽 Armar menú y enviar a cocina · ${budget.toFixed(2)} €`}
+          </button>
+        </div>
+      </div>
+
+      {/* Carta: se suma al curso marcado */}
+      <div className="flex flex-col min-h-0 border-l border-[var(--sala-brd)] bg-[var(--sala-bg)]">
+        <div className="p-3 space-y-2 border-b border-[var(--sala-brd)]">
+          <p className="text-[var(--sala-tx3)] text-xs font-black uppercase tracking-wide">
+            Añadir de la carta a <span className="text-[#4CC8A0]">{(() => { const nv = nivelesFiltrados.find(n => n.nivel === destino); return nv ? (nv.nombre || nombreNivel(nv.nivel)) : '—' })()}</span>
+          </p>
+          <input value={busca} onChange={e => setBusca(e.target.value)} inputMode="none" onPointerDown={() => setTeclado(true)}
+            placeholder="🔍 Buscar en la carta…"
+            className={`w-full bg-[var(--sala-btn2)] text-[var(--sala-txt)] text-lg font-bold uppercase px-4 py-3 rounded-xl outline-none placeholder:text-[var(--sala-tx4)] ${teclado ? 'ring-2 ring-[#4CC8A0]' : ''}`} />
+          {!q && !teclado && (
+            <div className="flex flex-wrap gap-2">
+              {catsConPlatos.map(c => (
+                <button key={c.id} onClick={() => setCatSel(c.nombre)}
+                  className={`h-11 px-3 rounded-xl text-xs font-black uppercase border-2 ${c.id === cat?.id ? 'border-[#4CC8A0] bg-[#4CC8A0]/15 text-[var(--sala-txt)]' : 'border-transparent bg-[var(--sala-srf)] text-[var(--sala-tx2)]'}`}>
+                  {c.icono ? <span className="mr-1">{c.icono}</span> : null}{c.nombre}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="flex-1 overflow-y-auto p-3">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-2">
+            {platosCarta.map(m => (
+              <button key={m.id} onClick={() => destino != null && anadirACurso(destino, m.nombre)}
+                className="aspect-[4/3] rounded-2xl p-2 bg-[var(--sala-srf)] flex flex-col items-center justify-center text-center gap-1 active:scale-95 transition-transform select-none">
+                <span className="text-[var(--sala-txt)] text-sm font-black uppercase leading-tight line-clamp-3 break-words">{m.nombre}</span>
+                <span className="text-[var(--sala-tx3)] text-xs font-bold tabular-nums">{m.precio.toFixed(2)} €</span>
+              </button>
+            ))}
+          </div>
+          {q && platosCarta.length === 0 && <p className="text-[var(--sala-tx4)] text-sm text-center py-8">Sin resultados</p>}
+        </div>
+        {teclado && <TecladoTpv
+          onTecla={t => setBusca(v => (v + t).replace(/^ +/, '').slice(0, 30))}
+          onBorrar={() => setBusca(v => v.slice(0, -1))}
+          onLimpiar={() => setBusca('')}
+          onCerrar={() => { setTeclado(false); setBusca('') }} />}
       </div>
     </div>
   )
@@ -5061,6 +5261,8 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
           pax={menuGrupo.pax}
           camareroNombre={camarero?.nombre}
           menu={menu ?? []}
+          categorias={menuCategorias}
+          ancho={tpv}
           onClose={() => setMenuGrupo(null)}
           onDone={comandaId => {
             setMenuGrupo(null)
