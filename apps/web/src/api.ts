@@ -334,6 +334,9 @@ export const totalComanda = (items: Pick<ComandaItem, 'precio' | 'cantidad' | 'i
 // Arranca con la ración base floor(pax/ratio) por plato y sube +1 a los platos más
 // baratos mientras el valor en carta no supere el presupuesto (precio del menú × pax).
 // Ej: 8 pax, menú 27 € (216 €), ratio 3 → base 2 de cada; los que quepan suben a 3.
+// Si ni la ración base de todos cabe (grupo pequeño, plantilla con muchos platos), elige:
+// primero un plato por curso y después va sumando, curso a curso y en el orden de la
+// plantilla, mientras quepa; el resto queda en 0 (a la vista, para subirlo a mano).
 export function sugerirCantidadesMenu(
   platos: Array<{ nombre: string; nivel: number }>,
   pax: number,
@@ -348,6 +351,36 @@ export function sugerirCantidadesMenu(
 
   const res = platos.map(p => ({ ...p, cantidad: lo }))
   let spent = res.reduce((s, p) => s + (precioCarta[p.nombre] ?? 0) * p.cantidad, 0)
+
+  if (spent > budget) {
+    for (const p of res) p.cantidad = 0
+    spent = 0
+    const cursos = [...new Set(res.map(p => p.nivel))].sort((a, b) => a - b)
+    const delCurso = (nivel: number) => res.filter(p => p.nivel === nivel)
+    // Pone el plato con `cant` raciones si cabe
+    const poner = (p: typeof res[number], cant: number) => {
+      const precio = precioCarta[p.nombre] ?? 0
+      if (spent + precio * cant > budget) return false
+      p.cantidad = cant; spent += precio * cant
+      return true
+    }
+    // Vueltas por los cursos con la ración base: en cada vuelta, el siguiente plato de cada curso que quepa
+    let alguno = true
+    while (alguno) {
+      alguno = false
+      for (const nivel of cursos) {
+        if (delCurso(nivel).find(p => p.cantidad === 0 && poner(p, lo))) alguno = true
+      }
+    }
+    // Ningún curso vacío: al que no le cupo nada, su plato que quepa con la mayor ración posible
+    for (const nivel of cursos) {
+      if (delCurso(nivel).some(p => p.cantidad > 0)) continue
+      for (let cant = lo - 1; cant >= 1; cant--) {
+        if (delCurso(nivel).find(p => poner(p, cant))) break
+      }
+    }
+    return res
+  }
 
   if (hi > lo) {
     // Subir a `hi` los platos más baratos primero, mientras el presupuesto lo permita

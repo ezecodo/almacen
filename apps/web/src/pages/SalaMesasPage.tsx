@@ -3364,10 +3364,14 @@ function MenuGrupoSheet({
   const k = (nivel: number, nombre: string) => `${nivel}|${nombre}`
 
   // Cantidades sugeridas: tapeo compartido, ajustadas al presupuesto (precio del menú × pax):
-  // ración base para todos + sube a la ración alta los platos más baratos mientras quepa
+  // ración base para todos + sube a la ración alta los platos más baratos mientras quepa.
+  // Se recalcula al cambiar de menú y al poner o quitar el postre (el precio del menú es el
+  // mismo: sin postre, su parte del presupuesto pasa a los demás platos)
   useEffect(() => {
     if (!template) return
-    const platos = template.niveles.flatMap(nv => (nv.platos ?? []).map(nombre => ({ nombre, nivel: nv.nivel })))
+    const platos = template.niveles
+      .filter(nv => incluyePostre || !nv.esPostre)
+      .flatMap(nv => (nv.platos ?? []).map(nombre => ({ nombre, nivel: nv.nivel })))
     const sugeridas = sugerirCantidadesMenu(platos, pax, template.paxPorRacion || 3, priceMap, template.precio)
     const init: Record<string, number> = {}
     for (const p of sugeridas) init[k(p.nivel, p.nombre)] = p.cantidad
@@ -3375,7 +3379,8 @@ function MenuGrupoSheet({
     setExtras([])
     setPickerNivel(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [templateId])
+  }, [templateId, incluyePostre])
+  const tienePostre = !!template?.niveles.some(nv => nv.esPostre)
 
   const nivelesFiltrados = [...(template?.niveles ?? [])]
     .filter(nv => incluyePostre || !nv.esPostre)
@@ -3412,7 +3417,7 @@ function MenuGrupoSheet({
   if (ancho) return (
     <MenuGrupoTpv
       mesa={mesa} pax={pax} menu={menu} categorias={categorias} templates={templates} template={template}
-      setTemplateId={setTemplateId} incluyePostre={incluyePostre} setPostre={setPostre}
+      setTemplateId={setTemplateId} incluyePostre={incluyePostre} setPostre={setPostre} tienePostre={tienePostre}
       nivelesFiltrados={nivelesFiltrados} platosDe={platosDe} qtys={qtys} k={k} setQty={setQty}
       anadirACurso={anadirACurso} priceMap={priceMap} budget={budget} spent={spent} overBudget={overBudget}
       generar={() => generar.mutate()} generando={generar.isPending} errorGenerar={generar.isError}
@@ -3436,10 +3441,12 @@ function MenuGrupoSheet({
             <>
               <div className="flex items-center gap-3 mt-2">
                 <button onClick={() => setTemplateId(null)} className="text-cyan-400 text-xs font-semibold">← cambiar menú</button>
-                <label className="flex items-center gap-1.5 text-xs text-[var(--sala-tx2)] ml-auto">
-                  <input type="checkbox" checked={incluyePostre} onChange={e => setPostre(e.target.checked)} className="accent-[#4CC8A0]" />
-                  incluir postre
-                </label>
+                {tienePostre && (
+                  <label className="flex items-center gap-1.5 text-xs text-[var(--sala-tx2)] ml-auto">
+                    <input type="checkbox" checked={incluyePostre} onChange={e => setPostre(e.target.checked)} className="accent-[#4CC8A0]" />
+                    incluir postre
+                  </label>
+                )}
               </div>
               {/* Presupuesto: precio del menú × pax vs coste en carta de lo seleccionado */}
               <div className="mt-2">
@@ -3447,7 +3454,8 @@ function MenuGrupoSheet({
                   <span className={overBudget ? 'text-red-400' : 'text-[var(--sala-tx3)]'}>
                     {overBudget ? '⚠️ Se pasa del menú' : 'Valor en carta'}: {spent.toFixed(2)} €
                   </span>
-                  <span className="text-[var(--sala-tx3)]">Menú: {budget.toFixed(2)} €</span>
+                  {/* Lo que se cobra: precio del menú × pax (el valor en carta solo sirve de tope) */}
+                  <span className="text-[var(--sala-txt)] font-black">Se cobra: {pax} × {template.precio.toFixed(2)} € = {budget.toFixed(2)} €</span>
                 </div>
                 <div className="h-1.5 rounded-full bg-[var(--sala-btn2)] overflow-hidden">
                   <div className={`h-full transition-all ${overBudget ? 'bg-red-500' : 'bg-[#4CC8A0]'}`}
@@ -3565,12 +3573,12 @@ function MenuGrupoSheet({
 // Misma lógica que MenuGrupoSheet (el estado vive allí), con sitio para armarlo a medida: los
 // cursos a la izquierda con filas grandes, y la carta de comida a la derecha para sumar platos al
 // curso elegido (vegetarianos, alergias, alguien que quiere algo más). Arriba, el presupuesto.
-function MenuGrupoTpv({ mesa, pax, menu, categorias, templates, template, setTemplateId, incluyePostre, setPostre,
+function MenuGrupoTpv({ mesa, pax, menu, categorias, templates, template, setTemplateId, incluyePostre, setPostre, tienePostre,
   nivelesFiltrados, platosDe, qtys, k, setQty, anadirACurso, priceMap, budget, spent, overBudget,
   generar, generando, errorGenerar, nadaElegido, onClose }: {
   mesa: Mesa; pax: number; menu: MenuItem[]; categorias: MenuCategoria[]
   templates: GrupoMenuTemplate[]; template: GrupoMenuTemplate | null; setTemplateId: (id: number | null) => void
-  incluyePostre: boolean; setPostre: (v: boolean) => void
+  incluyePostre: boolean; setPostre: (v: boolean) => void; tienePostre: boolean
   nivelesFiltrados: GrupoMenuTemplate['niveles']; platosDe: (nivel: number, platos: string[]) => string[]
   qtys: Record<string, number>; k: (nivel: number, nombre: string) => string
   setQty: (nivel: number, nombre: string, delta: number) => void; anadirACurso: (nivel: number, nombre: string) => void
@@ -3607,17 +3615,18 @@ function MenuGrupoTpv({ mesa, pax, menu, categorias, templates, template, setTem
         {template && (
           <>
             <button onClick={() => setTemplateId(null)} className="h-11 px-4 rounded-xl bg-[var(--sala-btn2)] text-[var(--sala-tx1)] text-sm font-bold shrink-0">← Cambiar menú</button>
-            <button onClick={() => setPostre(!incluyePostre)} role="switch" aria-checked={incluyePostre}
+            {tienePostre && <button onClick={() => setPostre(!incluyePostre)} role="switch" aria-checked={incluyePostre}
               className={`h-11 px-4 rounded-xl text-sm font-black uppercase shrink-0 border-2 ${incluyePostre ? 'border-[#4CC8A0] bg-[#4CC8A0]/15 text-[var(--sala-txt)]' : 'border-transparent bg-[var(--sala-btn2)] text-[var(--sala-tx3)]'}`}>
               🍰 {incluyePostre ? 'Con postre' : 'Sin postre'}
-            </button>
+            </button>}
             {/* Presupuesto: valor en carta de lo elegido frente al precio del menú × pax */}
             <div className="flex-1 min-w-0">
               <div className="flex justify-between text-sm font-black mb-1">
                 <span className={overBudget ? 'text-red-400' : 'text-[var(--sala-tx2)]'}>
                   {overBudget ? '⚠️ Se pasa del menú' : 'Valor en carta'}: {spent.toFixed(2)} €
                 </span>
-                <span className="text-[var(--sala-tx2)]">Menú: {budget.toFixed(2)} €</span>
+                {/* Lo que se cobra: precio del menú × pax (el valor en carta solo sirve de tope) */}
+                <span className="text-[var(--sala-txt)] text-base">Se cobra: {pax} × {template.precio.toFixed(2)} € = {budget.toFixed(2)} €</span>
               </div>
               <div className="h-3 rounded-full bg-[var(--sala-btn2)] overflow-hidden">
                 <div className={`h-full transition-all ${overBudget ? 'bg-red-500' : 'bg-[#4CC8A0]'}`}
