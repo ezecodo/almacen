@@ -93,6 +93,29 @@ function suggestNivel(nombre: string, menu: MenuItem[]): number {
   return isCold && base > 1 ? base - 1 : base
 }
 
+// Niveles de salida propuestos para los platos de una mesa: los ya comandados conservan el suyo;
+// los nuevos, el sugerido por su categoría. Los de "bloque propio" (POSTRES) van detrás de todo,
+// un nivel por bloque. En una mesa sin nada comandado los niveles quedan seguidos desde PRIMEROS.
+// Lo usan el orden de salida (al dar Oído) y la columna de la mesa del TPV, que lo enseña en vivo.
+function nivelesPropuestos(items: ComandaItem[], menu: MenuItem[], categorias: MenuCategoria[]): Record<number, number> {
+  const r: Record<number, number> = {}
+  items.forEach(i => { r[i.id] = i.nivel ?? suggestNivel(i.nombre, menu) })
+  const cocina = items.filter(i => i.tipo !== 'barra' && !i.autoGenerado)
+  const bloqueDe = (nombre: string) => bloqueDePlato(nombre, menu, categorias)
+  const pendientesBloque = cocina.filter(i => i.nivel == null && bloqueDe(i.nombre))
+  if (pendientesBloque.length) {
+    const deBloque = new Set(pendientesBloque.map(i => i.id))
+    const ultimo = Math.max(0, ...cocina.filter(i => !deBloque.has(i.id)).map(i => r[i.id]))
+    const bloques = [...new Set(pendientesBloque.map(i => bloqueDe(i.nombre) as string))]
+    for (const i of pendientesBloque) r[i.id] = ultimo + 1 + bloques.indexOf(bloqueDe(i.nombre) as string)
+  }
+  if (!cocina.some(i => i.nivel != null)) {
+    const usados = [...new Set(cocina.map(i => r[i.id]))].sort((a, b) => a - b)
+    for (const i of cocina) r[i.id] = usados.indexOf(r[i.id]) + 1
+  }
+  return r
+}
+
 // ── Mesa visual ───────────────────────────────────────────────────────────────
 function MesaBtn({ mesa, comanda, onClick }: { mesa: Mesa; comanda?: Comanda; onClick: () => void }) {
   const isDark = useContext(ThemeCtx)
@@ -246,11 +269,13 @@ function VerCuentaModal({ comanda, onClose, onFacturar }: { comanda: Comanda; on
 }
 
 // ── Modal ordenar ─────────────────────────────────────────────────────────────
-function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa = false }: {
+function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa = false, nivelesIniciales }: {
   comanda: Comanda; menu: MenuItem[]; categorias: MenuCategoria[]
   onEnviar: (niveles: { itemId: number; nivel: number; nota?: string }[]) => void
   onClose: () => void
   marchaPasa?: boolean
+  // TPV: los niveles que ya se ajustaron con ▲▼ en la columna de la mesa
+  nivelesIniciales?: Record<number, number>
 }) {
   const queryClient = useQueryClient()
   const catMeta: Record<string, string> = {}
@@ -264,22 +289,7 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
   // Categorías de "bloque propio" (🎫 Nombre en ticket en /admin/menu, ej. POSTRES): sus platos van
   // juntos en un solo nivel, el último, y en el ticket salen con el nombre de la categoría.
   const bloqueDe = (nombre: string) => bloqueDePlato(nombre, menu, categorias)
-  // Los platos de bloque sin comandar van detrás de todo lo demás de la mesa, un nivel por bloque
-  const conBloques = (r: Record<number, number>) => {
-    const cocina = comanda.items.filter(i => i.tipo !== 'barra' && !i.autoGenerado)
-    const pendientesBloque = cocina.filter(i => i.nivel == null && bloqueDe(i.nombre))
-    if (pendientesBloque.length === 0) return r
-    const deBloque = new Set(pendientesBloque.map(i => i.id))
-    const ultimo = Math.max(0, ...cocina.filter(i => !deBloque.has(i.id)).map(i => r[i.id] ?? i.nivel ?? 0))
-    const bloques = [...new Set(pendientesBloque.map(i => bloqueDe(i.nombre) as string))]
-    for (const i of pendientesBloque) r[i.id] = ultimo + 1 + bloques.indexOf(bloqueDe(i.nombre) as string)
-    return r
-  }
-  const [niveles, setNiveles] = useState<Record<number, number>>(() => {
-    const r: Record<number, number> = {}
-    comanda.items.forEach(i => { r[i.id] = i.nivel ?? suggestNivel(i.nombre, menu) })
-    return conBloques(r)
-  })
+  const [niveles, setNiveles] = useState<Record<number, number>>(() => ({ ...nivelesPropuestos(comanda.items, menu, categorias), ...nivelesIniciales }))
   const [notaModal, setNotaModal] = useState<{ itemId: number; value: string } | null>(null)
   // Información de la mesa para cocina: si no comparte (cocina emplata individual) y una nota
   // general. Se guarda en la mesa (vale para esta comandada y las siguientes) y sale como COM:
@@ -994,6 +1004,16 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
   const esMarchaPasa  = !yaEnviada && !yaFacturada && itemsNuevosCocina.length > 0 && comanda.items.some(i => i.nivel != null && !i.autoGenerado)
   const hayPendientes = itemsNuevos.length > 0 || autoItemsPendientes.length > 0
 
+  // TPV: niveles de los platos sin comandar, propuestos en vivo y ajustables con ▲▼ en la columna
+  // de la mesa; el Oído abre el orden de salida con estos mismos niveles
+  const [ajusteNiveles, setAjusteNiveles] = useState<Record<number, number>>({})
+  const propuestosTpv: Record<number, number> = ancho ? { ...nivelesPropuestos(comanda.items, menu, categorias), ...ajusteNiveles } : {}
+  const moverNivelTpv = (ids: number[], dir: -1 | 1) => setAjusteNiveles(prev => {
+    const next = { ...prev }
+    for (const id of ids) next[id] = Math.max(1, (propuestosTpv[id] ?? 1) + dir)
+    return next
+  })
+
   const handleOido = (e: React.MouseEvent) => {
     e.stopPropagation()
     if (oidoAnim) return
@@ -1568,13 +1588,58 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
               {comanda.items.length === 0 && (
                 <div className="text-center py-12 text-[var(--sala-tx4)]">
                   <p className="text-3xl mb-2">🍽</p>
-                  <p className="text-sm">Sin items. Ve a "Añadir".</p>
+                  <p className="text-sm">{ancho ? 'Sin items. Toca los platos de la carta.' : 'Sin items. Ve a "Añadir".'}</p>
                 </div>
               )}
               {(() => {
                 const itemsCocina = comanda.items.filter(i => i.tipo !== 'barra').sort((a, b) => a.id - b.id)
                 const itemsBarra  = comanda.items.filter(i => i.tipo === 'barra').sort((a, b) => a.id - b.id)
                 const tienenNivel = itemsCocina.some(i => i.nivel != null)
+                // TPV: los platos sin comandar se ven ya agrupados por el nivel que propondrá el Oído
+                const propuestos = propuestosTpv
+                const filas = (lista: ComandaItem[]) => lista.map((item: ComandaItem) => (
+                  <ItemRow key={item.id} agotado={sinComandarAgotada(item)} item={item} nota={nota} setNota={setNota}
+                    onUpdate={cantidad => updateItem.mutate({ itemId: item.id, cantidad })}
+                    onDelete={() => deleteItem.mutate(item.id)}
+                    onSaveNota={v => saveNota.mutate({ itemId: item.id, value: v })}
+                    onMerma={enLocal ? undefined : () => setMermaItem(item)}
+                    onInvitar={esEncargado ? () => invitarItem.mutate({ item }) : undefined} />
+                ))
+                const flecha = 'w-10 h-10 shrink-0 rounded-lg bg-[var(--sala-btn)] text-[var(--sala-txt)] text-base font-black flex items-center justify-center active:scale-90 disabled:opacity-20'
+                const porNivelPropuesto = (lista: ComandaItem[]) => {
+                  const conNivel = lista.filter(i => !i.autoGenerado)
+                  const nivelesUsados = [...new Set(conNivel.map(i => propuestos[i.id]))].sort((a, b) => a - b)
+                  return (
+                    <>
+                      {nivelesUsados.map(nv => {
+                        const enNivel = conNivel.filter(i => propuestos[i.id] === nv)
+                        return (
+                          <div key={nv}>
+                            <NivelEtiqueta titulo={tituloNivel(nv, enNivel.map(i => i.nombre), menu, categorias)}>
+                              {/* ▲▼ mueven el nivel entero, como en el orden de salida */}
+                              <div className="flex gap-1">
+                                <button onClick={() => moverNivelTpv(enNivel.map(i => i.id), -1)} disabled={nv <= 1} aria-label="Subir el nivel"
+                                  className="w-8 h-8 rounded-lg bg-cyan-600/30 text-cyan-500 text-xs font-black disabled:opacity-20 flex items-center justify-center">▲</button>
+                                <button onClick={() => moverNivelTpv(enNivel.map(i => i.id), 1)} aria-label="Bajar el nivel"
+                                  className="w-8 h-8 rounded-lg bg-cyan-600/30 text-cyan-500 text-xs font-black flex items-center justify-center">▼</button>
+                              </div>
+                            </NivelEtiqueta>
+                            <div className="space-y-2">
+                              {enNivel.map(item => (
+                                <div key={item.id} className="flex items-center gap-1.5">
+                                  <div className="flex-1 min-w-0">{filas([item])}</div>
+                                  <button onClick={() => moverNivelTpv([item.id], -1)} disabled={nv <= 1} aria-label="Subir de nivel" className={flecha}>▲</button>
+                                  <button onClick={() => moverNivelTpv([item.id], 1)} aria-label="Bajar de nivel" className={flecha}>▼</button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )
+                      })}
+                      {lista.some(i => i.autoGenerado) && <div className="space-y-2">{filas(lista.filter(i => i.autoGenerado))}</div>}
+                    </>
+                  )
+                }
 
                 return (
                   <div className="space-y-4">
@@ -1593,7 +1658,10 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                       </div>
                     )}
                     {/* ── Cocina ── */}
-                    {!tienenNivel ? (
+                    {!tienenNivel && ancho ? (
+                      // TPV, comanda nueva: ya ordenada por niveles mientras se pica
+                      <div className="space-y-4">{porNivelPropuesto(itemsCocina)}</div>
+                    ) : !tienenNivel ? (
                       // Comanda nueva: lista plana
                       <div className="space-y-2">
                         {itemsCocina.map((item: ComandaItem) => (
@@ -1621,7 +1689,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                                   <span className="text-amber-400 text-xs font-semibold uppercase tracking-wide">Marcha pasa</span>
                                   <div className="flex-1 h-px bg-amber-900/40" />
                                 </div>
-                                <div className="space-y-2">
+                                {ancho ? <div className="space-y-3 pl-2 border-l-2 border-amber-500/40">{porNivelPropuesto(pendientesCocina)}</div> : <div className="space-y-2">
                                   {pendientesCocina.map((item: ComandaItem) => (
                                     <ItemRow key={item.id} agotado={sinComandarAgotada(item)} item={item} nota={nota} setNota={setNota}
                                       onUpdate={cantidad => updateItem.mutate({ itemId: item.id, cantidad })}
@@ -1630,7 +1698,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                                       onMerma={enLocal ? undefined : () => setMermaItem(item)}
                                     onInvitar={esEncargado ? () => invitarItem.mutate({ item }) : undefined} />
                                   ))}
-                                </div>
+                                </div>}
                               </div>
                             )}
                             {/* Confirmados por nivel — debajo */}
@@ -2125,6 +2193,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
 
       {(ordenando || ordenarFull) && (
         <OrdenarModal comanda={comanda} menu={menu} categorias={categorias}
+          nivelesIniciales={ancho && !ordenarFull ? propuestosTpv : undefined}
           marchaPasa={ordenarFull ? false : esMarchaPasa}
           onClose={() => { setOrdenando(false); setOrdenarFull(false) }}
           onEnviar={niveles => { onEnviar(niveles); setOrdenando(false); setOrdenarFull(false) }} />

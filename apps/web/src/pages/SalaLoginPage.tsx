@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { enModoLocal } from '../lib/conexion'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
@@ -18,6 +18,14 @@ export default function SalaLoginPage({ tpv = false }: { tpv?: boolean }) {
 
   useEffect(() => {
     if (!restaurant) navigate(tpv ? '/sala/setup?volver=/tpv' : '/sala/setup', { replace: true })
+  }, [])
+
+  // Teclado físico (ver más abajo): los hooks van antes del return temprano
+  const tecla = useRef<(e: KeyboardEvent) => void>(() => {})
+  useEffect(() => {
+    const escuchar = (e: KeyboardEvent) => tecla.current(e)
+    window.addEventListener('keydown', escuchar)
+    return () => window.removeEventListener('keydown', escuchar)
   }, [])
 
   if (!restaurant) return null
@@ -65,6 +73,19 @@ export default function SalaLoginPage({ tpv = false }: { tpv?: boolean }) {
     setError('')
   }
 
+  // El PIN también se puede escribir con un teclado (fila de números o numérico): en el TPV con
+  // teclado físico se entra sin tocar la pantalla. ⌫ borra. Ref para usar siempre el estado actual.
+  tecla.current = e => {
+    // En el teclado numérico se mira la tecla física (Numpad0…9): así vale aunque Bloq Num esté
+    // apagado (entonces e.key llega como "End", "ArrowDown"…). Pensado para un numérico Bluetooth
+    // junto a la tablet del TPV.
+    const numpad = /^Numpad([0-9])$/.exec(e.code)?.[1]
+    const digito = numpad ?? (/^[0-9]$/.test(e.key) ? e.key : null)
+    if (digito) { if (!loading && pin.length < 4) handleDigit(digito) }
+    else if (e.key === 'Backspace') handleDelete()
+    else return
+    e.preventDefault()
+  }
   const digits = ['1','2','3','4','5','6','7','8','9','','0','⌫']
 
   return (
