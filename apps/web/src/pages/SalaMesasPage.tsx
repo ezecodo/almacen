@@ -4112,6 +4112,7 @@ function EncargadoPanel({
   onAbrirComanda,
   soloConsulta = false,
   tabInicial,
+  soloCobros: soloCobrosInicial = false,
 }: {
   restaurant: { id: number; nombre: string }
   camarero: { id?: number; nombre: string }
@@ -4122,9 +4123,14 @@ function EncargadoPanel({
   soloConsulta?: boolean
   // Panel del TPV: abrir directamente en una pestaña (los accesos rápidos)
   tabInicial?: TabEncargado
+  // Llegando deslizando el mapa desde el último salón: solo el cobro, sin las pestañas de herramientas
+  // (es lo que más usa el encargado). Deslizar hacia la derecha vuelve al mapa.
+  soloCobros?: boolean
 }) {
   const queryClient = useQueryClient()
   const rid = restaurant.id
+  const [soloCobros, setSoloCobros] = useState(soloCobrosInicial)
+  const swipeCobros = useRef<{ x: number; y: number } | null>(null)
   const [tab, setTab] = useState<TabEncargado>(tabInicial ?? (soloConsulta ? 'reservas' : 'cobros'))
   const { data: agotados = [] } = useQuery({
     queryKey: ['agotados', restaurant.id],
@@ -4295,19 +4301,41 @@ function EncargadoPanel({
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end" onClick={onClose}>
-      <div className="relative w-full sm:max-w-md bg-[var(--sala-hdr)] h-full flex flex-col shadow-2xl border-l border-[var(--sala-brd)]" onClick={e => e.stopPropagation()}>
+      <div className="relative w-full sm:max-w-md bg-[var(--sala-hdr)] h-full flex flex-col shadow-2xl border-l border-[var(--sala-brd)]" onClick={e => e.stopPropagation()}
+        onTouchStart={e => { if (soloCobros) swipeCobros.current = { x: e.touches[0].clientX, y: e.touches[0].clientY } }}
+        onTouchEnd={e => {
+          const ini = swipeCobros.current
+          swipeCobros.current = null
+          if (!ini || !soloCobros || cobroDe) return
+          const dx = e.changedTouches[0].clientX - ini.x, dy = e.changedTouches[0].clientY - ini.y
+          const th = swipeThresholds()
+          if (dx > th.dx && Math.abs(dy) < th.dy) onClose()
+        }}>
         {/* Header */}
         <div className="px-5 pt-5 pb-3 border-b border-[var(--sala-brd)]">
           <div className="flex items-start justify-between">
+            {soloCobros ? (
+              <div>
+                <p className="text-[var(--sala-tx3)] text-[11px] font-semibold uppercase tracking-wider">{pendientes.length} por cobrar</p>
+                <h2 className="text-[var(--sala-txt)] font-black text-2xl">💶 Cobros</h2>
+              </div>
+            ) : (
             <div>
               <p className="text-[var(--sala-tx3)] text-[11px] font-semibold uppercase tracking-wider">💼 Modo encargado</p>
               <h2 className="text-[var(--sala-txt)] font-bold text-xl">{camarero.nombre}</h2>
             </div>
+            )}
             <div className="flex items-center gap-4">
               <RelojSala />
               <button onClick={onClose} className="text-[var(--sala-tx3)] hover:text-[var(--sala-tx1)] text-xl">✕</button>
             </div>
           </div>
+          {soloCobros ? (
+            <button onClick={() => setSoloCobros(false)}
+              className="mt-2 text-[var(--sala-tx3)] text-xs font-semibold underline underline-offset-2">
+              💼 Ver las demás herramientas
+            </button>
+          ) : (
           <div className="grid grid-cols-3 gap-1.5 mt-3">
             {TABS.filter(t => !soloConsulta || t.key === 'reviews' || t.key === 'reservas').map(t => (
               <button key={t.key} onClick={() => setTab(t.key)}
@@ -4324,6 +4352,7 @@ function EncargadoPanel({
               </button>
             ))}
           </div>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
@@ -5079,6 +5108,7 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
   // En el TPV el encargado entra al panel de mesas; el camarero, al mapa
   const [view, setView] = useState<'mapa' | 'mesas' | 'nueva' | 'panel'>(tpv && esEncargado ? 'panel' : 'mapa')
   const [tabEncargado, setTabEncargado] = useState<TabEncargado | undefined>(undefined)
+  const [encargadoSoloCobros, setEncargadoSoloCobros] = useState(false)
   const [cobroPanel, setCobroPanel] = useState<Comanda | null>(null)
   const [showPerfil, setShowPerfil]       = useState(false)
   const [showMoverMesa, setShowMoverMesa] = useState(false)
@@ -5243,7 +5273,7 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
     }
     if (dir === 1 && esEncargado && !enLocal) {
       if (tpv) setView('panel')
-      else { setTabEncargado('cobros'); setShowEncargado(true) }
+      else { setTabEncargado('cobros'); setEncargadoSoloCobros(true); setShowEncargado(true) }
     }
   }
 
@@ -5328,7 +5358,7 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
             💰 Mis propinas
           </button>
           {esEncargado && (
-            <button onClick={() => setShowEncargado(true)}
+            <button onClick={() => { setEncargadoSoloCobros(false); setShowEncargado(true) }}
               className="w-full py-4 rounded-2xl bg-[var(--sala-btn2)] text-[var(--sala-txt)] font-black text-base active:scale-95 transition-transform">
               📅 Reservas y ⭐ reviews
             </button>
@@ -5430,7 +5460,7 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
             {/* Modo encargado (sin internet no hay nada de lo que tiene dentro) */}
             {esEncargado && !enLocal && (
               <button
-                onClick={() => { setTabEncargado(undefined); setShowEncargado(true) }}
+                onClick={() => { setTabEncargado(undefined); setEncargadoSoloCobros(false); setShowEncargado(true) }}
                 aria-label="Modo encargado" title="Modo encargado: cobros, turno, checklists, mermas"
                 className="text-[var(--sala-tx3)] hover:text-[#4CC8A0] transition-colors active:scale-90"
               >
@@ -5541,7 +5571,7 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
         <PanelEncargadoTpv restaurantId={restaurant.id} comandas={comandas ?? []} turnoActivo={turnoActivo ?? null}
           onAbrirMesa={id => setComandaAbierta(id)}
           onCobrar={c => setCobroPanel(c)}
-          onAcceso={t => { setTabEncargado(t); setShowEncargado(true) }} />
+          onAcceso={t => { setTabEncargado(t); setEncargadoSoloCobros(false); setShowEncargado(true) }} />
       )}
       {cobroPanel && <CobroSheet comanda={cobroPanel} onClose={() => setCobroPanel(null)} />}
 
@@ -5781,6 +5811,7 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
           onClose={() => setShowEncargado(false)}
           onAbrirComanda={id => { setShowEncargado(false); setComandaAbierta(id) }}
           tabInicial={tabEncargado}
+          soloCobros={encargadoSoloCobros}
         />
       )}
     </div>
