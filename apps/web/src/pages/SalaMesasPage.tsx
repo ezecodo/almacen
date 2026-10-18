@@ -15,6 +15,7 @@ import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
 import { usePoolEvents } from '../hooks/usePoolEvents'
 import FacturasSala from '../components/FacturasSala'
 import GastosSala from '../components/GastosSala'
+import PropinasSala, { QK_PROPINAS_ENC } from '../components/PropinasSala'
 import MaridajeSheet from '../components/MaridajeSheet'
 import BotonVino from '../components/BotonVino'
 import NivelEtiqueta, { bloqueDePlato, nombreNivel, tituloNivel } from '../components/NivelEtiqueta'
@@ -4131,6 +4132,10 @@ function EncargadoPanel({
   const rid = restaurant.id
   const [soloCobros, setSoloCobros] = useState(soloCobrosInicial)
   const swipeCobros = useRef<{ x: number; y: number } | null>(null)
+  // Propinas: los turnos cerrados sin repartir (aviso en la pestaña) y el recién cerrado
+  const { data: turnosPropina = [] } = useQuery({ queryKey: QK_PROPINAS_ENC, queryFn: api.propinas.encargado.turnos, refetchInterval: 120_000 })
+  const sinRepartir = turnosPropina.filter(t => !t.propina).length
+  const [propinasTurnoId, setPropinasTurnoId] = useState<number | undefined>(undefined)
   // Lo que sigue a los salones al deslizar, en orden: hacia la izquierda el siguiente, hacia la
   // derecha el anterior (desde el primero, vuelta al mapa)
   const DESLIZAR: TabEncargado[] = ['cobros', 'reservas']
@@ -4203,6 +4208,7 @@ function EncargadoPanel({
       setArmadoCierre(false)
       setResumenCierre(t)
       queryClient.invalidateQueries({ queryKey: ['turno-activo', rid] })
+      queryClient.invalidateQueries({ queryKey: QK_PROPINAS_ENC })
     },
   })
 
@@ -4300,6 +4306,7 @@ function EncargadoPanel({
     { key: 'reservas' as const, icon: '📅', label: 'Reservas', badge: pool.length },
     { key: 'reviews' as const, icon: '⭐', label: 'Reviews', badge: 0 },
     { key: 'facturas' as const, icon: '🧾', label: 'Facturas', badge: 0 },
+    { key: 'propinas' as const, icon: '💰', label: 'Propinas', badge: sinRepartir },
   ]
 
   return (
@@ -4353,7 +4360,7 @@ function EncargadoPanel({
             </button>
           ) : (
           <div className="grid grid-cols-3 gap-1.5 mt-3">
-            {TABS.filter(t => !soloConsulta || t.key === 'reviews' || t.key === 'reservas').map(t => (
+            {TABS.filter(t => !soloConsulta || t.key === 'reviews' || t.key === 'reservas' || t.key === 'propinas').map(t => (
               <button key={t.key} onClick={() => setTab(t.key)}
                 className={`relative flex flex-col items-center justify-center gap-0.5 py-2 rounded-lg text-[11px] font-bold transition-colors ${
                   tab === t.key ? 'bg-[var(--sala-btna)] text-[var(--sala-txt)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)]'
@@ -4443,6 +4450,13 @@ function EncargadoPanel({
                     <span className="text-[var(--sala-tx3)]">Comandas</span>
                     <span className="text-[var(--sala-txt)] font-bold">{resumenCierre.numComandas ?? 0}</span>
                   </div>
+                  {/* Cerrado el turno, toca repartir: se puede ahora o después desde el teléfono (💰 Propinas) */}
+                  <button onClick={() => { setPropinasTurnoId(resumenCierre.id); setTab('propinas') }}
+                    className="w-full mt-3 py-3.5 rounded-xl text-white font-black active:scale-[0.98] transition-transform"
+                    style={{ background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)' }}>
+                    💰 Repartir propinas
+                  </button>
+                  <p className="text-[var(--sala-tx3)] text-xs text-center">También después, desde el teléfono: 💼 → 💰 Propinas</p>
                 </div>
               ) : turnoActivo ? (
                 <>
@@ -4538,6 +4552,7 @@ function EncargadoPanel({
           {/* ── Facturas de proveedor ── */}
           {tab === 'gastos' && <GastosSala restaurantId={rid} />}
           {tab === 'facturas' && <FacturasSala restaurantId={rid} empleadoId={camarero.id} />}
+          {tab === 'propinas' && <PropinasSala key={propinasTurnoId ?? 0} turnoInicialId={propinasTurnoId} />}
 
           {tab === 'agotados' && <AgotadosSala restaurantId={rid} agotados={agotados} />}
 
@@ -4865,7 +4880,7 @@ function EncargadoPanel({
   )
 }
 
-type TabEncargado = 'cobros' | 'turno' | 'agotados' | 'checklists' | 'mermas' | 'reviews' | 'reservas' | 'facturas' | 'gastos'
+type TabEncargado = 'cobros' | 'turno' | 'agotados' | 'checklists' | 'mermas' | 'reviews' | 'reservas' | 'facturas' | 'gastos' | 'propinas'
 
 // ── Panel del encargado en el puesto TPV ─────────────────────────────────────
 // Lo primero que ve un encargado en la tablet (el camarero va al mapa): todas las mesas en
@@ -4877,7 +4892,7 @@ const ACCESOS_ENCARGADO: { tab: TabEncargado; icono: string; nombre: string }[] 
   { tab: 'gastos', icono: '🥖', nombre: 'Gastos' }, { tab: 'agotados', icono: '🚫', nombre: 'Agotados' },
   { tab: 'mermas', icono: '🗑', nombre: 'Mermas' }, { tab: 'reservas', icono: '📅', nombre: 'Reservas' },
   { tab: 'reviews', icono: '⭐', nombre: 'Reviews' }, { tab: 'checklists', icono: '✅', nombre: 'Checklists' },
-  { tab: 'facturas', icono: '🧾', nombre: 'Facturas' },
+  { tab: 'facturas', icono: '🧾', nombre: 'Facturas' }, { tab: 'propinas', icono: '💰', nombre: 'Propinas' },
 ]
 function PanelEncargadoTpv({ restaurantId, comandas, turnoActivo, onAbrirMesa, onCobrar, onAcceso }: {
   restaurantId: number

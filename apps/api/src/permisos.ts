@@ -89,6 +89,8 @@ export const RUTAS_SALA = new Set([
   'GET /api/red/estado',
   // propinas propias, almacén y validación de retiros
   'GET /api/propinas/mis-turnos',
+  // reparto de propinas del encargado (turnos cerrados de su local)
+  'GET /api/propinas/encargado/turnos', 'GET /api/propinas/encargado/empleados', 'PUT /api/propinas/encargado/turnos/:turnoId',
   'GET /api/producto/:barcode', 'POST /api/retiros', 'PATCH /api/retiros/:id/confirmar',
 ])
 
@@ -100,6 +102,7 @@ export const SOLO_ENCARGADO = new Set([
   'POST /api/agotados',               // marcar un plato agotado
   'DELETE /api/agotados/:menuItemId', // reponerlo
   'GET /api/gastos', 'POST /api/gastos', 'DELETE /api/gastos/:id', 'PATCH /api/gastos/:id/pagar', // gastos del día
+  'GET /api/propinas/encargado/turnos', 'GET /api/propinas/encargado/empleados', 'PUT /api/propinas/encargado/turnos/:turnoId', // repartir propinas
 ])
 
 // ── Dónde está el dispositivo ────────────────────────────────────────────────────────────────
@@ -118,4 +121,6 @@ export const CONSULTA_SALA = new Set([
 export const CONSULTA_ENCARGADO = new Set([
   'GET /api/reviews', 'GET /api/reviews/historial', 'GET /api/reviews/turno',
   'GET /api/reservas', 'GET /api/reservas/pool',
+  // repartir las propinas de un turno cerrado (al llegar a casa, al día siguiente…)
+  'GET /api/propinas/encargado/turnos', 'GET /api/propinas/encargado/empleados', 'PUT /api/propinas/encargado/turnos/:turnoId',
 ])

@@ -243,6 +243,19 @@ async function put<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>
 }
 
+export interface TurnoParaPropina {
+  id: number
+  encargadoNombre: string | null
+  aperturaAt: string
+  cierreAt: string | null
+  totalPropinas: number | null
+  totalVentas: number | null
+  propina: {
+    id: number; efectivo: number; tarjeta: number; total: number
+    turnos: { empleadoId: number; horas: number; propina: number; empleado: { nombre: string; tipo: string } }[]
+  } | null
+}
+
 export interface MenuCategoria {
   id: number
   restaurantId: number | null
@@ -1114,6 +1127,13 @@ export const api = {
     update: (id: number, body: { efectivo: number; tarjeta: number; turnos: { empleadoId: number; horas: number }[] }) =>
       patch<PropinaDia>(`/propinas/${id}`, body),
     delete: (id: number) => del(`/propinas/${id}`),
+    // Reparto desde la app de sala: turnos cerrados del local de la sesión (encargado)
+    encargado: {
+      turnos: () => get<TurnoParaPropina[]>('/propinas/encargado/turnos'),
+      empleados: () => get<{ id: number; nombre: string; tipo: string }[]>('/propinas/encargado/empleados'),
+      repartir: (turnoId: number, body: { efectivo: number; tarjeta: number; turnos: { empleadoId: number; horas: number }[] }) =>
+        put<unknown>(`/propinas/encargado/turnos/${turnoId}`, body),
+    },
     misTurnos: (empleadoId: number, desde?: string, hasta?: string) => {
       const params = new URLSearchParams({ empleadoId: String(empleadoId) })
       if (desde) params.set('desde', desde)
