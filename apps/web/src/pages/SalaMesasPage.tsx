@@ -5225,6 +5225,28 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
   const todasLasMesas = planes?.flatMap(p => p.mesas.map(m => ({ ...m, planNombre: p.nombre }))) ?? []
   const mesasLibres   = todasLasMesas.filter(m => !comandaByMesa(m.id))
 
+  // Deslizar el mapa de lado: siguiente / anterior salón. Desde el último salón, el encargado pasa a
+  // cobrar (en el PAD abre 💼 → Cobros; en el TPV, su panel). Al cambiar se ve un momento el nombre.
+  const swipeMapa = useRef<{ x: number; y: number } | null>(null)
+  const [avisoSalon, setAvisoSalon] = useState<string | null>(null)
+  const avisoSalonTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const irASalon = (dir: 1 | -1) => {
+    if (!planes?.length || !activePlan) return
+    const i = planes.findIndex(p => p.id === activePlan.id)
+    const destino = planes[i + dir]
+    if (destino) {
+      setPlanId(destino.id)
+      setAvisoSalon(destino.nombre)
+      if (avisoSalonTimer.current) clearTimeout(avisoSalonTimer.current)
+      avisoSalonTimer.current = setTimeout(() => setAvisoSalon(null), 1100)
+      return
+    }
+    if (dir === 1 && esEncargado && !enLocal) {
+      if (tpv) setView('panel')
+      else { setTabEncargado('cobros'); setShowEncargado(true) }
+    }
+  }
+
   // TPV: abrir una mesa tecleando (teclado físico o numérico Bluetooth). Con alguien logueado y sin
   // ninguna ventana abierta: se teclea el número de mesa y Enter; si está ocupada se abre, si está
   // libre pide los PAX y Enter. Lo tecleado se ve en el visor de abajo. ⌫ borra, Esc cancela.
@@ -5525,7 +5547,18 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
 
       {/* Vista: Mapa — escala bounding box para llenar ancho y alto */}
       {view === 'mapa' && (activePlan ? (
-        <div className="flex-1 overflow-hidden relative" ref={el => {
+        <div className="flex-1 overflow-hidden relative"
+          onTouchStart={e => { swipeMapa.current = { x: e.touches[0].clientX, y: e.touches[0].clientY } }}
+          onTouchEnd={e => {
+            const st = swipeMapa.current
+            swipeMapa.current = null
+            if (!st) return
+            const dx = e.changedTouches[0].clientX - st.x
+            const dy = e.changedTouches[0].clientY - st.y
+            const th = swipeThresholds()
+            if (Math.abs(dx) > th.dx && Math.abs(dy) < th.dy) irASalon(dx < 0 ? 1 : -1)
+          }}
+          ref={el => {
           if (!el || !activePlan.mesas.length) return
           const applyScale = () => {
             const PAD = 24
@@ -5553,6 +5586,14 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
           <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 pointer-events-none px-4 py-1 rounded-full bg-[var(--sala-hdr)]/85 border border-[var(--sala-brd)] backdrop-blur-sm shadow-lg">
             <RelojSala />
           </div>
+          {avisoSalon && (
+            <div key={avisoSalon} className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center">
+              <span className="px-6 py-3 rounded-2xl text-white text-2xl font-black uppercase tracking-wide shadow-2xl"
+                style={{ background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)', animation: 'fadeInOut 1.1s ease forwards' }}>
+                {avisoSalon}
+              </span>
+            </div>
+          )}
           <div className="plan-canvas" style={{
             position: 'absolute', top: 0, left: 0,
             backgroundImage: `linear-gradient(to right, var(--sala-grid) 1px, transparent 1px), linear-gradient(to bottom, var(--sala-grid) 1px, transparent 1px)`,
