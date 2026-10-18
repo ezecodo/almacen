@@ -4131,6 +4131,9 @@ function EncargadoPanel({
   const rid = restaurant.id
   const [soloCobros, setSoloCobros] = useState(soloCobrosInicial)
   const swipeCobros = useRef<{ x: number; y: number } | null>(null)
+  // Lo que sigue a los salones al deslizar, en orden: hacia la izquierda el siguiente, hacia la
+  // derecha el anterior (desde el primero, vuelta al mapa)
+  const DESLIZAR: TabEncargado[] = ['cobros', 'reservas']
   const [tab, setTab] = useState<TabEncargado>(tabInicial ?? (soloConsulta ? 'reservas' : 'cobros'))
   const { data: agotados = [] } = useQuery({
     queryKey: ['agotados', restaurant.id],
@@ -4309,15 +4312,28 @@ function EncargadoPanel({
           if (!ini || !soloCobros || cobroDe) return
           const dx = e.changedTouches[0].clientX - ini.x, dy = e.changedTouches[0].clientY - ini.y
           const th = swipeThresholds()
-          if (dx > th.dx && Math.abs(dy) < th.dy) onClose()
+          if (Math.abs(dx) < th.dx || Math.abs(dy) > th.dy) return
+          const i = DESLIZAR.indexOf(tab)
+          const destino = DESLIZAR[i + (dx < 0 ? 1 : -1)]
+          if (destino) setTab(destino)
+          else if (dx > 0) onClose()
         }}>
         {/* Header */}
         <div className="px-5 pt-5 pb-3 border-b border-[var(--sala-brd)]">
           <div className="flex items-start justify-between">
             {soloCobros ? (
               <div>
-                <p className="text-[var(--sala-tx3)] text-[11px] font-semibold uppercase tracking-wider">{pendientes.length} por cobrar</p>
-                <h2 className="text-[var(--sala-txt)] font-black text-2xl">💶 Cobros</h2>
+                <p className="text-[var(--sala-tx3)] text-[11px] font-semibold uppercase tracking-wider">
+                  {tab === 'reservas' ? `Reservas de hoy${pool.length ? ` · ${pool.length} en el pool` : ''}` : `${pendientes.length} por cobrar`}
+                </p>
+                <h2 className="text-[var(--sala-txt)] font-black text-2xl">{tab === 'reservas' ? '📅 Reservas' : '💶 Cobros'}</h2>
+                {/* En qué paso del deslizamiento estás */}
+                <div className="flex gap-1.5 mt-1.5">
+                  {DESLIZAR.map(t => (
+                    <button key={t} onClick={() => setTab(t)} aria-label={t}
+                      className={`h-1.5 rounded-full transition-all ${tab === t ? 'w-5 bg-[#4CC8A0]' : 'w-1.5 bg-[var(--sala-tx4)]'}`} />
+                  ))}
+                </div>
               </div>
             ) : (
             <div>
