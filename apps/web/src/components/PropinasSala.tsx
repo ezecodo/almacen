@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, TurnoParaPropina } from '../api'
 
@@ -20,11 +20,13 @@ const fmtTurno = (t: TurnoParaPropina) => {
 
 export const QK_PROPINAS_ENC = ['propinas-enc'] as const
 
-export default function PropinasSala({ turnoInicialId }: { turnoInicialId?: number }) {
+// onEnfoque: mientras se reparte, el panel esconde sus pestañas para dejar sitio (teclado, lista)
+export default function PropinasSala({ turnoInicialId, onEnfoque }: { turnoInicialId?: number; onEnfoque?: (enfocado: boolean) => void }) {
   const { data: turnos = [], isLoading } = useQuery({ queryKey: QK_PROPINAS_ENC, queryFn: api.propinas.encargado.turnos, refetchInterval: 60_000 })
   const [abiertoId, setAbiertoId] = useState<number | null>(turnoInicialId ?? null)
   const [hecho, setHecho] = useState<string | null>(null)
   const abierto = turnos.find(t => t.id === abiertoId)
+  useEffect(() => { onEnfoque?.(!!abierto); return () => onEnfoque?.(false) }, [!!abierto])
 
   if (abierto) {
     return <Reparto key={abierto.id} turno={abierto}
@@ -179,7 +181,12 @@ function Reparto({ turno, onCerrar, onHecho }: { turno: TurnoParaPropina; onCerr
               ))}
             </div>
           </div>
-          <button onClick={() => setPaso(3)} disabled={elegidos.length === 0} className={btnPrimario} style={gradiente}>Ver reparto →</button>
+          {/* Fijo abajo: con todo el personal en la lista, el botón quedaría muy lejos */}
+          <div className="sticky -bottom-4 -mx-4 px-4 pt-2 pb-4 bg-[var(--sala-hdr)]">
+            <button onClick={() => setPaso(3)} disabled={elegidos.length === 0} className={btnPrimario} style={gradiente}>
+              Ver reparto{elegidos.length ? ` (${elegidos.length})` : ''} →
+            </button>
+          </div>
         </>
       )}
 

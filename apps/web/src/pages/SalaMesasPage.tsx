@@ -4136,6 +4136,7 @@ function EncargadoPanel({
   const { data: turnosPropina = [] } = useQuery({ queryKey: QK_PROPINAS_ENC, queryFn: api.propinas.encargado.turnos, refetchInterval: 120_000 })
   const sinRepartir = turnosPropina.filter(t => !t.propina).length
   const [propinasTurnoId, setPropinasTurnoId] = useState<number | undefined>(undefined)
+  const [repartiendo, setRepartiendo] = useState(false)
   // Lo que sigue a los salones al deslizar, en orden: hacia la izquierda el siguiente, hacia la
   // derecha el anterior (desde el primero, vuelta al mapa)
   const DESLIZAR: TabEncargado[] = ['cobros', 'reservas']
@@ -4328,7 +4329,12 @@ function EncargadoPanel({
         {/* Header */}
         <div className="px-5 pt-5 pb-3 border-b border-[var(--sala-brd)]">
           <div className="flex items-start justify-between">
-            {soloCobros ? (
+            {repartiendo ? (
+              <div>
+                <p className="text-[var(--sala-tx3)] text-[11px] font-semibold uppercase tracking-wider">💼 {camarero.nombre}</p>
+                <h2 className="text-[var(--sala-txt)] font-black text-2xl">💰 Repartir propinas</h2>
+              </div>
+            ) : soloCobros ? (
               <div>
                 <p className="text-[var(--sala-tx3)] text-[11px] font-semibold uppercase tracking-wider">
                   {tab === 'reservas' ? `Reservas de hoy${pool.length ? ` · ${pool.length} en el pool` : ''}` : `${pendientes.length} por cobrar`}
@@ -4353,7 +4359,7 @@ function EncargadoPanel({
               <button onClick={onClose} className="text-[var(--sala-tx3)] hover:text-[var(--sala-tx1)] text-xl">✕</button>
             </div>
           </div>
-          {soloCobros ? (
+          {repartiendo ? null : soloCobros ? (
             <button onClick={() => setSoloCobros(false)}
               className="mt-2 text-[var(--sala-tx3)] text-xs font-semibold underline underline-offset-2">
               💼 Ver las demás herramientas
@@ -4552,7 +4558,7 @@ function EncargadoPanel({
           {/* ── Facturas de proveedor ── */}
           {tab === 'gastos' && <GastosSala restaurantId={rid} />}
           {tab === 'facturas' && <FacturasSala restaurantId={rid} empleadoId={camarero.id} />}
-          {tab === 'propinas' && <PropinasSala key={propinasTurnoId ?? 0} turnoInicialId={propinasTurnoId} />}
+          {tab === 'propinas' && <PropinasSala key={propinasTurnoId ?? 0} turnoInicialId={propinasTurnoId} onEnfoque={setRepartiendo} />}
 
           {tab === 'agotados' && <AgotadosSala restaurantId={rid} agotados={agotados} />}
 
