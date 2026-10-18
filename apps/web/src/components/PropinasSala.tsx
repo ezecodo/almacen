@@ -25,6 +25,7 @@ export default function PropinasSala({ turnoInicialId, onEnfoque }: { turnoInici
   const { data: turnos = [], isLoading } = useQuery({ queryKey: QK_PROPINAS_ENC, queryFn: api.propinas.encargado.turnos, refetchInterval: 60_000 })
   const [abiertoId, setAbiertoId] = useState<number | null>(turnoInicialId ?? null)
   const [hecho, setHecho] = useState<string | null>(null)
+  const [vista, setVista] = useState<'turnos' | 'empleados'>('turnos')
   const abierto = turnos.find(t => t.id === abiertoId)
   useEffect(() => { onEnfoque?.(!!abierto); return () => onEnfoque?.(false) }, [!!abierto])
 
@@ -35,8 +36,20 @@ export default function PropinasSala({ turnoInicialId, onEnfoque }: { turnoInici
   }
 
   const sinRepartir = turnos.filter(t => !t.propina)
+  const selector = (
+    <div className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-[var(--sala-btn2)] mb-1">
+      {([['turnos', '🗓 Turnos'], ['empleados', '👥 Por empleado']] as const).map(([v, label]) => (
+        <button key={v} onClick={() => setVista(v)}
+          className={`py-2.5 rounded-lg text-sm font-black transition-colors ${vista === v ? 'bg-[var(--sala-hdr)] text-[var(--sala-txt)] shadow' : 'text-[var(--sala-tx3)]'}`}>
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+  if (vista === 'empleados') return <div className="space-y-2">{selector}<PorEmpleado /></div>
   return (
     <div className="space-y-2">
+      {selector}
       {hecho && <p className="bg-[#4CC8A0]/15 border border-[#4CC8A0]/40 text-[#4CC8A0] rounded-xl px-4 py-3 text-sm font-bold">✓ {hecho}</p>}
       {isLoading && <p className="text-center text-[var(--sala-tx4)] text-sm py-10">Cargando…</p>}
       {!isLoading && turnos.length === 0 && (
@@ -73,6 +86,61 @@ export default function PropinasSala({ turnoInicialId, onEnfoque }: { turnoInici
   )
 }
 
+// El período de la hoja de propinas: del 25 al 24. offset 0 = el que está en curso.
+function periodo(offset: number) {
+  const hoy = new Date()
+  const base = hoy.getDate() >= 25 ? hoy.getMonth() + 1 : hoy.getMonth() // mes en que termina el período en curso
+  const desde = new Date(hoy.getFullYear(), base - 1 + offset, 25)
+  const hasta = new Date(hoy.getFullYear(), base + offset, 24)
+  const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const corto = (d: Date) => d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
+  const mes = hasta.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })
+  return { desde: iso(desde), hasta: iso(hasta), label: mes.charAt(0).toUpperCase() + mes.slice(1), rango: `${corto(desde)} → ${corto(hasta)}` }
+}
+
+// Cuánto lleva cada uno en el período, en este local (lo mismo que suma la hoja)
+function PorEmpleado() {
+  const [offset, setOffset] = useState(0)
+  const p = periodo(offset)
+  const { data, isLoading } = useQuery({
+    queryKey: ['propinas-enc-resumen', p.desde, p.hasta],
+    queryFn: () => api.propinas.encargado.resumen(p.desde, p.hasta),
+  })
+  const flecha = 'w-11 h-11 rounded-xl bg-[var(--sala-btn2)] text-[var(--sala-txt)] text-xl font-black disabled:opacity-30'
+  const fmtH = (h: number) => `${String(Math.round(h * 10) / 10).replace('.', ',')} h`
+
+  return (
+    <>
+      <div className="flex items-center justify-between gap-2">
+        <button onClick={() => setOffset(o => o - 1)} className={flecha} aria-label="Período anterior">‹</button>
+        <div className="text-center">
+          <p className="text-[var(--sala-txt)] font-black">{p.label}</p>
+          <p className="text-[var(--sala-tx3)] text-xs">{p.rango}</p>
+        </div>
+        <button onClick={() => setOffset(o => o + 1)} disabled={offset >= 0} className={flecha} aria-label="Período siguiente">›</button>
+      </div>
+      <div className="rounded-xl py-4 text-center bg-[#4CC8A0]/10 border border-[#4CC8A0]/30">
+        <p className="text-[#4CC8A0] text-3xl font-black tabular-nums">{eur(data?.total ?? 0)}</p>
+        <p className="text-[var(--sala-tx3)] text-xs">repartido en total · {data?.empleados.length ?? 0} {data?.empleados.length === 1 ? 'persona' : 'personas'}</p>
+      </div>
+      {isLoading && <p className="text-center text-[var(--sala-tx4)] text-sm py-6">Cargando…</p>}
+      {data && data.empleados.length === 0 && <p className="text-center text-[var(--sala-tx4)] text-sm py-6">Sin propinas repartidas en este período.</p>}
+      <div className="space-y-1">
+        {data?.empleados.map(e => (
+          <div key={e.empleadoId} className="flex items-center justify-between gap-3 bg-[var(--sala-srf)] rounded-xl px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-[var(--sala-txt)] font-bold truncate">{e.nombre}</p>
+              <p className="text-[var(--sala-tx3)] text-xs">{fmtH(e.horas)} · {e.turnos} {e.turnos === 1 ? 'turno' : 'turnos'}{e.tipo === 'cocina' ? ' · cocina' : ''}</p>
+            </div>
+            <p className="text-[var(--sala-txt)] font-black text-lg tabular-nums shrink-0">{eur(e.propina)}</p>
+          </div>
+        ))}
+      </div>
+      <p className="text-[var(--sala-tx4)] text-[11px] text-center pt-1">Solo lo repartido en este local.</p>
+    </>
+  )
+}
+
 function Reparto({ turno, onCerrar, onHecho }: { turno: TurnoParaPropina; onCerrar: () => void; onHecho: (msg: string) => void }) {
   const qc = useQueryClient()
   const previo = turno.propina
@@ -105,6 +173,7 @@ function Reparto({ turno, onCerrar, onHecho }: { turno: TurnoParaPropina; onCerr
     mutationFn: () => api.propinas.encargado.repartir(turno.id, { efectivo: aNumero(efectivo), tarjeta: aNumero(tarjeta), turnos: elegidos }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QK_PROPINAS_ENC })
+      qc.invalidateQueries({ queryKey: ['propinas-enc-resumen'] })
       onHecho(`${previo ? 'Reparto corregido' : 'Propinas repartidas'}: ${eur(total)} entre ${elegidos.length}`)
     },
   })

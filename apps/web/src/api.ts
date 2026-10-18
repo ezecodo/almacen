@@ -1131,6 +1131,10 @@ export const api = {
     encargado: {
       turnos: () => get<TurnoParaPropina[]>('/propinas/encargado/turnos'),
       empleados: () => get<{ id: number; nombre: string; tipo: string }[]>('/propinas/encargado/empleados'),
+      resumen: (desde: string, hasta: string) => get<{
+        total: number
+        empleados: { empleadoId: number; nombre: string; tipo: string; horas: number; propina: number; turnos: number }[]
+      }>(`/propinas/encargado/resumen?desde=${desde}&hasta=${hasta}`),
       repartir: (turnoId: number, body: { efectivo: number; tarjeta: number; turnos: { empleadoId: number; horas: number }[] }) =>
         put<unknown>(`/propinas/encargado/turnos/${turnoId}`, body),
     },

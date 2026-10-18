@@ -142,6 +142,27 @@ export async function propinaRoutes(app: FastifyInstance) {
     })
   })
 
+  // Cuánto lleva cada empleado en un período (el de la hoja: 25 → 24), solo en este local
+  app.get('/propinas/encargado/resumen', async (req, reply) => {
+    const rid = localDeSesion(req)
+    if (!rid) return reply.status(403).send({ error: 'Vuelve a entrar con tu PIN' })
+    const { desde, hasta } = req.query as { desde?: string; hasta?: string }
+    if (!desde || !hasta) return reply.status(400).send({ error: 'desde y hasta requeridos' })
+    const fin = new Date(hasta); fin.setUTCDate(fin.getUTCDate() + 1)
+    const filas = await prisma.propinaTurno.findMany({
+      where: { propinaDia: { restaurantId: rid, fecha: { gte: new Date(desde), lt: fin } } },
+      select: { empleadoId: true, horas: true, propina: true, empleado: { select: { nombre: true, tipo: true } } },
+    })
+    const mapa = new Map<number, { empleadoId: number; nombre: string; tipo: string; horas: number; propina: number; turnos: number }>()
+    for (const f of filas) {
+      const p = mapa.get(f.empleadoId) ?? { empleadoId: f.empleadoId, nombre: f.empleado.nombre, tipo: f.empleado.tipo, horas: 0, propina: 0, turnos: 0 }
+      p.horas += f.horas; p.propina = Math.round((p.propina + f.propina) * 100) / 100; p.turnos += 1
+      mapa.set(f.empleadoId, p)
+    }
+    const empleados = [...mapa.values()].sort((a, b) => b.propina - a.propina)
+    return { empleados, total: Math.round(empleados.reduce((s, e) => s + e.propina, 0) * 100) / 100 }
+  })
+
   // Repartir (o corregir el reparto de) un turno cerrado del local
   app.put('/propinas/encargado/turnos/:turnoId', async (req, reply) => {
     const rid = localDeSesion(req)
