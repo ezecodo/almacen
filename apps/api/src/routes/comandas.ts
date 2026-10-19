@@ -497,6 +497,8 @@ export async function comandaRoutes(app: FastifyInstance) {
       data: { mesaId },
       include: { items: true, mesa: true, mermas: true },
     })
+    // Si la mesa venía de una reserva o un walk-in, la reserva se muda con ella (el plano la muestra en la nueva)
+    await prisma.reserva.updateMany({ where: { comandaId: id }, data: { mesaId } })
     broadcast(comanda.restaurantId, 'update')
     return comanda
   })
