@@ -4313,10 +4313,11 @@ function minutosHora(h: string) {
   return hh * 60 + (mm || 0)
 }
 
-function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, onClose }: {
+function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNombre, onClose }: {
   restaurantId: number
   reservaInicial?: number
   fechaInicial?: string
+  camareroNombre?: string
   onClose: () => void
 }) {
   const queryClient = useQueryClient()
@@ -4381,8 +4382,34 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, onClose }: 
   const mesaDe = (r: Reserva) => todasMesas.find(m => m.id === r.mesaId)
   const chica = (r: Reserva) => { const m = mesaDe(r); return !!m && m.capacidad > 0 && r.pax > m.capacidad }
 
+  // Hoy, el plano sabe qué mesas tienen gente ahora (las mismas comandas que el mapa de la sala)
+  const esHoyPlano = fecha === hoy
+  const { data: comandasAhora = [] } = useQuery({
+    queryKey: ['comandas-sala', restaurantId],
+    queryFn: () => api.comandas.list(restaurantId),
+    enabled: esHoyPlano,
+    refetchInterval: 15_000,
+  })
+  const ocupada = (mesaId: number) => esHoyPlano && comandasAhora.some(c => c.mesaId === mesaId)
+
+  // Walk-in desde el plano: sin reserva elegida, tocar una mesa libre → pax → se sienta y se sigue en el plano
+  const [walkinEn, setWalkinEn] = useState<Mesa | null>(null)
+  const [paxWalkin, setPaxWalkin] = useState(2)
+  const sentarWalkin = useMutation({
+    mutationFn: ({ mesa, pax }: { mesa: Mesa; pax: number }) => api.comandas.abrir(restaurantId, mesa.id, pax, camareroNombre, true),
+    onSuccess: () => {
+      setWalkinEn(null)
+      queryClient.invalidateQueries({ queryKey: ['comandas-sala', restaurantId] })
+      queryClient.invalidateQueries({ queryKey: ['reservas', restaurantId] })
+    },
+  })
+
   const tocarMesa = (mesa: Mesa) => {
-    if (!reservaElegida || asignar.isPending) return
+    if (!reservaElegida) {
+      if (esHoyPlano && !ocupada(mesa.id)) { setPaxWalkin(2); sentarWalkin.reset(); setWalkinEn(mesa) }
+      return
+    }
+    if (asignar.isPending) return
     if (reservaElegida.mesaId === mesa.id) { setElegida(null); return }
     asignar.mutate({ id: reservaElegida.id, mesaId: mesa.id })
   }
@@ -4498,24 +4525,26 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, onClose }: 
               const hayAviso = lista.some(conAviso)
               const esDestino = !!reservaElegida
               const esLaDeElegida = reservaElegida?.mesaId === mesa.id
-              const border = esLaDeElegida ? '#38bdf8' : hayAviso ? '#f59e0b' : lista.length ? '#4B9EDF' : (isDark ? '#334155' : '#cbd5e1')
+              const conGente = ocupada(mesa.id)
+              const border = esLaDeElegida ? '#38bdf8' : hayAviso ? '#f59e0b' : lista.length ? '#4B9EDF' : conGente ? '#a855f7' : (isDark ? '#334155' : '#cbd5e1')
               return (
                 <div key={mesa.id} onClick={() => tocarMesa(mesa)} style={{
                   position: 'absolute', left: mesa.x, top: mesa.y, width: w, height: h,
                   borderRadius: isRound ? '50%' : 6,
-                  background: lista.length ? (isDark ? '#0f2240' : '#e0f2fe') : (isDark ? '#111827' : '#f8fafc'),
+                  background: conGente ? (isDark ? '#2d1a3a' : '#f3e8ff') : lista.length ? (isDark ? '#0f2240' : '#e0f2fe') : (isDark ? '#111827' : '#f8fafc'),
                   border: `2px ${esDestino && !esLaDeElegida ? 'dashed' : 'solid'} ${border}`,
                   boxShadow: esLaDeElegida ? '0 0 16px #38bdf899' : undefined,
-                  cursor: esDestino ? 'pointer' : 'default', userSelect: 'none',
+                  cursor: esDestino || (esHoyPlano && !conGente) ? 'pointer' : 'default', userSelect: 'none',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   transform: mesa.rotacion ? `rotate(${mesa.rotacion}deg)` : undefined,
                 }}>
                   <div style={{ transform: mesa.rotacion ? `rotate(${-mesa.rotacion}deg)` : undefined, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
                     <span style={{ color: isDark ? '#e2e8f0' : '#0f172a', fontWeight: 800, fontSize: chicaMesa ? 12 : 16, lineHeight: 1.1 }}>{mesa.numero}</span>
+                    {conGente && !chicaMesa && !lista.some(r => r.estado === 'sentada') && <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.05em', color: isDark ? '#c084fc' : '#9333ea' }}>OCUPADA</span>}
                     {visibles.map(r => (
                       <span key={r.id} onClick={e => { if (r.estado !== 'confirmada') return; e.stopPropagation(); setElegida(elegida === r.id ? null : r.id) }}
                         style={{
-                          fontFamily: 'ui-monospace, monospace', fontWeight: 800, fontSize: chicaMesa ? 9 : 12, lineHeight: 1.15,
+                          fontFamily: 'ui-monospace, monospace', fontWeight: 800, fontSize: chicaMesa ? 9 : 12, lineHeight: 1.15, whiteSpace: 'nowrap',
                           padding: '0 3px', borderRadius: 4,
                           color: r.id === elegida ? '#fff' : conAviso(r) ? '#d97706' : r.estado === 'sentada' ? (isDark ? '#64748b' : '#94a3b8') : (isDark ? '#7dd3fc' : '#0369a1'),
                           background: r.id === elegida ? '#0ea5e9' : 'transparent',
@@ -4533,6 +4562,31 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, onClose }: 
         </div>
       ) : (
         <div className="flex-1 flex items-center justify-center text-[var(--sala-tx4)] text-sm">No hay mesas configuradas</div>
+      )}
+
+      {walkinEn && (
+        <div className="fixed inset-0 z-[70] bg-black/70 flex items-center justify-center px-4" onClick={() => setWalkinEn(null)}>
+          <div className="bg-[var(--sala-srf)] rounded-2xl p-6 w-full max-w-xs shadow-2xl" onClick={e => e.stopPropagation()}>
+            <p className="text-[var(--sala-tx3)] text-xs font-bold uppercase tracking-wider">🚶 Walk-in</p>
+            <h3 className="text-[var(--sala-txt)] font-black text-xl mb-4">Mesa {walkinEn.numero} · ¿cuántos?</h3>
+            <div className="flex items-center gap-4 mb-6">
+              <button onClick={() => setPaxWalkin(p => Math.max(1, p - 1))} className="w-14 h-14 rounded-xl bg-[var(--sala-btn)] text-[var(--sala-txt)] text-3xl">−</button>
+              <span className="flex-1 text-center text-[var(--sala-txt)] text-5xl font-black tabular-nums">{paxWalkin}</span>
+              <button onClick={() => setPaxWalkin(p => p + 1)} className="w-14 h-14 rounded-xl bg-[var(--sala-btn)] text-[var(--sala-txt)] text-3xl">+</button>
+            </div>
+            {walkinEn.capacidad > 0 && paxWalkin > walkinEn.capacidad && (
+              <p className="text-amber-500 text-xs font-bold mb-3 text-center">⚠ La mesa es para {walkinEn.capacidad}</p>
+            )}
+            <div className="flex gap-3">
+              <button onClick={() => setWalkinEn(null)} className="flex-1 py-3 rounded-xl bg-[var(--sala-btn)] text-[var(--sala-tx1)] font-medium">Cancelar</button>
+              <button onClick={() => sentarWalkin.mutate({ mesa: walkinEn, pax: paxWalkin })} disabled={sentarWalkin.isPending}
+                className="flex-1 py-3 rounded-xl text-white font-black disabled:opacity-50" style={{ background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)' }}>
+                {sentarWalkin.isPending ? 'Sentando…' : 'Sentar'}
+              </button>
+            </div>
+            {sentarWalkin.isError && <p className="text-red-400 text-xs font-bold mt-3">{(sentarWalkin.error as Error).message}</p>}
+          </div>
+        </div>
       )}
 
       {/* Abajo: la reserva elegida (qué hacer con ella) o la tira de las que no tienen mesa */}
@@ -4565,6 +4619,7 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, onClose }: 
           <>
             <p className="text-[var(--sala-tx3)] text-[11px] font-bold uppercase tracking-wider mb-1.5">
               {sinMesa.length ? `Sin mesa (${sinMesa.length}) · toca una y después su mesa` : vivas.length ? 'Todas las reservas tienen mesa' : 'No hay reservas este día'}
+              {esHoyPlano && ' · 🚶 toca una mesa libre para sentar un walk-in'}
             </p>
             {sinMesa.length > 0 && (
               <div className="flex gap-2 overflow-x-auto pb-1">
@@ -4797,7 +4852,7 @@ function EncargadoPanel({
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end" onClick={onClose}>
-      {plano && <PlanoReservas restaurantId={rid} reservaInicial={plano.reservaId} fechaInicial={plano.fecha ?? fechaReservas} onClose={() => setPlano(null)} />}
+      {plano && <PlanoReservas restaurantId={rid} reservaInicial={plano.reservaId} fechaInicial={plano.fecha ?? fechaReservas} camareroNombre={camarero.nombre} onClose={() => setPlano(null)} />}
       <div className="relative w-full sm:max-w-md bg-[var(--sala-hdr)] h-full flex flex-col shadow-2xl border-l border-[var(--sala-brd)]" onClick={e => e.stopPropagation()}
         onTouchStart={e => { if (soloCobros) swipeCobros.current = { x: e.touches[0].clientX, y: e.touches[0].clientY } }}
         onTouchEnd={e => {
