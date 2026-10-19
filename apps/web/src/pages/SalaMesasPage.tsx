@@ -127,7 +127,9 @@ function coloresMesa(estado: 'libre' | Comanda['estado'], isDark: boolean) {
 }
 
 // ── Mesa visual ───────────────────────────────────────────────────────────────
-function MesaBtn({ mesa, comanda, onClick }: { mesa: Mesa; comanda?: Comanda; onClick: () => void }) {
+// pendienteCobro: la mesa tiene además una cuenta impresa sin cobrar (los de antes) mientras ya se
+// sentaron otros → un segundo marco ámbar por dentro, más chico, con su aureola.
+function MesaBtn({ mesa, comanda, pendienteCobro = false, onClick }: { mesa: Mesa; comanda?: Comanda; pendienteCobro?: boolean; onClick: () => void }) {
   const isDark = useContext(ThemeCtx)
   const w = mesaWidth(mesa)
   const h = mesaHeight(mesa)
@@ -183,6 +185,13 @@ function MesaBtn({ mesa, comanda, onClick }: { mesa: Mesa; comanda?: Comanda; on
       transform: mesa.rotacion ? `rotate(${mesa.rotacion}deg)` : undefined,
       transformOrigin: 'center center',
     }}>
+      {pendienteCobro && (
+        <div title="Cuenta sin cobrar" style={{
+          position: 'absolute', inset: 4, borderRadius: isRound ? '50%' : '4px',
+          border: '2px solid #f59e0b', pointerEvents: 'none',
+          boxShadow: isDark ? '0 0 10px #f59e0bcc, inset 0 0 8px #f59e0b66' : '0 0 6px #f59e0b99, inset 0 0 5px #f59e0b55',
+        }} />
+      )}
       <div style={{ transform: mesa.rotacion ? `rotate(${-mesa.rotacion}deg)` : undefined, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
         <span style={{
           color: libre      ? '#16a34a'
@@ -5281,7 +5290,23 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
     },
   })
 
-  const comandaByMesa = (mesaId: number) => comandas?.find(c => c.mesaId === mesaId)
+  // Una mesa puede tener dos comandas: la cuenta de los de antes sin cobrar (facturada o liberada) y
+  // la de los que se acaban de sentar. Manda la de ahora (es la que se abre y da el color); la otra
+  // se marca con el marco ámbar interior.
+  const { data: liberadasMapa = [] } = useQuery({
+    queryKey: ['enc-cobros', restaurant?.id, 'liberada'],
+    queryFn: () => api.comandas.list(restaurant!.id, 'liberada'),
+    enabled: !!restaurant && !enLocal,
+    refetchInterval: 15_000,
+  })
+  const comandaByMesa = (mesaId: number) =>
+    comandas?.find(c => c.mesaId === mesaId && (c.estado === 'abierta' || c.estado === 'enviada'))
+    ?? comandas?.find(c => c.mesaId === mesaId)
+  const pendienteCobroEn = (mesaId: number) => {
+    const principal = comandaByMesa(mesaId)
+    return [...(comandas ?? []), ...liberadasMapa].some(c =>
+      c.mesaId === mesaId && c.id !== principal?.id && (c.estado === 'facturada' || c.estado === 'liberada') && c.items.length > 0)
+  }
 
   const handleMesaClick = (mesa: Mesa) => {
     const comanda = comandaByMesa(mesa.id)
@@ -5683,7 +5708,7 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
             ))}
             {/* Mesas y sillas altas — interactivas */}
             {activePlan.mesas.filter(m => m.tipo !== 'barra').map((mesa: Mesa) => (
-              <MesaBtn key={mesa.id} mesa={mesa} comanda={comandaByMesa(mesa.id)} onClick={() => handleMesaClick(mesa)} />
+              <MesaBtn key={mesa.id} mesa={mesa} comanda={comandaByMesa(mesa.id)} pendienteCobro={pendienteCobroEn(mesa.id)} onClick={() => handleMesaClick(mesa)} />
             ))}
           </div>
         </div>
