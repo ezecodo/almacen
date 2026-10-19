@@ -6391,7 +6391,16 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
 
       {comandaAbierta && comandaDetalle && (
         <ComandaPanel comanda={comandaDetalle} menu={menu ?? []} categorias={menuCategorias}
-          onClose={() => setComandaAbierta(null)}
+          onClose={() => {
+            setComandaAbierta(null)
+            // Se abrió y no se pidió nada (pax puesto por error): la mesa vuelve a estar libre.
+            // Con reserva o walk-in no: esa gente está sentada esperando. El servidor comprueba que esté vacía.
+            if (comandaDetalle.estado === 'abierta' && !comandaDetalle.reserva) {
+              api.comandas.liberarSiVacia(comandaDetalle.id)
+                .then(() => queryClient.invalidateQueries({ queryKey: ['comandas-sala', restaurant?.id] }))
+                .catch(() => {})
+            }
+          }}
           onEnviar={(niveles, silent) => enviarComanda.mutate({ id: comandaAbierta, niveles, silent })}
           onLiberar={() => liberarMesa.mutate(comandaAbierta)}
           onCambiarMesa={comandaDetalle.estado !== 'facturada' ? () => setShowMoverMesa(true) : undefined}

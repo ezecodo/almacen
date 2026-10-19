@@ -60,7 +60,7 @@ export const RUTAS_SALA = new Set([
   'GET /api/comandas', 'GET /api/comandas/:id', 'POST /api/comandas', 'POST /api/comandas/merge',
   'POST /api/comandas/:id/items', 'PATCH /api/comandas/:id/items/:itemId', 'DELETE /api/comandas/:id/items/:itemId',
   'PATCH /api/comandas/:id/enviar', 'PATCH /api/comandas/:id/facturar', 'PATCH /api/comandas/:id/liberar',
-  'PATCH /api/comandas/:id/mover-mesa', 'PATCH /api/comandas/:id/pax', 'PATCH /api/comandas/:id/para-cocina', 'PATCH /api/comandas/:id/cerrar',
+  'PATCH /api/comandas/:id/mover-mesa', 'PATCH /api/comandas/:id/pax', 'PATCH /api/comandas/:id/para-cocina', 'PATCH /api/comandas/:id/cerrar', 'DELETE /api/comandas/:id/vacia',
   'GET /api/mermas', 'POST /api/mermas', 'DELETE /api/mermas/:id',
   // platos agotados en el servicio
   'GET /api/agotados', 'POST /api/agotados', 'DELETE /api/agotados/:menuItemId',

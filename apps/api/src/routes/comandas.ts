@@ -503,6 +503,25 @@ export async function comandaRoutes(app: FastifyInstance) {
     return comanda
   })
 
+  // Salir de una mesa que se abrió sin pedir nada la deja libre otra vez (alguien puso los pax y se fue).
+  // Solo si sigue abierta, sin nada pedido (lo automático tipo pan × pax no cuenta), sin mermas y sin
+  // reserva ni walk-in: esa gente sí está sentada esperando, aunque todavía no pidió.
+  app.delete('/comandas/:id/vacia', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    const comanda = await prisma.comanda.findUnique({ where: { id }, include: { items: true, mermas: true, reserva: true } })
+    if (!comanda) return reply.status(204).send()
+    if (comanda.reserva) return reply.status(409).send({ error: 'Hay gente sentada (reserva o walk-in)' })
+    const vacia = comanda.estado === 'abierta'
+      && comanda.items.every(i => i.autoGenerado && i.ronda === 0)
+      && comanda.mermas.length === 0
+    if (!vacia) return reply.status(409).send({ error: 'La mesa tiene algo pedido' })
+    const grupo = await prisma.grupoAgendado.findFirst({ where: { comandaId: id } })
+    if (grupo) return reply.status(409).send({ error: 'Es la mesa de un grupo' })
+    await prisma.comanda.delete({ where: { id } }) // los items se van en cascada
+    broadcast(comanda.restaurantId, 'update')
+    return reply.status(204).send()
+  })
+
   // Quién está sentado en la mesa (encargado): una reserva de hoy (reservaId) o un walk-in (null).
   // Corrige un "Sentar" equivocado ("No era esta reserva") y marca una mesa que abrió un camarero.
   // La reserva que estaba vuelve a "por llegar" sin mesa; un walk-in que estaba se borra.
