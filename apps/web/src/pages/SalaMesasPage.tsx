@@ -185,6 +185,14 @@ function MesaBtn({ mesa, comanda, pendienteCobro = false, onClick }: { mesa: Mes
       transform: mesa.rotacion ? `rotate(${mesa.rotacion}deg)` : undefined,
       transformOrigin: 'center center',
     }}>
+      {comanda?.reserva && (
+        <span title={comanda.reserva.origen === 'walkin' ? 'Walk-in' : `Reserva ${comanda.reserva.nombre ?? ''} ${comanda.reserva.hora}`} style={{
+          position: 'absolute', top: -8, right: -8, width: 18, height: 18, borderRadius: '50%',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, lineHeight: 1,
+          background: isDark ? '#0b1220' : '#ffffff', border: `1.5px solid ${comanda.reserva.origen === 'walkin' ? '#94a3b8' : '#38bdf8'}`,
+          transform: mesa.rotacion ? `rotate(${-mesa.rotacion}deg)` : undefined, pointerEvents: 'none', zIndex: 1,
+        }}>{comanda.reserva.origen === 'walkin' ? '🚶' : '📅'}</span>
+      )}
       {pendienteCobro && (
         <div title="Cuenta sin cobrar" style={{
           position: 'absolute', inset: 4, borderRadius: isRound ? '50%' : '4px',
@@ -214,22 +222,82 @@ function MesaBtn({ mesa, comanda, pendienteCobro = false, onClick }: { mesa: Mes
 }
 
 // ── Modal abrir mesa ──────────────────────────────────────────────────────────
-function AbrirMesaModal({ mesa, onConfirm, onMenuGrupo, onClose }: { mesa: Mesa; onConfirm: (pax: number) => void; onMenuGrupo?: (pax: number) => void; onClose: () => void }) {
+// Encargado: en vez de "Abrir mesa" elige 🚶 Walk-in (queda en el libro de reservas del día) o
+// 📅 Tiene reserva (lista de las de hoy sin sentar → se sienta esa). El camarero abre como siempre.
+function AbrirMesaModal({ mesa, onConfirm, onMenuGrupo, onClose, reservas, onWalkin, onReserva }: {
+  mesa: Mesa; onConfirm: (pax: number) => void; onMenuGrupo?: (pax: number) => void; onClose: () => void
+  reservas?: Reserva[]; onWalkin?: (pax: number) => void; onReserva?: (reserva: Reserva, pax: number) => void
+}) {
   const [pax, setPax] = useState(2)
+  const [paxTocado, setPaxTocado] = useState(false)
+  const [eligiendoReserva, setEligiendoReserva] = useState(false)
+  const cambiarPax = (n: number) => { setPax(n); setPaxTocado(true) }
+
+  // Primero las que ya tenían esta mesa asignada; después, la más cercana a la hora de ahora
+  const ahora = new Date().getHours() * 60 + new Date().getMinutes()
+  const minutos = (h: string) => { const [hh, mm] = h.split(':').map(Number); return hh * 60 + (mm || 0) }
+  const pendientes = (reservas ?? [])
+    .filter(r => r.estado === 'confirmada' && !r.enPool)
+    .sort((a, b) => (Number(b.mesaId === mesa.id) - Number(a.mesaId === mesa.id))
+      || Math.abs(minutos(a.hora) - ahora) - Math.abs(minutos(b.hora) - ahora))
+
+  if (eligiendoReserva && onReserva) return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 px-4">
+      <div className="bg-[var(--sala-srf)] rounded-2xl p-5 w-full max-w-sm shadow-2xl max-h-[85vh] flex flex-col">
+        <div className="flex items-center gap-2 mb-3">
+          <button onClick={() => setEligiendoReserva(false)} className="text-[var(--sala-tx2)] text-sm font-bold">← Volver</button>
+          <h3 className="text-[var(--sala-txt)] font-bold text-lg flex-1 text-right">Mesa {mesa.numero} · 📅 ¿Qué reserva?</h3>
+        </div>
+        <div className="overflow-y-auto space-y-2">
+          {pendientes.length === 0 && (
+            <p className="text-center text-[var(--sala-tx4)] text-sm py-8">No quedan reservas por sentar hoy</p>
+          )}
+          {pendientes.map(r => (
+            <button key={r.id} onClick={() => onReserva(r, paxTocado ? pax : r.pax)}
+              className="w-full text-left bg-[var(--sala-btn2)] rounded-xl px-4 py-3 active:scale-[0.98] transition-transform">
+              <div className="flex items-center gap-2">
+                <span className="text-[var(--sala-txt)] font-mono font-bold">{r.hora}</span>
+                <span className="text-[var(--sala-txt)] font-bold flex-1 truncate">{r.nombre}</span>
+                <span className="text-[var(--sala-tx2)] text-sm font-bold">{r.pax} pax</span>
+              </div>
+              {(r.mesaId === mesa.id || r.notas) && (
+                <p className="text-xs mt-0.5 truncate">
+                  {r.mesaId === mesa.id && <span className="text-emerald-400 font-bold">🪑 Era para esta mesa </span>}
+                  {r.notas && <span className="text-[var(--sala-tx3)]">{r.notas}</span>}
+                </p>
+              )}
+            </button>
+          ))}
+        </div>
+        {paxTocado && pendientes.length > 0 && (
+          <p className="text-[var(--sala-tx4)] text-xs mt-3 text-center">Se abre con {pax} pax, los que pusiste</p>
+        )}
+      </div>
+    </div>
+  )
+
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 px-4">
       <div className="bg-[var(--sala-srf)] rounded-2xl p-6 w-full max-w-xs shadow-2xl">
         <h3 className="text-[var(--sala-txt)] font-bold text-lg mb-1">Mesa {mesa.numero}</h3>
         <p className="text-[var(--sala-tx2)] text-sm mb-6">¿Cuántos PAX?</p>
         <div className="flex items-center gap-4 mb-8">
-          <button onClick={() => setPax(p => Math.max(1, p - 1))} className="w-14 h-14 rounded-xl bg-[var(--sala-btn)] text-[var(--sala-txt)] text-3xl hover:bg-gray-600">−</button>
+          <button onClick={() => cambiarPax(Math.max(1, pax - 1))} className="w-14 h-14 rounded-xl bg-[var(--sala-btn)] text-[var(--sala-txt)] text-3xl hover:bg-gray-600">−</button>
           <span className="flex-1 text-center text-[var(--sala-txt)] text-5xl font-bold">{pax}</span>
-          <button onClick={() => setPax(p => p + 1)} className="w-14 h-14 rounded-xl bg-[var(--sala-btn)] text-[var(--sala-txt)] text-3xl hover:bg-gray-600">+</button>
+          <button onClick={() => cambiarPax(pax + 1)} className="w-14 h-14 rounded-xl bg-[var(--sala-btn)] text-[var(--sala-txt)] text-3xl hover:bg-gray-600">+</button>
         </div>
         <div className="flex gap-3">
           <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-[var(--sala-btn)] text-[var(--sala-tx1)] font-medium">Cancelar</button>
-          <button onClick={() => onConfirm(pax)} className="flex-1 py-3 rounded-xl bg-[#4CC8A0] text-[var(--sala-txt)] font-bold">Abrir mesa</button>
+          {onWalkin
+            ? <button onClick={() => onWalkin(pax)} className="flex-1 py-3 rounded-xl bg-[#4CC8A0] text-[var(--sala-txt)] font-bold">🚶 Walk-in</button>
+            : <button onClick={() => onConfirm(pax)} className="flex-1 py-3 rounded-xl bg-[#4CC8A0] text-[var(--sala-txt)] font-bold">Abrir mesa</button>}
         </div>
+        {onReserva && (
+          <button onClick={() => setEligiendoReserva(true)}
+            className="w-full mt-3 py-3 rounded-xl border-2 border-sky-400/60 bg-sky-500/10 text-sky-500 font-bold active:scale-95 transition-transform">
+            📅 Tiene reserva{pendientes.length ? ` (${pendientes.length})` : ''}
+          </button>
+        )}
         {/* Grupo grande: armar menú degustación desde plantilla */}
         {onMenuGrupo && (
           <button onClick={() => onMenuGrupo(pax)}
@@ -1559,6 +1627,14 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                 )}
               </h2>
               {comanda.notaMesa && <p className="text-[var(--sala-tx2)] text-xs truncate">📝 {comanda.notaMesa}</p>}
+              {comanda.reserva && (
+                comanda.reserva.origen === 'walkin'
+                  ? <p className="text-[var(--sala-tx2)] text-xs font-bold">🚶 Walk-in · llegó {comanda.reserva.hora}</p>
+                  : <p className="text-sky-400 text-xs font-bold truncate">
+                      📅 {comanda.reserva.nombre ?? 'Reserva'} · {comanda.reserva.hora}
+                      {comanda.reserva.notas && <span className="font-normal text-[var(--sala-tx2)]"> · {comanda.reserva.notas}</span>}
+                    </p>
+              )}
               <div className="flex items-center gap-2 mt-0.5">
                 <button onClick={() => cambiarPax.mutate(Math.max(1, comanda.pax - 1))}
                   className="w-6 h-6 rounded-md bg-[var(--sala-btn)] text-[var(--sala-tx1)] text-sm font-bold hover:bg-gray-600 flex items-center justify-center leading-none">−</button>
@@ -4114,6 +4190,251 @@ function AgotadosSala({ restaurantId, agotados }: { restaurantId: number; agotad
   )
 }
 
+// ── Plano de reservas (💼 → Reservas → 🗺 Plano) ──────────────────────────────
+// El mismo dibujo del salón, pero cada mesa enseña las horas de sus reservas del día. Se asigna en
+// dos toques: una reserva (de la tira "sin mesa" o una hora dentro de una mesa) y luego la mesa.
+// No bloquea nada: si dos reservas de la misma mesa se pisan (según la duración de la config de
+// reservas) o la mesa es chica, solo avisa en ámbar.
+const DURACION_RESERVA_DEFECTO = 90
+
+function fechaLocal(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+function minutosHora(h: string) {
+  const [hh, mm] = h.split(':').map(Number)
+  return hh * 60 + (mm || 0)
+}
+
+function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, onClose }: {
+  restaurantId: number
+  reservaInicial?: number
+  fechaInicial?: string
+  onClose: () => void
+}) {
+  const queryClient = useQueryClient()
+  const isDark = useContext(ThemeCtx)
+  const hoy = fechaLocal(new Date())
+  const [fecha, setFecha] = useState(fechaInicial ?? hoy)
+  const [elegida, setElegida] = useState<number | null>(reservaInicial ?? null)
+  const [planId, setPlanId] = useState<number | null>(null)
+
+  const { data: planes = [] } = useQuery({ queryKey: ['salon-planes', restaurantId], queryFn: () => api.salon.list(restaurantId) })
+  const { data: reservas = [] } = useQuery({
+    queryKey: ['reservas', restaurantId, fecha],
+    queryFn: () => api.reservas.list(restaurantId, fecha),
+    refetchInterval: 30_000,
+  })
+  const asignar = useMutation({
+    mutationFn: ({ id, mesaId }: { id: number; mesaId: number | null }) => api.reservas.asignarMesa(id, mesaId),
+    onSuccess: () => { setElegida(null); queryClient.invalidateQueries({ queryKey: ['reservas', restaurantId] }) },
+  })
+
+  // Al abrir desde "Asignar mesa" de una reserva que ya tiene mesa: su salón
+  const reservaElegida = reservas.find(r => r.id === elegida) ?? null
+  useEffect(() => {
+    if (planId || !planes.length) return
+    const mesaIni = reservas.find(r => r.id === reservaInicial)?.mesaId
+    setPlanId(planes.find(p => p.mesas.some(m => m.id === mesaIni))?.id ?? planes[0].id)
+  }, [planes, reservas])
+  const plan = planes.find(p => p.id === planId) ?? planes[0] ?? null
+
+  const vivas = reservas.filter(r => r.estado === 'confirmada' || r.estado === 'sentada')
+  const sinMesa = vivas.filter(r => !r.mesaId && r.estado === 'confirmada')
+  const duracion = (r: Reserva) => r.config?.duracionMin ?? DURACION_RESERVA_DEFECTO
+  const deMesa = (mesaId: number) => vivas.filter(r => r.mesaId === mesaId).sort((a, b) => minutosHora(a.hora) - minutosHora(b.hora))
+  // Dos reservas de la misma mesa se pisan si la segunda llega antes de que termine la primera
+  const sePisan = (a: Reserva, b: Reserva) => {
+    const [antes, despues] = minutosHora(a.hora) <= minutosHora(b.hora) ? [a, b] : [b, a]
+    return minutosHora(despues.hora) - minutosHora(antes.hora) < duracion(antes)
+  }
+  const pisadas = new Set<number>()
+  for (const p of planes) for (const m of p.mesas) {
+    const lista = deMesa(m.id)
+    for (let i = 0; i < lista.length; i++) for (let j = i + 1; j < lista.length; j++) {
+      if (sePisan(lista[i], lista[j])) { pisadas.add(lista[i].id); pisadas.add(lista[j].id) }
+    }
+  }
+  const todasMesas = planes.flatMap(p => p.mesas)
+  const mesaDe = (r: Reserva) => todasMesas.find(m => m.id === r.mesaId)
+  const chica = (r: Reserva) => { const m = mesaDe(r); return !!m && m.capacidad > 0 && r.pax > m.capacidad }
+
+  const tocarMesa = (mesa: Mesa) => {
+    if (!reservaElegida || asignar.isPending) return
+    if (reservaElegida.mesaId === mesa.id) { setElegida(null); return }
+    asignar.mutate({ id: reservaElegida.id, mesaId: mesa.id })
+  }
+
+  const moverDia = (n: number) => {
+    const d = new Date(fecha + 'T12:00:00'); d.setDate(d.getDate() + n)
+    setFecha(fechaLocal(d)); setElegida(null)
+  }
+  const manana = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return fechaLocal(d) })()
+  const etiquetaFecha = fecha === hoy ? 'Hoy' : fecha === manana ? 'Mañana'
+    : new Date(fecha + 'T12:00:00').toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'numeric' })
+
+  const nombreDe = (r: Reserva) => r.origen === 'walkin' ? '🚶 Walk-in' : (r.nombre ?? '')
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-[var(--sala-bg)] flex flex-col" onClick={e => e.stopPropagation()}>
+      {/* Cabecera: volver, fecha y salones */}
+      <div className="px-4 pt-4 pb-2 border-b border-[var(--sala-brd)] bg-[var(--sala-hdr)]">
+        <div className="flex items-center gap-2">
+          <button onClick={onClose} className="text-[var(--sala-tx2)] text-sm font-bold px-2 py-1">← Volver</button>
+          <h2 className="flex-1 text-[var(--sala-txt)] font-black text-lg">🗺 Plano de reservas</h2>
+          <div className="flex items-center gap-1">
+            <button onClick={() => moverDia(-1)} className="w-9 h-9 rounded-lg bg-[var(--sala-btn2)] text-[var(--sala-txt)] font-bold">‹</button>
+            <button onClick={() => { setFecha(hoy); setElegida(null) }}
+              className="min-w-[84px] h-9 px-2 rounded-lg bg-[var(--sala-btn2)] text-[var(--sala-txt)] text-sm font-bold capitalize">{etiquetaFecha}</button>
+            <button onClick={() => moverDia(1)} className="w-9 h-9 rounded-lg bg-[var(--sala-btn2)] text-[var(--sala-txt)] font-bold">›</button>
+          </div>
+        </div>
+        {planes.length > 1 && (
+          <div className="flex gap-1.5 mt-2 overflow-x-auto">
+            {planes.map(p => (
+              <button key={p.id} onClick={() => setPlanId(p.id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap ${plan?.id === p.id ? 'bg-[var(--sala-btna)] text-[var(--sala-txt)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)]'}`}>
+                {p.nombre} {p.mesas.some(m => deMesa(m.id).length) ? `· ${p.mesas.reduce((n, m) => n + deMesa(m.id).length, 0)}` : ''}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* El plano, escalado a la pantalla como el mapa de la sala */}
+      {plan && plan.mesas.length > 0 ? (
+        <div className="flex-1 overflow-hidden relative" ref={el => {
+          if (!el) return
+          const aplicar = () => {
+            const PAD = 24
+            const ms = plan.mesas
+            const minX = Math.min(...ms.map(m => m.x)) - PAD
+            const minY = Math.min(...ms.map(m => m.y)) - PAD
+            const w = Math.max(...ms.map(m => m.x + mesaWidth(m))) + PAD - minX
+            const h = Math.max(...ms.map(m => m.y + mesaHeight(m))) + PAD - minY
+            const scale = Math.min(el.clientWidth / w, el.clientHeight / h)
+            const canvas = el.querySelector('.plano-canvas') as HTMLElement | null
+            if (canvas) {
+              canvas.style.transformOrigin = '0 0'
+              canvas.style.transform = `translate(${(el.clientWidth - w * scale) / 2}px, ${(el.clientHeight - h * scale) / 2}px) scale(${scale}) translate(${-minX}px, ${-minY}px)`
+            }
+          }
+          aplicar()
+          const ro = new ResizeObserver(aplicar)
+          ro.observe(el)
+          ;(el as HTMLElement & { _ro?: ResizeObserver })._ro?.disconnect()
+          ;(el as HTMLElement & { _ro?: ResizeObserver })._ro = ro
+        }}>
+          <div className="plano-canvas" style={{ position: 'absolute', top: 0, left: 0 }}>
+            {plan.mesas.map(mesa => {
+              const w = mesaWidth(mesa), h = mesaHeight(mesa)
+              if (mesa.tipo === 'barra' || isElemDeco(mesa.tipo)) {
+                const def = mesa.tipo === 'barra' ? { bg: '#130e08', border: '#92400e', label: 'BARRA' } : ELEM_STYLES[mesa.tipo]
+                return (
+                  <div key={mesa.id} style={{
+                    position: 'absolute', left: mesa.x, top: mesa.y, width: w, height: h, borderRadius: 6,
+                    background: def.bg, border: `2px solid ${def.border}`, opacity: 0.6, pointerEvents: 'none',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <span style={{ color: def.border, fontWeight: 800, fontSize: 10, letterSpacing: '0.1em' }}>{def.label}</span>
+                  </div>
+                )
+              }
+              const lista = deMesa(mesa.id)
+              const isRound = mesa.tipo === 'round' || mesa.tipo === 'silla_alta'
+              const chicaMesa = mesa.tipo === 'silla_alta'
+              const caben = chicaMesa ? 1 : Math.max(1, Math.floor((h - 26) / 15))
+              const visibles = lista.length > caben ? lista.slice(0, caben - 1 || 1) : lista
+              const resto = lista.length - visibles.length
+              const conAviso = (r: Reserva) => pisadas.has(r.id) || chica(r)
+              const hayAviso = lista.some(conAviso)
+              const esDestino = !!reservaElegida
+              const esLaDeElegida = reservaElegida?.mesaId === mesa.id
+              const border = esLaDeElegida ? '#38bdf8' : hayAviso ? '#f59e0b' : lista.length ? '#4B9EDF' : (isDark ? '#334155' : '#cbd5e1')
+              return (
+                <div key={mesa.id} onClick={() => tocarMesa(mesa)} style={{
+                  position: 'absolute', left: mesa.x, top: mesa.y, width: w, height: h,
+                  borderRadius: isRound ? '50%' : 6,
+                  background: lista.length ? (isDark ? '#0f2240' : '#e0f2fe') : (isDark ? '#111827' : '#f8fafc'),
+                  border: `2px ${esDestino && !esLaDeElegida ? 'dashed' : 'solid'} ${border}`,
+                  boxShadow: esLaDeElegida ? '0 0 16px #38bdf899' : undefined,
+                  cursor: esDestino ? 'pointer' : 'default', userSelect: 'none',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  transform: mesa.rotacion ? `rotate(${mesa.rotacion}deg)` : undefined,
+                }}>
+                  <div style={{ transform: mesa.rotacion ? `rotate(${-mesa.rotacion}deg)` : undefined, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                    <span style={{ color: isDark ? '#e2e8f0' : '#0f172a', fontWeight: 800, fontSize: chicaMesa ? 12 : 16, lineHeight: 1.1 }}>{mesa.numero}</span>
+                    {visibles.map(r => (
+                      <span key={r.id} onClick={e => { if (r.estado !== 'confirmada') return; e.stopPropagation(); setElegida(elegida === r.id ? null : r.id) }}
+                        style={{
+                          fontFamily: 'ui-monospace, monospace', fontWeight: 800, fontSize: chicaMesa ? 9 : 12, lineHeight: 1.15,
+                          padding: '0 3px', borderRadius: 4,
+                          color: r.id === elegida ? '#fff' : conAviso(r) ? '#d97706' : r.estado === 'sentada' ? (isDark ? '#64748b' : '#94a3b8') : (isDark ? '#7dd3fc' : '#0369a1'),
+                          background: r.id === elegida ? '#0ea5e9' : 'transparent',
+                          textDecoration: r.estado === 'sentada' ? 'line-through' : undefined,
+                        }}>
+                        {r.origen === 'walkin' ? '🚶' : ''}{r.hora}
+                      </span>
+                    ))}
+                    {resto > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: isDark ? '#94a3b8' : '#64748b' }}>+{resto}</span>}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ) : (
+        <div className="flex-1 flex items-center justify-center text-[var(--sala-tx4)] text-sm">No hay mesas configuradas</div>
+      )}
+
+      {/* Abajo: la reserva elegida (qué hacer con ella) o la tira de las que no tienen mesa */}
+      <div className="border-t border-[var(--sala-brd)] bg-[var(--sala-hdr)] px-4 py-3">
+        {reservaElegida ? (
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-[var(--sala-txt)] font-mono font-bold">{reservaElegida.hora}</span>
+              <span className="text-[var(--sala-txt)] font-bold flex-1 truncate">{nombreDe(reservaElegida)} · {reservaElegida.pax}p</span>
+              {reservaElegida.mesaId && (
+                <button onClick={() => asignar.mutate({ id: reservaElegida.id, mesaId: null })}
+                  className="px-2.5 py-1 rounded-lg bg-[var(--sala-btn2)] text-[var(--sala-tx2)] text-xs font-bold">Sin mesa</button>
+              )}
+              <button onClick={() => setElegida(null)} className="text-[var(--sala-tx3)] text-lg px-1">✕</button>
+            </div>
+            <p className="text-sky-500 text-xs font-bold mt-1">
+              {reservaElegida.mesaId ? `En la mesa ${mesaDe(reservaElegida)?.numero ?? '?'} · toca otra mesa para cambiarla` : 'Toca la mesa donde va'}
+            </p>
+            {reservaElegida.notas && <p className="text-[var(--sala-tx3)] text-xs mt-0.5 truncate">📝 {reservaElegida.notas}</p>}
+            {pisadas.has(reservaElegida.id) && (
+              <p className="text-amber-500 text-xs font-bold mt-0.5">
+                ⚠ Se pisa con {deMesa(reservaElegida.mesaId!).filter(o => o.id !== reservaElegida.id && sePisan(o, reservaElegida)).map(o => o.hora).join(', ')} (cada reserva ocupa {duracion(reservaElegida)} min)
+              </p>
+            )}
+            {chica(reservaElegida) && <p className="text-amber-500 text-xs font-bold mt-0.5">⚠ Son {reservaElegida.pax} y la mesa es para {mesaDe(reservaElegida)?.capacidad}</p>}
+            {asignar.isError && <p className="text-red-400 text-xs mt-0.5">{(asignar.error as Error).message}</p>}
+          </div>
+        ) : (
+          <>
+            <p className="text-[var(--sala-tx3)] text-[11px] font-bold uppercase tracking-wider mb-1.5">
+              {sinMesa.length ? `Sin mesa (${sinMesa.length}) · toca una y después su mesa` : vivas.length ? 'Todas las reservas tienen mesa' : 'No hay reservas este día'}
+            </p>
+            {sinMesa.length > 0 && (
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {sinMesa.map(r => (
+                  <button key={r.id} onClick={() => setElegida(r.id)}
+                    className="shrink-0 px-3 py-2 rounded-xl bg-[var(--sala-srf)] border border-[var(--sala-brd)] text-left">
+                    <span className="text-[var(--sala-txt)] font-mono font-bold text-sm">{r.hora}</span>
+                    <span className="text-[var(--sala-txt)] font-bold text-sm ml-1.5">{nombreDe(r)}</span>
+                    <span className="text-[var(--sala-tx3)] text-xs ml-1.5">{r.pax}p</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function EncargadoPanel({
   restaurant,
   camarero,
@@ -4288,20 +4609,17 @@ function EncargadoPanel({
     enabled: tab === 'reservas' && reservasSub === 'hoy',
   })
   const mesasReserva = (planesReserva ?? []).flatMap(p => p.mesas.map(m => ({ ...m, planNombre: p.nombre })))
-  const [eligiendoMesaId, setEligiendoMesaId] = useState<number | null>(null)
+  // Plano de reservas: abierto (con la reserva a la que se le busca mesa, si se abrió desde "Asignar mesa")
+  const [plano, setPlano] = useState<{ reservaId?: number } | null>(null)
   const [sentarError, setSentarError] = useState<{ id: number; msg: string } | null>(null)
 
-  const asignarMesaMut = useMutation({
-    mutationFn: ({ id, mesaId }: { id: number; mesaId: number | null }) => api.reservas.asignarMesa(id, mesaId),
-    onSuccess: () => { invalidarReservas(); setEligiendoMesaId(null) },
-  })
   const sentarMut = useMutation({
     mutationFn: ({ id, mesaId }: { id: number; mesaId?: number }) => api.reservas.sentar(id, mesaId, camarero.nombre),
-    onSuccess: ({ comanda }) => {
+    // Sentar no abre la mesa: la tarjeta pasa a "✅ Sentados · Mesa X" con su "Ver mesa"
+    onSuccess: () => {
       setSentarError(null)
       invalidarReservas()
       queryClient.invalidateQueries({ queryKey: ['comandas-sala', rid] })
-      onAbrirComanda?.(comanda.id)
     },
     onError: (e: Error, { id }) => setSentarError({ id, msg: e.message }),
   })
@@ -4321,6 +4639,7 @@ function EncargadoPanel({
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end" onClick={onClose}>
+      {plano && <PlanoReservas restaurantId={rid} reservaInicial={plano.reservaId} onClose={() => setPlano(null)} />}
       <div className="relative w-full sm:max-w-md bg-[var(--sala-hdr)] h-full flex flex-col shadow-2xl border-l border-[var(--sala-brd)]" onClick={e => e.stopPropagation()}
         onTouchStart={e => { if (soloCobros) swipeCobros.current = { x: e.touches[0].clientX, y: e.touches[0].clientY } }}
         onTouchEnd={e => {
@@ -4613,6 +4932,10 @@ function EncargadoPanel({
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${reservasSub === 'pool' ? 'bg-[var(--sala-btna)] text-[var(--sala-txt)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)]'}`}>
                   🔄 Pool{pool.length ? ` (${pool.length})` : ''}
                 </button>
+                <button onClick={() => setPlano({})}
+                  className="ml-auto px-3 py-1.5 rounded-lg text-xs font-bold bg-[var(--sala-btn2)] text-[var(--sala-txt)]">
+                  🗺 Plano
+                </button>
               </div>
 
               {reservasSub === 'hoy' ? (
@@ -4625,13 +4948,17 @@ function EncargadoPanel({
                       <div className="flex items-center gap-2 mb-1">
                         <span className="text-[var(--sala-txt)] font-mono font-bold">{r.hora}</span>
                         <span className="text-[var(--sala-tx3)] text-xs">{r.pax} pax</span>
-                        <span className="text-[var(--sala-txt)] font-bold flex-1 truncate">{r.nombre}</span>
+                        <span className="text-[var(--sala-txt)] font-bold flex-1 truncate">{r.origen === 'walkin' ? '🚶 Walk-in' : r.nombre}</span>
                       </div>
-                      <div className="flex items-center gap-3 mb-2">
-                        <a href={`tel:${r.telefono}`} className="text-[#4B9EDF] text-xs font-bold">📞 {r.telefono}</a>
-                        <a href={waLink(r.telefono)} target="_blank" rel="noopener noreferrer" className="text-emerald-400 text-xs font-bold">💬 WhatsApp</a>
-                        {r.notas && <span className="text-[var(--sala-tx3)] text-xs">· {r.notas}</span>}
-                      </div>
+                      {(r.telefono || r.notas) && (
+                        <div className="flex items-center gap-3 mb-2">
+                          {r.telefono && <>
+                            <a href={`tel:${r.telefono}`} className="text-[#4B9EDF] text-xs font-bold">📞 {r.telefono}</a>
+                            <a href={waLink(r.telefono)} target="_blank" rel="noopener noreferrer" className="text-emerald-400 text-xs font-bold">💬 WhatsApp</a>
+                          </>}
+                          {r.notas && <span className="text-[var(--sala-tx3)] text-xs">· {r.notas}</span>}
+                        </div>
+                      )}
 
                       {r.enPool ? (
                         <div className="flex items-center gap-2">
@@ -4660,7 +4987,7 @@ function EncargadoPanel({
                       ) : (
                         <>
                           <div className="flex items-center gap-2 flex-wrap">
-                            <button onClick={() => setEligiendoMesaId(eligiendoMesaId === r.id ? null : r.id)}
+                            <button onClick={() => setPlano({ reservaId: r.id })}
                               className="px-2.5 py-1 rounded-lg bg-[var(--sala-btn2)] text-[var(--sala-tx2)] text-xs font-bold">
                               {r.mesaId ? `🪑 Mesa ${mesasReserva.find(m => m.id === r.mesaId)?.numero ?? r.mesaId}` : '🪑 Asignar mesa'}
                             </button>
@@ -4674,31 +5001,6 @@ function EncargadoPanel({
                             <p className="text-red-400 text-xs mt-1">{sentarError.msg}</p>
                           )}
 
-                          {eligiendoMesaId === r.id && (
-                            <div className="mt-2 bg-[var(--sala-btn2)] rounded-lg p-2 space-y-1.5 max-h-48 overflow-y-auto">
-                              {mesasReserva.length === 0 && (
-                                <p className="text-[var(--sala-tx4)] text-xs px-1">No hay mesas configuradas</p>
-                              )}
-                              {Object.entries(
-                                mesasReserva.reduce<Record<string, typeof mesasReserva>>((acc, m) => {
-                                  (acc[m.planNombre] ??= []).push(m)
-                                  return acc
-                                }, {})
-                              ).map(([plan, mesas]) => (
-                                <div key={plan}>
-                                  <p className="text-[var(--sala-tx4)] text-[10px] font-bold uppercase px-1">{plan}</p>
-                                  <div className="flex flex-wrap gap-1.5">
-                                    {mesas.map(m => (
-                                      <button key={m.id} onClick={() => asignarMesaMut.mutate({ id: r.id, mesaId: m.id })}
-                                        className={`px-2.5 py-1 rounded-lg text-xs font-bold ${r.mesaId === m.id ? 'bg-[var(--sala-btna)] text-[var(--sala-txt)]' : 'bg-[var(--sala-srf)] text-[var(--sala-tx2)]'}`}>
-                                        {m.numero} <span className="opacity-60">· {m.capacidad}p</span>
-                                      </button>
-                                    ))}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
 
                           <div className="mt-2">
                             {enviandoPoolId === r.id ? (
@@ -4754,7 +5056,7 @@ function EncargadoPanel({
                         </div>
                         <div className="flex items-center gap-3">
                           <a href={`tel:${r.telefono}`} className="text-[#4B9EDF] text-sm font-bold">📞 {r.telefono}</a>
-                          <a href={waLink(r.telefono)} target="_blank" rel="noopener noreferrer" className="text-emerald-400 text-sm font-bold">💬 WhatsApp</a>
+                          <a href={waLink(r.telefono ?? '')} target="_blank" rel="noopener noreferrer" className="text-emerald-400 text-sm font-bold">💬 WhatsApp</a>
                         </div>
                         {r.poolMotivo && <p className="text-[var(--sala-tx4)] text-xs italic mt-0.5">{r.poolMotivo}</p>}
 
@@ -5227,12 +5529,32 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
   }, [planes])
 
   const abrirComanda = useMutation({
-    mutationFn: ({ mesaId, pax }: { mesaId: number; pax: number }) =>
-      api.comandas.abrir(restaurant!.id, mesaId, pax, camarero?.nombre),
-    onSuccess: comanda => {
+    mutationFn: ({ mesaId, pax, walkin }: { mesaId: number; pax: number; walkin?: boolean }) =>
+      api.comandas.abrir(restaurant!.id, mesaId, pax, camarero?.nombre, walkin),
+    onSuccess: (comanda, { walkin }) => {
       setAbrirMesa(null)
       setComandaAbierta(comanda.id)
       queryClient.invalidateQueries({ queryKey: ['comandas-sala', restaurant?.id] })
+      if (walkin) queryClient.invalidateQueries({ queryKey: ['reservas', restaurant?.id] })
+    },
+  })
+
+  // Encargado al abrir una mesa libre: las reservas de hoy, para sentar una desde el mapa
+  const hoyLocal = new Date()
+  const hoyReservas = `${hoyLocal.getFullYear()}-${String(hoyLocal.getMonth() + 1).padStart(2, '0')}-${String(hoyLocal.getDate()).padStart(2, '0')}`
+  const { data: reservasHoyMapa } = useQuery({
+    queryKey: ['reservas', restaurant?.id, hoyReservas],
+    queryFn: () => api.reservas.list(restaurant!.id, hoyReservas),
+    enabled: !!restaurant && esEncargado && !!abrirMesa && !enLocal,
+  })
+  const sentarReserva = useMutation({
+    mutationFn: ({ reserva, mesaId, pax }: { reserva: Reserva; mesaId: number; pax: number }) =>
+      api.reservas.sentar(reserva.id, mesaId, camarero?.nombre, pax),
+    // Sentar no abre la mesa: el encargado sienta y sigue; la mesa queda con su 📅 en el mapa
+    onSuccess: () => {
+      setAbrirMesa(null)
+      queryClient.invalidateQueries({ queryKey: ['comandas-sala', restaurant?.id] })
+      queryClient.invalidateQueries({ queryKey: ['reservas', restaurant?.id] })
     },
   })
 
@@ -5774,6 +6096,11 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
       {abrirMesa && (
         <AbrirMesaModal mesa={abrirMesa} onClose={() => setAbrirMesa(null)}
           onConfirm={pax => abrirComanda.mutate({ mesaId: abrirMesa.id, pax })}
+          {...(esEncargado && !enLocal ? {
+            reservas: reservasHoyMapa,
+            onWalkin: (pax: number) => abrirComanda.mutate({ mesaId: abrirMesa.id, pax, walkin: true }),
+            onReserva: (reserva: Reserva, pax: number) => sentarReserva.mutate({ reserva, mesaId: abrirMesa.id, pax }),
+          } : {})}
           onMenuGrupo={pax => { setMenuGrupo({ mesa: abrirMesa, pax }); setAbrirMesa(null) }} />
       )}
 

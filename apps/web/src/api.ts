@@ -432,6 +432,8 @@ export interface Comanda {
   noComparten?: boolean // la mesa no comparte: COM: NO COMPARTEN en los tickets de cocina
   notaMesa?: string     // nota del camarero para cocina sobre toda la mesa (COM: al final del ticket)
   enviadaAt:      string | null // primera vez que se comandó a cocina
+  // De dónde vino la gente: 📅 una reserva sentada o 🚶 un walk-in (lo marca el encargado al abrir la mesa)
+  reserva?:       { id: number; origen: string; nombre: string | null; hora: string; notas: string | null } | null
   items:          ComandaItem[]
   mermas:         ComandaMerma[]
   createdAt:      string
@@ -682,16 +684,16 @@ export interface ReservaHorario {
 export interface Reserva {
   id: number
   restaurantId: number
-  configId: number
+  configId: number | null
   fecha: string
   hora: string
   pax: number
-  nombre: string
-  telefono: string
+  nombre: string | null   // null en un walk-in (no deja nombre ni teléfono)
+  telefono: string | null
   email: string | null
   notas: string | null
   estado: string
-  origen: string
+  origen: string // 'web' | 'manual' | 'walkin'
   createdAt: string
   mesaId: number | null
   comandaId: number | null
@@ -703,6 +705,7 @@ export interface Reserva {
   poolGestionandoDesde: string | null
   restaurantIdOrigen: number | null
   restaurant?: { nombre: string }
+  config?: { duracionMin: number } | null
 }
 
 export interface SlotDisponible {
@@ -1239,8 +1242,9 @@ export const api = {
     // desde (ISO): con estado=cerrada, solo las cobradas a partir de ese momento (las del turno)
     list:      (restaurantId: number, estado?: string, desde?: string) =>
       get<Comanda[]>(`/comandas?restaurantId=${restaurantId}${estado ? `&estado=${estado}` : ''}${desde ? `&desde=${encodeURIComponent(desde)}` : ''}`),
-    abrir:     (restaurantId: number, mesaId: number, pax: number, camareroNombre?: string) =>
-      post<Comanda>('/comandas', { restaurantId, mesaId, pax, camareroNombre }),
+    // walkin: el encargado sentó gente sin reserva (queda en el libro de reservas del día)
+    abrir:     (restaurantId: number, mesaId: number, pax: number, camareroNombre?: string, walkin?: boolean) =>
+      post<Comanda>('/comandas', { restaurantId, mesaId, pax, camareroNombre, walkin }),
     get:       (id: number) => get<Comanda>(`/comandas/${id}`),
     addItem:   (id: number, item: { nombre: string; precio: number; cantidad: number; nota?: string; tipo?: 'cocina' | 'barra'; directo?: boolean }) =>
       post<ComandaItem>(`/comandas/${id}/items`, item),
@@ -1377,8 +1381,8 @@ export const api = {
     create: (body: { restaurantId: number; fecha: string; hora: string; pax: number; nombre: string; telefono: string; email?: string; notas?: string }) => post<Reserva>('/reservas', body),
     updateEstado: (id: number, estado: string) => patch<Reserva>(`/reservas/${id}`, { estado }),
     asignarMesa: (id: number, mesaId: number | null) => patch<Reserva>(`/reservas/${id}/mesa`, { mesaId }),
-    sentar: (id: number, mesaId: number | undefined, camareroNombre?: string) =>
-      patch<{ reserva: Reserva; comanda: Comanda }>(`/reservas/${id}/sentar`, { mesaId, camareroNombre }),
+    sentar: (id: number, mesaId: number | undefined, camareroNombre?: string, pax?: number) =>
+      patch<{ reserva: Reserva; comanda: Comanda }>(`/reservas/${id}/sentar`, { mesaId, camareroNombre, pax }),
     delete: (id: number) => del(`/reservas/${id}`),
     getPublicConfig: (slug: string) => get<{ restaurantNombre: string; slug: string; activo: boolean; maxPaxPorSlot: number; duracionMin: number; diasAntelacion: number; horarios: ReservaHorario[] }>(`/reservas/publica/config?slug=${slug}`),
     getSlots: (slug: string, fecha: string, pax: number) => get<SlotDisponible[]>(`/reservas/publica/slots?slug=${slug}&fecha=${fecha}&pax=${pax}`),

@@ -568,17 +568,17 @@ model Reserva {
   id           Int           @id @default(autoincrement())
   restaurantId Int
   restaurant   Restaurant    @relation(fields: [restaurantId], references: [id])
-  configId     Int
-  config       ReservaConfig @relation(fields: [configId], references: [id])
+  configId     Int?          // null en un walk-in (el local puede no tener reservas online)
+  config       ReservaConfig? @relation(fields: [configId], references: [id])
   fecha        DateTime
   hora         String
   pax          Int
-  nombre       String
-  telefono     String
+  nombre       String?       // null solo en un walk-in: no deja nombre ni teléfono
+  telefono     String?
   email        String?
   notas        String?
   estado       String        @default("confirmada") // 'confirmada' | 'sentada' | 'cancelada' | 'no_show'
-  origen       String        @default("web")
+  origen       String        @default("web") // 'web' | 'manual' | 'walkin' (lo sentó el encargado al llegar, sin reserva)
   createdAt    DateTime      @default(now())
 
   // Asignación de mesa (informativa, no bloquea el mapa) + activación al llegar el cliente:

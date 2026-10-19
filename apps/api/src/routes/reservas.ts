@@ -324,6 +324,7 @@ export async function reservasRoutes(app: FastifyInstance) {
       },
       include: {
         restaurant: { select: { nombre: true } },
+        config: { select: { duracionMin: true } }, // cuánto ocupa la mesa: el plano avisa si dos se pisan
       },
       orderBy: { hora: 'asc' },
     })
@@ -524,7 +525,8 @@ export async function reservasRoutes(app: FastifyInstance) {
   // de la reserva) y linkea comandaId. Acepta mesaId por si no se había pre-asignado.
   app.patch('/reservas/:id/sentar', async (req, reply) => {
     const id = parseInt((req.params as { id: string }).id, 10)
-    const { mesaId: mesaIdBody, camareroNombre } = req.body as { mesaId?: number; camareroNombre?: string }
+    // pax: el que de verdad se sentó (desde el mapa se pone antes de elegir la reserva); si no, el de la reserva
+    const { mesaId: mesaIdBody, camareroNombre, pax: paxBody } = req.body as { mesaId?: number; camareroNombre?: string; pax?: number }
 
     const actual = await prisma.reserva.findUnique({ where: { id } })
     if (!actual) return reply.status(404).send({ error: 'Reserva no encontrada' })
@@ -546,19 +548,20 @@ export async function reservasRoutes(app: FastifyInstance) {
     const autoItems = await prisma.menuItem.findMany({
       where: { restaurantId: actual.restaurantId, autoPorPax: true, activo: true },
     })
+    const pax = paxBody && paxBody > 0 ? paxBody : actual.pax
 
     const comanda = await prisma.comanda.create({
       data: {
         restaurantId: actual.restaurantId,
         mesaId,
-        pax: actual.pax,
+        pax,
         estado: 'abierta',
         camareroNombre: camareroNombre ?? null,
         items: autoItems.length > 0 ? {
           create: autoItems.map(item => ({
             nombre:       item.nombre,
             precio:       item.precio,
-            cantidad:     actual.pax,
+            cantidad:     pax,
             tipo:         'barra' as const,
             nota:         '',
             nivel:        null,
@@ -572,7 +575,7 @@ export async function reservasRoutes(app: FastifyInstance) {
 
     const reserva = await prisma.reserva.update({
       where: { id },
-      data: { mesaId, comandaId: comanda.id, estado: 'sentada', sentadaAt: new Date() },
+      data: { mesaId, pax, comandaId: comanda.id, estado: 'sentada', sentadaAt: new Date() },
     })
 
     broadcast(actual.restaurantId, 'update')

@@ -877,6 +877,14 @@ Vive en **dos lugares** (mismos endpoints, dos frontends):
 
 **Endpoints**: `GET /reservas/pool` (lista global) · `PATCH /reservas/:id/pool` (enviar) · `PATCH /reservas/:id/pool/cancelar` (sacar del pool sin tomarla) · `PATCH /reservas/:id/pool/gestionar` (lock) · `PATCH /reservas/:id/pool/liberar` (soltar lock) · `PATCH /reservas/:id/pool/tomar` (reasignar).
 
+### Walk-ins, sentar desde el mapa y plano de reservas (2026-10-19)
+
+- **Walk-in = una entrada más del libro de reservas** (como Zenchef): `Reserva.origen = 'walkin'`, sin nombre ni teléfono (`nombre`, `telefono` y `configId` pasaron a opcionales; el formulario público y el admin los siguen pidiendo). Se crea ya `sentada`, con la hora de llegada (Europe/Madrid) y unida a la comanda.
+- **Solo el encargado marca** (decisión de Eze): al tocar una mesa libre, el `AbrirMesaModal` le muestra **🚶 Walk-in** (en vez de "Abrir mesa") y **📅 Tiene reserva** (las de hoy sin sentar; primero las que tenían esa mesa asignada, después la más cercana a la hora). El walk-in va por `POST /comandas` con `walkin: true` y solo se apunta si la sesión es de encargado y no es la Box. `PATCH /reservas/:id/sentar` acepta `pax` (gana el que puso el encargado si lo tocó) y está en `SOLO_ENCARGADO`. El camarero abre como siempre, sin marca. Tampoco se marca al abrir tecleando el número en el TPV ni sin internet.
+- **Sentar no abre la mesa** (ni desde el mapa ni desde 💼): el encargado sienta y sigue; el walk-in sí abre la mesa como "Abrir mesa".
+- **Se ve en la sala**: `GET /comandas` y `/comandas/:id` traen `reserva` (origen, nombre, hora, notas). En el mapa, circulito 📅 / 🚶 en la esquina de la mesa (`MesaBtn`); en la cabecera del `ComandaPanel`, `📅 García · 21:00 · notas` o `🚶 Walk-in · llegó 12:48`.
+- **Plano de reservas** (`PlanoReservas` en `SalaMesasPage.tsx`): 💼 → 📅 Reservas → **🗺 Plano**, o "🪑 Asignar mesa" de una reserva (abre con ella elegida; reemplaza la lista de mesas que había). El mismo dibujo del salón; dentro de cada mesa, las horas de sus reservas del día (sentadas tachadas, walk-ins con 🚶; si no caben, "+n"). Asignar en dos toques: una reserva (tira "Sin mesa" de abajo, o una hora dentro de una mesa) y después la mesa; "Sin mesa" la quita. Selector **‹ Hoy ›** para cualquier día. Avisos en ámbar, sin bloquear: dos reservas de la misma mesa **se pisan** si la segunda llega antes de que termine la primera (`ReservaConfig.duracionMin`, que `GET /reservas` ahora incluye en `config`; 90 por defecto) y **mesa chica** (`pax > capacidad`). Las horas van **solo en el plano**, no en el mapa del servicio (decisión de Eze). Sin mirar en un teléfono todavía.
+
 **Pendiente / no cubierto en esta primera versión**: no hay push notification cuando algo entra al pool — el encargado tiene que tener la pestaña Reservas abierta (o el badge de número en la pestaña, que sí se actualiza solo vía SSE) para enterarse.
 
 ---

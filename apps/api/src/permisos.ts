@@ -103,6 +103,7 @@ export const SOLO_ENCARGADO = new Set([
   'DELETE /api/agotados/:menuItemId', // reponerlo
   'GET /api/gastos', 'POST /api/gastos', 'DELETE /api/gastos/:id', 'PATCH /api/gastos/:id/pagar', // gastos del día
   'GET /api/propinas/encargado/turnos', 'GET /api/propinas/encargado/empleados', 'GET /api/propinas/encargado/resumen', 'PUT /api/propinas/encargado/turnos/:turnoId', // repartir propinas
+  'PATCH /api/reservas/:id/sentar',   // sentar una reserva (el walk-in va con POST /comandas y solo cuenta si es encargado)
 ])
 
 // ── Dónde está el dispositivo ────────────────────────────────────────────────────────────────

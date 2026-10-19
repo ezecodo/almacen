@@ -4,6 +4,18 @@ import { z } from 'zod'
 import { prisma } from '../server'
 import { broadcast } from '../sse'
 import { publicarTicket, DestinoImpresion } from '../mqtt'
+import { MODO_LOCAL } from '../local'
+
+// Lo que ve la sala de la reserva de una mesa: 📅 reserva / 🚶 walk-in en el mapa y en la cabecera
+const reservaDeMesa = { select: { id: true, origen: true, nombre: true, hora: true, notas: true } } as const
+
+// Fecha (YYYY-MM-DD) y hora (HH:MM) de ahora en Barcelona, para apuntar un walk-in en el libro del día
+function ahoraEnMadrid() {
+  const partes = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Madrid', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(new Date()).map(p => [p.type, p.value]))
+  return { fecha: `${partes.year}-${partes.month}-${partes.day}`, hora: `${partes.hour}:${partes.minute}` }
+}
 
 const itemSchema = z.object({
   nombre:   z.string().min(1),
@@ -108,6 +120,7 @@ export async function comandaRoutes(app: FastifyInstance) {
         items: true,
         mesa: true,
         mermas: true,
+        reserva: reservaDeMesa,
       },
       orderBy: { createdAt: 'desc' },
     })
@@ -115,7 +128,9 @@ export async function comandaRoutes(app: FastifyInstance) {
 
   // Abrir comanda (nueva mesa)
   app.post('/comandas', async (req, reply) => {
-    const { restaurantId, mesaId, pax, camareroNombre } = req.body as { restaurantId: number; mesaId: number; pax: number; camareroNombre?: string }
+    // walkin: el encargado sentó gente sin reserva — queda apuntado en el libro de reservas del día
+    // (sin nombre ni teléfono). Solo cuenta si lo pide un encargado; sin internet no se apunta.
+    const { restaurantId, mesaId, pax, camareroNombre, walkin } = req.body as { restaurantId: number; mesaId: number; pax: number; camareroNombre?: string; walkin?: boolean }
     if (!restaurantId || !mesaId || !pax) return reply.status(400).send({ error: 'restaurantId, mesaId y pax requeridos' })
 
     // Verificar que la mesa no tenga ya una comanda abierta
@@ -144,6 +159,15 @@ export async function comandaRoutes(app: FastifyInstance) {
       },
       include: { items: true, mesa: true },
     })
+    if (walkin && !MODO_LOCAL && (req.user?.encargado || req.user?.tipo === 'admin')) {
+      const { fecha, hora } = ahoraEnMadrid()
+      await prisma.reserva.create({
+        data: {
+          restaurantId, fecha: new Date(fecha + 'T00:00:00.000Z'), hora, pax,
+          estado: 'sentada', origen: 'walkin', mesaId, comandaId: comanda.id, sentadaAt: new Date(),
+        },
+      })
+    }
     broadcast(restaurantId, 'update')
     return reply.status(201).send(comanda)
   })
@@ -153,7 +177,7 @@ export async function comandaRoutes(app: FastifyInstance) {
     const id = Number((req.params as { id: string }).id)
     const comanda = await prisma.comanda.findUnique({
       where: { id },
-      include: { items: true, mesa: true, mermas: true },
+      include: { items: true, mesa: true, mermas: true, reserva: reservaDeMesa },
     })
     if (!comanda) return reply.status(404).send({ error: 'No encontrada' })
     return comanda

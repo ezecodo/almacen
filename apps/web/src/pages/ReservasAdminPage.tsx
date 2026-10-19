@@ -253,8 +253,8 @@ function TabReservas({ restaurantes }: { restaurantes: Restaurante[] }) {
                 <div key={r.id} className="bg-gray-800 rounded-xl px-4 py-3 flex flex-wrap items-center gap-3">
                   <span className="text-white font-mono font-medium w-12 shrink-0">{r.hora}</span>
                   <span className="text-gray-300 text-sm shrink-0">{r.pax} pax</span>
-                  <span className="text-white font-medium flex-1 min-w-[120px]">{r.nombre}</span>
-                  <span className="text-gray-400 text-sm">{r.telefono}</span>
+                  <span className="text-white font-medium flex-1 min-w-[120px]">{r.origen === 'walkin' ? '🚶 Walk-in' : r.nombre}</span>
+                  {r.telefono && <span className="text-gray-400 text-sm">{r.telefono}</span>}
                   {r.notas && (
                     <span className="text-gray-500 text-xs italic">· {r.notas}</span>
                   )}
