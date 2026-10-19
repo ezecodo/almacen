@@ -4346,6 +4346,21 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, onClose }: 
   }, [planes, reservas])
   const plan = planes.find(p => p.id === planId) ?? planes[0] ?? null
 
+  // Deslizar como en el mapa de la sala: a la izquierda el salón siguiente, a la derecha el anterior;
+  // desde el primero, a la derecha se vuelve a la lista. El nombre del salón sale un momento en grande.
+  const swipe = useRef<{ x: number; y: number } | null>(null)
+  const [aviso, setAviso] = useState<string | null>(null)
+  const avisoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const irASalon = (paso: number) => {
+    const i = planes.findIndex(p => p.id === plan?.id)
+    const destino = planes[i + paso]
+    if (!destino) { if (paso < 0) onClose(); return }
+    setPlanId(destino.id)
+    setAviso(destino.nombre)
+    if (avisoTimer.current) clearTimeout(avisoTimer.current)
+    avisoTimer.current = setTimeout(() => setAviso(null), 1100)
+  }
+
   const vivas = reservas.filter(r => r.estado === 'confirmada' || r.estado === 'sentada')
   const sinMesa = vivas.filter(r => !r.mesaId && r.estado === 'confirmada')
   const duracion = (r: Reserva) => r.config?.duracionMin ?? DURACION_RESERVA_DEFECTO
@@ -4410,7 +4425,17 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, onClose }: 
 
       {/* El plano, escalado a la pantalla como el mapa de la sala */}
       {plan && plan.mesas.length > 0 ? (
-        <div className="flex-1 overflow-hidden relative" ref={el => {
+        <div className="flex-1 overflow-hidden relative"
+          onTouchStart={e => { swipe.current = { x: e.touches[0].clientX, y: e.touches[0].clientY } }}
+          onTouchEnd={e => {
+            const ini = swipe.current
+            swipe.current = null
+            if (!ini) return
+            const dx = e.changedTouches[0].clientX - ini.x, dy = e.changedTouches[0].clientY - ini.y
+            const th = swipeThresholds()
+            if (Math.abs(dx) > th.dx && Math.abs(dy) < th.dy) irASalon(dx < 0 ? 1 : -1)
+          }}
+          ref={el => {
           if (!el) return
           const aplicar = () => {
             const PAD = 24
@@ -4432,6 +4457,22 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, onClose }: 
           ;(el as HTMLElement & { _ro?: ResizeObserver })._ro?.disconnect()
           ;(el as HTMLElement & { _ro?: ResizeObserver })._ro = ro
         }}>
+          {aviso && (
+            <div key={aviso} className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center">
+              <span className="px-6 py-3 rounded-2xl text-white text-2xl font-black uppercase tracking-wide shadow-2xl"
+                style={{ background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)', animation: 'fadeInOut 1.1s ease forwards' }}>
+                {aviso}
+              </span>
+            </div>
+          )}
+          {/* Puntitos: en qué salón estás (deslizar para cambiar) */}
+          {planes.length > 1 && (
+            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-10 flex gap-1.5 pointer-events-none">
+              {planes.map(p => (
+                <span key={p.id} className={`h-2 rounded-full transition-all ${p.id === plan.id ? 'w-5 bg-[#4CC8A0]' : 'w-2 bg-[var(--sala-tx4)]'}`} />
+              ))}
+            </div>
+          )}
           <div className="plano-canvas" style={{ position: 'absolute', top: 0, left: 0 }}>
             {plan.mesas.map(mesa => {
               const w = mesaWidth(mesa), h = mesaHeight(mesa)
