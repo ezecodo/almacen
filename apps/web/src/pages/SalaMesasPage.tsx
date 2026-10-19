@@ -254,18 +254,13 @@ function AbrirMesaModal({ mesa, onConfirm, onMenuGrupo, onClose, reservas, onWal
           )}
           {pendientes.map(r => (
             <button key={r.id} onClick={() => onReserva(r, paxTocado ? pax : r.pax)}
-              className="w-full text-left bg-[var(--sala-btn2)] rounded-xl px-4 py-3 active:scale-[0.98] transition-transform">
-              <div className="flex items-center gap-2">
-                <span className="text-[var(--sala-txt)] font-mono font-bold">{r.hora}</span>
-                <span className="text-[var(--sala-txt)] font-bold flex-1 truncate">{r.nombre}</span>
-                <span className="text-[var(--sala-tx2)] text-sm font-bold">{r.pax} pax</span>
+              className={`w-full flex items-stretch text-left bg-[var(--sala-btn)] rounded-xl overflow-hidden border-2 active:scale-[0.98] transition-transform ${r.mesaId === mesa.id ? 'border-emerald-500' : 'border-transparent'}`}>
+              <BloqueHoraPax hora={r.hora} pax={r.pax} />
+              <div className="flex-1 min-w-0 p-3 flex flex-col justify-center">
+                <span className="text-[var(--sala-txt)] font-black truncate">{r.nombre}</span>
+                {r.mesaId === mesa.id && <span className="text-emerald-500 text-xs font-bold">🪑 Era para esta mesa</span>}
+                {r.notas && <span className="text-amber-500 text-xs font-bold truncate">📝 {r.notas}</span>}
               </div>
-              {(r.mesaId === mesa.id || r.notas) && (
-                <p className="text-xs mt-0.5 truncate">
-                  {r.mesaId === mesa.id && <span className="text-emerald-400 font-bold">🪑 Era para esta mesa </span>}
-                  {r.notas && <span className="text-[var(--sala-tx3)]">{r.notas}</span>}
-                </p>
-              )}
             </button>
           ))}
         </div>
@@ -1016,6 +1011,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
   const queryClient = useQueryClient()
   // Pestaña inicial: si la mesa ya está toda comandada (sin pendientes), se entra para pedir
   // algo más → directo a la carta. Con pendientes sin enviar o cuenta impresa → vista del pedido.
+  const [quienEsta, setQuienEsta] = useState(false)
   const [tab, setTab] = useState<'pedido' | 'menu'>(() => {
     if (comanda.estado === 'facturada' || comanda.estado === 'liberada') return 'pedido'
     const hayPendientesSinEnviar = comanda.items.some(i => i.nivel == null && !i.autoGenerado)
@@ -1627,13 +1623,20 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                 )}
               </h2>
               {comanda.notaMesa && <p className="text-[var(--sala-tx2)] text-xs truncate">📝 {comanda.notaMesa}</p>}
-              {comanda.reserva && (
-                comanda.reserva.origen === 'walkin'
-                  ? <p className="text-[var(--sala-tx2)] text-xs font-bold">🚶 Walk-in · llegó {comanda.reserva.hora}</p>
-                  : <p className="text-sky-400 text-xs font-bold truncate">
-                      📅 {comanda.reserva.nombre ?? 'Reserva'} · {comanda.reserva.hora}
-                      {comanda.reserva.notas && <span className="font-normal text-[var(--sala-tx2)]"> · {comanda.reserva.notas}</span>}
-                    </p>
+              {/* De dónde vino la gente; el encargado lo toca para corregirlo ("No era esta reserva") */}
+              {(comanda.reserva || esEncargado) && (
+                <button type="button" disabled={!esEncargado} onClick={() => setQuienEsta(true)}
+                  className="block max-w-full text-left disabled:cursor-default">
+                  {!comanda.reserva
+                    ? <span className="text-[var(--sala-tx4)] text-xs font-bold">📅 ¿Reserva o walk-in?</span>
+                    : comanda.reserva.origen === 'walkin'
+                      ? <span className="text-[var(--sala-tx2)] text-xs font-bold">🚶 Walk-in · llegó {comanda.reserva.hora}{esEncargado ? ' ›' : ''}</span>
+                      : <span className="block text-sky-400 text-xs font-bold truncate">
+                          📅 {comanda.reserva.nombre ?? 'Reserva'} · {comanda.reserva.hora}
+                          {comanda.reserva.notas && <span className="font-normal text-[var(--sala-tx2)]"> · {comanda.reserva.notas}</span>}
+                          {esEncargado ? ' ›' : ''}
+                        </span>}
+                </button>
               )}
               <div className="flex items-center gap-2 mt-0.5">
                 <button onClick={() => cambiarPax.mutate(Math.max(1, comanda.pax - 1))}
@@ -2359,6 +2362,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
         />
       )}
 
+      {quienEsta && <QuienEstaSheet comanda={comanda} onClose={() => setQuienEsta(false)} />}
       {verCuenta && <VerCuentaModal comanda={comanda} onClose={() => setVerCuenta(false)} onFacturar={() => facturarComanda.mutate()} />}
     </div>
   )
@@ -4190,6 +4194,110 @@ function AgotadosSala({ restaurantId, agotados }: { restaurantId: number; agotad
   )
 }
 
+// ── Reservas: piezas compartidas por el panel 💼, el plano y la mesa ─────────────
+
+// Minutos desde ahora hasta la hora de una reserva de hoy (negativo = ya pasó)
+function minutosHasta(hora: string) {
+  const ahora = new Date()
+  return minutosHora(hora) - (ahora.getHours() * 60 + ahora.getMinutes())
+}
+
+// La hora y los pax, grandes: lo primero que se lee de una reserva
+function BloqueHoraPax({ hora, pax, walkin = false, tono }: { hora: string; pax: number; walkin?: boolean; tono?: string }) {
+  return (
+    <div className="w-[88px] shrink-0 flex flex-col items-center justify-center gap-0.5 py-3 bg-[var(--sala-btn2)]">
+      {walkin && <span className="text-[10px] font-black uppercase tracking-wider text-[var(--sala-tx3)]">🚶 llegó</span>}
+      <span className={`font-mono font-black text-[26px] leading-none tabular-nums ${tono ?? 'text-[var(--sala-txt)]'}`}>{hora}</span>
+      <span className="text-[var(--sala-txt)] font-black text-xl leading-none mt-1 tabular-nums">
+        {pax}<span className="text-[var(--sala-tx3)] text-xs font-bold ml-0.5">pax</span>
+      </span>
+    </div>
+  )
+}
+
+// Llamar / WhatsApp: botones de verdad, no enlaces chiquitos
+function ContactoReserva({ telefono }: { telefono: string }) {
+  return (
+    <div className="flex gap-1.5">
+      <a href={`tel:${telefono}`} title={telefono}
+        className="h-9 px-3 rounded-lg bg-[var(--sala-btn2)] text-[#4B9EDF] text-sm font-bold flex items-center gap-1.5">📞 <span className="tabular-nums">{telefono}</span></a>
+      <a href={waLink(telefono)} target="_blank" rel="noopener noreferrer" title="WhatsApp"
+        className="h-9 w-9 rounded-lg bg-[var(--sala-btn2)] text-base flex items-center justify-center">💬</a>
+    </div>
+  )
+}
+
+// Encargado, desde la cabecera de la mesa: quién está sentado de verdad. Corrige un "Sentar"
+// equivocado (la reserva vuelve a "por llegar") y marca una mesa que abrió un camarero.
+function QuienEstaSheet({ comanda, onClose }: { comanda: Comanda; onClose: () => void }) {
+  const queryClient = useQueryClient()
+  const rid = comanda.restaurantId
+  const hoy = fechaLocal(new Date())
+  const { data: reservas = [] } = useQuery({ queryKey: ['reservas', rid, hoy], queryFn: () => api.reservas.list(rid, hoy) })
+  const cambiar = useMutation({
+    mutationFn: (reservaId: number | null) => api.comandas.cambiarReserva(comanda.id, reservaId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['comandas-sala', rid] })
+      queryClient.invalidateQueries({ queryKey: ['comanda-sala', comanda.id] })
+      queryClient.invalidateQueries({ queryKey: ['reservas', rid] })
+      onClose()
+    },
+  })
+  const actual = comanda.reserva ?? null
+  const pendientes = reservas
+    .filter(r => r.estado === 'confirmada' && !r.enPool)
+    .sort((a, b) => Math.abs(minutosHasta(a.hora)) - Math.abs(minutosHasta(b.hora)))
+  const opcion = 'w-full flex items-stretch rounded-xl overflow-hidden bg-[var(--sala-srf)] border-2 text-left active:scale-[0.98] transition-transform disabled:opacity-50'
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/70 flex items-end sm:items-center justify-center" onClick={onClose}>
+      <div className="bg-[var(--sala-hdr)] w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-5 max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-start justify-between mb-1">
+          <div>
+            <p className="text-[var(--sala-tx3)] text-xs font-bold uppercase tracking-wider">Mesa {comanda.mesa.numero} · {comanda.pax} pax</p>
+            <h3 className="text-[var(--sala-txt)] font-black text-xl">¿Quién está sentado?</h3>
+          </div>
+          <button onClick={onClose} className="text-[var(--sala-tx3)] text-2xl leading-none px-1">✕</button>
+        </div>
+        {actual && actual.origen !== 'walkin' && (
+          <p className="text-[var(--sala-tx3)] text-xs mb-3">Si no era <b className="text-[var(--sala-txt)]">{actual.nombre}</b>, elige quién es: esa reserva vuelve a "por llegar", sin mesa.</p>
+        )}
+        <div className="overflow-y-auto space-y-2 mt-2">
+          <button disabled={cambiar.isPending} onClick={() => cambiar.mutate(null)}
+            className={`${opcion} ${actual?.origen === 'walkin' ? 'border-[#4CC8A0]' : 'border-transparent'}`}>
+            <div className="w-[88px] shrink-0 flex items-center justify-center bg-[var(--sala-btn2)] text-3xl py-3">🚶</div>
+            <div className="flex-1 p-3 flex flex-col justify-center">
+              <span className="text-[var(--sala-txt)] font-black">Walk-in</span>
+              <span className="text-[var(--sala-tx3)] text-xs">Sin reserva</span>
+            </div>
+            {actual?.origen === 'walkin' && <span className="self-center pr-4 text-[#4CC8A0] font-black">✓</span>}
+          </button>
+          {actual && actual.origen !== 'walkin' && (
+            <div className={`${opcion} border-[#4CC8A0]`}>
+              <BloqueHoraPax hora={actual.hora} pax={comanda.pax} />
+              <div className="flex-1 p-3 flex flex-col justify-center min-w-0">
+                <span className="text-[var(--sala-txt)] font-black truncate">{actual.nombre}</span>
+                <span className="text-[#4CC8A0] text-xs font-bold">✓ Ahora en esta mesa</span>
+              </div>
+            </div>
+          )}
+          {pendientes.length > 0 && <p className="text-[var(--sala-tx3)] text-[11px] font-bold uppercase tracking-wider pt-2">Reservas por llegar</p>}
+          {pendientes.map(r => (
+            <button key={r.id} disabled={cambiar.isPending} onClick={() => cambiar.mutate(r.id)} className={`${opcion} border-transparent`}>
+              <BloqueHoraPax hora={r.hora} pax={r.pax} />
+              <div className="flex-1 p-3 flex flex-col justify-center min-w-0">
+                <span className="text-[var(--sala-txt)] font-black truncate">{r.nombre}</span>
+                {r.notas && <span className="text-amber-500 text-xs font-bold truncate">📝 {r.notas}</span>}
+              </div>
+            </button>
+          ))}
+        </div>
+        {cambiar.isError && <p className="text-red-400 text-sm font-bold mt-3">{(cambiar.error as Error).message}</p>}
+      </div>
+    </div>
+  )
+}
+
 // ── Plano de reservas (💼 → Reservas → 🗺 Plano) ──────────────────────────────
 // El mismo dibujo del salón, pero cada mesa enseña las horas de sus reservas del día. Se asigna en
 // dos toques: una reserva (de la tira "sin mesa" o una hora dentro de una mesa) y luego la mesa.
@@ -4391,8 +4499,9 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, onClose }: 
         {reservaElegida ? (
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-[var(--sala-txt)] font-mono font-bold">{reservaElegida.hora}</span>
-              <span className="text-[var(--sala-txt)] font-bold flex-1 truncate">{nombreDe(reservaElegida)} · {reservaElegida.pax}p</span>
+              <span className="text-[var(--sala-txt)] font-mono font-black text-xl tabular-nums">{reservaElegida.hora}</span>
+              <span className="text-[var(--sala-txt)] font-black text-xl tabular-nums">{reservaElegida.pax}<span className="text-[var(--sala-tx3)] text-xs ml-0.5">pax</span></span>
+              <span className="text-[var(--sala-txt)] font-bold flex-1 truncate">{nombreDe(reservaElegida)}</span>
               {reservaElegida.mesaId && (
                 <button onClick={() => asignar.mutate({ id: reservaElegida.id, mesaId: null })}
                   className="px-2.5 py-1 rounded-lg bg-[var(--sala-btn2)] text-[var(--sala-tx2)] text-xs font-bold">Sin mesa</button>
@@ -4421,9 +4530,9 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, onClose }: 
                 {sinMesa.map(r => (
                   <button key={r.id} onClick={() => setElegida(r.id)}
                     className="shrink-0 px-3 py-2 rounded-xl bg-[var(--sala-srf)] border border-[var(--sala-brd)] text-left">
-                    <span className="text-[var(--sala-txt)] font-mono font-bold text-sm">{r.hora}</span>
-                    <span className="text-[var(--sala-txt)] font-bold text-sm ml-1.5">{nombreDe(r)}</span>
-                    <span className="text-[var(--sala-tx3)] text-xs ml-1.5">{r.pax}p</span>
+                    <span className="text-[var(--sala-txt)] font-mono font-black text-lg tabular-nums">{r.hora}</span>
+                    <span className="text-[var(--sala-txt)] font-black text-lg ml-2 tabular-nums">{r.pax}<span className="text-[var(--sala-tx3)] text-xs ml-0.5">pax</span></span>
+                    <span className="block text-[var(--sala-tx2)] font-bold text-xs truncate max-w-[140px]">{nombreDe(r)}</span>
                   </button>
                 ))}
               </div>
@@ -4480,6 +4589,9 @@ function EncargadoPanel({
   const [resumenCierre, setResumenCierre] = useState<Turno | null>(null)
   const [cobroDe, setCobroDe] = useState<Comanda | null>(null)
   const [reservasSub, setReservasSub] = useState<'hoy' | 'pool'>('hoy')
+  // Lista de reservas: el día que se mira (‹ Hoy ›) y si se ven las que no vinieron / se cancelaron
+  const [fechaReservas, setFechaReservas] = useState(() => fechaLocal(new Date()))
+  const [verDescartadas, setVerDescartadas] = useState(false)
   const [enviandoPoolId, setEnviandoPoolId] = useState<number | null>(null)
   const [motivoPool, setMotivoPool] = useState('')
   const [poolError, setPoolError] = useState<{ id: number; msg: string } | null>(null)
@@ -4563,8 +4675,8 @@ function EncargadoPanel({
   // ── Reservas + pool entre restaurantes ──
   // "Hoy" solo se pide al abrir esa sub-vista; el pool se pide siempre para el badge de la pestaña (como Cobros)
   const { data: reservasHoy = [] } = useQuery({
-    queryKey: ['reservas', rid, hoyStr],
-    queryFn: () => api.reservas.list(rid, hoyStr),
+    queryKey: ['reservas', rid, fechaReservas],
+    queryFn: () => api.reservas.list(rid, fechaReservas),
     enabled: tab === 'reservas' && reservasSub === 'hoy',
     refetchInterval: 30_000,
   })
@@ -4575,10 +4687,15 @@ function EncargadoPanel({
   })
 
   const invalidarReservas = () => {
-    queryClient.invalidateQueries({ queryKey: ['reservas', rid, hoyStr] })
+    queryClient.invalidateQueries({ queryKey: ['reservas', rid] })
     queryClient.invalidateQueries({ queryKey: ['reservas-pool'] })
   }
 
+  // No vino / canceló / volver a por llegar
+  const estadoReservaMut = useMutation({
+    mutationFn: ({ id, estado }: { id: number; estado: 'confirmada' | 'cancelada' | 'no_show' }) => api.reservas.updateEstado(id, estado),
+    onSuccess: invalidarReservas,
+  })
   const poolEnviarMut = useMutation({
     mutationFn: ({ id, motivo }: { id: number; motivo?: string }) => api.reservas.poolEnviar(id, motivo),
     onSuccess: () => { invalidarReservas(); setEnviandoPoolId(null); setMotivoPool('') },
@@ -4610,7 +4727,7 @@ function EncargadoPanel({
   })
   const mesasReserva = (planesReserva ?? []).flatMap(p => p.mesas.map(m => ({ ...m, planNombre: p.nombre })))
   // Plano de reservas: abierto (con la reserva a la que se le busca mesa, si se abrió desde "Asignar mesa")
-  const [plano, setPlano] = useState<{ reservaId?: number } | null>(null)
+  const [plano, setPlano] = useState<{ reservaId?: number; fecha?: string } | null>(null)
   const [sentarError, setSentarError] = useState<{ id: number; msg: string } | null>(null)
 
   const sentarMut = useMutation({
@@ -4639,7 +4756,7 @@ function EncargadoPanel({
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end" onClick={onClose}>
-      {plano && <PlanoReservas restaurantId={rid} reservaInicial={plano.reservaId} onClose={() => setPlano(null)} />}
+      {plano && <PlanoReservas restaurantId={rid} reservaInicial={plano.reservaId} fechaInicial={plano.fecha ?? fechaReservas} onClose={() => setPlano(null)} />}
       <div className="relative w-full sm:max-w-md bg-[var(--sala-hdr)] h-full flex flex-col shadow-2xl border-l border-[var(--sala-brd)]" onClick={e => e.stopPropagation()}
         onTouchStart={e => { if (soloCobros) swipeCobros.current = { x: e.touches[0].clientX, y: e.touches[0].clientY } }}
         onTouchEnd={e => {
@@ -4926,113 +5043,167 @@ function EncargadoPanel({
               <div className="flex gap-1.5 mb-1">
                 <button onClick={() => setReservasSub('hoy')}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${reservasSub === 'hoy' ? 'bg-[var(--sala-btna)] text-[var(--sala-txt)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)]'}`}>
-                  Hoy
+                  📋 Lista
                 </button>
                 <button onClick={() => setReservasSub('pool')}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${reservasSub === 'pool' ? 'bg-[var(--sala-btna)] text-[var(--sala-txt)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)]'}`}>
                   🔄 Pool{pool.length ? ` (${pool.length})` : ''}
                 </button>
-                <button onClick={() => setPlano({})}
+                <button onClick={() => setPlano({ fecha: fechaReservas })}
                   className="ml-auto px-3 py-1.5 rounded-lg text-xs font-bold bg-[var(--sala-btn2)] text-[var(--sala-txt)]">
                   🗺 Plano
                 </button>
               </div>
 
-              {reservasSub === 'hoy' ? (
-                <>
-                  {reservasHoy.length === 0 && (
-                    <p className="text-center text-[var(--sala-tx4)] text-sm py-10">No hay reservas para hoy</p>
-                  )}
-                  {reservasHoy.map(r => (
-                    <div key={r.id} className="bg-[var(--sala-srf)] rounded-xl p-4">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-[var(--sala-txt)] font-mono font-bold">{r.hora}</span>
-                        <span className="text-[var(--sala-tx3)] text-xs">{r.pax} pax</span>
-                        <span className="text-[var(--sala-txt)] font-bold flex-1 truncate">{r.origen === 'walkin' ? '🚶 Walk-in' : r.nombre}</span>
-                      </div>
-                      {(r.telefono || r.notas) && (
-                        <div className="flex items-center gap-3 mb-2">
-                          {r.telefono && <>
-                            <a href={`tel:${r.telefono}`} className="text-[#4B9EDF] text-xs font-bold">📞 {r.telefono}</a>
-                            <a href={waLink(r.telefono)} target="_blank" rel="noopener noreferrer" className="text-emerald-400 text-xs font-bold">💬 WhatsApp</a>
-                          </>}
-                          {r.notas && <span className="text-[var(--sala-tx3)] text-xs">· {r.notas}</span>}
-                        </div>
-                      )}
+              {reservasSub === 'hoy' ? (() => {
+                const esHoy = fechaReservas === fechaLocal(new Date())
+                const numMesa = (id: number | null) => id ? (mesasReserva.find(m => m.id === id)?.numero ?? id) : null
+                const porLlegar = reservasHoy.filter(r => r.estado === 'confirmada')
+                const sentadas = reservasHoy.filter(r => r.estado === 'sentada')
+                const descartadas = reservasHoy.filter(r => r.estado === 'cancelada' || r.estado === 'no_show')
+                const reservasVivas = [...porLlegar, ...sentadas.filter(r => r.origen !== 'walkin')]
+                const sinMesa = porLlegar.filter(r => !r.mesaId && !r.enPool).length
+                const moverDia = (n: number) => { const d = new Date(fechaReservas + 'T12:00:00'); d.setDate(d.getDate() + n); setFechaReservas(fechaLocal(d)) }
+                const manana = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return fechaLocal(d) })()
+                const etiquetaDia = esHoy ? 'Hoy' : fechaReservas === manana ? 'Mañana'
+                  : new Date(fechaReservas + 'T12:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'short' })
+                const titulo = (t: string, n: number) => (
+                  <p className="text-[var(--sala-tx3)] text-[11px] font-black uppercase tracking-wider px-1 pt-2">{t} · {n}</p>
+                )
 
-                      {r.enPool ? (
-                        <div className="flex items-center gap-2">
-                          <span className="text-amber-400 text-xs font-bold">🔄 En pool</span>
+                const tarjeta = (r: Reserva) => {
+                  const walkin = r.origen === 'walkin'
+                  const faltan = esHoy && r.estado === 'confirmada' ? minutosHasta(r.hora) : null
+                  const tarde = faltan !== null && faltan <= -15
+                  const pronto = faltan !== null && faltan > -15 && faltan <= 30
+                  const descartada = r.estado === 'cancelada' || r.estado === 'no_show'
+                  const borde = descartada ? 'border-[var(--sala-brd)]' : r.estado === 'sentada' ? 'border-emerald-500'
+                    : tarde ? 'border-red-500' : pronto ? 'border-amber-400' : 'border-sky-400'
+                  const mesa = numMesa(r.mesaId)
+                  return (
+                    <div key={r.id} className={`flex rounded-2xl overflow-hidden bg-[var(--sala-srf)] border-l-4 ${borde} ${descartada ? 'opacity-60' : ''}`}>
+                      <BloqueHoraPax hora={r.hora} pax={r.pax} walkin={walkin}
+                        tono={tarde ? 'text-red-500' : pronto ? 'text-amber-500' : undefined} />
+                      <div className="flex-1 min-w-0 p-3 space-y-2">
+                        <div className="flex items-start gap-2">
+                          <p className="flex-1 min-w-0 text-[var(--sala-txt)] font-black text-base leading-tight truncate">{walkin ? 'Walk-in' : r.nombre}</p>
+                          {tarde && <span className="shrink-0 px-2 py-0.5 rounded-full bg-red-500/15 text-red-500 text-[11px] font-black">⏰ {-faltan!} min tarde</span>}
+                          {pronto && <span className="shrink-0 px-2 py-0.5 rounded-full bg-amber-400/15 text-amber-500 text-[11px] font-black">{faltan! <= 0 ? 'Ya es la hora' : `en ${faltan} min`}</span>}
+                          {r.estado === 'sentada' && <span className="shrink-0 px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-500 text-[11px] font-black">✓ Mesa {mesa ?? '?'}</span>}
+                          {r.estado === 'no_show' && <span className="shrink-0 px-2 py-0.5 rounded-full bg-red-500/15 text-red-500 text-[11px] font-black">No vino</span>}
+                          {r.estado === 'cancelada' && <span className="shrink-0 px-2 py-0.5 rounded-full bg-[var(--sala-btn2)] text-[var(--sala-tx3)] text-[11px] font-black">Cancelada</span>}
+                          {r.enPool && <span className="shrink-0 px-2 py-0.5 rounded-full bg-amber-400/15 text-amber-500 text-[11px] font-black">🔄 En el pool</span>}
+                        </div>
+                        {r.notas && <p className="px-2 py-1 rounded-lg bg-amber-400/10 text-amber-500 text-sm font-bold">📝 {r.notas}</p>}
+                        {r.telefono && !descartada && r.estado !== 'sentada' && <ContactoReserva telefono={r.telefono} />}
+
+                        {/* Acciones según el estado */}
+                        {r.enPool ? (
                           <button onClick={() => poolCancelarMut.mutate(r.id)}
-                            className="px-2.5 py-1 rounded-lg bg-[var(--sala-btn2)] text-[var(--sala-tx2)] text-xs font-bold">
-                            Sacar del pool
-                          </button>
-                        </div>
-                      ) : r.estado === 'sentada' ? (
-                        <div className="flex items-center gap-2">
-                          <span className="text-emerald-400 text-xs font-bold">
-                            ✅ Sentados{r.mesaId ? ` · Mesa ${mesasReserva.find(m => m.id === r.mesaId)?.numero ?? r.mesaId}` : ''}
-                          </span>
-                          {r.comandaId && (
-                            <button onClick={() => onAbrirComanda?.(r.comandaId!)}
-                              className="px-2.5 py-1 rounded-lg bg-[var(--sala-btn2)] text-[var(--sala-tx2)] text-xs font-bold">
-                              Ver mesa
-                            </button>
-                          )}
-                        </div>
-                      ) : r.estado === 'cancelada' ? (
-                        <span className="text-[var(--sala-tx4)] text-xs font-bold">Cancelada</span>
-                      ) : r.estado === 'no_show' ? (
-                        <span className="text-red-400 text-xs font-bold">No show</span>
-                      ) : (
-                        <>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <button onClick={() => setPlano({ reservaId: r.id })}
-                              className="px-2.5 py-1 rounded-lg bg-[var(--sala-btn2)] text-[var(--sala-tx2)] text-xs font-bold">
-                              {r.mesaId ? `🪑 Mesa ${mesasReserva.find(m => m.id === r.mesaId)?.numero ?? r.mesaId}` : '🪑 Asignar mesa'}
-                            </button>
-                            <button onClick={() => sentarMut.mutate({ id: r.id, mesaId: r.mesaId ?? undefined })}
-                              disabled={!r.mesaId || sentarMut.isPending}
-                              className="px-3 py-1.5 rounded-lg bg-[var(--sala-btna)] text-[var(--sala-txt)] text-xs font-bold disabled:opacity-40">
-                              {sentarMut.isPending && sentarMut.variables?.id === r.id ? 'Sentando...' : '✅ Sentar'}
-                            </button>
-                          </div>
-                          {sentarError?.id === r.id && (
-                            <p className="text-red-400 text-xs mt-1">{sentarError.msg}</p>
-                          )}
-
-
-                          <div className="mt-2">
+                            className="h-9 px-3 rounded-lg bg-[var(--sala-btn2)] text-[var(--sala-tx2)] text-sm font-bold">Sacar del pool</button>
+                        ) : r.estado === 'sentada' ? (
+                          r.comandaId ? <button onClick={() => onAbrirComanda?.(r.comandaId!)}
+                            className="h-9 px-3 rounded-lg bg-[var(--sala-btn2)] text-[var(--sala-tx1)] text-sm font-bold">Ver mesa ›</button> : null
+                        ) : descartada ? (
+                          <button onClick={() => estadoReservaMut.mutate({ id: r.id, estado: 'confirmada' })}
+                            className="h-9 px-3 rounded-lg bg-[var(--sala-btn2)] text-[var(--sala-tx1)] text-sm font-bold">↩ Volver a por llegar</button>
+                        ) : (
+                          <>
+                            <div className="flex gap-2">
+                              {mesa && esHoy ? (
+                                <>
+                                  <button onClick={() => sentarMut.mutate({ id: r.id, mesaId: r.mesaId! })} disabled={sentarMut.isPending}
+                                    className="flex-1 h-11 rounded-xl text-white text-base font-black disabled:opacity-50 active:scale-[0.98] transition-transform"
+                                    style={{ background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)' }}>
+                                    {sentarMut.isPending && sentarMut.variables?.id === r.id ? 'Sentando…' : `✅ Sentar en ${mesa}`}
+                                  </button>
+                                  <button onClick={() => setPlano({ reservaId: r.id, fecha: fechaReservas })} title="Cambiar de mesa"
+                                    className="h-11 px-3 rounded-xl bg-[var(--sala-btn2)] text-[var(--sala-tx1)] text-sm font-bold">🪑 Cambiar</button>
+                                </>
+                              ) : (
+                                <button onClick={() => setPlano({ reservaId: r.id, fecha: fechaReservas })}
+                                  className={`flex-1 h-11 rounded-xl text-base font-black active:scale-[0.98] transition-transform ${mesa ? 'bg-[var(--sala-btn2)] text-[var(--sala-txt)]' : 'bg-sky-500/15 text-sky-500 border-2 border-sky-400/50'}`}>
+                                  {mesa ? `🪑 Mesa ${mesa} · cambiar` : '🪑 Elegir mesa'}
+                                </button>
+                              )}
+                            </div>
+                            {sentarError?.id === r.id && <p className="text-red-400 text-xs font-bold">{sentarError.msg}</p>}
                             {enviandoPoolId === r.id ? (
                               <div className="space-y-2">
-                                <input value={motivoPool} onChange={e => setMotivoPool(e.target.value)}
-                                  placeholder="Motivo (opcional)"
+                                <input value={motivoPool} onChange={e => setMotivoPool(e.target.value)} autoFocus
+                                  placeholder="¿Por qué no entra? (opcional)"
                                   className="w-full bg-[var(--sala-btn2)] text-[var(--sala-txt)] placeholder-[var(--sala-tx4)] rounded-lg px-3 py-2 text-sm outline-none" />
                                 <div className="flex gap-2">
-                                  <button onClick={() => poolEnviarMut.mutate({ id: r.id, motivo: motivoPool || undefined })}
-                                    disabled={poolEnviarMut.isPending}
-                                    className="px-3 py-1.5 rounded-lg bg-[var(--sala-btna)] text-[var(--sala-txt)] text-xs font-bold disabled:opacity-50">
-                                    {poolEnviarMut.isPending ? 'Enviando...' : 'Confirmar envío'}
+                                  <button onClick={() => poolEnviarMut.mutate({ id: r.id, motivo: motivoPool || undefined })} disabled={poolEnviarMut.isPending}
+                                    className="h-9 px-3 rounded-lg bg-[var(--sala-btna)] text-[var(--sala-txt)] text-sm font-bold disabled:opacity-50">
+                                    {poolEnviarMut.isPending ? 'Enviando…' : 'Ofrecer a los otros locales'}
                                   </button>
                                   <button onClick={() => { setEnviandoPoolId(null); setMotivoPool('') }}
-                                    className="px-3 py-1.5 rounded-lg bg-[var(--sala-btn2)] text-[var(--sala-tx2)] text-xs font-bold">
-                                    Cancelar
-                                  </button>
+                                    className="h-9 px-3 rounded-lg bg-[var(--sala-btn2)] text-[var(--sala-tx2)] text-sm font-bold">Cancelar</button>
                                 </div>
                               </div>
                             ) : (
-                              <button onClick={() => setEnviandoPoolId(r.id)}
-                                className="text-[var(--sala-tx4)] text-xs font-bold">
-                                🔄 Enviar al pool
-                              </button>
+                              <div className="flex gap-1.5 flex-wrap">
+                                {esHoy && faltan !== null && faltan <= 0 && (
+                                  <button onClick={() => estadoReservaMut.mutate({ id: r.id, estado: 'no_show' })}
+                                    className="h-8 px-2.5 rounded-lg bg-red-500/10 text-red-500 text-xs font-bold">🚫 No vino</button>
+                                )}
+                                <button onClick={() => estadoReservaMut.mutate({ id: r.id, estado: 'cancelada' })}
+                                  className="h-8 px-2.5 rounded-lg bg-[var(--sala-btn2)] text-[var(--sala-tx3)] text-xs font-bold">✕ Canceló</button>
+                                <button onClick={() => setEnviandoPoolId(r.id)}
+                                  className="h-8 px-2.5 rounded-lg bg-[var(--sala-btn2)] text-[var(--sala-tx3)] text-xs font-bold">🔄 Al pool</button>
+                              </div>
                             )}
-                          </div>
-                        </>
-                      )}
+                          </>
+                        )}
+                      </div>
                     </div>
-                  ))}
-                </>
-              ) : (
+                  )
+                }
+
+                return (
+                  <>
+                    {/* Día */}
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => moverDia(-1)} className="w-10 h-10 rounded-xl bg-[var(--sala-btn2)] text-[var(--sala-txt)] text-lg font-black">‹</button>
+                      <button onClick={() => setFechaReservas(fechaLocal(new Date()))}
+                        className="flex-1 h-10 rounded-xl bg-[var(--sala-btn2)] text-[var(--sala-txt)] font-black capitalize">{etiquetaDia}</button>
+                      <button onClick={() => moverDia(1)} className="w-10 h-10 rounded-xl bg-[var(--sala-btn2)] text-[var(--sala-txt)] text-lg font-black">›</button>
+                    </div>
+
+                    {/* Resumen del día */}
+                    <div className="grid grid-cols-4 gap-1.5">
+                      {[
+                        { n: reservasVivas.length, t: 'reservas' },
+                        { n: reservasVivas.reduce((s, r) => s + r.pax, 0), t: 'pax' },
+                        { n: sentadas.length, t: 'sentadas' },
+                        { n: sinMesa, t: 'sin mesa', aviso: sinMesa > 0 },
+                      ].map(c => (
+                        <button key={c.t} onClick={c.t === 'sin mesa' && sinMesa ? () => setPlano({ fecha: fechaReservas }) : undefined}
+                          className={`rounded-xl py-2 text-center ${c.aviso ? 'bg-amber-400/15' : 'bg-[var(--sala-srf)]'}`}>
+                          <p className={`font-black text-2xl leading-none tabular-nums ${c.aviso ? 'text-amber-500' : 'text-[var(--sala-txt)]'}`}>{c.n}</p>
+                          <p className="text-[var(--sala-tx3)] text-[10px] font-bold uppercase tracking-wide mt-1">{c.t}</p>
+                        </button>
+                      ))}
+                    </div>
+
+                    {reservasHoy.length === 0 && (
+                      <p className="text-center text-[var(--sala-tx4)] text-sm py-10">No hay reservas {esHoy ? 'para hoy' : 'ese día'}</p>
+                    )}
+                    {porLlegar.length > 0 && <>{titulo('Por llegar', porLlegar.length)}{porLlegar.map(tarjeta)}</>}
+                    {sentadas.length > 0 && <>{titulo('Sentadas', sentadas.length)}{sentadas.map(tarjeta)}</>}
+                    {descartadas.length > 0 && (
+                      <>
+                        <button onClick={() => setVerDescartadas(v => !v)}
+                          className="w-full text-left text-[var(--sala-tx3)] text-[11px] font-black uppercase tracking-wider px-1 pt-2">
+                          {verDescartadas ? '▾' : '▸'} No vinieron / canceladas · {descartadas.length}
+                        </button>
+                        {verDescartadas && descartadas.map(tarjeta)}
+                      </>
+                    )}
+                  </>
+                )
+              })() : (
                 <>
                   <p className="text-[var(--sala-tx3)] text-xs px-1 mb-1">
                     Reservas que otros restaurantes no pudieron aceptar. Llamá, confirmá con el cliente y tomala para {restaurant.nombre}.
@@ -5045,22 +5216,21 @@ function EncargadoPanel({
                     const esMiLock = locked && r.poolGestionandoPor === camarero.nombre
                     const errorAqui = poolError?.id === r.id ? poolError.msg : null
                     return (
-                      <div key={r.id} className="bg-[var(--sala-srf)] rounded-xl p-4">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-[var(--sala-txt)] font-mono font-bold">{r.hora}</span>
-                          <span className="text-[var(--sala-tx3)] text-xs">{r.pax} pax</span>
-                          <span className="text-[var(--sala-txt)] font-bold flex-1 truncate">{r.nombre}</span>
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[var(--sala-btn2)] text-[var(--sala-tx3)] whitespace-nowrap">
+                      <div key={r.id} className="flex rounded-2xl overflow-hidden bg-[var(--sala-srf)] border-l-4 border-amber-400">
+                        <BloqueHoraPax hora={r.hora} pax={r.pax} />
+                        <div className="flex-1 min-w-0 p-3 space-y-2">
+                        <div className="flex items-start gap-2">
+                          <p className="flex-1 min-w-0 text-[var(--sala-txt)] font-black text-base leading-tight truncate">{r.nombre}</p>
+                          <span className="shrink-0 text-[11px] font-black px-2 py-0.5 rounded-full bg-[var(--sala-btn2)] text-[var(--sala-tx3)] whitespace-nowrap">
                             de {r.restaurant?.nombre ?? '?'}
                           </span>
                         </div>
-                        <div className="flex items-center gap-3">
-                          <a href={`tel:${r.telefono}`} className="text-[#4B9EDF] text-sm font-bold">📞 {r.telefono}</a>
-                          <a href={waLink(r.telefono ?? '')} target="_blank" rel="noopener noreferrer" className="text-emerald-400 text-sm font-bold">💬 WhatsApp</a>
-                        </div>
-                        {r.poolMotivo && <p className="text-[var(--sala-tx4)] text-xs italic mt-0.5">{r.poolMotivo}</p>}
+                        <p className="text-[var(--sala-tx3)] text-xs font-bold capitalize">{new Date(r.fecha.slice(0, 10) + 'T12:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'short' })}</p>
+                        {r.notas && <p className="px-2 py-1 rounded-lg bg-amber-400/10 text-amber-500 text-sm font-bold">📝 {r.notas}</p>}
+                        {r.poolMotivo && <p className="text-[var(--sala-tx3)] text-xs italic">“{r.poolMotivo}”</p>}
+                        {r.telefono && <ContactoReserva telefono={r.telefono} />}
 
-                        <div className="mt-2">
+                        <div>
                           {locked && !esMiLock && (
                             <p className="text-amber-400 text-xs font-bold">🔒 {r.poolGestionandoPor} la está gestionando</p>
                           )}
@@ -5083,6 +5253,7 @@ function EncargadoPanel({
                             </div>
                           )}
                           {errorAqui && <p className="text-red-400 text-xs font-bold mt-1.5">{errorAqui}</p>}
+                        </div>
                         </div>
                       </div>
                     )

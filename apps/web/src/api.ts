@@ -1246,6 +1246,8 @@ export const api = {
     abrir:     (restaurantId: number, mesaId: number, pax: number, camareroNombre?: string, walkin?: boolean) =>
       post<Comanda>('/comandas', { restaurantId, mesaId, pax, camareroNombre, walkin }),
     get:       (id: number) => get<Comanda>(`/comandas/${id}`),
+    // Quién está sentado (encargado): una reserva de hoy o null = walk-in. Corrige un "Sentar" equivocado.
+    cambiarReserva: (id: number, reservaId: number | null) => put<Reserva>(`/comandas/${id}/reserva`, { reservaId }),
     addItem:   (id: number, item: { nombre: string; precio: number; cantidad: number; nota?: string; tipo?: 'cocina' | 'barra'; directo?: boolean }) =>
       post<ComandaItem>(`/comandas/${id}/items`, item),
     updateItem:(id: number, itemId: number, data: { cantidad?: number; nota?: string; invitacion?: boolean; invitadoPor?: string; invitacionMotivo?: string }) =>

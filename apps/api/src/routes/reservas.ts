@@ -586,11 +586,17 @@ export async function reservasRoutes(app: FastifyInstance) {
   app.patch('/reservas/:id', async (req, reply) => {
     const id = parseInt((req.params as { id: string }).id, 10)
     const { estado } = req.body as { estado: string }
+    // Sentar va por /sentar (crea la mesa); aquí solo por llegar, cancelada o no vino
+    if (!['confirmada', 'cancelada', 'no_show'].includes(estado)) return reply.status(400).send({ error: 'Estado no válido' })
+    const actual = await prisma.reserva.findUnique({ where: { id } })
+    if (!actual) return reply.status(404).send({ error: 'Reserva no encontrada' })
+    if (actual.estado === 'sentada') return reply.status(409).send({ error: 'Ya están sentados: se corrige desde la mesa' })
 
     const reserva = await prisma.reserva.update({
       where: { id },
       data: { estado },
     })
+    broadcast(actual.restaurantId, 'update')
 
     return reserva
   })

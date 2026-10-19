@@ -79,7 +79,7 @@ export const RUTAS_SALA = new Set([
   'GET /api/inventario/categorias', 'POST /api/inventario/producciones',
   'GET /api/reviews', 'GET /api/reviews/historial', 'GET /api/reviews/turno',
   // reservas del día y pool entre restaurantes
-  'GET /api/reservas', 'GET /api/reservas/pool', 'PATCH /api/reservas/:id/mesa', 'PATCH /api/reservas/:id/sentar',
+  'GET /api/reservas', 'GET /api/reservas/pool', 'PATCH /api/reservas/:id/mesa', 'PATCH /api/reservas/:id/sentar', 'PATCH /api/reservas/:id', 'PUT /api/comandas/:id/reserva',
   'PATCH /api/reservas/:id/pool', 'PATCH /api/reservas/:id/pool/cancelar', 'PATCH /api/reservas/:id/pool/gestionar',
   'PATCH /api/reservas/:id/pool/liberar', 'PATCH /api/reservas/:id/pool/tomar',
   // facturas de proveedor (cada ruta comprueba además que sea encargado)
@@ -104,6 +104,8 @@ export const SOLO_ENCARGADO = new Set([
   'GET /api/gastos', 'POST /api/gastos', 'DELETE /api/gastos/:id', 'PATCH /api/gastos/:id/pagar', // gastos del día
   'GET /api/propinas/encargado/turnos', 'GET /api/propinas/encargado/empleados', 'GET /api/propinas/encargado/resumen', 'PUT /api/propinas/encargado/turnos/:turnoId', // repartir propinas
   'PATCH /api/reservas/:id/sentar',   // sentar una reserva (el walk-in va con POST /comandas y solo cuenta si es encargado)
+  'PATCH /api/reservas/:id',          // no vino / cancelada / volver a por llegar
+  'PUT /api/comandas/:id/reserva',    // quién está sentado en la mesa ("No era esta reserva")
 ])
 
 // ── Dónde está el dispositivo ────────────────────────────────────────────────────────────────

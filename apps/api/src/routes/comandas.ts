@@ -9,11 +9,11 @@ import { MODO_LOCAL } from '../local'
 // Lo que ve la sala de la reserva de una mesa: 📅 reserva / 🚶 walk-in en el mapa y en la cabecera
 const reservaDeMesa = { select: { id: true, origen: true, nombre: true, hora: true, notas: true } } as const
 
-// Fecha (YYYY-MM-DD) y hora (HH:MM) de ahora en Barcelona, para apuntar un walk-in en el libro del día
-function ahoraEnMadrid() {
+// Fecha (YYYY-MM-DD) y hora (HH:MM) en Barcelona, para apuntar un walk-in en el libro del día
+function ahoraEnMadrid(momento = new Date()) {
   const partes = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Europe/Madrid', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-  }).formatToParts(new Date()).map(p => [p.type, p.value]))
+  }).formatToParts(momento).map(p => [p.type, p.value]))
   return { fecha: `${partes.year}-${partes.month}-${partes.day}`, hora: `${partes.hour}:${partes.minute}` }
 }
 
@@ -501,6 +501,50 @@ export async function comandaRoutes(app: FastifyInstance) {
     await prisma.reserva.updateMany({ where: { comandaId: id }, data: { mesaId } })
     broadcast(comanda.restaurantId, 'update')
     return comanda
+  })
+
+  // Quién está sentado en la mesa (encargado): una reserva de hoy (reservaId) o un walk-in (null).
+  // Corrige un "Sentar" equivocado ("No era esta reserva") y marca una mesa que abrió un camarero.
+  // La reserva que estaba vuelve a "por llegar" sin mesa; un walk-in que estaba se borra.
+  app.put('/comandas/:id/reserva', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    const { reservaId } = req.body as { reservaId: number | null }
+    const comanda = await prisma.comanda.findUnique({ where: { id }, include: { reserva: true } })
+    if (!comanda) return reply.status(404).send({ error: 'Mesa no encontrada' })
+    if (!['abierta', 'enviada', 'facturada', 'liberada'].includes(comanda.estado)) {
+      return reply.status(409).send({ error: 'Esta mesa ya se cobró' })
+    }
+    const actual = comanda.reserva
+    if (reservaId != null && actual?.id === reservaId) return actual
+    if (reservaId == null && actual?.origen === 'walkin') return actual
+
+    const nueva = reservaId != null ? await prisma.reserva.findUnique({ where: { id: reservaId } }) : null
+    if (reservaId != null) {
+      if (!nueva || nueva.restaurantId !== comanda.restaurantId) return reply.status(404).send({ error: 'Reserva no encontrada' })
+      if (nueva.estado !== 'confirmada' || nueva.enPool) return reply.status(409).send({ error: 'Esa reserva ya no está por llegar' })
+    }
+
+    const resultado = await prisma.$transaction(async tx => {
+      if (actual) {
+        if (actual.origen === 'walkin') await tx.reserva.delete({ where: { id: actual.id } })
+        else await tx.reserva.update({ where: { id: actual.id }, data: { estado: 'confirmada', comandaId: null, sentadaAt: null, mesaId: null } })
+      }
+      if (nueva) {
+        return tx.reserva.update({
+          where: { id: nueva.id },
+          data: { estado: 'sentada', comandaId: id, mesaId: comanda.mesaId, sentadaAt: new Date() },
+        })
+      }
+      const { fecha, hora } = ahoraEnMadrid(comanda.createdAt)
+      return tx.reserva.create({
+        data: {
+          restaurantId: comanda.restaurantId, fecha: new Date(fecha + 'T00:00:00.000Z'), hora, pax: comanda.pax,
+          estado: 'sentada', origen: 'walkin', mesaId: comanda.mesaId, comandaId: id, sentadaAt: comanda.createdAt,
+        },
+      })
+    })
+    broadcast(comanda.restaurantId, 'update')
+    return resultado
   })
 
   // Mover items de una comanda a otra (merge parcial o total)

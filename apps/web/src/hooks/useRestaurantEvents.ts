@@ -27,6 +27,7 @@ export function useRestaurantEvents(restaurantId: number | null) {
           queryClient.invalidateQueries({ queryKey: ['comandas-feed-cerradas', restaurantId] })
           queryClient.invalidateQueries({ queryKey: ['enc-cobros', restaurantId] })
           queryClient.invalidateQueries({ queryKey: ['turno-activo', restaurantId] })
+          queryClient.invalidateQueries({ queryKey: ['reservas', restaurantId] }) // sentar, walk-ins, no vino…
         }
         if (type === 'agotados') queryClient.invalidateQueries({ queryKey: ['agotados', restaurantId] })
         if (type === 'gastos') queryClient.invalidateQueries({ queryKey: ['gastos', restaurantId] })
