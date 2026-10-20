@@ -284,7 +284,8 @@ function useTextoCifrado(objetivo: string) {
   return texto
 }
 
-function useTamano<T extends HTMLElement>() {
+// `clave`: al cambiar, vuelve a buscar el elemento (el árbol no existe en la vista del teléfono)
+function useTamano<T extends HTMLElement>(clave?: unknown) {
   const ref = useRef<T>(null)
   const [tam, setTam] = useState({ w: 0, h: 0 })
   useEffect(() => {
@@ -295,9 +296,25 @@ function useTamano<T extends HTMLElement>() {
     const observador = new ResizeObserver(medir)
     observador.observe(el)
     return () => observador.disconnect()
-  }, [])
+  }, [clave])
   return [ref, tam] as const
 }
+
+// Teléfono: el árbol de columnas no entra (necesita ~760 px); se dibuja la cadena en vertical
+function useEsMovil() {
+  const consulta = '(max-width: 639px)'
+  const [movil, setMovil] = useState(() => typeof window !== 'undefined' && window.matchMedia(consulta).matches)
+  useEffect(() => {
+    const mq = window.matchMedia(consulta)
+    const cambio = () => setMovil(mq.matches)
+    mq.addEventListener('change', cambio)
+    return () => mq.removeEventListener('change', cambio)
+  }, [])
+  return movil
+}
+
+// Un color por restaurante (en el teléfono, para saber de qué local es cada ticket)
+const COLORES_LOCAL = ['#4B9EDF', '#4CC8A0', '#a78bfa', '#f59e0b', '#f472b6', '#22d3ee', '#a3e635']
 
 function LogoOidoOps({ className }: { className?: string }) {
   return (
@@ -351,7 +368,8 @@ export default function VerifactuMatrixLedger({
   const [manipulado, setManipulado] = useState<{ numSerie: string; original: number } | null>(null)
   const [pantallaCompleta, setPantallaCompleta] = useState(false)
   const sacudida = useAnimationControls()
-  const [arbol, tam] = useTamano<HTMLDivElement>()
+  const movil = useEsMovil()
+  const [arbol, tam] = useTamano<HTMLDivElement>(movil)
 
   // Los restaurantes reales del grupo; si la API no responde, nombres genéricos
   const { data: restaurantes, isError } = useQuery({ queryKey: ['restaurantes'], queryFn: api.restaurantes.list })
@@ -560,25 +578,26 @@ export default function VerifactuMatrixLedger({
     return () => window.removeEventListener('keydown', alPulsar)
   }, [pantallaCompleta])
 
-  const boton = 'text-xs sm:text-sm font-bold border rounded-md px-3 py-2 transition-colors'
-  const listo = tam.w > 0 && locales.length > 0
+  const boton = 'text-[11px] sm:text-sm font-bold border rounded-md px-2 sm:px-3 py-1.5 sm:py-2 whitespace-nowrap transition-colors'
+  const listo = (movil || tam.w > 0) && locales.length > 0
 
   return (
     <motion.div
       animate={sacudida}
-      className={`${pantallaCompleta ? 'fixed inset-0 z-50' : 'relative h-full min-h-[680px] rounded-2xl border border-[#4B9EDF]/25'} flex flex-col overflow-hidden bg-[#0f1a2e] font-mono text-slate-300`}
+      className={`${pantallaCompleta ? 'fixed inset-0 z-50' : 'relative h-[calc(100dvh-5.5rem)] sm:h-full min-h-[560px] sm:min-h-[680px] rounded-2xl border border-[#4B9EDF]/25'} flex flex-col overflow-hidden bg-[#0f1a2e] font-mono text-slate-300`}
     >
       <LluviaMarca alerta={!integra} />
 
       {/* Header */}
-      <div className="relative px-5 sm:px-8 pt-4 pb-3 border-b border-[#4B9EDF]/20 bg-[#0f1a2e]/75">
+      <div className="relative px-4 sm:px-8 pt-3 sm:pt-4 pb-3 border-b border-[#4B9EDF]/20 bg-[#0f1a2e]/75">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <LogoOidoOps className="h-7 sm:h-9 w-auto" />
-          <h2 className="text-base sm:text-2xl font-bold tracking-[0.15em] text-white">
-            <span className={`${integra ? 'text-[#4CC8A0]' : 'text-red-500'} animate-pulse`}>●</span> VERI*FACTU · CADENA EN VIVO
+          <LogoOidoOps className="h-6 sm:h-9 w-auto" />
+          <h2 className="text-sm sm:text-2xl font-bold tracking-[0.15em] text-white">
+            <span className={`${integra ? 'text-[#4CC8A0]' : 'text-red-500'} animate-pulse`}>●</span> VERI*FACTU<span className="hidden sm:inline"> · CADENA EN VIVO</span>
           </h2>
-          <span className="text-[11px] font-bold text-amber-300 border border-amber-400/50 rounded px-2 py-1">SIMULACIÓN · DATOS DE EJEMPLO</span>
-          <div className="ml-auto flex flex-wrap gap-2">
+          <span className="text-[10px] sm:text-[11px] font-bold text-amber-300 border border-amber-400/50 rounded px-2 py-1">SIMULACIÓN<span className="hidden sm:inline"> · DATOS DE EJEMPLO</span></span>
+          {/* En el teléfono, una fila de botones a todo lo ancho */}
+          <div className="w-full sm:w-auto sm:ml-auto grid grid-cols-3 sm:flex sm:flex-wrap gap-2">
             <button onClick={() => setPausado(p => !p)} className={`${boton} text-slate-200 border-[#4B9EDF]/40 hover:bg-[#4B9EDF]/10`}>
               {pausado ? '▶ REANUDAR' : '⏸ PAUSA'}
             </button>
@@ -586,16 +605,16 @@ export default function VerifactuMatrixLedger({
               <button onClick={restaurar} className={`${boton} text-[#4CC8A0] border-[#4CC8A0]/60 hover:bg-[#4CC8A0]/10`}>↺ RESTAURAR</button>
             ) : (
               <button onClick={manipular} disabled={bloques.length < 2} className={`${boton} text-rose-400 border-rose-500/60 hover:bg-rose-500/10 disabled:opacity-40`}>
-                ⚠ SIMULAR MANIPULACIÓN
+                ⚠ <span className="sm:hidden">MANIPULAR</span><span className="hidden sm:inline">SIMULAR MANIPULACIÓN</span>
               </button>
             )}
             <button onClick={() => setPantallaCompleta(v => !v)} className={`${boton} text-slate-200 border-[#4B9EDF]/40 hover:bg-[#4B9EDF]/10`}>
-              {pantallaCompleta ? '✕ SALIR (ESC)' : '⛶ PANTALLA COMPLETA'}
+              {pantallaCompleta ? <>✕ SALIR<span className="hidden sm:inline"> (ESC)</span></> : <>⛶ <span className="sm:hidden">COMPLETA</span><span className="hidden sm:inline">PANTALLA COMPLETA</span></>}
             </button>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2 mt-3 text-xs sm:text-sm">
-          <span className={`border rounded px-3 py-1 font-bold ${integra ? 'border-[#4CC8A0]/50 text-[#4CC8A0]' : 'border-red-500 text-red-400 bg-red-500/10 animate-pulse'}`}>
+        <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 mt-3 text-[11px] sm:text-sm">
+          <span className={`col-span-2 text-center sm:text-left border rounded px-3 py-1 font-bold ${integra ? 'border-[#4CC8A0]/50 text-[#4CC8A0]' : 'border-red-500 text-red-400 bg-red-500/10 animate-pulse'}`}>
             {integra ? 'CADENA ÍNTEGRA' : `CADENA ROTA @ #${String(bloques[rotoEn]?.indice ?? 0).padStart(4, '0')}`}
           </span>
           <span className="border border-white/10 rounded px-3 py-1">REGISTROS <b className="text-white tabular-nums">{String(bloques.length).padStart(3, '0')}</b></span>
@@ -605,7 +624,7 @@ export default function VerifactuMatrixLedger({
           <span className="hidden lg:inline border border-white/10 rounded px-3 py-1 text-slate-400">NODO DE IMPRESIÓN {nodoImpresion}</span>
           <span className="hidden lg:inline border border-white/10 rounded px-3 py-1 text-slate-400">AEAT: SANDBOX · SIMULADO</span>
         </div>
-        <p className={`mt-2 text-[11px] sm:text-sm font-bold tracking-wider truncate ${integra ? 'text-[#4CC8A0]/90' : 'text-red-500'}`}>
+        <p className={`mt-2 text-[10px] sm:text-sm font-bold tracking-wider truncate ${integra ? 'text-[#4CC8A0]/90' : 'text-red-500'}`}>
           <span className="text-slate-500 font-normal">ÚLTIMA HUELLA · {ultimo?.numSerie ?? '—'} · </span>{ultimaHuella || '…'}
         </p>
       </div>
@@ -624,8 +643,15 @@ export default function VerifactuMatrixLedger({
         )}
       </AnimatePresence>
 
+      {movil && (
+        <CadenaMovil
+          bloques={bloques} locales={locales} porLocal={porLocal} nif={nifEmisor} listo={listo}
+          tonoDe={tonoDe} foco={pareja} onElegir={setSeleccion}
+        />
+      )}
+
       {/* Árbol: grupo → restaurantes → tickets, con los hilos de la cadena tejidos entre columnas */}
-      <div className="relative flex-1 min-h-[360px] overflow-x-auto overflow-y-hidden" style={BARRA_SCROLL}>
+      {!movil && <div className="relative flex-1 min-h-[360px] overflow-x-auto overflow-y-hidden" style={BARRA_SCROLL}>
         <div ref={arbol} className="absolute inset-y-0 left-0 w-full min-w-[760px]">
           {!listo && <p className="absolute inset-0 flex items-center justify-center text-sm text-slate-400">Generando cadena…</p>}
 
@@ -778,10 +804,10 @@ export default function VerifactuMatrixLedger({
           {/* Los tickets más viejos se pierden hacia abajo */}
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10" style={{ background: `linear-gradient(to top, ${FONDO}, transparent)` }} />
         </div>
-      </div>
+      </div>}
 
       {/* Consola */}
-      <div ref={consola} style={BARRA_SCROLL} className="relative h-28 shrink-0 overflow-y-auto border-t border-[#4B9EDF]/20 bg-black/40 px-5 sm:px-8 py-2 text-xs leading-5">
+      <div ref={consola} style={BARRA_SCROLL} className="relative h-20 sm:h-28 shrink-0 overflow-y-auto border-t border-[#4B9EDF]/20 bg-black/40 px-4 sm:px-8 py-2 text-[10px] sm:text-xs leading-4 sm:leading-5">
         {logs.map(l => (
           <p key={l.id} className={l.tono === 'error' ? 'text-red-400 font-bold' : l.tono === 'ok' ? 'text-[#4CC8A0]' : l.tono === 'merma' ? 'text-amber-300/90' : 'text-slate-400'}>
             &gt; [{l.hora}] {l.texto}
@@ -801,6 +827,94 @@ export default function VerifactuMatrixLedger({
         )}
       </AnimatePresence>
     </motion.div>
+  )
+}
+
+// ── Teléfono: la cadena como línea de tiempo vertical ──────────────────────────
+// La cadena es una sola para todo el grupo: en vertical se lee de arriba (lo último) hacia abajo,
+// cada ticket unido al anterior por el hilo. El restaurante de cada uno, por su color.
+
+function CadenaMovil({ bloques, locales, porLocal, nif, listo, tonoDe, foco, onElegir }: {
+  bloques: Bloque[]
+  locales: Local[]
+  porLocal: { tickets: number; total: number; roto: boolean }[]
+  nif: string
+  listo: boolean
+  tonoDe: (b: Bloque, i: number) => Tono
+  foco: string | null
+  onElegir: (b: Bloque) => void
+}) {
+  const recientes = bloques.map((b, i) => ({ b, i })).slice(-30).reverse()
+  return (
+    <div className="relative flex-1 min-h-0 flex flex-col">
+      {/* Restaurantes: pastillas con su color y sus cifras */}
+      <div className="shrink-0 px-4 pt-3 pb-2 space-y-2">
+        <p className="text-[10px] text-slate-400 tracking-widest">GRUPO · UNA SOLA CADENA · EMISOR {nif}</p>
+        <div className="flex gap-2 overflow-x-auto pb-1" style={BARRA_SCROLL}>
+          {locales.map((l, i) => (
+            <div key={l.serie} className={`shrink-0 rounded-lg border bg-[#16213a]/95 px-2.5 py-1.5 ${porLocal[i]?.roto ? 'border-red-500' : 'border-white/10'}`}>
+              <p className="text-[11px] font-bold text-white whitespace-nowrap">
+                <span className="inline-block w-2 h-2 rounded-full mr-1.5" style={{ background: COLORES_LOCAL[i % COLORES_LOCAL.length] }} />
+                {l.nombre}
+              </p>
+              <p className="text-[10px] text-slate-400 whitespace-nowrap tabular-nums">
+                {porLocal[i]?.tickets ?? 0} tickets · <span className="text-[#4CC8A0]">{dos(porLocal[i]?.total ?? 0)} €</span>
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="relative flex-1 min-h-0 overflow-y-auto px-4 pb-6" style={BARRA_SCROLL}>
+        {!listo && <p className="py-10 text-center text-sm text-slate-400">Generando cadena…</p>}
+        <AnimatePresence initial={false}>
+          {recientes.map(({ b, i }, k) => {
+            const tono = tonoDe(b, i)
+            const e = ESTILO[tono]
+            const color = COLORES_LOCAL[b.local % COLORES_LOCAL.length]
+            const ultimoVisible = k === recientes.length - 1
+            const hiloRoto = tono === 'rota'
+            return (
+              <motion.div
+                key={b.numSerie} layout
+                initial={{ opacity: 0, y: -24 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                transition={MOVIMIENTO}
+                className="relative flex gap-3"
+              >
+                {/* Hilo de la cadena: punto del ticket y línea hasta el anterior */}
+                <div className="relative w-4 shrink-0 flex flex-col items-center">
+                  <span className={`mt-4 w-3 h-3 rounded-full border-2 ${tono === 'rota' ? 'border-red-500 bg-red-500/40' : 'border-white/80'}`} style={tono === 'rota' ? undefined : { background: color }} />
+                  {!ultimoVisible && (
+                    <span className="flex-1 w-0.5 mt-1"
+                      style={{ background: hiloRoto ? ROJO : `linear-gradient(to bottom, ${AZUL}, ${VERDE})`, opacity: hiloRoto ? 0.9 : Math.max(0.35, 0.95 - k * 0.06) }} />
+                  )}
+                </div>
+                <button type="button" onClick={() => onElegir(b)}
+                  className={`flex-1 min-w-0 mb-2 text-left rounded-lg border-2 bg-[#16213a]/95 px-3 py-2 active:brightness-125 ${e.borde} ${e.brillo} ${foco === b.numSerie ? 'ring-2 ring-white/80' : ''}`}>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className={`text-sm font-bold truncate ${e.texto}`}>{b.numSerie}</span>
+                    <span className={`text-sm font-bold tabular-nums shrink-0 ${e.texto}`}>
+                      {b.importeTotal < 0 ? '−' : ''}{dos(Math.abs(b.importeTotal))} €
+                    </span>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-2 text-[10px] text-slate-400 mt-0.5">
+                    <span className="truncate">
+                      <span style={{ color }}>{locales[b.local]?.nombre}</span> · {horaCorta(b.fechaHora).slice(0, 8)} · {truncar(b.huella)}
+                    </span>
+                    <span className={`shrink-0 font-bold ${e.texto} ${tono === 'rota' ? 'animate-pulse' : ''}`}>{e.badge}</span>
+                  </div>
+                  {b.rectificaA && (
+                    <p className="text-[10px] text-rose-300 mt-0.5 truncate">
+                      ↩ corrige {b.rectificaA}{b.motivo ? ` · ${b.motivo.tipo === 'merma' ? '🗑' : '🎁'} ${b.motivo.plato} · ${b.motivo.por}` : ''}
+                    </p>
+                  )}
+                </button>
+              </motion.div>
+            )
+          })}
+        </AnimatePresence>
+      </div>
+    </div>
   )
 }
 
@@ -843,16 +957,16 @@ function Inspector({ bloque, nif, local, roto, onClose }: { bloque: Bloque; nif:
         initial={{ x: 80 }} animate={{ x: 0 }} exit={{ x: 80 }} transition={{ type: 'spring', stiffness: 300, damping: 30 }}
         onClick={e => e.stopPropagation()}
         style={BARRA_SCROLL}
-        className="h-full w-full max-w-2xl overflow-y-auto border-l-2 border-[#4B9EDF]/50 bg-[#0f1a2e] p-6 text-sm text-slate-200 shadow-[0_0_40px_rgba(75,158,223,0.25)]"
+        className="h-full w-full max-w-2xl overflow-y-auto border-l-2 border-[#4B9EDF]/50 bg-[#0f1a2e] p-4 sm:p-6 text-xs sm:text-sm text-slate-200 shadow-[0_0_40px_rgba(75,158,223,0.25)]"
       >
         <div className="flex items-center mb-3">
-          <p className="text-xl font-bold text-[#4CC8A0]">{bloque.numSerie} <span className="text-sm font-normal text-slate-400">· {local}</span></p>
-          <button onClick={onClose} className="ml-auto border border-[#4B9EDF]/40 hover:bg-[#4B9EDF]/10 rounded px-2 py-0.5">[x] CERRAR</button>
+          <p className="min-w-0 text-lg sm:text-xl font-bold text-[#4CC8A0]">{bloque.numSerie} <span className="text-sm font-normal text-slate-400">· {local}</span></p>
+          <button onClick={onClose} className="ml-auto shrink-0 whitespace-nowrap border border-[#4B9EDF]/40 hover:bg-[#4B9EDF]/10 rounded px-2 py-0.5">[x] CERRAR</button>
         </div>
 
         <p className="text-slate-400 mb-1">// HUELLA SHA-256 (64 caracteres)</p>
         <div className="flex items-start gap-2 mb-1">
-          <code className="break-all text-base font-bold text-[#4CC8A0]">{bloque.huella}</code>
+          <code className="break-all text-sm sm:text-base font-bold text-[#4CC8A0]">{bloque.huella}</code>
           <button onClick={copiar} className="shrink-0 border border-[#4B9EDF]/40 hover:bg-[#4B9EDF]/10 rounded px-2 py-0.5">{copiado ? '✓ COPIADO' : 'COPIAR HASH'}</button>
         </div>
         <p className={`mb-3 ${recalculada && recalculada !== bloque.huella ? 'text-red-400 font-bold' : 'text-slate-400'}`}>
@@ -885,7 +999,7 @@ function Inspector({ bloque, nif, local, roto, onClose }: { bloque: Bloque; nif:
         <pre className="overflow-x-auto rounded border border-white/10 bg-black/50 p-2 mb-3">{JSON.stringify(registro, null, 2)}</pre>
 
         <p className="text-slate-400 mb-1">// QR TRIBUTARIO</p>
-        <div className="flex gap-3 mb-3">
+        <div className="flex flex-col sm:flex-row gap-3 mb-3">
           {qr && <img src={qr} alt="QR tributario de ejemplo" className="w-48 h-48 rounded bg-white p-1 shrink-0" />}
           <div className="min-w-0">
             <p className="break-all text-[#4B9EDF]">{url}</p>
