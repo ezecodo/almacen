@@ -523,46 +523,53 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
           const th = swipeThresholds()
           if (Math.abs(dx) > th.dx && Math.abs(dy) < th.dy) onClose()
         }}>
-        <div className="px-5 pt-5 pb-3 border-b border-[var(--sala-brd)]">
-          <div className="flex items-center justify-between gap-3">
-            <h3 className="text-[var(--sala-txt)] font-bold text-lg truncate">
-              {marchaPasa ? '🔁 Marcha Pasa' : 'Orden de salida'}
-            </h3>
-            <div className="flex items-center shrink-0">
-              {/* 🔍 Añadir algo más: la búsqueda solo aparece al tocar la lupa */}
-              <button onClick={() => { setBuscando(b => !b); setSearch('') }} title="Añadir algo más" aria-label="Buscar plato o bebida"
-                className={`w-11 h-11 rounded-full flex items-center justify-center active:scale-90 transition-colors ${
-                  buscando ? 'bg-cyan-600 text-white' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx1)]'}`}>
-                <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
-                  <circle cx="10.5" cy="10.5" r="6.5" /><path d="M15.5 15.5 20 20" />
-                </svg>
-              </button>
-              {itemsActivos.length > 0 && idsVino.size > 0 && (
-                <span className="ml-3"><BotonVino onClick={() => setVerVinos(true)} invita={mesaSinBotella} titulo="¿Y de vino?" /></span>
-              )}
-              {/* la ✕ bien separada de los botones, para no cerrar sin querer */}
-              <button onClick={onClose} aria-label="Cerrar" className="ml-7 w-9 h-11 flex items-center justify-center text-[var(--sala-tx3)] text-xl">✕</button>
+        <div className="px-4 pt-3 pb-2 border-b border-[var(--sala-brd)]">
+          {/* Cabecera como en el ticket: la mesa grande a la izquierda y lo demás chico.
+              A la derecha, arriba los botones y debajo "No comparten". */}
+          <div className="flex items-stretch justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[var(--sala-tx3)] text-[10px] font-black uppercase tracking-widest">
+                {marchaPasa ? '🔁 Marcha pasa' : 'Orden de salida'}
+              </p>
+              <p className="text-[var(--sala-txt)] font-black text-5xl leading-none tabular-nums mt-0.5">{comanda.mesa.numero}</p>
+              <p className="text-[var(--sala-tx2)] text-[11px] font-semibold mt-1 truncate">
+                {comanda.pax} pax · {itemsActivos.length} cocina{itemsBarra.length > 0 ? ` · ${itemsBarra.length} barra` : ''}
+              </p>
             </div>
-          </div>
-          <div className="flex items-center justify-between gap-3 mt-1 mb-1 min-h-[2.25rem]">
-            <p className="text-[var(--sala-tx2)] text-xs truncate">Mesa {comanda.mesa.numero} · {itemsActivos.length} cocina · {itemsBarra.length} barra</p>
-            {itemsActivos.length > 0 && (
-              // 🍽 No comparten: interruptor con un plato individual (cubiertos a los lados) en la bolita
-              <button onClick={() => cambiarNoComparten.mutate(!noComparten)} disabled={cambiarNoComparten.isPending}
-                role="switch" aria-checked={noComparten} className="flex items-center gap-2 shrink-0 active:scale-95 transition-transform">
-                <span className={`text-[11px] font-black uppercase tracking-wide ${noComparten ? 'text-[var(--sala-txt)]' : 'text-[var(--sala-tx3)]'}`}>No comparten</span>
-                <span className={`w-14 h-8 rounded-full relative transition-colors ${noComparten ? 'bg-[#4CC8A0]' : 'bg-[var(--sala-btn)]'}`}>
-                  <span className={`absolute top-0.5 w-7 h-7 rounded-full bg-white shadow flex items-center justify-center transition-all ${noComparten ? 'left-[26px]' : 'left-0.5'}`}>
-                    <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5" strokeLinecap="round" strokeLinejoin="round"
-                      stroke={noComparten ? '#1f9e78' : '#9ca3af'} strokeWidth="1.8">
-                      <circle cx="12" cy="12" r="5.5" /><circle cx="12" cy="12" r="2.8" />
-                      <path d="M3 4v4.5a1.2 1.2 0 0 0 2.4 0V4M4.2 9.7V20" />
-                      <path d="M20.5 20V4c-1.6 1-2.3 3-2.3 5.5 0 1.3.9 2 2.3 2" />
-                    </svg>
+            <div className="flex flex-col items-end justify-between gap-2 shrink-0">
+              <div className="flex items-center gap-2">
+                {/* 🔍 Añadir algo más: la búsqueda solo aparece al tocar la lupa */}
+                <button onClick={() => { setBuscando(b => !b); setSearch('') }} title="Añadir algo más" aria-label="Buscar plato o bebida"
+                  className={`w-9 h-9 rounded-full flex items-center justify-center active:scale-90 transition-colors ${
+                    buscando ? 'bg-cyan-600 text-white' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx1)]'}`}>
+                  <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+                    <circle cx="10.5" cy="10.5" r="6.5" /><path d="M15.5 15.5 20 20" />
+                  </svg>
+                </button>
+                {itemsActivos.length > 0 && idsVino.size > 0 && (
+                  <BotonVino chico onClick={() => setVerVinos(true)} invita={mesaSinBotella} titulo="¿Y de vino?" />
+                )}
+                {/* la ✕ bien separada de los botones, para no cerrar sin querer */}
+                <button onClick={onClose} aria-label="Cerrar" className="ml-4 w-8 h-9 flex items-center justify-center text-[var(--sala-tx3)] text-lg">✕</button>
+              </div>
+              {itemsActivos.length > 0 && (
+                // 🍽 No comparten: interruptor con un plato individual (cubiertos a los lados) en la bolita
+                <button onClick={() => cambiarNoComparten.mutate(!noComparten)} disabled={cambiarNoComparten.isPending}
+                  role="switch" aria-checked={noComparten} className="flex items-center gap-2 active:scale-95 transition-transform">
+                  <span className={`text-[10px] font-black uppercase tracking-wide ${noComparten ? 'text-[var(--sala-txt)]' : 'text-[var(--sala-tx3)]'}`}>No comparten</span>
+                  <span className={`w-11 h-6 rounded-full relative transition-colors ${noComparten ? 'bg-[#4CC8A0]' : 'bg-[var(--sala-btn)]'}`}>
+                    <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow flex items-center justify-center transition-all ${noComparten ? 'left-[22px]' : 'left-0.5'}`}>
+                      <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4" strokeLinecap="round" strokeLinejoin="round"
+                        stroke={noComparten ? '#1f9e78' : '#9ca3af'} strokeWidth="1.8">
+                        <circle cx="12" cy="12" r="5.5" /><circle cx="12" cy="12" r="2.8" />
+                        <path d="M3 4v4.5a1.2 1.2 0 0 0 2.4 0V4M4.2 9.7V20" />
+                        <path d="M20.5 20V4c-1.6 1-2.3 3-2.3 5.5 0 1.3.9 2 2.3 2" />
+                      </svg>
+                    </span>
                   </span>
-                </span>
-              </button>
-            )}
+                </button>
+              )}
+            </div>
           </div>
           {notaMesa && (
             <button onClick={() => setNotaMesaBox(notaMesa)}
