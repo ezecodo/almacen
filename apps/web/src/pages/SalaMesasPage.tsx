@@ -608,9 +608,9 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
                   {/* ▲▼ mueven el nivel entero */}
                   <div className="flex gap-1">
                     <button onClick={e => { e.stopPropagation(); if (nv > 1) itemsEnNivel.forEach(i => moveItem(i.id, -1)) }} disabled={nv <= 1}
-                      className="w-10 h-9 rounded-lg bg-cyan-600/30 text-cyan-400 text-sm font-black hover:bg-cyan-600/60 disabled:opacity-20 flex items-center justify-center">▲</button>
+                      className="w-8 h-7 rounded-lg bg-cyan-600/30 text-cyan-400 text-sm font-black hover:bg-cyan-600/60 disabled:opacity-20 flex items-center justify-center">▲</button>
                     <button onClick={e => { e.stopPropagation(); itemsEnNivel.forEach(i => moveItem(i.id, 1)) }}
-                      className="w-10 h-9 rounded-lg bg-cyan-600/30 text-cyan-400 text-sm font-black hover:bg-cyan-600/60 flex items-center justify-center">▼</button>
+                      className="w-8 h-7 rounded-lg bg-cyan-600/30 text-cyan-400 text-sm font-black hover:bg-cyan-600/60 flex items-center justify-center">▼</button>
                   </div>
                 </NivelEtiqueta>
                 {/* Platos como en el ticket de cocina: cantidad en columna fija, nombre en negrita y
@@ -618,24 +618,24 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
                     Debajo, los controles de ordenar siempre a la vista. */}
                 <div className="divide-y divide-dashed divide-[var(--sala-brd2)]">
                   {itemsEnNivel.map(item => (
-                    <div key={item.id} className={`py-2.5 ${notaModal?.itemId === item.id ? 'bg-cyan-500/10 -mx-2 px-2 rounded-xl' : ''}`}>
+                    <div key={item.id} className={`py-1.5 ${notaModal?.itemId === item.id ? 'bg-cyan-500/10 -mx-2 px-2 rounded-xl' : ''}`}>
                       <div className="flex items-baseline gap-3">
-                        <span className="w-8 shrink-0 text-right text-[var(--sala-txt)] font-black text-lg tabular-nums leading-tight">{item.cantidad}</span>
+                        <span className="w-6 shrink-0 text-right text-[var(--sala-txt)] font-black text-base tabular-nums leading-tight">{item.cantidad}</span>
                         <div className="flex-1 min-w-0">
-                          <p className="text-[var(--sala-txt)] font-black text-base uppercase leading-tight break-words">{item.nombre}</p>
-                          {notas[item.id] && <p className="text-[var(--sala-txt)] font-bold text-sm mt-0.5 break-words">» {notas[item.id]}</p>}
+                          <p className="text-[var(--sala-txt)] font-black text-sm uppercase leading-tight break-words">{item.nombre}</p>
+                          {notas[item.id] && <p className="text-[var(--sala-txt)] font-bold text-xs mt-0.5 break-words">» {notas[item.id]}</p>}
                         </div>
                       </div>
-                      <div className="flex items-center gap-1.5 mt-2 pl-11">
+                      <div className="flex items-center gap-1 mt-1 pl-9">
                         <button onClick={e => { e.stopPropagation(); if (item.cantidad > 1) updateItem.mutate({ itemId: item.id, cantidad: item.cantidad - 1 }); else deleteItem.mutate(item.id) }}
                           aria-label="Uno menos"
-                          className="w-10 h-10 rounded-lg bg-[var(--sala-btn)] text-[var(--sala-tx1)] text-lg font-bold hover:bg-gray-600 flex items-center justify-center active:scale-90">−</button>
+                          className="w-8 h-8 rounded-lg bg-[var(--sala-btn)] text-[var(--sala-tx1)] text-base font-bold hover:bg-gray-600 flex items-center justify-center active:scale-90">−</button>
                         <button onClick={e => { e.stopPropagation(); updateItem.mutate({ itemId: item.id, cantidad: item.cantidad + 1 }) }}
                           aria-label="Uno más"
-                          className="w-10 h-10 rounded-lg bg-[var(--sala-btn)] text-[var(--sala-tx1)] text-lg font-bold hover:bg-gray-600 flex items-center justify-center active:scale-90">+</button>
+                          className="w-8 h-8 rounded-lg bg-[var(--sala-btn)] text-[var(--sala-tx1)] text-base font-bold hover:bg-gray-600 flex items-center justify-center active:scale-90">+</button>
                         <button onClick={e => { e.stopPropagation(); setNotaModal(m => m?.itemId === item.id ? null : { itemId: item.id, value: notas[item.id] ?? '' }) }}
                           aria-label="Nota del plato"
-                          className={`w-10 h-10 rounded-lg flex items-center justify-center ${notas[item.id] ? 'bg-cyan-600' : 'bg-[var(--sala-btn)] hover:bg-gray-600'}`}>
+                          className={`w-8 h-8 rounded-lg flex items-center justify-center ${notas[item.id] ? 'bg-cyan-600' : 'bg-[var(--sala-btn)] hover:bg-gray-600'}`}>
                           <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4">
                             <path d="M4 2 L20 2 Q22 2 22 4 L22 15 Q22 17 20 17 L14 17 L11 21 L8 17 L4 17 Q2 17 2 15 L2 4 Q2 2 4 2 Z" fill={notas[item.id] ? 'white' : '#9ca3af'} />
                             <path d="M7 10 L11 14 L17 6" stroke={notas[item.id] ? '#06b6d4' : '#374151'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
@@ -644,13 +644,13 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
                         <span className="flex-1" />
                         <button onClick={e => { e.stopPropagation(); moveItem(item.id, -1) }} disabled={(niveles[item.id] ?? 1) <= 1}
                           aria-label="Subir de nivel"
-                          className="w-11 h-10 rounded-lg bg-[var(--sala-btn)] text-[var(--sala-txt)] text-base font-black hover:bg-gray-500 disabled:opacity-20 flex items-center justify-center active:scale-90">▲</button>
+                          className="w-9 h-8 rounded-lg bg-[var(--sala-btn)] text-[var(--sala-txt)] text-sm font-black hover:bg-gray-500 disabled:opacity-20 flex items-center justify-center active:scale-90">▲</button>
                         <button onClick={e => { e.stopPropagation(); moveItem(item.id, 1) }}
                           aria-label="Bajar de nivel"
-                          className="w-11 h-10 rounded-lg bg-[var(--sala-btn)] text-[var(--sala-txt)] text-base font-black hover:bg-gray-500 flex items-center justify-center active:scale-90">▼</button>
+                          className="w-9 h-8 rounded-lg bg-[var(--sala-btn)] text-[var(--sala-txt)] text-sm font-black hover:bg-gray-500 flex items-center justify-center active:scale-90">▼</button>
                       </div>
                       {notaModal?.itemId === item.id && (
-                        <div className="pt-2 pl-11">
+                        <div className="pt-2 pl-9">
                           <input autoFocus value={notaModal.value}
                             onChange={e => setNotaModal(m => m ? { ...m, value: e.target.value } : null)}
                             onKeyDown={e => { if (e.key === 'Enter') { setNotas(prev => ({ ...prev, [item.id]: notaModal.value })); setNotaModal(null) } }}
@@ -696,7 +696,7 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
           </div>
         )}
 
-        <div className="p-4 border-t border-[var(--sala-brd)]">
+        <div className="px-4 py-1.5 border-t border-[var(--sala-brd)]">
           <button
             onPointerDown={() => {
               oidoLp.current.fired = false
@@ -711,9 +711,9 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
               e.stopPropagation()
               if (oidoLp.current.fired) { oidoLp.current.fired = false; return } // el apretado ya abrió la nota
               enviarConOido()
-            }} className="w-full rounded-2xl flex items-center justify-center py-4 active:scale-95 transition-all">
+            }} className="w-full rounded-2xl flex items-center justify-center py-0.5 active:scale-95 transition-all">
             {/* Solo la viñeta con la tilde siempre a la vista, como en el pie de la carta */}
-            <svg viewBox="0 0 68 72" className={`w-14 h-14 transition-transform ${oidoAnim ? 'scale-125' : ''}`} style={{ filter: 'drop-shadow(0 0 10px rgba(76,200,160,0.55))' }}>
+            <svg viewBox="0 0 68 72" className={`w-11 h-11 transition-transform ${oidoAnim ? 'scale-125' : ''}`} style={{ filter: 'drop-shadow(0 0 10px rgba(76,200,160,0.55))' }}>
               <defs>
                 <linearGradient id="oido-modal-grad" x1="0" y1="0" x2="1" y2="1">
                   <stop offset="0%" stopColor="#4B9EDF" />
