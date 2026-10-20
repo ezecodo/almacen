@@ -1094,8 +1094,6 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
   const [dotsAnim, setDotsAnim] = useState(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
-  const [fabPos, setFabPos] = useState<{ x: number; y: number } | null>(null)
-  const [fabDragging, setFabDragging] = useState(false)
 
   // Swipe → derecha sobre el panel = volver al mapa ("ahh, no era esta mesa").
   // Solo en la vista del pedido o en el primer nivel de la carta (más adentro, el swipe ya navega niveles).
@@ -1164,74 +1162,6 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
     catch { return null }
   })()
 
-  const STORAGE_KEY_FAB = `sala_lupa_pos_${camareroSesion?.id ?? 'def'}`
-
-  useEffect(() => {
-    if (!panelRef.current) return
-    const rect = panelRef.current.getBoundingClientRect()
-    let pos = { x: rect.width - 68, y: rect.height - 180 }
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_FAB)
-      if (saved) {
-        const parsed = JSON.parse(saved)
-        pos = {
-          x: Math.min(Math.max(8, parsed.x), rect.width - 56),
-          y: Math.min(Math.max(8, parsed.y), rect.height - 56),
-        }
-      }
-    } catch {}
-    setFabPos(pos)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  const handleFabPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
-    e.preventDefault()
-    if (!panelRef.current) return
-    const fabBtn = e.currentTarget
-    const panelRect = panelRef.current.getBoundingClientRect()
-    const startX = e.clientX
-    const startY = e.clientY
-    const startPos = fabPos ?? { x: 0, y: 0 }
-    let dragActive = false
-    let curX = startPos.x
-    let curY = startPos.y
-
-    const longPressId = setTimeout(() => {
-      dragActive = true
-      setFabDragging(true)
-      try { fabBtn.setPointerCapture(e.pointerId) } catch {}
-      if ('vibrate' in navigator) navigator.vibrate(40)
-    }, 450)
-
-    const onMove = (ev: PointerEvent) => {
-      const dx = ev.clientX - startX
-      const dy = ev.clientY - startY
-      if (!dragActive) {
-        if (Math.hypot(dx, dy) > 12) clearTimeout(longPressId)
-        return
-      }
-      curX = Math.min(Math.max(8, startPos.x + dx), panelRect.width - 56)
-      curY = Math.min(Math.max(8, startPos.y + dy), panelRect.height - 56)
-      setFabPos({ x: curX, y: curY })
-    }
-
-    const onUp = () => {
-      clearTimeout(longPressId)
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-      if (dragActive) {
-        setFabDragging(false)
-        try { localStorage.setItem(STORAGE_KEY_FAB, JSON.stringify({ x: curX, y: curY })) } catch {}
-      } else {
-        // Tap corto → abre buscador
-        if (tab !== 'menu') setTab('menu')
-        setTimeout(() => searchInputRef.current?.focus(), 60)
-      }
-    }
-
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-  }
 
   const registrarMerma = useMutation({
     mutationFn: ({ motivo, descripcion, cantidad }: { motivo: MermaMotivo; descripcion?: string; cantidad: number }) =>
@@ -2281,18 +2211,31 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
 
         {/* Footer */}
         <div className={`relative px-3 py-2 border-t border-[var(--sala-brd)] flex items-end gap-2 ${ancho ? 'col-start-2 row-start-3 border-l' : ''}`}>
-          {/* Volver un nivel en la carta (también con el gesto de deslizar y el "← nombre" de arriba).
-              Con el botón de comandar flota a la izquierda sin ocupar sitio: la viñeta queda siempre en el centro */}
+          {/* Izquierda: volver un nivel en la carta (también con deslizar y el "← nombre" de arriba) y la lupa.
+              Con el botón de comandar flotan sin ocupar sitio: la viñeta queda siempre en el centro */}
+          {!ancho && (
+          <div className={pieOido ? 'absolute left-3 top-1/2 -translate-y-1/2 z-10 flex gap-2' : 'shrink-0 flex gap-2'}>
           {puedeVolver && (
             <button
               onClick={() => selectedSub ? setSelectedSub(null) : selectedCat ? setSelectedCat(null) : setGrupoTab(null)}
               aria-label="Volver"
-              className={`${pieOido ? 'absolute left-3 top-1/2 -translate-y-1/2 z-10' : ''} shrink-0 w-14 h-14 rounded-xl grid place-items-center text-white active:scale-90 transition-transform`}
+              className={`shrink-0 w-14 h-14 rounded-xl grid place-items-center text-white active:scale-90 transition-transform`}
               style={{ background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)', boxShadow: '0 4px 14px rgba(76,200,160,0.4)' }}>
               <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.75" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M15 5l-7 7 7 7" />
               </svg>
             </button>
+          )}
+            <button
+              onClick={() => { if (tab !== 'menu') setTab('menu'); setTimeout(() => searchInputRef.current?.focus(), 60) }}
+              aria-label="Buscar en la carta"
+              className="shrink-0 w-14 h-14 rounded-xl grid place-items-center bg-[var(--sala-srf)] border-2 border-[#4CC8A0] text-[#4CC8A0] active:scale-90 transition-transform">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-3.5-3.5" />
+              </svg>
+            </button>
+          </div>
           )}
           <div className="flex-1 min-w-0">
           {yaFacturada ? (
@@ -2387,21 +2330,6 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
           </div>
         )}
 
-        {/* Lupa flotante — tap: enfoca búsqueda · long-press: arrastrar */}
-        {fabPos && !ancho && (
-          <button
-            onPointerDown={handleFabPointerDown}
-            style={{ left: fabPos.x, top: fabPos.y, touchAction: 'none' }}
-            className={`absolute z-50 w-12 h-12 rounded-full bg-cyan-600 text-white shadow-lg flex items-center justify-center select-none ${fabDragging ? 'scale-110 ring-4 ring-cyan-400/40 transition-none' : 'opacity-85 hover:opacity-100 hover:bg-cyan-500 transition-all'}`}
-            aria-label="Buscar"
-            title="Tap: buscar · Mantén pulsado: mover"
-          >
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="11" cy="11" r="7" />
-              <path d="m20 20-3.5-3.5" />
-            </svg>
-          </button>
-        )}
       </div>
 
       {(ordenando || ordenarFull) && (
