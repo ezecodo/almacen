@@ -2357,10 +2357,11 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                   <circle cx="34" cy="32" r="4.5" fill="white" style={{ animation: 'dot-pulse 0.9s ease-in-out infinite', animationDelay: '0.18s' }} />
                   <circle cx="46" cy="32" r="4.5" fill="white" style={{ animation: 'dot-pulse 0.9s ease-in-out infinite', animationDelay: '0.36s' }} />
                 </>)}
-                {/* Check — animado al tocar, mismas coordenadas que el logo */}
-                <path d="M15 34 L29 48 L55 18" stroke="white" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" fill="none"
-                  strokeDasharray={60} strokeDashoffset={oidoAnim ? 0 : 60}
-                  style={{ transition: oidoAnim ? 'stroke-dashoffset 0.4s ease-out' : 'none' }} />
+                {/* Check — siempre a la vista (el camarero ve bien dónde comandar); solo deja sitio
+                    a los tres puntos un momento al añadir un plato. Mismas coordenadas que el logo */}
+                {!(dotsAnim && !oidoAnim) && (
+                  <path d="M15 34 L29 48 L55 18" stroke="white" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                )}
               </svg>
               {/* Euros — derecha */}
               <span className="justify-self-end text-[var(--sala-txt)] text-lg font-bold tabular-nums">{total.toFixed(2)} €</span>
