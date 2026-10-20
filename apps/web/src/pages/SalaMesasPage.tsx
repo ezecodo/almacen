@@ -880,9 +880,9 @@ function MermaModal({ item, onConfirm, onClose, onInvitar }: {
 // Plato que se acabó en este servicio: en su sitio, apagado y sin poder tocarlo
 function PlatoAgotado({ nombre, detalle }: { nombre: string; detalle?: string }) {
   return (
-    <div aria-disabled className="w-full text-left rounded-xl px-4 py-3.5 relative select-none bg-[var(--sala-srf)] opacity-40 cursor-not-allowed">
-      <span className="text-[var(--sala-txt)] text-base font-medium line-through">{nombre}</span>
-      {detalle ? <p className="text-[var(--sala-tx3)] text-xs mt-0.5 truncate">{detalle}</p> : null}
+    <div aria-disabled className="w-full text-left rounded-xl px-4 py-2 relative select-none bg-[var(--sala-srf)] opacity-40 cursor-not-allowed">
+      <span className="block pr-20 text-[var(--sala-txt)] text-[1.7rem] font-bold leading-tight line-through">{nombre}</span>
+      {detalle ? <p className="text-[var(--sala-tx3)] text-sm leading-tight mt-0.5 truncate">{detalle}</p> : null}
       <span className="absolute right-3 inset-y-0 flex items-center text-red-400 text-xs font-black tracking-wider">AGOTADO</span>
     </div>
   )
@@ -1498,9 +1498,10 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
       <button key={item.id} onClick={() => tapItem(item)}
         onPointerDown={() => startLongPress(item)} onPointerUp={cancelLongPress} onPointerLeave={cancelLongPress}
         onTouchMove={cancelLongPress} onContextMenu={e => e.preventDefault()}
-        className={`w-full text-left rounded-xl px-4 py-3.5 transition-colors relative overflow-hidden select-none ${isPending ? 'bg-[var(--sala-srf2)] border-2 border-[#4CC8A0]' : 'bg-[var(--sala-srf)] hover:bg-[var(--sala-srf2)]'} ${chocaCon(item).length > 0 && !isPending ? 'opacity-50' : ''}`}>
-        <span className={`text-[var(--sala-txt)] text-base font-medium ${chocaCon(item).length > 0 ? 'line-through decoration-red-400/70' : ''}`}>{item.nombre}</span>
-        {item.descripcion ? <p className="text-[var(--sala-tx3)] text-xs mt-0.5 truncate">{item.descripcion}</p> : null}
+        className={`w-full text-left rounded-xl px-4 py-2 transition-colors relative overflow-hidden select-none ${isPending ? 'bg-[var(--sala-srf2)] border-2 border-[#4CC8A0]' : 'bg-[var(--sala-srf)] hover:bg-[var(--sala-srf2)]'} ${chocaCon(item).length > 0 && !isPending ? 'opacity-50' : ''}`}>
+        {/* Letra grande dentro del mismo rectángulo: el relleno baja lo que sube el texto */}
+        <span className={`block ${isPending || item.combinable ? 'pr-14' : ''} text-[var(--sala-txt)] text-[1.7rem] font-bold leading-tight ${chocaCon(item).length > 0 ? 'line-through decoration-red-400/70' : ''}`}>{item.nombre}</span>
+        {item.descripcion ? <p className="text-[var(--sala-tx3)] text-sm leading-tight mt-0.5 truncate">{item.descripcion}</p> : null}
         {marcaAlergia(item)}
         {item.combinable && !isPending && (
           <span className="absolute right-3 inset-y-0 flex items-center text-[var(--sala-tx3)] text-sm font-bold">🥤+</span>
@@ -2021,8 +2022,8 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                       <button key={item.id} onClick={() => tapItem(item)}
                         onPointerDown={() => startLongPress(item)} onPointerUp={cancelLongPress} onPointerLeave={cancelLongPress}
                         onTouchMove={cancelLongPress} onContextMenu={e => e.preventDefault()}
-                        className={`w-full text-left rounded-xl px-4 py-3 transition-colors relative overflow-hidden select-none ${isPending ? 'bg-[var(--sala-srf2)] border-2 border-[#4CC8A0]' : 'bg-[var(--sala-srf)] hover:bg-[var(--sala-srf2)]'}`}>
-                        <p className={`text-[var(--sala-txt)] text-sm font-medium ${chocaCon(item).length > 0 ? 'line-through decoration-red-400/70 opacity-60' : ''}`}>{item.nombre}</p>
+                        className={`w-full text-left rounded-xl px-4 py-1.5 transition-colors relative overflow-hidden select-none ${isPending ? 'bg-[var(--sala-srf2)] border-2 border-[#4CC8A0]' : 'bg-[var(--sala-srf)] hover:bg-[var(--sala-srf2)]'}`}>
+                        <p className={`${isPending ? 'pr-14' : ''} text-[var(--sala-txt)] text-2xl font-bold leading-tight ${chocaCon(item).length > 0 ? 'line-through decoration-red-400/70 opacity-60' : ''}`}>{item.nombre}</p>
                         <p className="text-[var(--sala-tx3)] text-xs">{item.categoria}</p>
                         {marcaAlergia(item)}
                         {isPending && <span className="absolute right-3 inset-y-0 flex items-center"><span className="text-[#4CC8A0] font-black text-2xl">{qtyPending!.qty}×</span></span>}
