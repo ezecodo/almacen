@@ -877,11 +877,10 @@ function MermaModal({ item, onConfirm, onClose, onInvitar }: {
 }
 
 // Nombre de categoría dentro de su cuadrado: puede partir después de una "/" (PASTA/ARROZ no tiene
-// espacios y se salía por los lados) y con una palabra muy larga la letra baja un punto
+// espacios y se salía por los lados); nunca en medio de una palabra
 function NombreTile({ nombre }: { nombre: string }) {
-  const larga = nombre.split(/[\s/]+/).some(w => w.length >= 9)
   return (
-    <span className={`w-full text-[var(--sala-txt)] font-black uppercase tracking-wide text-center leading-tight px-0.5 break-words ${larga ? 'text-[15px]' : 'text-lg'}`}
+    <span className="text-[var(--sala-txt)] text-lg font-black uppercase tracking-wide text-center leading-tight px-0.5"
       style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
       {nombre.replace(/\//g, '/\u200B')}
     </span>
@@ -1569,6 +1568,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
       </button>
     )
   }
+  const puedeVolver = tab === 'menu' && !ancho && !searchMenu.trim() && !!(selectedSub || selectedCat || (grupoTab && grupos.length > 1))
   const rejillaTpv = 'grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-2.5'
   const cartaTpv = (
     <div className="flex-1 min-h-0 flex flex-col">
@@ -2152,23 +2152,6 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
           )}
         </div>
 
-        {/* FAB volver — un nivel atrás (backup del swipe) */}
-        {tab === 'menu' && !ancho && (selectedSub || selectedCat || (grupoTab && grupos.length > 1)) && !searchMenu.trim() && (
-          <button
-            onClick={() => selectedSub ? setSelectedSub(null) : selectedCat ? setSelectedCat(null) : setGrupoTab(null)}
-            aria-label="Volver a categorías"
-            className={`absolute bottom-24 ${ancho ? 'left-[30%]' : 'left-1/2'} -translate-x-1/2 z-30 w-16 h-16 rounded-full grid place-items-center text-white active:scale-90 transition-transform`}
-            style={{
-              background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)',
-              boxShadow: '0 4px 20px rgba(76,200,160,0.45), 0 2px 8px rgba(0,0,0,0.35)',
-            }}
-          >
-            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.75" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M15 5l-7 7 7 7" />
-            </svg>
-          </button>
-        )}
-
         {/* Box de comentario (long-press sobre un plato) */}
         {notaNueva && (
           <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-6" onClick={() => setNotaNueva(null)}>
@@ -2295,7 +2278,20 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
         )}
 
         {/* Footer */}
-        <div className={`px-3 py-2 border-t border-[var(--sala-brd)] ${ancho ? 'col-start-2 row-start-3 border-l' : ''}`}>
+        <div className={`px-3 py-2 border-t border-[var(--sala-brd)] flex items-end gap-2 ${ancho ? 'col-start-2 row-start-3 border-l' : ''}`}>
+          {/* Volver un nivel en la carta (también con el gesto de deslizar y el "← nombre" de arriba) */}
+          {puedeVolver && (
+            <button
+              onClick={() => selectedSub ? setSelectedSub(null) : selectedCat ? setSelectedCat(null) : setGrupoTab(null)}
+              aria-label="Volver"
+              className="shrink-0 w-14 h-14 rounded-xl grid place-items-center text-white active:scale-90 transition-transform"
+              style={{ background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)', boxShadow: '0 4px 14px rgba(76,200,160,0.4)' }}>
+              <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.75" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15 5l-7 7 7 7" />
+              </svg>
+            </button>
+          )}
+          <div className="flex-1 min-w-0">
           {yaFacturada ? (
             <div className="space-y-1.5">
               <div className={`flex items-center justify-center gap-2 py-1.5 rounded-lg ${comanda.cuentaDesactualizada ? 'bg-red-500/15' : 'bg-amber-500/10'}`}>
@@ -2343,17 +2339,8 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
             <button onClick={hayPendientes ? handleOido : undefined}
               disabled={comanda.items.length === 0}
               className={`w-full rounded-xl grid grid-cols-3 items-center py-2 px-4 transition-all active:scale-95 ${hayPendientes ? '' : 'opacity-25 cursor-default'}`}>
-              {/* Texto "Oído" — izquierda */}
-              <span className="justify-self-start" style={{
-                fontFamily: "'Helvetica Neue', Arial, sans-serif",
-                fontWeight: 800,
-                fontSize: '1.5rem',
-                color: hayPendientes ? '#4CC8A0' : '#6b7280',
-                opacity: oidoAnim ? 0 : 1,
-                transition: 'opacity 0.15s',
-              }}>
-                Oído
-              </span>
+              {/* Izquierda libre: ahí va el botón de volver de la carta */}
+              <span />
               {/* Viñeta — centro (target del tap) */}
               <svg viewBox="0 0 68 72" className="w-10 h-10 justify-self-center" style={{ filter: hayPendientes ? 'drop-shadow(0 0 8px rgba(76,200,160,0.55))' : 'none' }}>
                 <defs>
@@ -2379,6 +2366,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
               <span className="justify-self-end text-[var(--sala-txt)] text-lg font-bold tabular-nums">{total.toFixed(2)} €</span>
             </button>
           )}
+          </div>
         </div>
 
 

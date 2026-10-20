@@ -252,7 +252,7 @@ Nivel 4: items de la subcategoría
 
 - Si solo hay un grupo se entra directo al nivel 2. Categoría sin subcategorías va directa a sus items.
 - **Tinte ámbar** en tiles de grupos de barra (detectados con `esGrupoBarra(g)` = regex `/vino|bebida/i` — NO lista hardcodeada; cubre "Vinos Botella", "VINOS", etc.). Determina también el `tipo` cocina/barra del item.
-- **Volver un nivel**: FAB circular centrado (64px, gradiente azul→verde de marca, `bottom-24`) + swipe horizontal en cualquier dirección (>80px) + botón "← nombre" arriba. Los tres conviven porque el swipe falla en algunos teléfonos.
+- **Volver un nivel**: botón cuadrado (56px, gradiente azul→verde de marca) abajo a la izquierda del pie del panel, donde antes estaba la palabra "Oído" (la viñeta y el total siguen en su sitio; `puedeVolver`, 2026-10-20) + swipe horizontal en cualquier dirección (>80px) + botón "← nombre" arriba. Los tres conviven porque el swipe falla en algunos teléfonos.
 - **Búsqueda global**: el campo de búsqueda (y la lupa flotante arrastrable) ignora el nivel/grupo activo y matchea por nombre de item **o de categoría** en todo el menú. Todas las búsquedas de sala usan `normTxt` (NFD + sin diacríticos + lowercase): insensible a mayúsculas, acentos y composición Unicode (el bug "CAÑA" no encontrada).
 - **Cantidad**: taps repetidos sobre un item acumulan (`qtyPending`, commit a los 1.5s en el PAD y 0,7 s en el TPV, `esperaCantidad`).
 - **Aviso de añadido** (2026-10-17): al entrar un plato sale una pastilla "✓ 2× CAÑA" abajo a la derecha que se va sola (`avisarAnadido`, animación `avisoAnadido` en `index.css`, `pointer-events-none`). Reemplaza al check que tapaba el plato un segundo: con prisa no hay que esperar a nada para seguir tocando.
