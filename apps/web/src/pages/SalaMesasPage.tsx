@@ -1063,6 +1063,18 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
     staleTime: 30_000,
   })
   const agotadoIds = new Set(agotadosLista.map(a => a.menuItemId))
+  // ⚠️ Alergias de la mesa: "alguien es alérgico a…" marca en la carta de comida lo que no puede
+  // comer. Se recuerda por mesa mientras dure la sesión (al volver a abrirla sigue puesto).
+  const { data: alergenos = [] } = useQuery({ queryKey: ['alergenos'], queryFn: api.alergenos.list, staleTime: 5 * 60_000 })
+  const claveAlergias = `alergias_mesa_${comanda.id}`
+  const [alergiasMesa, setAlergiasMesaState] = useState<number[]>(() => {
+    try { return JSON.parse(sessionStorage.getItem(claveAlergias) ?? '[]') } catch { return [] }
+  })
+  const setAlergiasMesa = (ids: number[]) => {
+    setAlergiasMesaState(ids)
+    try { ids.length ? sessionStorage.setItem(claveAlergias, JSON.stringify(ids)) : sessionStorage.removeItem(claveAlergias) } catch { /* sin storage */ }
+  }
+  const [verAlergias, setVerAlergias] = useState(false)
   const agotadoNombres = new Set(agotadosLista.map(a => a.menuItem.nombre))
   // Línea sin comandar de un plato que ya no hay: aviso para quitarla antes de enviar
   const sinComandarAgotada = (i: ComandaItem) => i.nivel == null && !i.autoGenerado && agotadoNombres.has(i.nombre)
@@ -1429,6 +1441,23 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
   const subcatsDe = (nombre: string) =>
     categorias.filter(c => padreDe[c.nombre] === nombre).sort((a, b) => a.orden - b.orden)
 
+  // Alergias: solo se miran los platos de comida (en bebidas no hay alérgenos cargados y "sin
+  // marcar" se leería como apto). Si la carta no tiene ningún alérgeno cargado, no se ofrece.
+  const esComida = (m: MenuItem) => !esGrupoBarra(catMeta[catTop(m.categoria)]?.grupo ?? catMeta[m.categoria]?.grupo ?? '')
+  const hayAlergenosCarta = alergenos.length > 0 && menu.some(m => (m.alergenoIds ?? []).length > 0 && esComida(m))
+  const filtroAlergias = hayAlergenosCarta ? alergiasMesa.filter(id => alergenos.some(a => a.id === id)) : []
+  const chocaCon = (m: MenuItem) =>
+    filtroAlergias.length === 0 || !esComida(m) ? [] : alergenos.filter(a => filtroAlergias.includes(a.id) && (m.alergenoIds ?? []).includes(a.id))
+  // Marca dentro del botón del plato: rojo con lo que choca, o ✓ verde si se puede comer
+  const marcaAlergia = (m: MenuItem) => {
+    if (filtroAlergias.length === 0 || !esComida(m)) return null
+    const c = chocaCon(m)
+    return c.length > 0
+      ? <span className="block text-red-400 text-xs font-black mt-0.5 truncate">🚫 {c.map(a => `${a.icono} ${a.nombre}`).join(' · ')}</span>
+      : <span className="block text-emerald-400 text-xs font-black mt-0.5">✓ Puede comer</span>
+  }
+  const aptosDe = (items: MenuItem[]) => items.filter(m => esComida(m) && chocaCon(m).length === 0).length
+
   // Items activos de una categoría, respetando su flag ordenAlfabetico
   // (apagado = orden manual de la carta física, que ya viene de la API)
   const itemsDeCat = (catNombre: string) => {
@@ -1469,9 +1498,10 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
       <button key={item.id} onClick={() => tapItem(item)}
         onPointerDown={() => startLongPress(item)} onPointerUp={cancelLongPress} onPointerLeave={cancelLongPress}
         onTouchMove={cancelLongPress} onContextMenu={e => e.preventDefault()}
-        className={`w-full text-left rounded-xl px-4 py-3.5 transition-colors relative overflow-hidden select-none ${isPending ? 'bg-[var(--sala-srf2)] border-2 border-[#4CC8A0]' : 'bg-[var(--sala-srf)] hover:bg-[var(--sala-srf2)]'}`}>
-        <span className="text-[var(--sala-txt)] text-base font-medium">{item.nombre}</span>
+        className={`w-full text-left rounded-xl px-4 py-3.5 transition-colors relative overflow-hidden select-none ${isPending ? 'bg-[var(--sala-srf2)] border-2 border-[#4CC8A0]' : 'bg-[var(--sala-srf)] hover:bg-[var(--sala-srf2)]'} ${chocaCon(item).length > 0 && !isPending ? 'opacity-50' : ''}`}>
+        <span className={`text-[var(--sala-txt)] text-base font-medium ${chocaCon(item).length > 0 ? 'line-through decoration-red-400/70' : ''}`}>{item.nombre}</span>
         {item.descripcion ? <p className="text-[var(--sala-tx3)] text-xs mt-0.5 truncate">{item.descripcion}</p> : null}
+        {marcaAlergia(item)}
         {item.combinable && !isPending && (
           <span className="absolute right-3 inset-y-0 flex items-center text-[var(--sala-tx3)] text-sm font-bold">🥤+</span>
         )}
@@ -1510,13 +1540,14 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
         className={`aspect-square rounded-2xl p-3 flex flex-col text-center relative overflow-hidden select-none active:scale-95 transition-all border-2 ${
           isPending ? 'border-[#4CC8A0] bg-[var(--sala-srf2)]'
           : barra ? 'border-transparent bg-amber-500/10 hover:bg-amber-500/15'
-          : 'border-transparent bg-[var(--sala-srf)] hover:bg-[var(--sala-srf2)]'}`}>
+          : 'border-transparent bg-[var(--sala-srf)] hover:bg-[var(--sala-srf2)]'} ${chocaCon(item).length > 0 && !isPending ? 'opacity-50' : ''}`}>
         {/* Con una palabra muy larga (VALDELACIERVA) la letra baja un punto para no partirla */}
         {/* Nombre (y descripción) centrados en el cuadrado; el precio abajo */}
         <span className="flex-1 min-h-0 flex flex-col items-center justify-center gap-1">
           <span className={`text-[var(--sala-txt)] font-black uppercase leading-tight break-words line-clamp-4 ${
             item.nombre.split(/\s+/).some(w => w.length >= 10) ? 'text-[15px]' : 'text-lg'}`}>{item.nombre}</span>
           {item.descripcion && <span className="text-[var(--sala-tx3)] text-[11px] leading-tight line-clamp-2">{item.descripcion}</span>}
+          {marcaAlergia(item)}
         </span>
         <span className="text-[var(--sala-tx2)] text-sm font-bold tabular-nums">{item.combinable ? '🥤+' : `${item.precio.toFixed(2)} €`}</span>
         {isPending && (
@@ -1942,6 +1973,16 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                     placeholder={ancho ? '🔍 Buscar en toda la carta…' : 'Buscar en todo el menú…'}
                     className={`flex-1 bg-[var(--sala-btn2)] text-[var(--sala-txt)] rounded-lg outline-none placeholder:text-[var(--sala-tx4)] ${ancho
                       ? `text-lg font-bold uppercase px-4 py-3 ${tecladoTpv ? 'ring-2 ring-[#4CC8A0]' : ''}` : 'text-xs px-3 py-1.5'}`} />
+                  {hayAlergenosCarta && (
+                    <button onClick={() => setVerAlergias(true)}
+                      className={`shrink-0 font-black rounded-lg border transition-all active:scale-95 ${ancho ? 'text-base px-4 py-3' : 'text-[11px] px-2.5 py-1.5'} ${
+                        filtroAlergias.length > 0
+                          ? 'bg-red-500 border-red-500 text-white'
+                          : 'bg-transparent border-[var(--sala-brd2)] text-[var(--sala-tx3)]'
+                      }`}>
+                      ⚠️ Alergias{filtroAlergias.length > 0 ? ` (${filtroAlergias.length})` : ''}
+                    </button>
+                  )}
                   {esEncargado && (
                     <button onClick={() => setModoSinCocina(v => !v)}
                       title={modoSinCocina
@@ -1956,6 +1997,13 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                     </button>
                   )}
                 </div>
+                {filtroAlergias.length > 0 && (
+                  <button onClick={() => setVerAlergias(true)}
+                    className={`mt-1.5 w-full text-left text-red-400 font-bold truncate ${ancho ? 'text-sm' : 'text-[11px]'}`}>
+                    🚫 Alérgico a: {alergenos.filter(a => filtroAlergias.includes(a.id)).map(a => `${a.icono} ${a.nombre}`).join(' · ')}
+                    <span className="text-[var(--sala-tx3)] font-semibold"> · avisa a cocina</span>
+                  </button>
+                )}
                 {modoSinCocina && (
                   <p className="text-amber-500 text-[11px] font-bold mt-1.5">
                     ⚠️ Los items que añadas NO saldrán por cocina/barra — entran directo a la cuenta
@@ -1974,8 +2022,9 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                         onPointerDown={() => startLongPress(item)} onPointerUp={cancelLongPress} onPointerLeave={cancelLongPress}
                         onTouchMove={cancelLongPress} onContextMenu={e => e.preventDefault()}
                         className={`w-full text-left rounded-xl px-4 py-3 transition-colors relative overflow-hidden select-none ${isPending ? 'bg-[var(--sala-srf2)] border-2 border-[#4CC8A0]' : 'bg-[var(--sala-srf)] hover:bg-[var(--sala-srf2)]'}`}>
-                        <p className="text-[var(--sala-txt)] text-sm font-medium">{item.nombre}</p>
+                        <p className={`text-[var(--sala-txt)] text-sm font-medium ${chocaCon(item).length > 0 ? 'line-through decoration-red-400/70 opacity-60' : ''}`}>{item.nombre}</p>
                         <p className="text-[var(--sala-tx3)] text-xs">{item.categoria}</p>
+                        {marcaAlergia(item)}
                         {isPending && <span className="absolute right-3 inset-y-0 flex items-center"><span className="text-[#4CC8A0] font-black text-2xl">{qtyPending!.qty}×</span></span>}
                       </button>
                     )
@@ -2007,7 +2056,8 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                       {subcatsDe(selectedCat).length > 0 && (
                         <div className={`p-2 grid ${ancho ? 'grid-cols-4' : 'grid-cols-3'} gap-2`}>
                           {subcatsDe(selectedCat).map(sc => {
-                            const count = itemsDeCat(sc.nombre).length
+                            const count = filtroAlergias.length && !esGrupoBarra(sc.grupo || catMeta[selectedCat]?.grupo || '')
+                              ? `✓${aptosDe(itemsDeCat(sc.nombre))}` : itemsDeCat(sc.nombre).length
                             const esBarra = esGrupoBarra(sc.grupo || catMeta[selectedCat]?.grupo || '')
                             return (
                               <button key={sc.id} onClick={() => setSelectedSub(sc.nombre)}
@@ -2043,8 +2093,8 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                   <div className={`grid ${ancho ? 'grid-cols-4' : 'grid-cols-3'} gap-2`}>
                     {categoriasSorted.map(cat => {
                       const meta = categorias.find(c => c.nombre === cat)
-                      const count = menuByCategoria[cat]?.length ?? 0
                       const esBarra = esGrupoBarra(meta?.grupo ?? '')
+                      const count = filtroAlergias.length && !esBarra ? `✓${aptosDe(menuByCategoria[cat] ?? [])}` : menuByCategoria[cat]?.length ?? 0
                       return (
                         <button key={cat} onClick={() => { setSelectedCat(cat); setSelectedSub(null) }}
                           className={`relative aspect-square rounded-2xl flex flex-col items-center justify-center gap-1.5 p-2 active:scale-95 transition-all border ${
@@ -2148,6 +2198,46 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
           <MaridajeSheet comanda={comanda} menu={menu} agotadoIds={agotadoIds}
             onAdd={vino => addItem.mutate({ item: vino, cantidad: 1 })}
             onClose={() => setVerVinos(false)} />
+        )}
+
+        {/* ⚠️ Alergias de la mesa: qué alérgenos hay que evitar */}
+        {verAlergias && (
+          <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center sm:justify-center" onClick={() => setVerAlergias(false)}>
+            <div className="w-full sm:max-w-lg bg-[var(--sala-hdr)] border-t sm:border border-[var(--sala-brd2)] rounded-t-2xl sm:rounded-2xl p-5 shadow-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-[var(--sala-txt)] font-black text-xl">⚠️ Alguien es alérgico a…</h3>
+                {filtroAlergias.length > 0 && (
+                  <button onClick={() => setAlergiasMesa([])} className="text-[var(--sala-tx3)] text-sm underline">Quitar todo</button>
+                )}
+              </div>
+              <div className="flex-1 overflow-y-auto">
+                <div className="grid grid-cols-2 gap-2">
+                  {alergenos.map(a => {
+                    const on = filtroAlergias.includes(a.id)
+                    return (
+                      <button key={a.id}
+                        onClick={() => setAlergiasMesa(on ? filtroAlergias.filter(i => i !== a.id) : [...filtroAlergias, a.id])}
+                        className={`flex items-center gap-2 rounded-xl px-3 py-3.5 text-left font-bold text-base transition-colors active:scale-95 ${
+                          on ? 'bg-red-500 text-white' : 'bg-[var(--sala-srf)] text-[var(--sala-tx1)]'
+                        }`}>
+                        <span className="text-2xl leading-none">{a.icono}</span>
+                        <span className="min-w-0 truncate">{a.nombre}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+                <p className="text-[var(--sala-tx3)] text-xs leading-snug mt-3">
+                  En la carta de comida, lo que lleva alguno de estos se ve tachado y en rojo (se puede pedir igual, para el resto de la mesa).
+                  Cocina y equipos compartidos: no se puede garantizar la ausencia total de trazas. Ante una alergia grave, avisa siempre a cocina.
+                </p>
+              </div>
+              <button onClick={() => setVerAlergias(false)}
+                className="mt-3 w-full py-3.5 rounded-xl text-white text-base font-black"
+                style={{ background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)' }}>
+                Listo
+              </button>
+            </div>
+          </div>
         )}
 
         {/* Picker de mixer (item combinable) */}
