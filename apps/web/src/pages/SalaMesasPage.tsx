@@ -620,9 +620,9 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
                   {itemsEnNivel.map(item => (
                     <div key={item.id} className={`py-2.5 ${notaModal?.itemId === item.id ? 'bg-cyan-500/10 -mx-2 px-2 rounded-xl' : ''}`}>
                       <div className="flex items-baseline gap-3">
-                        <span className="w-8 shrink-0 text-right text-[var(--sala-txt)] font-black text-2xl tabular-nums leading-tight">{item.cantidad}</span>
+                        <span className="w-8 shrink-0 text-right text-[var(--sala-txt)] font-black text-lg tabular-nums leading-tight">{item.cantidad}</span>
                         <div className="flex-1 min-w-0">
-                          <p className="text-[var(--sala-txt)] font-black text-xl uppercase leading-tight break-words">{item.nombre}</p>
+                          <p className="text-[var(--sala-txt)] font-black text-base uppercase leading-tight break-words">{item.nombre}</p>
                           {notas[item.id] && <p className="text-[var(--sala-txt)] font-bold text-sm mt-0.5 break-words">» {notas[item.id]}</p>}
                         </div>
                       </div>
