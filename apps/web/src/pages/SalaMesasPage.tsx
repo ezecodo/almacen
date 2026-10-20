@@ -876,6 +876,18 @@ function MermaModal({ item, onConfirm, onClose, onInvitar }: {
   )
 }
 
+// Nombre de categoría dentro de su cuadrado: puede partir después de una "/" (PASTA/ARROZ no tiene
+// espacios y se salía por los lados) y con una palabra muy larga la letra baja un punto
+function NombreTile({ nombre }: { nombre: string }) {
+  const larga = nombre.split(/[\s/]+/).some(w => w.length >= 9)
+  return (
+    <span className={`w-full text-[var(--sala-txt)] font-black uppercase tracking-wide text-center leading-tight px-0.5 break-words ${larga ? 'text-[15px]' : 'text-lg'}`}
+      style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+      {nombre.replace(/\//g, '/\u200B')}
+    </span>
+  )
+}
+
 // ── Fila de item reutilizable ─────────────────────────────────────────────────
 // Plato que se acabó en este servicio: en su sitio, apagado y sin poder tocarlo
 function PlatoAgotado({ nombre, detalle }: { nombre: string; detalle?: string }) {
@@ -2069,7 +2081,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                                 }`}>
                                 <span className={`absolute top-1.5 right-2 text-xs font-semibold tabular-nums ${esBarra ? 'text-amber-500/80' : 'text-[var(--sala-tx4)]'}`}>{count}</span>
                                 <span className="text-4xl leading-none">{sc.icono || '🍽'}</span>
-                                <span className="text-[var(--sala-txt)] text-lg font-black uppercase tracking-wide text-center leading-tight px-0.5" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{sc.nombre}</span>
+                                <NombreTile nombre={sc.nombre} />
                               </button>
                             )
                           })}
@@ -2105,7 +2117,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                           }`}>
                           <span className={`absolute top-1.5 right-2 text-xs font-semibold tabular-nums ${esBarra ? 'text-amber-500/80' : 'text-[var(--sala-tx4)]'}`}>{count}</span>
                           <span className="text-4xl leading-none">{meta?.icono ?? '🍽'}</span>
-                          <span className="text-[var(--sala-txt)] text-lg font-black uppercase tracking-wide text-center leading-tight px-0.5" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{cat}</span>
+                          <NombreTile nombre={cat} />
                         </button>
                       )
                     })}
