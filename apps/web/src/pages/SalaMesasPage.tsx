@@ -711,11 +711,9 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
               e.stopPropagation()
               if (oidoLp.current.fired) { oidoLp.current.fired = false; return } // el apretado ya abrió la nota
               enviarConOido()
-            }} className="w-full rounded-2xl flex items-center justify-center gap-3 py-4 active:scale-95 transition-all">
-            <span style={{ fontFamily: "'Helvetica Neue', Arial, sans-serif", fontWeight: 800, fontSize: '2rem', color: '#4CC8A0', opacity: oidoAnim ? 0 : 1, transition: 'opacity 0.15s' }}>
-              Oído
-            </span>
-            <svg viewBox="0 0 68 72" className="w-14 h-14" style={{ filter: 'drop-shadow(0 0 10px rgba(76,200,160,0.55))' }}>
+            }} className="w-full rounded-2xl flex items-center justify-center py-4 active:scale-95 transition-all">
+            {/* Solo la viñeta con la tilde siempre a la vista, como en el pie de la carta */}
+            <svg viewBox="0 0 68 72" className={`w-14 h-14 transition-transform ${oidoAnim ? 'scale-125' : ''}`} style={{ filter: 'drop-shadow(0 0 10px rgba(76,200,160,0.55))' }}>
               <defs>
                 <linearGradient id="oido-modal-grad" x1="0" y1="0" x2="1" y2="1">
                   <stop offset="0%" stopColor="#4B9EDF" />
@@ -723,9 +721,7 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
                 </linearGradient>
               </defs>
               <path d="M14 2 L54 2 Q66 2 66 14 L66 52 Q66 62 54 62 L40 62 L34 70 L28 62 L14 62 Q2 62 2 52 L2 14 Q2 2 14 2 Z" fill="url(#oido-modal-grad)" />
-              <path d="M15 34 L29 48 L55 18" stroke="white" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" fill="none"
-                strokeDasharray={60} strokeDashoffset={oidoAnim ? 0 : 60}
-                style={{ transition: oidoAnim ? 'stroke-dashoffset 0.4s ease-out' : 'none' }} />
+              <path d="M15 34 L29 48 L55 18" stroke="white" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" fill="none" />
             </svg>
           </button>
         </div>
@@ -5726,7 +5722,8 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
   const pantallaPin = tpv ? '/tpv' : '/sala'
   const salir = () => { sessionStorage.removeItem('oidoops_camarero'); navigate(pantallaPin, { replace: true }) }
   // TPV: la viñeta de "hecho" y de vuelta al PIN
-  const terminarTpv = () => {
+  const terminarTpv = (oido = false) => {
+    setAnimOido(oido)
     setAnimFacturada(true)
     setTimeout(salir, 1500)
   }
@@ -5759,6 +5756,8 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
   const [showPerfil, setShowPerfil]       = useState(false)
   const [showMoverMesa, setShowMoverMesa] = useState(false)
   const [animFacturada, setAnimFacturada] = useState(false)
+  // Al comandar la viñeta dice "Oído" (confirmación de que salió a cocina); en lo demás, la marca
+  const [animOido, setAnimOido] = useState(false)
   const [showProduccion, setShowProduccion] = useState(false)
   const [showWiki, setShowWiki] = useState(false)
   const [showChecklist, setShowChecklist] = useState(false)
@@ -5881,7 +5880,8 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
         setComandaAbierta(null)
         setView('mapa')
         // Comandada exitosa → viñeta OidoOps central con la tilde animada (en el TPV, y vuelta al PIN)
-        if (tpv) { terminarTpv(); return }
+        if (tpv) { terminarTpv(true); return }
+        setAnimOido(true)
         setAnimFacturada(true)
         setTimeout(() => setAnimFacturada(false), 1800)
       }
@@ -6435,11 +6435,11 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
           onEnviar={(niveles, silent) => enviarComanda.mutate({ id: comandaAbierta, niveles, silent })}
           onLiberar={() => liberarMesa.mutate(comandaAbierta)}
           onCambiarMesa={comandaDetalle.estado !== 'facturada' ? () => setShowMoverMesa(true) : undefined}
-          onFacturar={() => { setAnimFacturada(true); setTimeout(() => setAnimFacturada(false), 1800) }}
+          onFacturar={() => { setAnimOido(false); setAnimFacturada(true); setTimeout(() => setAnimFacturada(false), 1800) }}
           esEncargado={esEncargado} ancho={tpv} />
       )}
 
-      {animFacturada && <CheckOverlay />}
+      {animFacturada && <CheckOverlay texto={animOido ? 'Oído' : undefined} />}
 
       {/* Visor del atajo de teclado (TPV): estilo display de caja, dígitos verdes encendidos */}
       {atajo && (

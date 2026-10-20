@@ -5,7 +5,8 @@
 //   const showCheck = () => { setShow(true); setTimeout(() => setShow(false), 2000) }
 //   {show && <CheckOverlay />}
 
-export default function CheckOverlay() {
+// `texto`: lo que sale debajo (por defecto la marca, OidoOps). La sala, al comandar, pone "Oído".
+export default function CheckOverlay({ texto }: { texto?: string }) {
   return (
     <div
       className="fixed inset-0 z-[60] bg-[#0a1628]/90 flex flex-col items-center justify-center gap-5"
@@ -22,7 +23,6 @@ export default function CheckOverlay() {
           filter: "drop-shadow(0 0 24px #4CC8A088)",
         }}
       >
-        y
         <defs>
           <linearGradient id="og" x1="0" y1="0" x2="1" y2="1">
             <stop offset="0%" stopColor="#4B9EDF" />
@@ -57,8 +57,10 @@ export default function CheckOverlay() {
           fontFamily: "'Helvetica Neue', Arial, sans-serif",
         }}
       >
-        <span className="text-white">Oido</span>
-        <span className="text-[#4CC8A0]">Ops</span>
+        {texto ? <span className="text-white">{texto}</span> : <>
+          <span className="text-white">Oido</span>
+          <span className="text-[#4CC8A0]">Ops</span>
+        </>}
       </p>
     </div>
   );
