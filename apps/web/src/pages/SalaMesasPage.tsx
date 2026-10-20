@@ -2341,11 +2341,11 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
           ) : (
             <button onClick={hayPendientes ? handleOido : undefined}
               disabled={comanda.items.length === 0}
-              className={`w-full rounded-xl grid grid-cols-3 items-center py-2 px-4 transition-all active:scale-95 ${hayPendientes ? '' : 'opacity-25 cursor-default'}`}>
+              className={`w-full rounded-xl grid grid-cols-3 items-center py-0.5 px-4 transition-all active:scale-95 ${hayPendientes ? '' : 'opacity-25 cursor-default'}`}>
               {/* Izquierda libre: ahí va el botón de volver de la carta */}
               <span />
               {/* Viñeta — centro (target del tap) */}
-              <svg viewBox="0 0 68 72" className="w-10 h-10 justify-self-center" style={{ filter: hayPendientes ? 'drop-shadow(0 0 8px rgba(76,200,160,0.55))' : 'none' }}>
+              <svg viewBox="0 0 68 72" className="w-14 h-14 justify-self-center" style={{ filter: hayPendientes ? 'drop-shadow(0 0 8px rgba(76,200,160,0.55))' : 'none' }}>
                 <defs>
                   <linearGradient id="oido-grad" x1="0" y1="0" x2="1" y2="1">
                     <stop offset="0%" stopColor={hayPendientes ? '#4B9EDF' : '#374151'} />
