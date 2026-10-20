@@ -1568,6 +1568,8 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
       </button>
     )
   }
+  // Pie con el botón de comandar (viñeta en el centro), no el de cuenta impresa / ver cuenta
+  const pieOido = !yaFacturada && !(!hayPendientes && (yaEnviada || comanda.items.some(i => i.nivel != null)))
   const puedeVolver = tab === 'menu' && !ancho && !searchMenu.trim() && !!(selectedSub || selectedCat || (grupoTab && grupos.length > 1))
   const rejillaTpv = 'grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-2.5'
   const cartaTpv = (
@@ -2278,13 +2280,14 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
         )}
 
         {/* Footer */}
-        <div className={`px-3 py-2 border-t border-[var(--sala-brd)] flex items-end gap-2 ${ancho ? 'col-start-2 row-start-3 border-l' : ''}`}>
-          {/* Volver un nivel en la carta (también con el gesto de deslizar y el "← nombre" de arriba) */}
+        <div className={`relative px-3 py-2 border-t border-[var(--sala-brd)] flex items-end gap-2 ${ancho ? 'col-start-2 row-start-3 border-l' : ''}`}>
+          {/* Volver un nivel en la carta (también con el gesto de deslizar y el "← nombre" de arriba).
+              Con el botón de comandar flota a la izquierda sin ocupar sitio: la viñeta queda siempre en el centro */}
           {puedeVolver && (
             <button
               onClick={() => selectedSub ? setSelectedSub(null) : selectedCat ? setSelectedCat(null) : setGrupoTab(null)}
               aria-label="Volver"
-              className="shrink-0 w-14 h-14 rounded-xl grid place-items-center text-white active:scale-90 transition-transform"
+              className={`${pieOido ? 'absolute left-3 top-1/2 -translate-y-1/2 z-10' : ''} shrink-0 w-14 h-14 rounded-xl grid place-items-center text-white active:scale-90 transition-transform`}
               style={{ background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)', boxShadow: '0 4px 14px rgba(76,200,160,0.4)' }}>
               <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.75" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M15 5l-7 7 7 7" />
