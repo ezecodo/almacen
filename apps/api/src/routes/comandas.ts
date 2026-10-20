@@ -74,6 +74,16 @@ async function imprimirTicketComanda(comanda: ComandaConMesa, items: ComandaItem
   }
   const seccionDe = new Map(deLaCarta.map((m) => [m.nombre, seccionDeCat.get(m.categoria) ?? null]))
 
+  // Alergias de la mesa: van delante de la nota de mesa, así salen en la línea COM: del ticket
+  // (cocina y barra) sin cambiar el programa de la Box
+  const alergenos = comanda.alergenoIds.length
+    ? await prisma.alergeno.findMany({ where: { id: { in: comanda.alergenoIds } }, orderBy: { orden: 'asc' }, select: { nombre: true } })
+    : []
+  const notaMesa = [
+    alergenos.length ? `ALÉRGICO: ${alergenos.map((a) => a.nombre.toUpperCase()).join(', ')}` : '',
+    comanda.notaMesa,
+  ].filter(Boolean).join(' · ')
+
   publicarTicket(restaurante.piCodigo, {
     ticket_id: `cmd-${comanda.id}-r${nextRonda}`,
     sala: comanda.mesa?.floorPlan?.nombre ?? '',
@@ -82,7 +92,7 @@ async function imprimirTicketComanda(comanda: ComandaConMesa, items: ComandaItem
     camarero: comanda.camareroNombre ?? '',
     pax: comanda.pax,
     no_comparten: comanda.noComparten,
-    nota_mesa: comanda.notaMesa || undefined,
+    nota_mesa: notaMesa || undefined,
     items: items.map((i) => ({
       nombre: i.nombre,
       cantidad: i.cantidad,
@@ -349,11 +359,16 @@ export async function comandaRoutes(app: FastifyInstance) {
 
   // Enviar comanda a cocina (con niveles de salida)
   // Información de la mesa para cocina, que el camarero pone al ordenar los niveles y vale para
-  // esta comandada y las siguientes: si no comparte (cocina emplata individual) y una nota general.
+  // esta comandada y las siguientes: si no comparte (cocina emplata individual), una nota general y
+  // las alergias de la mesa.
   // Sale como COM: al final de los tickets.
   app.patch('/comandas/:id/para-cocina', async (req, reply) => {
     const id = Number((req.params as { id: string }).id)
-    const datos = z.object({ noComparten: z.boolean().optional(), notaMesa: z.string().trim().max(200).optional() }).parse(req.body)
+    const datos = z.object({
+      noComparten: z.boolean().optional(),
+      notaMesa: z.string().trim().max(200).optional(),
+      alergenoIds: z.array(z.number().int().positive()).max(30).optional(),
+    }).parse(req.body)
     const existe = await prisma.comanda.findUnique({ where: { id }, select: { id: true } })
     if (!existe) return reply.status(404).send({ error: 'Comanda no encontrada' })
     const comanda = await prisma.comanda.update({ where: { id }, data: datos })

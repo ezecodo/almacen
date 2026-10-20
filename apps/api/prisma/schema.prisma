@@ -433,6 +433,7 @@ model Comanda {
   cuentaDesactualizada Boolean @default(false) // los items cambiaron tras imprimir la cuenta → reimprimir antes de cobrar
   notaMesa             String    @default("") // nota del camarero para cocina sobre toda la mesa: sale como COM: al final de los tickets
   noComparten          Boolean   @default(false) // la mesa no comparte: cocina emplata individual (franja NO COMPARTEN en sus tickets)
+  alergenoIds          Int[]     @default([])    // alguien de la mesa es alérgico (ids de Alergeno): la sala marca los platos que chocan y sale como COM: ALÉRGICO: … en los tickets
   enviadaAt      DateTime?     // primera vez que la comanda se envió a cocina ("hora de comandada")
   items        ComandaItem[]
   mermas       Merma[]

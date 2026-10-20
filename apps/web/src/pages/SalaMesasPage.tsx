@@ -351,6 +351,71 @@ function VerCuentaModal({ comanda, onClose, onFacturar }: { comanda: Comanda; on
 }
 
 // ── Modal ordenar ─────────────────────────────────────────────────────────────
+// ── Alergias de la mesa ───────────────────────────────────────────────────────
+// Se guardan en la comanda (las ve cualquier dispositivo y salen en los tickets como
+// COM: ALÉRGICO: …). Estado local para que el toque se vea al instante.
+function useAlergiasMesa(comanda: Comanda) {
+  const queryClient = useQueryClient()
+  const { data: alergenos = [] } = useQuery({ queryKey: ['alergenos'], queryFn: api.alergenos.list, staleTime: 5 * 60_000 })
+  const deServidor = comanda.alergenoIds ?? []
+  const [ids, setIds] = useState<number[]>(deServidor)
+  const claveServidor = deServidor.join(',')
+  useEffect(() => { setIds(claveServidor ? claveServidor.split(',').map(Number) : []) }, [claveServidor])
+  const guardarMut = useMutation({
+    mutationFn: (nuevos: number[]) => api.comandas.paraCocina(comanda.id, { alergenoIds: nuevos }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['comanda-sala', comanda.id] })
+      queryClient.invalidateQueries({ queryKey: ['comandas-sala'] })
+    },
+  })
+  const guardar = (nuevos: number[]) => { setIds(nuevos); guardarMut.mutate(nuevos) }
+  return { alergenos, ids, guardar }
+}
+
+function AlergiasSheet({ alergenos, ids, onCambiar, onClose }: {
+  alergenos: Alergeno[]; ids: number[]; onCambiar: (ids: number[]) => void; onClose: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/70 flex items-end sm:items-center sm:justify-center" onClick={e => { e.stopPropagation(); onClose() }}>
+      <div className="w-full sm:max-w-lg bg-[var(--sala-hdr)] border-t sm:border border-[var(--sala-brd2)] rounded-t-2xl sm:rounded-2xl p-5 shadow-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-[var(--sala-txt)] font-black text-xl">⚠️ Alguien es alérgico a…</h3>
+          {ids.length > 0 && (
+            <button onClick={() => onCambiar([])} className="text-[var(--sala-tx3)] text-sm underline">Quitar todo</button>
+          )}
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          <div className="grid grid-cols-2 gap-2">
+            {alergenos.map(a => {
+              const on = ids.includes(a.id)
+              return (
+                <button key={a.id}
+                  onClick={() => onCambiar(on ? ids.filter(i => i !== a.id) : [...ids, a.id])}
+                  className={`flex items-center gap-2 rounded-xl px-3 py-3.5 text-left font-bold text-base transition-colors active:scale-95 ${
+                    on ? 'bg-red-500 text-white' : 'bg-[var(--sala-srf)] text-[var(--sala-tx1)]'
+                  }`}>
+                  <span className="text-2xl leading-none">{a.icono}</span>
+                  <span className="min-w-0 truncate">{a.nombre}</span>
+                </button>
+              )
+            })}
+          </div>
+          <p className="text-[var(--sala-tx3)] text-xs leading-snug mt-3">
+            Sale en el ticket de cocina como <b>COM: ALÉRGICO: …</b> en esta comanda y las siguientes de la mesa.
+            En la carta, lo que lleva alguno de estos se ve tachado y en rojo (se puede pedir igual, para el resto de la mesa).
+            Cocina y equipos compartidos: no se puede garantizar la ausencia total de trazas.
+          </p>
+        </div>
+        <button onClick={onClose}
+          className="mt-3 w-full py-3.5 rounded-xl text-white text-base font-black"
+          style={{ background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)' }}>
+          Listo
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa = false, nivelesIniciales }: {
   comanda: Comanda; menu: MenuItem[]; categorias: MenuCategoria[]
   onEnviar: (niveles: { itemId: number; nivel: number; nota?: string }[]) => void
@@ -412,6 +477,15 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
   // 🍷 Asistente de vinos: el mejor momento para ofrecerlo es aquí, con toda la comida ya pedida.
   // La copa late si la mesa todavía no tiene ninguna botella; el vino elegido sale con este mismo Oído.
   const [verVinos, setVerVinos] = useState(false)
+  // ⚠️ Alergias de la mesa (las mismas que se marcaron en la carta): último vistazo antes de mandar
+  const { alergenos, ids: alergiasMesa, guardar: guardarAlergias } = useAlergiasMesa(comanda)
+  const [verAlergias, setVerAlergias] = useState(false)
+  const alergiasActivas = alergenos.filter(a => alergiasMesa.includes(a.id))
+  const hayAlergenosCarta = alergenos.length > 0 && menu.some(mi => (mi.alergenoIds ?? []).length > 0)
+  const chocaCon = (nombre: string) => {
+    const ids = menu.find(mi => mi.nombre === nombre)?.alergenoIds ?? []
+    return alergiasActivas.filter(a => ids.includes(a.id))
+  }
   const { data: maridajes } = useQuery({
     queryKey: ['maridajes', comanda.restaurantId],
     queryFn: () => api.maridajes.sala(comanda.restaurantId),
@@ -535,9 +609,21 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
               <p className="text-[var(--sala-tx2)] text-[11px] font-semibold mt-1 truncate">
                 {comanda.pax} pax · {itemsActivos.length} cocina{itemsBarra.length > 0 ? ` · ${itemsBarra.length} barra` : ''}
               </p>
+              {alergiasActivas.length > 0 && (
+                <button onClick={() => setVerAlergias(true)} className="block text-left text-red-400 text-[11px] font-black mt-0.5">
+                  🚫 ALÉRGICO: {alergiasActivas.map(a => a.nombre.toUpperCase()).join(', ')}
+                </button>
+              )}
             </div>
             <div className="flex flex-col items-end justify-between gap-2 shrink-0">
               <div className="flex items-center gap-2">
+                {(hayAlergenosCarta || alergiasActivas.length > 0) && (
+                  <button onClick={() => setVerAlergias(true)} title="Alergias de la mesa" aria-label="Alergias de la mesa"
+                    className={`w-9 h-9 rounded-full flex items-center justify-center text-base active:scale-90 transition-colors ${
+                      alergiasActivas.length > 0 ? 'bg-red-500 text-white' : 'bg-[var(--sala-btn2)] grayscale'}`}>
+                    ⚠️
+                  </button>
+                )}
                 {/* 🔍 Añadir algo más: la búsqueda solo aparece al tocar la lupa */}
                 <button onClick={() => { setBuscando(b => !b); setSearch('') }} title="Añadir algo más" aria-label="Buscar plato o bebida"
                   className={`w-9 h-9 rounded-full flex items-center justify-center active:scale-90 transition-colors ${
@@ -631,6 +717,9 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
                         <div className="flex-1 min-w-0">
                           <p className="text-[var(--sala-txt)] font-black text-sm uppercase leading-tight break-words">{item.nombre}</p>
                           {notas[item.id] && <p className="text-[var(--sala-txt)] font-bold text-xs mt-0.5 break-words">» {notas[item.id]}</p>}
+                          {chocaCon(item.nombre).length > 0 && (
+                            <p className="text-red-400 font-black text-xs mt-0.5">🚫 Lleva {chocaCon(item.nombre).map(a => `${a.icono} ${a.nombre}`).join(' · ')}</p>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-1 mt-1 pl-9">
@@ -733,6 +822,10 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
           </button>
         </div>
       </div>
+
+      {verAlergias && (
+        <AlergiasSheet alergenos={alergenos} ids={alergiasMesa} onCambiar={guardarAlergias} onClose={() => setVerAlergias(false)} />
+      )}
 
       {notaMesaBox !== null && (
         <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-6" onClick={e => { e.stopPropagation(); setNotaMesaBox(null) }}>
@@ -1086,16 +1179,8 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
   })
   const agotadoIds = new Set(agotadosLista.map(a => a.menuItemId))
   // ⚠️ Alergias de la mesa: "alguien es alérgico a…" marca en la carta de comida lo que no puede
-  // comer. Se recuerda por mesa mientras dure la sesión (al volver a abrirla sigue puesto).
-  const { data: alergenos = [] } = useQuery({ queryKey: ['alergenos'], queryFn: api.alergenos.list, staleTime: 5 * 60_000 })
-  const claveAlergias = `alergias_mesa_${comanda.id}`
-  const [alergiasMesa, setAlergiasMesaState] = useState<number[]>(() => {
-    try { return JSON.parse(sessionStorage.getItem(claveAlergias) ?? '[]') } catch { return [] }
-  })
-  const setAlergiasMesa = (ids: number[]) => {
-    setAlergiasMesaState(ids)
-    try { ids.length ? sessionStorage.setItem(claveAlergias, JSON.stringify(ids)) : sessionStorage.removeItem(claveAlergias) } catch { /* sin storage */ }
-  }
+  // comer y sale en los tickets (COM: ALÉRGICO: …). Se guarda en la comanda.
+  const { alergenos, ids: alergiasMesa, guardar: setAlergiasMesa } = useAlergiasMesa(comanda)
   const [verAlergias, setVerAlergias] = useState(false)
   const agotadoNombres = new Set(agotadosLista.map(a => a.menuItem.nombre))
   // Línea sin comandar de un plato que ya no hay: aviso para quitarla antes de enviar
@@ -2141,42 +2226,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
 
         {/* ⚠️ Alergias de la mesa: qué alérgenos hay que evitar */}
         {verAlergias && (
-          <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center sm:justify-center" onClick={() => setVerAlergias(false)}>
-            <div className="w-full sm:max-w-lg bg-[var(--sala-hdr)] border-t sm:border border-[var(--sala-brd2)] rounded-t-2xl sm:rounded-2xl p-5 shadow-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-[var(--sala-txt)] font-black text-xl">⚠️ Alguien es alérgico a…</h3>
-                {filtroAlergias.length > 0 && (
-                  <button onClick={() => setAlergiasMesa([])} className="text-[var(--sala-tx3)] text-sm underline">Quitar todo</button>
-                )}
-              </div>
-              <div className="flex-1 overflow-y-auto">
-                <div className="grid grid-cols-2 gap-2">
-                  {alergenos.map(a => {
-                    const on = filtroAlergias.includes(a.id)
-                    return (
-                      <button key={a.id}
-                        onClick={() => setAlergiasMesa(on ? filtroAlergias.filter(i => i !== a.id) : [...filtroAlergias, a.id])}
-                        className={`flex items-center gap-2 rounded-xl px-3 py-3.5 text-left font-bold text-base transition-colors active:scale-95 ${
-                          on ? 'bg-red-500 text-white' : 'bg-[var(--sala-srf)] text-[var(--sala-tx1)]'
-                        }`}>
-                        <span className="text-2xl leading-none">{a.icono}</span>
-                        <span className="min-w-0 truncate">{a.nombre}</span>
-                      </button>
-                    )
-                  })}
-                </div>
-                <p className="text-[var(--sala-tx3)] text-xs leading-snug mt-3">
-                  En la carta de comida, lo que lleva alguno de estos se ve tachado y en rojo (se puede pedir igual, para el resto de la mesa).
-                  Cocina y equipos compartidos: no se puede garantizar la ausencia total de trazas. Ante una alergia grave, avisa siempre a cocina.
-                </p>
-              </div>
-              <button onClick={() => setVerAlergias(false)}
-                className="mt-3 w-full py-3.5 rounded-xl text-white text-base font-black"
-                style={{ background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)' }}>
-                Listo
-              </button>
-            </div>
-          </div>
+          <AlergiasSheet alergenos={alergenos} ids={filtroAlergias} onCambiar={setAlergiasMesa} onClose={() => setVerAlergias(false)} />
         )}
 
         {/* Picker de mixer (item combinable) */}
