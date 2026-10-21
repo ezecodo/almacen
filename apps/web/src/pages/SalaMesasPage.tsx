@@ -4757,7 +4757,7 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
               const numEnEsquina = !chicaMesa && lista.length > 0
               // Con reservas, "OCUPADA" no se escribe (el fondo morado ya lo dice) y deja sitio a los nombres
               const conGenteSinReserva = ocupada(mesa.id) && lista.length === 0
-              const alto = h - (numEnEsquina ? 14 : 26) - (conGenteSinReserva ? 11 : 0)
+              const alto = h - (numEnEsquina ? 8 : 26) - (conGenteSinReserva ? 11 : 0)
               const conNombre = numEnEsquina && lista.length <= Math.floor(alto / 27)
               const caben = chicaMesa ? 1 : Math.max(1, Math.floor(alto / 15))
               const visibles = lista.length > caben ? lista.slice(0, caben - 1 || 1) : lista
@@ -4794,13 +4794,17 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
                   transform: mesa.rotacion ? `rotate(${mesa.rotacion}deg)` : undefined,
                 }}>
                   {numEnEsquina && (
+                    // Montado sobre el borde, mitad dentro y mitad fuera de la mesa (como la etiqueta de un plano)
                     <span style={{
-                      position: 'absolute', top: 2, ...(isRound ? { left: '50%', translate: '-50% 0' } : { left: 5 }),
+                      position: 'absolute', top: -9, ...(isRound ? { left: '50%', translate: '-50% 0' } : { left: -9 }),
                       rotate: mesa.rotacion ? `${-mesa.rotacion}deg` : undefined,
-                      color: isDark ? '#cbd5e1' : '#334155', fontWeight: 900, fontSize: 11, lineHeight: 1.1, pointerEvents: 'none',
+                      minWidth: 20, height: 18, padding: '0 4px', borderRadius: 9, zIndex: 1,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      background: isDark ? '#0b1220' : '#ffffff', border: `1.5px solid ${border}`,
+                      color: isDark ? '#e2e8f0' : '#0f172a', fontWeight: 900, fontSize: 11, lineHeight: 1, pointerEvents: 'none',
                     }}>{mesa.numero}</span>
                   )}
-                  <div style={{ transform: mesa.rotacion ? `rotate(${-mesa.rotacion}deg)` : undefined, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, paddingTop: numEnEsquina ? 8 : 0 }}>
+                  <div style={{ transform: mesa.rotacion ? `rotate(${-mesa.rotacion}deg)` : undefined, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
                     {!numEnEsquina && <span style={{ color: isDark ? '#e2e8f0' : '#0f172a', fontWeight: 800, fontSize: chicaMesa ? 12 : 16, lineHeight: 1.1 }}>{mesa.numero}</span>}
                     {conGente && !chicaMesa && lista.length === 0 && <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.05em', color: isDark ? '#c084fc' : '#9333ea' }}>OCUPADA</span>}
                     {visibles.map(r => (
