@@ -5308,14 +5308,18 @@ function EncargadoPanel({
     <div className="fixed inset-0 z-40 flex justify-end" onClick={onClose}>
       {plano && <PlanoReservas restaurantId={rid} reservaInicial={plano.reservaId} fechaInicial={plano.fecha ?? fechaReservas} camareroNombre={camarero.nombre} onClose={() => setPlano(null)} />}
       <div className="relative w-full sm:max-w-md bg-[var(--sala-hdr)] h-full flex flex-col shadow-2xl border-l border-[var(--sala-brd)]" onClick={e => e.stopPropagation()}
-        onTouchStart={e => { if (soloCobros) swipeCobros.current = { x: e.touches[0].clientX, y: e.touches[0].clientY } }}
+        onTouchStart={e => { if (soloCobros || tab === 'reservas') swipeCobros.current = { x: e.touches[0].clientX, y: e.touches[0].clientY } }}
         onTouchEnd={e => {
           const ini = swipeCobros.current
           swipeCobros.current = null
-          if (!ini || !soloCobros || cobroDe) return
+          if (!ini || cobroDe) return
           const dx = e.changedTouches[0].clientX - ini.x, dy = e.changedTouches[0].clientY - ini.y
           const th = swipeThresholds()
           if (Math.abs(dx) < th.dx || Math.abs(dy) > th.dy) return
+          // Lista de reservas → plano, siguiendo hacia la izquierda (en el plano, a la derecha desde el
+          // primer salón se vuelve a la lista)
+          if (tab === 'reservas' && reservasSub === 'hoy' && dx < 0 && !plano) { setPlano({ fecha: fechaReservas }); return }
+          if (!soloCobros) return
           const i = DESLIZAR.indexOf(tab)
           const destino = DESLIZAR[i + (dx < 0 ? 1 : -1)]
           if (destino) setTab(destino)
