@@ -5503,7 +5503,7 @@ function EncargadoPanel({
       {plano && <PlanoReservas restaurantId={rid} reservaInicial={plano.reservaId} fechaInicial={plano.fecha ?? fechaReservas} camareroNombre={camarero.nombre} onClose={() => setPlano(null)}
         onDespues={onVolverAlMapa ? () => { setPlano(null); onVolverAlMapa() } : undefined} vuelta={vuelta} />}
       <div className="relative w-full sm:max-w-md bg-[var(--sala-hdr)] h-full flex flex-col shadow-2xl border-l border-[var(--sala-brd)]" onClick={e => e.stopPropagation()}
-        onTouchStart={e => { if (soloCobros || tab === 'reservas') swipeCobros.current = { x: e.touches[0].clientX, y: e.touches[0].clientY } }}
+        onTouchStart={e => { swipeCobros.current = { x: e.touches[0].clientX, y: e.touches[0].clientY } }}
         onTouchEnd={e => {
           const ini = swipeCobros.current
           swipeCobros.current = null
@@ -5514,7 +5514,8 @@ function EncargadoPanel({
           // Lista de reservas → plano, siguiendo hacia la izquierda (en el plano, a la derecha desde el
           // primer salón se vuelve a la lista)
           if (tab === 'reservas' && reservasSub === 'hoy' && dx < 0 && !plano) { setPlano({ fecha: fechaReservas }); return }
-          if (!soloCobros) return
+          // Con todas las herramientas abiertas (el maletín), deslizar a la derecha cierra el panel, como la ✕
+          if (!soloCobros) { if (dx > 0 && !repartiendo) onClose(); return }
           const i = DESLIZAR.indexOf(tab)
           const destino = DESLIZAR[i + (dx < 0 ? 1 : -1)]
           if (destino) setTab(destino)
