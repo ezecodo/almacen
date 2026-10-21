@@ -6651,8 +6651,8 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
     <ThemeCtx.Provider value={isDark}>
     {/* Tras cobrar vuelve al PIN, salvo el encargado, que suele encadenar varios cobros */}
     <TpvCtx.Provider value={tpv && !esEncargado ? terminarTpv : null}>
-    // 100dvh y no h-screen (100vh): en el teléfono 100vh incluye la barra del navegador y la parte de
-    // abajo (indicador de la vuelta, franja de altos) quedaba fuera, con scroll. Así todo cabe en pantalla.
+    {/* 100dvh y no h-screen (100vh): en el teléfono 100vh incluye la barra del navegador y la parte de
+        abajo (indicador de la vuelta, franja de altos) quedaba fuera, con scroll. Así todo cabe en pantalla. */}
     <div data-sala-theme={isDark ? 'dark' : 'light'} className="flex flex-col h-[100dvh] overflow-hidden bg-[var(--sala-bg)]"
       style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
       {/* Header */}
