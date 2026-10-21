@@ -4765,8 +4765,8 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
               // Con reservas, "OCUPADA" no se escribe (el fondo morado ya lo dice) y deja sitio a los nombres
               const conGenteSinReserva = ocupada(mesa.id) && lista.length === 0
               const alto = h - (numEnEsquina ? 8 : 26) - (conGenteSinReserva ? 11 : 0)
-              const conNombre = numEnEsquina && lista.length <= Math.floor(alto / 27)
-              const caben = chicaMesa ? 1 : Math.max(1, Math.floor(alto / 15))
+              const conNombre = numEnEsquina && lista.length <= Math.floor((alto + 3) / 30)
+              const caben = chicaMesa ? 1 : Math.max(1, Math.floor((alto + 3) / 18))
               const visibles = lista.length > caben ? lista.slice(0, caben - 1 || 1) : lista
               const resto = lista.length - visibles.length
               const conAviso = (r: Reserva) => pisadas.has(r.id) || chica(r)
@@ -4800,21 +4800,10 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   transform: mesa.rotacion ? `rotate(${mesa.rotacion}deg)` : undefined,
                 }}>
-                  {numEnEsquina && (
-                    // Montado sobre el borde, mitad dentro y mitad fuera de la mesa (como la etiqueta de un plano)
-                    <span style={{
-                      position: 'absolute', top: -9, ...(isRound ? { left: '50%', translate: '-50% 0' } : { left: -9 }),
-                      rotate: mesa.rotacion ? `${-mesa.rotacion}deg` : undefined,
-                      minWidth: 20, height: 18, padding: '0 4px', borderRadius: 9, zIndex: 1,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      background: isDark ? '#0b1220' : '#ffffff', border: `1.5px solid ${border}`,
-                      color: isDark ? '#e2e8f0' : '#0f172a', fontWeight: 900, fontSize: 11, lineHeight: 1, pointerEvents: 'none',
-                    }}>{mesa.numero}</span>
-                  )}
                   <div style={{ transform: mesa.rotacion ? `rotate(${-mesa.rotacion}deg)` : undefined, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
                     {!numEnEsquina && <span style={{ color: isDark ? '#e2e8f0' : '#0f172a', fontWeight: 800, fontSize: chicaMesa ? 12 : 16, lineHeight: 1.1 }}>{mesa.numero}</span>}
                     {conGente && !chicaMesa && lista.length === 0 && <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.05em', color: isDark ? '#c084fc' : '#9333ea' }}>OCUPADA</span>}
-                    {visibles.map(r => (
+                    {visibles.map((r, i) => (
                       <span key={r.id} onClick={e => {
                         // Con otra reserva elegida, tocar esta hora es tocar la mesa (asignarla aquí también):
                         // con la hora y el apellido, la reserva que ya está ocupa casi toda la mesa
@@ -4825,6 +4814,9 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
                           display: 'flex', flexDirection: 'column', alignItems: 'center',
                           fontFamily: 'ui-monospace, monospace', fontWeight: 800, fontSize: chicaMesa ? 9 : 12, lineHeight: 1.15, whiteSpace: 'nowrap',
                           padding: '0 3px', borderRadius: 4,
+                          // Entre una reserva y la siguiente, una raya punteada: dos apellidos seguidos
+                          // ("MARTIN" / "GÓMEZ") se leían como un solo nombre
+                          ...(i > 0 ? { borderTop: `1px dashed ${isDark ? '#475569' : '#94a3b8'}`, marginTop: 1, paddingTop: 1, borderTopLeftRadius: 0, borderTopRightRadius: 0 } : {}),
                           color: r.id === elegida ? '#fff' : alerta?.r.id === r.id ? alerta.nivel === 'proxima' ? (isDark ? '#facc15' : '#a16207') : alerta.nivel === 'llega' ? '#f97316' : '#ef4444' : conAviso(r) ? '#d97706' : r.estado === 'sentada' ? (isDark ? '#64748b' : '#94a3b8') : (isDark ? '#7dd3fc' : '#0369a1'),
                           background: r.id === elegida ? '#0ea5e9' : 'transparent',
                           textDecoration: r.estado === 'sentada' ? 'line-through' : undefined,
@@ -4849,6 +4841,18 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
                     {resto > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: isDark ? '#94a3b8' : '#64748b' }}>+{resto}</span>}
                   </div>
                 </div>
+                {numEnEsquina && (
+                  // Número montado sobre el borde, mitad dentro y mitad fuera de la mesa (como la etiqueta de
+                  // un plano). Fuera de la mesa girada, para que siempre quede arriba a la izquierda.
+                  <span style={{
+                    position: 'absolute', top: mesa.y - 9, left: isRound ? mesa.x + w / 2 : mesa.x - 9,
+                    translate: isRound ? '-50% 0' : undefined,
+                    minWidth: 20, height: 18, padding: '0 4px', borderRadius: 9, zIndex: 1,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: isDark ? '#0b1220' : '#ffffff', border: `1.5px solid ${border}`,
+                    color: isDark ? '#e2e8f0' : '#0f172a', fontWeight: 900, fontSize: 11, lineHeight: 1, pointerEvents: 'none',
+                  }}>{mesa.numero}</span>
+                )}
                 {/* Pastilla encima de la mesa: cuánto falta o cuánto lleva de retraso */}
                 {alerta && estiloAlerta && (
                   <span onClick={() => tocarMesa(mesa)} style={{
