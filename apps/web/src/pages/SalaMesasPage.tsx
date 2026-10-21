@@ -4540,10 +4540,43 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
     setPlanId(planes.find(p => p.mesas.some(m => m.id === mesaIni))?.id ?? planes[0].id)
   }, [planes, reservas])
   const plan = planes.find(p => p.id === planId) ?? planes[0] ?? null
+  // Otro salón u otro día: vista normal
+  useEffect(() => { setVista({ z: 1, x: 0, y: 0 }) }, [planId, fecha])
 
   // Deslizar como en el mapa de la sala: a la izquierda el salón siguiente, a la derecha el anterior;
   // desde el primero, a la derecha se vuelve a la lista. El nombre del salón sale un momento en grande.
   const swipe = useRef<{ x: number; y: number } | null>(null)
+  // Zoom propio del plano: pellizcar con dos dedos acerca, con uno se arrastra, y doble toque en un
+  // hueco vuelve a la vista normal (o acerca ahí si no había zoom). El zoom del navegador no se puede
+  // deshacer desde la app, por eso el plano no lo deja pasar (touch-action: none).
+  const [vista, setVista] = useState({ z: 1, x: 0, y: 0 })
+  const vistaRef = useRef(vista)
+  vistaRef.current = vista
+  const contRef = useRef<HTMLDivElement | null>(null)
+  const gesto = useRef<{ tipo: 'pinza' | 'arrastre'; d0: number; z0: number; x0: number; y0: number; mx: number; my: number } | null>(null)
+  const movido = useRef(false)
+  const ultimoToque = useRef<{ t: number; x: number; y: number } | null>(null)
+  const finToque = useRef(0) // el dblclick que algunos navegadores emiten tras dos toques no cuenta
+  const ZOOM_MAX = 4
+  const ajustarVista = (v: { z: number; x: number; y: number }) => {
+    const el = contRef.current
+    const z = Math.min(ZOOM_MAX, Math.max(1, v.z))
+    if (!el || z <= 1.02) return { z: 1, x: 0, y: 0 }
+    const W = el.clientWidth, H = el.clientHeight
+    return { z, x: Math.min(0, Math.max(W - W * z, v.x)), y: Math.min(0, Math.max(H - H * z, v.y)) }
+  }
+  // Doble toque: con zoom, vuelve a la vista normal; sin zoom, acerca x2,5 donde se tocó
+  const alternarZoom = (px: number, py: number) => {
+    const v = vistaRef.current
+    if (v.z > 1) { setVista({ z: 1, x: 0, y: 0 }); return }
+    const z = 2.5
+    setVista(ajustarVista({ z, x: px - px * z, y: py - py * z }))
+  }
+  const puntoEn = (clientX: number, clientY: number) => {
+    const r = contRef.current!.getBoundingClientRect()
+    return { x: clientX - r.left, y: clientY - r.top }
+  }
+  const esHueco = (t: EventTarget | null) => !(t as Element | null)?.closest?.('[data-mesa],button')
   const [aviso, setAviso] = useState<string | null>(null)
   const avisoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const irASalon = (paso: number) => {
@@ -4692,17 +4725,71 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
 
       {/* El plano, escalado a la pantalla como el mapa de la sala */}
       {plan && plan.mesas.length > 0 ? (
-        <div className="flex-1 overflow-hidden relative"
-          onTouchStart={e => { swipe.current = { x: e.touches[0].clientX, y: e.touches[0].clientY } }}
+        <div className="flex-1 overflow-hidden relative" style={{ touchAction: 'none' }}
+          onTouchStart={e => {
+            const v = vistaRef.current
+            if (e.touches.length >= 2) {
+              const [a, b] = [e.touches[0], e.touches[1]]
+              const m = puntoEn((a.clientX + b.clientX) / 2, (a.clientY + b.clientY) / 2)
+              gesto.current = { tipo: 'pinza', d0: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) || 1, z0: v.z, x0: v.x, y0: v.y, mx: m.x, my: m.y }
+              swipe.current = null
+              movido.current = true
+              return
+            }
+            const t = e.touches[0]
+            swipe.current = { x: t.clientX, y: t.clientY }
+            movido.current = false
+            gesto.current = { tipo: 'arrastre', d0: 0, z0: v.z, x0: v.x, y0: v.y, mx: t.clientX, my: t.clientY }
+          }}
+          onTouchMove={e => {
+            const g = gesto.current
+            if (!g) return
+            if (g.tipo === 'pinza' && e.touches.length >= 2) {
+              const [a, b] = [e.touches[0], e.touches[1]]
+              const m = puntoEn((a.clientX + b.clientX) / 2, (a.clientY + b.clientY) / 2)
+              const z = Math.min(ZOOM_MAX, Math.max(1, g.z0 * Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) / g.d0))
+              // El punto del plano que estaba bajo los dedos sigue bajo los dedos
+              const cx = (g.mx - g.x0) / g.z0, cy = (g.my - g.y0) / g.z0
+              setVista(ajustarVista({ z, x: m.x - cx * z, y: m.y - cy * z }))
+            } else if (g.tipo === 'arrastre' && e.touches.length === 1) {
+              const dx = e.touches[0].clientX - g.mx, dy = e.touches[0].clientY - g.my
+              if (Math.hypot(dx, dy) > 8) movido.current = true
+              if (g.z0 > 1) setVista(ajustarVista({ z: g.z0, x: g.x0 + dx, y: g.y0 + dy }))
+            }
+          }}
           onTouchEnd={e => {
+            finToque.current = Date.now()
+            const g = gesto.current
+            if (e.touches.length > 0) {
+              // Se levantó un dedo de la pinza: se sigue arrastrando con el otro
+              const v = vistaRef.current, t = e.touches[0]
+              gesto.current = { tipo: 'arrastre', d0: 0, z0: v.z, x0: v.x, y0: v.y, mx: t.clientX, my: t.clientY }
+              return
+            }
+            gesto.current = null
             const ini = swipe.current
             swipe.current = null
-            if (!ini) return
-            const dx = e.changedTouches[0].clientX - ini.x, dy = e.changedTouches[0].clientY - ini.y
-            const th = swipeThresholds()
-            if (Math.abs(dx) > th.dx && Math.abs(dy) < th.dy) irASalon(dx < 0 ? 1 : -1)
+            if (!g || g.tipo === 'pinza' || !ini) return
+            const fin = e.changedTouches[0]
+            const dx = fin.clientX - ini.x, dy = fin.clientY - ini.y
+            // Sin zoom, deslizar de lado cambia de salón (con zoom, arrastrar mueve el plano)
+            if (g.z0 <= 1) {
+              const th = swipeThresholds()
+              if (Math.abs(dx) > th.dx && Math.abs(dy) < th.dy) { irASalon(dx < 0 ? 1 : -1); return }
+            }
+            if (movido.current || !esHueco(e.target)) { ultimoToque.current = null; return }
+            const ahora = Date.now(), ult = ultimoToque.current
+            if (ult && ahora - ult.t < 320 && Math.hypot(fin.clientX - ult.x, fin.clientY - ult.y) < 40) {
+              ultimoToque.current = null
+              const p = puntoEn(fin.clientX, fin.clientY)
+              alternarZoom(p.x, p.y)
+            } else ultimoToque.current = { t: ahora, x: fin.clientX, y: fin.clientY }
           }}
+          // Después de arrastrar o pellizcar, el toque no cuenta como tocar una mesa
+          onClickCapture={e => { if (movido.current) { e.stopPropagation(); movido.current = false } }}
+          onDoubleClick={e => { if (Date.now() - finToque.current > 800 && esHueco(e.target)) { const p = puntoEn(e.clientX, e.clientY); alternarZoom(p.x, p.y) } }}
           ref={el => {
+          contRef.current = el
           if (!el) return
           const aplicar = () => {
             const PAD = 24
@@ -4740,6 +4827,13 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
               ))}
             </div>
           )}
+          {vista.z > 1 && (
+            <button onClick={() => setVista({ z: 1, x: 0, y: 0 })}
+              className="absolute top-2 right-2 z-10 px-3 py-1.5 rounded-full bg-[var(--sala-hdr)] border border-[var(--sala-brd2)] text-[var(--sala-txt)] text-xs font-bold shadow-lg">
+              ⤢ Vista normal
+            </button>
+          )}
+          <div style={{ position: 'absolute', inset: 0, transformOrigin: '0 0', transform: `translate(${vista.x}px, ${vista.y}px) scale(${vista.z})` }}>
           <div className="plano-canvas" style={{ position: 'absolute', top: 0, left: 0 }}>
             {plan.mesas.map(mesa => {
               const w = mesaWidth(mesa), h = mesaHeight(mesa)
@@ -4790,7 +4884,7 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
                     rotate: mesa.rotacion ? `${mesa.rotacion}deg` : undefined,
                   }} />
                 )}
-                <div onClick={() => tocarMesa(mesa)} style={{
+                <div data-mesa onClick={() => tocarMesa(mesa)} style={{
                   position: 'absolute', left: mesa.x, top: mesa.y, width: w, height: h,
                   borderRadius: isRound ? '50%' : 6,
                   background: conGente ? (isDark ? '#2d1a3a' : '#f3e8ff') : lista.length ? (isDark ? '#0f2240' : '#e0f2fe') : (isDark ? '#111827' : '#f8fafc'),
@@ -4855,7 +4949,7 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
                 )}
                 {/* Pastilla encima de la mesa: cuánto falta o cuánto lleva de retraso */}
                 {alerta && estiloAlerta && (
-                  <span onClick={() => tocarMesa(mesa)} style={{
+                  <span data-mesa onClick={() => tocarMesa(mesa)} style={{
                     position: 'absolute', left: mesa.x + w / 2, top: mesa.y - 11, transform: 'translate(-50%, -50%)',
                     zIndex: 2, padding: '1px 7px', borderRadius: 999, whiteSpace: 'nowrap',
                     background: estiloAlerta.color, color: alerta.nivel === 'proxima' ? '#1c1917' : '#fff',
@@ -4868,6 +4962,7 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
                 </Fragment>
               )
             })}
+          </div>
           </div>
         </div>
       ) : (
