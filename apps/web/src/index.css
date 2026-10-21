@@ -147,3 +147,13 @@
   }
   @page { size: 80mm auto; margin: 0; }
 }
+
+/* Plano de reservas: aureola de la mesa con una reserva por llegar (el ritmo lo pone cada nivel) */
+@keyframes reservaLatido {
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.04); }
+}
+.reserva-latido { animation: reservaLatido 2s ease-in-out infinite; will-change: opacity, transform; }
+@media (prefers-reduced-motion: reduce) {
+  .reserva-latido { animation: none; opacity: 1; }
+}

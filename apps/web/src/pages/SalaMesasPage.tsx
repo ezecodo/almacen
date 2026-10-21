@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, createContext, useContext } from 'react'
+import { Fragment, useState, useEffect, useRef, createContext, useContext } from 'react'
 
 const ThemeCtx = createContext<boolean>(true) // true = dark
 // Puesto TPV (/tpv, tablet compartida): el PIN vale para una sola acción. Cobrar llama a esta
@@ -4374,9 +4374,32 @@ function AgotadosSala({ restaurantId, agotados }: { restaurantId: number; agotad
 
 // Minutos desde ahora hasta la hora de una reserva de hoy (negativo = ya pasó)
 function minutosHasta(hora: string) {
-  const ahora = new Date()
-  return minutosHora(hora) - (ahora.getHours() * 60 + ahora.getMinutes())
+  return minutosHora(hora) - minutosAhora()
 }
+function minutosAhora() {
+  const ahora = new Date()
+  return ahora.getHours() * 60 + ahora.getMinutes()
+}
+
+// Qué tan cerca está una reserva por llegar: de 30 a 15 min antes "próxima", de 15 antes a 15
+// después "llegando", y a partir de ahí "tarde". Las mismas ventanas en la lista del 💼 y en el plano.
+type NivelReserva = 'proxima' | 'llega' | 'tarde'
+function nivelReserva(hora: string, ahoraMin: number): { nivel: NivelReserva; faltan: number } | null {
+  const faltan = minutosHora(hora) - ahoraMin
+  if (faltan <= -15) return { nivel: 'tarde', faltan }
+  if (faltan <= 15) return { nivel: 'llega', faltan }
+  if (faltan <= 30) return { nivel: 'proxima', faltan }
+  return null
+}
+const GRAVEDAD_RESERVA: Record<NivelReserva, number> = { proxima: 1, llega: 2, tarde: 3 }
+// Color y ritmo del latido de cada nivel en el plano (más rápido cuanto más urgente)
+const ESTILO_RESERVA: Record<NivelReserva, { color: string; ritmo: string }> = {
+  proxima: { color: '#facc15', ritmo: '2s' },
+  llega:   { color: '#f97316', ritmo: '1s' },
+  tarde:   { color: '#ef4444', ritmo: '0.7s' },
+}
+const textoNivelReserva = ({ nivel, faltan }: { nivel: NivelReserva; faltan: number }) =>
+  nivel === 'tarde' ? `+${-faltan} min` : faltan > 0 ? `${nivel === 'llega' ? '⏰ ' : ''}en ${faltan}′` : '⏰ ya'
 
 // La hora y los pax, grandes: lo primero que se lee de una reserva
 function BloqueHoraPax({ hora, pax, walkin = false, tono }: { hora: string; pax: number; walkin?: boolean; tono?: string }) {
@@ -4568,6 +4591,39 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
   })
   const ocupada = (mesaId: number) => esHoyPlano && comandasAhora.some(c => c.mesaId === mesaId)
 
+  // Hoy, cada mesa avisa de su reserva por llegar más urgente (próxima / llegando / tarde).
+  // Un solo reloj cada 30 s para todo el plano.
+  const [ahoraMin, setAhoraMin] = useState(minutosAhora)
+  useEffect(() => {
+    const t = setInterval(() => setAhoraMin(minutosAhora()), 30_000)
+    return () => clearInterval(t)
+  }, [])
+  const alertaDe = (mesaId: number) => {
+    if (!esHoyPlano) return null
+    let peor: { r: Reserva; nivel: NivelReserva; faltan: number } | null = null
+    for (const r of deMesa(mesaId)) {
+      if (r.estado !== 'confirmada') continue
+      const n = nivelReserva(r.hora, ahoraMin)
+      if (n && (!peor || GRAVEDAD_RESERVA[n.nivel] > GRAVEDAD_RESERVA[peor.nivel])) peor = { r, ...n }
+    }
+    return peor
+  }
+
+  // Tocar una mesa que está llegando o tarde: qué hacer con esa reserva (llamar, sentar, no vino)
+  const [menuDe, setMenuDe] = useState<{ reserva: Reserva; mesa: Mesa } | null>(null)
+  const sentarAqui = useMutation({
+    mutationFn: ({ reserva, mesa }: { reserva: Reserva; mesa: Mesa }) => api.reservas.sentar(reserva.id, mesa.id, camareroNombre),
+    onSuccess: () => {
+      setMenuDe(null)
+      queryClient.invalidateQueries({ queryKey: ['reservas', restaurantId] })
+      queryClient.invalidateQueries({ queryKey: ['comandas-sala', restaurantId] })
+    },
+  })
+  const noVino = useMutation({
+    mutationFn: (id: number) => api.reservas.updateEstado(id, 'no_show'),
+    onSuccess: () => { setMenuDe(null); queryClient.invalidateQueries({ queryKey: ['reservas', restaurantId] }) },
+  })
+
   // Walk-in desde el plano: sin reserva elegida, tocar una mesa libre → pax → se sienta y se sigue en el plano
   const [walkinEn, setWalkinEn] = useState<Mesa | null>(null)
   const [paxWalkin, setPaxWalkin] = useState(2)
@@ -4582,6 +4638,8 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
 
   const tocarMesa = (mesa: Mesa) => {
     if (!reservaElegida) {
+      const alerta = alertaDe(mesa.id)
+      if (alerta && alerta.nivel !== 'proxima') { sentarAqui.reset(); noVino.reset(); setMenuDe({ reserva: alerta.r, mesa }); return }
       if (esHoyPlano && !ocupada(mesa.id)) { setPaxWalkin(2); sentarWalkin.reset(); setWalkinEn(mesa) }
       return
     }
@@ -4702,9 +4760,23 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
               const esDestino = !!reservaElegida
               const esLaDeElegida = reservaElegida?.mesaId === mesa.id
               const conGente = ocupada(mesa.id)
-              const border = esLaDeElegida ? '#38bdf8' : hayAviso ? '#f59e0b' : lista.length ? '#4B9EDF' : conGente ? '#a855f7' : (isDark ? '#334155' : '#cbd5e1')
+              const alerta = alertaDe(mesa.id)
+              const estiloAlerta = alerta ? ESTILO_RESERVA[alerta.nivel] : null
+              const border = esLaDeElegida ? '#38bdf8' : estiloAlerta ? estiloAlerta.color : hayAviso ? '#f59e0b' : lista.length ? '#4B9EDF' : conGente ? '#a855f7' : (isDark ? '#334155' : '#cbd5e1')
               return (
-                <div key={mesa.id} onClick={() => tocarMesa(mesa)} style={{
+                <Fragment key={mesa.id}>
+                {/* Aureola que late por fuera de la mesa: solo cambia opacidad y escala (barato en una tablet) */}
+                {estiloAlerta && (
+                  <div className="reserva-latido" style={{
+                    position: 'absolute', left: mesa.x - 7, top: mesa.y - 7, width: w + 14, height: h + 14,
+                    borderRadius: isRound ? '50%' : 10, border: `4px solid ${estiloAlerta.color}`,
+                    boxShadow: `0 0 14px ${estiloAlerta.color}`, pointerEvents: 'none',
+                    animationDuration: estiloAlerta.ritmo,
+                    // rotate aparte: la animación usa transform (escala) y lo pisaría
+                    rotate: mesa.rotacion ? `${mesa.rotacion}deg` : undefined,
+                  }} />
+                )}
+                <div onClick={() => tocarMesa(mesa)} style={{
                   position: 'absolute', left: mesa.x, top: mesa.y, width: w, height: h,
                   borderRadius: isRound ? '50%' : 6,
                   background: conGente ? (isDark ? '#2d1a3a' : '#f3e8ff') : lista.length ? (isDark ? '#0f2240' : '#e0f2fe') : (isDark ? '#111827' : '#f8fafc'),
@@ -4722,7 +4794,7 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
                         style={{
                           fontFamily: 'ui-monospace, monospace', fontWeight: 800, fontSize: chicaMesa ? 9 : 12, lineHeight: 1.15, whiteSpace: 'nowrap',
                           padding: '0 3px', borderRadius: 4,
-                          color: r.id === elegida ? '#fff' : conAviso(r) ? '#d97706' : r.estado === 'sentada' ? (isDark ? '#64748b' : '#94a3b8') : (isDark ? '#7dd3fc' : '#0369a1'),
+                          color: r.id === elegida ? '#fff' : alerta?.r.id === r.id ? alerta.nivel === 'proxima' ? (isDark ? '#facc15' : '#a16207') : alerta.nivel === 'llega' ? '#f97316' : '#ef4444' : conAviso(r) ? '#d97706' : r.estado === 'sentada' ? (isDark ? '#64748b' : '#94a3b8') : (isDark ? '#7dd3fc' : '#0369a1'),
                           background: r.id === elegida ? '#0ea5e9' : 'transparent',
                           textDecoration: r.estado === 'sentada' ? 'line-through' : undefined,
                         }}>
@@ -4732,6 +4804,19 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
                     {resto > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: isDark ? '#94a3b8' : '#64748b' }}>+{resto}</span>}
                   </div>
                 </div>
+                {/* Pastilla encima de la mesa: cuánto falta o cuánto lleva de retraso */}
+                {alerta && estiloAlerta && (
+                  <span onClick={() => tocarMesa(mesa)} style={{
+                    position: 'absolute', left: mesa.x + w / 2, top: mesa.y - 11, transform: 'translate(-50%, -50%)',
+                    zIndex: 2, padding: '1px 7px', borderRadius: 999, whiteSpace: 'nowrap',
+                    background: estiloAlerta.color, color: alerta.nivel === 'proxima' ? '#1c1917' : '#fff',
+                    fontWeight: 900, fontSize: 12, lineHeight: 1.4, boxShadow: '0 2px 6px rgba(0,0,0,0.35)',
+                    cursor: 'pointer',
+                  }}>
+                    {textoNivelReserva(alerta)}
+                  </span>
+                )}
+                </Fragment>
               )
             })}
           </div>
@@ -4739,6 +4824,47 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
       ) : (
         <div className="flex-1 flex items-center justify-center text-[var(--sala-tx4)] text-sm">No hay mesas configuradas</div>
       )}
+
+      {menuDe && (() => {
+        const { reserva, mesa } = menuDe
+        const n = nivelReserva(reserva.hora, ahoraMin)
+        const conGenteAhi = ocupada(mesa.id)
+        return (
+          <div className="fixed inset-0 z-[70] bg-black/70 flex items-end sm:items-center justify-center" onClick={() => setMenuDe(null)}>
+            <div className="bg-[var(--sala-srf)] rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+              <div className="flex">
+                <BloqueHoraPax hora={reserva.hora} pax={reserva.pax}
+                  tono={n?.nivel === 'tarde' ? 'text-red-500' : 'text-orange-500'} />
+                <div className="flex-1 min-w-0 p-4">
+                  <div className="flex items-start gap-2">
+                    <p className="flex-1 min-w-0 text-[var(--sala-txt)] font-black text-lg leading-tight truncate">{nombreDe(reserva)}</p>
+                    <button onClick={() => setMenuDe(null)} className="text-[var(--sala-tx3)] text-lg px-1 -mt-1">✕</button>
+                  </div>
+                  <p className={`text-sm font-black mt-0.5 ${n?.nivel === 'tarde' ? 'text-red-500' : 'text-orange-500'}`}>
+                    Mesa {mesa.numero} · {n?.nivel === 'tarde' ? `⏰ ${-n.faltan} min tarde` : n && n.faltan > 0 ? `llega en ${n.faltan} min` : 'ya deberían estar'}
+                  </p>
+                  {reserva.notas && <p className="text-amber-500 text-xs font-bold mt-1">📝 {reserva.notas}</p>}
+                </div>
+              </div>
+              <div className="p-4 pt-1 space-y-2">
+                {reserva.telefono && <ContactoReserva telefono={reserva.telefono} />}
+                {conGenteAhi && <p className="text-purple-400 text-xs font-bold">La mesa {mesa.numero} tiene gente ahora: toca "Cambiar de mesa" para sentarlos en otra.</p>}
+                <button onClick={() => sentarAqui.mutate({ reserva, mesa })} disabled={sentarAqui.isPending || conGenteAhi}
+                  className="w-full py-3 rounded-xl text-white font-black disabled:opacity-40" style={{ background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)' }}>
+                  {sentarAqui.isPending ? 'Sentando…' : `✅ Sentar en ${mesa.numero}`}
+                </button>
+                <div className="flex gap-2">
+                  <button onClick={() => { setMenuDe(null); setElegida(reserva.id) }}
+                    className="flex-1 py-2.5 rounded-xl bg-[var(--sala-btn)] text-[var(--sala-tx1)] text-sm font-bold">🪑 Cambiar de mesa</button>
+                  <button onClick={() => noVino.mutate(reserva.id)} disabled={noVino.isPending}
+                    className="flex-1 py-2.5 rounded-xl bg-red-500/15 text-red-500 text-sm font-black disabled:opacity-50">🚫 No vino</button>
+                </div>
+                {(sentarAqui.error || noVino.error) && <p className="text-red-400 text-xs font-bold">{((sentarAqui.error || noVino.error) as Error).message}</p>}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {walkinEn && (
         <div className="fixed inset-0 z-[70] bg-black/70 flex items-center justify-center px-4" onClick={() => setWalkinEn(null)}>
@@ -4750,6 +4876,14 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
               <span className="flex-1 text-center text-[var(--sala-txt)] text-5xl font-black tabular-nums">{paxWalkin}</span>
               <button onClick={() => setPaxWalkin(p => p + 1)} className="w-14 h-14 rounded-xl bg-[var(--sala-btn)] text-[var(--sala-txt)] text-3xl">+</button>
             </div>
+            {(() => {
+              const prox = deMesa(walkinEn.id).find(r => r.estado === 'confirmada' && minutosHora(r.hora) > ahoraMin)
+              return prox && (
+                <p className="text-amber-500 text-xs font-bold mb-3 text-center">
+                  ⚠ Esta mesa tiene reserva a las {prox.hora} (en {minutosHora(prox.hora) - ahoraMin} min)
+                </p>
+              )
+            })()}
             {walkinEn.capacidad > 0 && paxWalkin > walkinEn.capacidad && (
               <p className="text-amber-500 text-xs font-bold mb-3 text-center">⚠ La mesa es para {walkinEn.capacidad}</p>
             )}
@@ -5346,8 +5480,9 @@ function EncargadoPanel({
                 const tarjeta = (r: Reserva) => {
                   const walkin = r.origen === 'walkin'
                   const faltan = esHoy && r.estado === 'confirmada' ? minutosHasta(r.hora) : null
-                  const tarde = faltan !== null && faltan <= -15
-                  const pronto = faltan !== null && faltan > -15 && faltan <= 30
+                  const nivel = faltan !== null ? nivelReserva(r.hora, minutosAhora())?.nivel : undefined
+                  const tarde = nivel === 'tarde'
+                  const pronto = nivel === 'proxima' || nivel === 'llega'
                   const descartada = r.estado === 'cancelada' || r.estado === 'no_show'
                   const borde = descartada ? 'border-[var(--sala-brd)]' : r.estado === 'sentada' ? 'border-emerald-500'
                     : tarde ? 'border-red-500' : pronto ? 'border-amber-400' : 'border-sky-400'
