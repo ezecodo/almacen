@@ -4808,7 +4808,12 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
                     {!numEnEsquina && <span style={{ color: isDark ? '#e2e8f0' : '#0f172a', fontWeight: 800, fontSize: chicaMesa ? 12 : 16, lineHeight: 1.1 }}>{mesa.numero}</span>}
                     {conGente && !chicaMesa && lista.length === 0 && <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.05em', color: isDark ? '#c084fc' : '#9333ea' }}>OCUPADA</span>}
                     {visibles.map(r => (
-                      <span key={r.id} onClick={e => { if (r.estado !== 'confirmada') return; e.stopPropagation(); setElegida(elegida === r.id ? null : r.id) }}
+                      <span key={r.id} onClick={e => {
+                        // Con otra reserva elegida, tocar esta hora es tocar la mesa (asignarla aquí también):
+                        // con la hora y el apellido, la reserva que ya está ocupa casi toda la mesa
+                        if (r.estado !== 'confirmada' || (elegida && elegida !== r.id)) return
+                        e.stopPropagation(); setElegida(elegida === r.id ? null : r.id)
+                      }}
                         style={{
                           display: 'flex', flexDirection: 'column', alignItems: 'center',
                           fontFamily: 'ui-monospace, monospace', fontWeight: 800, fontSize: chicaMesa ? 9 : 12, lineHeight: 1.15, whiteSpace: 'nowrap',
