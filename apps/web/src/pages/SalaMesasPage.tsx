@@ -117,18 +117,21 @@ function nivelesPropuestos(items: ComandaItem[], menu: MenuItem[], categorias: M
   return r
 }
 
-// Colores de cada estado de mesa, los mismos que el mapa (MesaBtn): libre verde, abierta verde agua
-// sobre azul, comandada morado, cuenta impresa verde con borde ámbar. Los usa el panel del encargado.
+// Colores de cada estado de mesa, como un semáforo (idea de Eze, 2026-10-21): libre verde, comandada
+// ámbar, cuenta impresa rojo. La abierta sin comandar queda aparte, verde agua sobre azul. Los usan
+// el mapa (MesaBtn) y el panel del encargado del TPV.
 function coloresMesa(estado: 'libre' | Comanda['estado'], isDark: boolean) {
-  if (estado === 'enviada') return { bg: isDark ? '#2d1a3a' : '#f3e8ff', borde: '#a855f7', texto: isDark ? '#c084fc' : '#9333ea' }
+  if (estado === 'enviada') return { bg: isDark ? '#3a2a08' : '#fef3c7', borde: '#f59e0b', texto: isDark ? '#fbbf24' : '#b45309' }
   if (estado === 'abierta') return { bg: isDark ? '#0f2240' : '#dbeafe', borde: '#4CC8A0', texto: isDark ? '#4CC8A0' : '#0d9488' }
-  if (estado === 'facturada') return { bg: isDark ? '#1a3828' : '#dcfce7', borde: '#f59e0b', texto: '#d97706' }
+  if (estado === 'facturada') return { bg: isDark ? '#3a1414' : '#fee2e2', borde: '#ef4444', texto: isDark ? '#f87171' : '#dc2626' }
   return { bg: isDark ? '#1a3828' : '#dcfce7', borde: '#22c55e', texto: '#16a34a' } // libre, liberada, cerrada
 }
+// Marco interior "falta cobrar" (cuenta impresa de los de antes): rojo, como la cuenta impresa
+const COLOR_SIN_COBRAR = '#ef4444'
 
 // ── Mesa visual ───────────────────────────────────────────────────────────────
 // pendienteCobro: la mesa tiene además una cuenta impresa sin cobrar (los de antes) mientras ya se
-// sentaron otros → un segundo marco ámbar por dentro, más chico, con su aureola.
+// sentaron otros → un segundo marco rojo por dentro, más chico, con su aureola.
 function MesaBtn({ mesa, comanda, pendienteCobro = false, onClick }: { mesa: Mesa; comanda?: Comanda; pendienteCobro?: boolean; onClick: () => void }) {
   const isDark = useContext(ThemeCtx)
   const w = mesaWidth(mesa)
@@ -150,28 +153,15 @@ function MesaBtn({ mesa, comanda, pendienteCobro = false, onClick }: { mesa: Mes
   }
 
   const libre      = !comanda
-  const enviada    = comanda?.estado === 'enviada'
   const facturada  = comanda?.estado === 'facturada'
   const isRound    = mesa.tipo === 'round' || mesa.tipo === 'silla_alta'
 
   const isSillaAlta = mesa.tipo === 'silla_alta'
 
-  // libre y facturada: fondo verde "space" — facturada añade borde ámbar
-  const bg     = isDark
-    ? (libre || facturada ? '#1a3828' : enviada ? '#2d1a3a' : isSillaAlta ? '#1a1000' : '#0f2240')
-    : (libre || facturada ? '#dcfce7' : enviada ? '#f3e8ff' : isSillaAlta ? '#fef3c7' : '#dbeafe')
-
-  const border = libre      ? '#22c55e'
-               : facturada  ? '#f59e0b'
-               : enviada    ? '#a855f7'
-               : isSillaAlta ? '#d97706' : '#4CC8A0'
-
+  // Semáforo: libre verde, comandada ámbar, cuenta impresa rojo (abierta sin comandar, verde agua)
+  const { bg, borde: border, texto } = coloresMesa(comanda?.estado ?? 'libre', isDark)
   const glow   = isDark
-    ? (libre      ? '0 0 16px #22c55e88, 0 0 32px #22c55e22'
-     : facturada  ? '0 0 20px #f59e0b99, 0 0 40px #f59e0b33'
-     : enviada    ? '0 0 20px #a855f799, 0 0 40px #a855f733'
-     : isSillaAlta ? '0 0 20px #d9770699, 0 0 40px #d9770633'
-     :               '0 0 20px #4CC8A099, 0 0 40px #4CC8A033')
+    ? (libre ? `0 0 16px ${border}88, 0 0 32px ${border}22` : `0 0 20px ${border}99, 0 0 40px ${border}33`)
     : 'none'
 
   return (
@@ -196,23 +186,20 @@ function MesaBtn({ mesa, comanda, pendienteCobro = false, onClick }: { mesa: Mes
       {pendienteCobro && (
         <div title="Cuenta sin cobrar" style={{
           position: 'absolute', inset: 4, borderRadius: isRound ? '50%' : '4px',
-          border: '2px solid #f59e0b', pointerEvents: 'none',
-          boxShadow: isDark ? '0 0 10px #f59e0bcc, inset 0 0 8px #f59e0b66' : '0 0 6px #f59e0b99, inset 0 0 5px #f59e0b55',
+          border: `2px solid ${COLOR_SIN_COBRAR}`, pointerEvents: 'none',
+          boxShadow: isDark ? `0 0 10px ${COLOR_SIN_COBRAR}cc, inset 0 0 8px ${COLOR_SIN_COBRAR}66` : `0 0 6px ${COLOR_SIN_COBRAR}99, inset 0 0 5px ${COLOR_SIN_COBRAR}55`,
         }} />
       )}
       <div style={{ transform: mesa.rotacion ? `rotate(${-mesa.rotacion}deg)` : undefined, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
         <span style={{
-          color: libre      ? '#16a34a'
-               : facturada  ? '#d97706'
-               : enviada    ? (isDark ? '#c084fc' : '#9333ea')
-               : isSillaAlta ? '#d97706' : (isDark ? '#4CC8A0' : '#0d9488'),
+          color: texto,
           fontWeight: 800, fontSize: isSillaAlta ? 14 : 18,
         }}>
           {mesa.numero}
         </span>
         {!libre && !facturada && (
           <span style={{
-            color: enviada ? (isDark ? '#d8b4fe' : '#7c3aed') : isSillaAlta ? '#d97706' : (isDark ? '#6ee7b7' : '#059669'),
+            color: texto, opacity: 0.85,
             fontSize: 9, marginTop: 1,
           }}>{timeAgo(comanda!.createdAt)}</span>
         )}
@@ -6183,7 +6170,7 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
 
   // Una mesa puede tener dos comandas: la cuenta de los de antes sin cobrar (facturada o liberada) y
   // la de los que se acaban de sentar. Manda la de ahora (es la que se abre y da el color); la otra
-  // se marca con el marco ámbar interior.
+  // se marca con el marco rojo interior.
   const { data: liberadasMapa = [] } = useQuery({
     queryKey: ['enc-cobros', restaurant?.id, 'liberada'],
     queryFn: () => api.comandas.list(restaurant!.id, 'liberada'),
