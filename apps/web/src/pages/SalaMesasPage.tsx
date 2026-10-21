@@ -4816,7 +4816,7 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
                           padding: '0 3px', borderRadius: 4,
                           // Entre una reserva y la siguiente, una raya punteada: dos apellidos seguidos
                           // ("MARTIN" / "GÓMEZ") se leían como un solo nombre
-                          ...(i > 0 ? { borderTop: `1px dashed ${isDark ? '#475569' : '#94a3b8'}`, marginTop: 1, paddingTop: 1, borderTopLeftRadius: 0, borderTopRightRadius: 0 } : {}),
+                          ...(i > 0 ? { borderTop: `2px dashed ${isDark ? '#94a3b8' : '#475569'}`, marginTop: 2, paddingTop: 2, borderTopLeftRadius: 0, borderTopRightRadius: 0 } : {}),
                           color: r.id === elegida ? '#fff' : alerta?.r.id === r.id ? alerta.nivel === 'proxima' ? (isDark ? '#facc15' : '#a16207') : alerta.nivel === 'llega' ? '#f97316' : '#ef4444' : conAviso(r) ? '#d97706' : r.estado === 'sentada' ? (isDark ? '#64748b' : '#94a3b8') : (isDark ? '#7dd3fc' : '#0369a1'),
                           background: r.id === elegida ? '#0ea5e9' : 'transparent',
                           textDecoration: r.estado === 'sentada' ? 'line-through' : undefined,
