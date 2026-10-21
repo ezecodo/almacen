@@ -4703,8 +4703,8 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
   // Deslizar como en el mapa de la sala: a la izquierda el salón siguiente, a la derecha el anterior;
   // desde el primero, a la derecha se vuelve a la lista. El nombre del salón sale un momento en grande.
   const swipe = useRef<{ x: number; y: number } | null>(null)
-  // Zoom propio del plano: pellizcar con dos dedos acerca, con uno se arrastra, y doble toque en un
-  // hueco vuelve a la vista normal (o acerca ahí si no había zoom). El zoom del navegador no se puede
+  // Zoom propio del plano: pellizcar con dos dedos acerca, con uno se arrastra; con zoom, un toque en
+  // un hueco vuelve a la vista normal, y sin zoom el doble toque acerca ahí. El zoom del navegador no se puede
   // deshacer desde la app, por eso el plano no lo deja pasar (touch-action: none).
   const [vista, setVista] = useState({ z: 1, x: 0, y: 0 })
   const vistaRef = useRef(vista)
@@ -4903,7 +4903,7 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
 
       {/* El plano, escalado a la pantalla como el mapa de la sala */}
       {plan && plan.mesas.length > 0 ? (
-        <div className="flex-1 overflow-hidden relative" style={{ touchAction: 'none' }}
+        <div className="flex-1 overflow-hidden relative select-none" style={{ touchAction: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none' }}
           onTouchStart={e => {
             const v = vistaRef.current
             if (e.touches.length >= 2) {
@@ -4956,6 +4956,9 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
               if (Math.abs(dx) > th.dx && Math.abs(dy) < th.dy) { irASalon(dx < 0 ? 1 : -1); return }
             }
             if (movido.current || !esHueco(e.target)) { ultimoToque.current = null; return }
+            // Con zoom, un solo toque en un hueco vuelve a la vista normal (el doble toque seleccionaba
+            // texto en algunos teléfonos)
+            if (vistaRef.current.z > 1) { e.preventDefault(); ultimoToque.current = null; setVista({ z: 1, x: 0, y: 0 }); return }
             const ahora = Date.now(), ult = ultimoToque.current
             if (ult && ahora - ult.t < 320 && Math.hypot(fin.clientX - ult.x, fin.clientY - ult.y) < 40) {
               ultimoToque.current = null
@@ -4965,6 +4968,7 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
           }}
           // Después de arrastrar o pellizcar, el toque no cuenta como tocar una mesa
           onClickCapture={e => { if (movido.current) { e.stopPropagation(); movido.current = false } }}
+          onClick={e => { if (Date.now() - finToque.current > 800 && vistaRef.current.z > 1 && esHueco(e.target)) setVista({ z: 1, x: 0, y: 0 }) }}
           onDoubleClick={e => { if (Date.now() - finToque.current > 800 && esHueco(e.target)) { const p = puntoEn(e.clientX, e.clientY); alternarZoom(p.x, p.y) } }}
           ref={el => {
           contRef.current = el
