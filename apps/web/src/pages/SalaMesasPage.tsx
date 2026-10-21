@@ -4484,6 +4484,13 @@ function QuienEstaSheet({ comanda, onClose }: { comanda: Comanda; onClose: () =>
 // reservas) o la mesa es chica, solo avisa en ámbar.
 const DURACION_RESERVA_DEFECTO = 90
 
+// Lo que cabe en la mesa del plano: el apellido. "Juan García López" → GARCÍA (el primero, el que
+// se usa al llamar); con una sola palabra, esa. El nombre entero sale al tocar la reserva.
+function apellidoReserva(nombre: string) {
+  const partes = nombre.trim().split(/\s+/)
+  return partes.length > 1 ? partes[1] : partes[0]
+}
+
 function fechaLocal(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
@@ -4744,6 +4751,9 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
               const lista = deMesa(mesa.id)
               const isRound = mesa.tipo === 'round' || mesa.tipo === 'silla_alta'
               const chicaMesa = mesa.tipo === 'silla_alta'
+              // Con sitio para todas, cada reserva lleva su apellido bajo la hora (como Zenchef);
+              // si no entran, solo las horas
+              const conNombre = !chicaMesa && lista.length > 0 && lista.length <= Math.floor((h - 26) / 27)
               const caben = chicaMesa ? 1 : Math.max(1, Math.floor((h - 26) / 15))
               const visibles = lista.length > caben ? lista.slice(0, caben - 1 || 1) : lista
               const resto = lista.length - visibles.length
@@ -4784,13 +4794,20 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
                     {visibles.map(r => (
                       <span key={r.id} onClick={e => { if (r.estado !== 'confirmada') return; e.stopPropagation(); setElegida(elegida === r.id ? null : r.id) }}
                         style={{
+                          display: 'flex', flexDirection: 'column', alignItems: 'center',
                           fontFamily: 'ui-monospace, monospace', fontWeight: 800, fontSize: chicaMesa ? 9 : 12, lineHeight: 1.15, whiteSpace: 'nowrap',
                           padding: '0 3px', borderRadius: 4,
                           color: r.id === elegida ? '#fff' : alerta?.r.id === r.id ? alerta.nivel === 'proxima' ? (isDark ? '#facc15' : '#a16207') : alerta.nivel === 'llega' ? '#f97316' : '#ef4444' : conAviso(r) ? '#d97706' : r.estado === 'sentada' ? (isDark ? '#64748b' : '#94a3b8') : (isDark ? '#7dd3fc' : '#0369a1'),
                           background: r.id === elegida ? '#0ea5e9' : 'transparent',
                           textDecoration: r.estado === 'sentada' ? 'line-through' : undefined,
                         }}>
-                        {r.origen === 'walkin' ? '🚶' : ''}{r.hora}
+                        <span>{r.origen === 'walkin' ? '🚶' : ''}{r.hora}</span>
+                        {conNombre && r.origen !== 'walkin' && r.nombre && (
+                          <span style={{
+                            fontFamily: 'system-ui, -apple-system, sans-serif', fontSize: 10, fontWeight: 800, letterSpacing: '0.02em', textTransform: 'uppercase',
+                            maxWidth: w - 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          }}>{apellidoReserva(r.nombre)}</span>
+                        )}
                       </span>
                     ))}
                     {resto > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: isDark ? '#94a3b8' : '#64748b' }}>+{resto}</span>}
