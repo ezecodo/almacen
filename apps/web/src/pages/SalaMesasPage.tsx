@@ -4507,10 +4507,61 @@ function minutosHora(h: string) {
   return hh * 60 + (mm || 0)
 }
 
-function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNombre, onClose, onDespues, empezarPorElUltimo = false }: {
+// ── La vuelta de deslizar del encargado ──────────────────────────────────────
+// Mapa (un paso por salón) → Cobros → Reservas → Plano de reservas (un paso por salón) → mapa otra vez.
+// Un solo indicador, igual en las tres pantallas: en qué paso de la vuelta estás y, tocando un
+// puntito, saltar directo a ese paso. El camarero solo tiene los salones del mapa.
+type PasoVuelta = { clave: string; grupo: 'sala' | 'cobros' | 'reservas' | 'plano'; nombre: string }
+type Vuelta = { pasos: PasoVuelta[]; onIr: (clave: string) => void }
+function pasosVuelta(planes: { id: number; nombre: string }[], conVuelta: boolean): PasoVuelta[] {
+  const sala = planes.map(p => ({ clave: `sala:${p.id}`, grupo: 'sala' as const, nombre: p.nombre }))
+  if (!conVuelta) return sala
+  return [
+    ...sala,
+    { clave: 'cobros', grupo: 'cobros', nombre: 'Cobros' },
+    { clave: 'reservas', grupo: 'reservas', nombre: 'Reservas' },
+    ...planes.map(p => ({ clave: `plano:${p.id}`, grupo: 'plano' as const, nombre: `Plano · ${p.nombre}` })),
+  ]
+}
+const ICONO_PASO: Record<PasoVuelta['grupo'], JSX.Element> = {
+  sala: <><rect x="4" y="6" width="16" height="12" rx="2" /><path d="M8 18v3M16 18v3" /></>,
+  cobros: <><rect x="2.5" y="6" width="19" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /><path d="M6 9.5v5M18 9.5v5" /></>,
+  reservas: <><rect x="3" y="4.5" width="18" height="16.5" rx="2.5" /><path d="M8 2.5v4M16 2.5v4M3 9.5h18" /></>,
+  plano: <><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 12h7M14 3v7M14 15v6" /></>,
+}
+function IndicadorVuelta({ vuelta, actual }: { vuelta: Vuelta; actual: string }) {
+  if (vuelta.pasos.length < 2) return null
+  const grupos = [...new Set(vuelta.pasos.map(p => p.grupo))]
+  const grupoActual = vuelta.pasos.find(p => p.clave === actual)?.grupo
+  return (
+    <div className="flex items-start justify-center gap-4 select-none">
+      {grupos.map(g => (
+        <div key={g} className="flex flex-col items-center">
+          <div className="flex">
+            {vuelta.pasos.filter(p => p.grupo === g).map(p => (
+              <button key={p.clave} onClick={() => { if (p.clave !== actual) vuelta.onIr(p.clave) }} aria-label={p.nombre} title={p.nombre}
+                className="h-5 px-[3px] flex items-center">
+                <span className={`block h-2 rounded-full transition-all duration-300 ${p.clave === actual ? 'w-6 bg-[#4CC8A0]' : 'w-2 bg-[var(--sala-tx4)]'}`} />
+              </button>
+            ))}
+          </div>
+          {grupos.length > 1 && (
+            <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"
+              className={g === grupoActual ? 'text-[#4CC8A0]' : 'text-[var(--sala-tx4)]'} aria-hidden>
+              {ICONO_PASO[g]}
+            </svg>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNombre, onClose, onDespues, salonInicial, vuelta }: {
   restaurantId: number
-  // Llegando desde el mapa de la sala hacia atrás (deslizar a la derecha en su primer salón)
-  empezarPorElUltimo?: boolean
+  // Salón con el que abre (llegando por la vuelta de deslizar o tocando su puntito)
+  salonInicial?: number
+  vuelta?: Vuelta
   reservaInicial?: number
   fechaInicial?: string
   camareroNombre?: string
@@ -4541,7 +4592,7 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
   useEffect(() => {
     if (planId || !planes.length) return
     const mesaIni = reservas.find(r => r.id === reservaInicial)?.mesaId
-    setPlanId(planes.find(p => p.mesas.some(m => m.id === mesaIni))?.id ?? (empezarPorElUltimo ? planes[planes.length - 1] : planes[0]).id)
+    setPlanId(planes.find(p => p.mesas.some(m => m.id === mesaIni))?.id ?? planes.find(p => p.id === salonInicial)?.id ?? planes[0].id)
   }, [planes, reservas])
   const plan = planes.find(p => p.id === planId) ?? planes[0] ?? null
   // Otro salón u otro día: vista normal
@@ -4824,7 +4875,7 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
             </div>
           )}
           {/* Puntitos: en qué salón estás (deslizar para cambiar) */}
-          {planes.length > 1 && (
+          {!vuelta && planes.length > 1 && (
             <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-10 flex gap-1.5 pointer-events-none">
               {planes.map(p => (
                 <span key={p.id} className={`h-2 rounded-full transition-all ${p.id === plan.id ? 'w-5 bg-[#4CC8A0]' : 'w-2 bg-[var(--sala-tx4)]'}`} />
@@ -5049,6 +5100,8 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
 
       {/* Abajo: la reserva elegida (qué hacer con ella) o la tira de las que no tienen mesa */}
       <div className="border-t border-[var(--sala-brd)] bg-[var(--sala-hdr)] px-4 py-3">
+        {/* En qué paso de la vuelta de deslizar estás (encargado) */}
+        {vuelta && plan && <div className="-mt-2 mb-1.5"><IndicadorVuelta vuelta={vuelta} actual={`plano:${plan.id}`} /></div>}
         {reservaElegida ? (
           <div>
             <div className="flex items-center gap-2">
@@ -5108,6 +5161,7 @@ function EncargadoPanel({
   tabInicial,
   soloCobros: soloCobrosInicial = false,
   onVolverAlMapa,
+  vuelta,
 }: {
   restaurant: { id: number; nombre: string }
   camarero: { id?: number; nombre: string }
@@ -5123,6 +5177,8 @@ function EncargadoPanel({
   soloCobros?: boolean
   // Fin de la vuelta de deslizar (último salón del plano de reservas): al mapa de la sala, primer salón
   onVolverAlMapa?: () => void
+  // La vuelta completa de deslizar (para su indicador); sin ella, solo los puntitos de cobros/reservas
+  vuelta?: Vuelta
 }) {
   const queryClient = useQueryClient()
   const rid = restaurant.id
@@ -5314,7 +5370,7 @@ function EncargadoPanel({
   return (
     <div className="fixed inset-0 z-40 flex justify-end" onClick={onClose}>
       {plano && <PlanoReservas restaurantId={rid} reservaInicial={plano.reservaId} fechaInicial={plano.fecha ?? fechaReservas} camareroNombre={camarero.nombre} onClose={() => setPlano(null)}
-        onDespues={onVolverAlMapa ? () => { setPlano(null); onVolverAlMapa() } : undefined} />}
+        onDespues={onVolverAlMapa ? () => { setPlano(null); onVolverAlMapa() } : undefined} vuelta={vuelta} />}
       <div className="relative w-full sm:max-w-md bg-[var(--sala-hdr)] h-full flex flex-col shadow-2xl border-l border-[var(--sala-brd)]" onClick={e => e.stopPropagation()}
         onTouchStart={e => { if (soloCobros || tab === 'reservas') swipeCobros.current = { x: e.touches[0].clientX, y: e.touches[0].clientY } }}
         onTouchEnd={e => {
@@ -5347,13 +5403,13 @@ function EncargadoPanel({
                   {tab === 'reservas' ? `Reservas de hoy${pool.length ? ` · ${pool.length} en el pool` : ''}` : `${pendientes.length} por cobrar`}
                 </p>
                 <h2 className="text-[var(--sala-txt)] font-black text-2xl">{tab === 'reservas' ? '📅 Reservas' : '💶 Cobros'}</h2>
-                {/* En qué paso del deslizamiento estás */}
-                <div className="flex gap-1.5 mt-1.5">
+                {/* En qué paso del deslizamiento estás (con la vuelta completa, abajo) */}
+                {!vuelta && <div className="flex gap-1.5 mt-1.5">
                   {DESLIZAR.map(t => (
                     <button key={t} onClick={() => setTab(t)} aria-label={t}
                       className={`h-1.5 rounded-full transition-all ${tab === t ? 'w-5 bg-[#4CC8A0]' : 'w-1.5 bg-[var(--sala-tx4)]'}`} />
                   ))}
-                </div>
+                </div>}
               </div>
             ) : (
             <div>
@@ -5926,6 +5982,11 @@ function EncargadoPanel({
             </div>
           )}
         </div>
+        {soloCobros && vuelta && (
+          <div className="shrink-0 border-t border-[var(--sala-brd)] pt-1 pb-[max(0.375rem,env(safe-area-inset-bottom))]">
+            <IndicadorVuelta vuelta={vuelta} actual={tab} />
+          </div>
+        )}
 
         {/* Sheet de cobro (mismo flujo que el dashboard) */}
         {cobroDe && (
@@ -6402,13 +6463,28 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
       else { setTabEncargado('cobros'); setEncargadoSoloCobros(true); setShowEncargado(true) }
     }
     // La vuelta al revés: del primer salón, a la derecha, el plano de reservas (su último salón)
-    if (dir === -1 && esEncargado && !enLocal) setPlanoDesdeMapa(true)
+    if (dir === -1 && esEncargado && !enLocal) setPlanoDesdeMapa(planes[planes.length - 1].id)
   }
-  const [planoDesdeMapa, setPlanoDesdeMapa] = useState(false)
+  // Plano de reservas abierto desde la vuelta de deslizar (el id del salón con que abre)
+  const [planoDesdeMapa, setPlanoDesdeMapa] = useState<number | null>(null)
+  // La vuelta completa: solo el encargado, con internet y fuera del TPV (allí sigue al 📊 Panel)
+  const conVuelta = esEncargado && !enLocal && !tpv
+  const [panelKey, setPanelKey] = useState(0)
+  const irAPaso = (clave: string) => {
+    const [grupo, id] = clave.split(':')
+    if (grupo === 'sala') { setShowEncargado(false); setPlanoDesdeMapa(null); setView('mapa'); setPlanId(Number(id)); return }
+    if (grupo === 'plano') { setShowEncargado(false); setPlanoDesdeMapa(Number(id)); return }
+    setPlanoDesdeMapa(null)
+    setTabEncargado(grupo as TabEncargado)
+    setEncargadoSoloCobros(true)
+    setPanelKey(k => k + 1) // el panel toma la pestaña al montarse
+    setShowEncargado(true)
+  }
+  const vuelta: Vuelta = { pasos: pasosVuelta(planes ?? [], conVuelta), onIr: irAPaso }
   // Fin de la vuelta de deslizar (último salón del plano de reservas): al mapa, primer salón
   const volverAlMapa = () => {
     setShowEncargado(false)
-    setPlanoDesdeMapa(false)
+    setPlanoDesdeMapa(null)
     setView('mapa')
     const primero = planes?.[0]
     if (primero) {
@@ -6797,6 +6873,11 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
           <p className="text-[var(--sala-tx4)] text-sm">No hay planos configurados.</p>
         </div>
       ))}
+      {view === 'mapa' && activePlan && vuelta.pasos.length > 1 && (
+        <div className="shrink-0 pt-0.5 pb-1 bg-[var(--sala-hdr)] border-t border-[var(--sala-brd)]">
+          <IndicadorVuelta vuelta={vuelta} actual={`sala:${activePlan.id}`} />
+        </div>
+      )}
       {view === 'mapa' && activePlan && <FranjaAltos restaurantId={restaurant.id} />}
 
       {/* Vista: Mesas abiertas */}
@@ -6970,13 +7051,15 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
           tabInicial={tabEncargado}
           soloCobros={encargadoSoloCobros}
           onVolverAlMapa={volverAlMapa}
+          vuelta={conVuelta ? vuelta : undefined}
+          key={panelKey}
         />
       )}
-      {planoDesdeMapa && restaurant && (
-        <PlanoReservas restaurantId={restaurant.id} camareroNombre={camarero?.nombre} empezarPorElUltimo
+      {planoDesdeMapa != null && restaurant && (
+        <PlanoReservas key={planoDesdeMapa} restaurantId={restaurant.id} camareroNombre={camarero?.nombre} salonInicial={planoDesdeMapa}
           // Hacia la derecha desde su primer salón: la lista de reservas, como en la vuelta normal
-          onClose={() => { setPlanoDesdeMapa(false); setTabEncargado('reservas'); setEncargadoSoloCobros(true); setShowEncargado(true) }}
-          onDespues={volverAlMapa} />
+          onClose={() => irAPaso('reservas')}
+          onDespues={volverAlMapa} vuelta={conVuelta ? vuelta : undefined} />
       )}
     </div>
     </TpvCtx.Provider>
