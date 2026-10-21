@@ -4507,8 +4507,10 @@ function minutosHora(h: string) {
   return hh * 60 + (mm || 0)
 }
 
-function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNombre, onClose, onDespues }: {
+function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNombre, onClose, onDespues, empezarPorElUltimo = false }: {
   restaurantId: number
+  // Llegando desde el mapa de la sala hacia atrás (deslizar a la derecha en su primer salón)
+  empezarPorElUltimo?: boolean
   reservaInicial?: number
   fechaInicial?: string
   camareroNombre?: string
@@ -4539,7 +4541,7 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
   useEffect(() => {
     if (planId || !planes.length) return
     const mesaIni = reservas.find(r => r.id === reservaInicial)?.mesaId
-    setPlanId(planes.find(p => p.mesas.some(m => m.id === mesaIni))?.id ?? planes[0].id)
+    setPlanId(planes.find(p => p.mesas.some(m => m.id === mesaIni))?.id ?? (empezarPorElUltimo ? planes[planes.length - 1] : planes[0]).id)
   }, [planes, reservas])
   const plan = planes.find(p => p.id === planId) ?? planes[0] ?? null
   // Otro salón u otro día: vista normal
@@ -6399,6 +6401,22 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
       if (tpv) setView('panel')
       else { setTabEncargado('cobros'); setEncargadoSoloCobros(true); setShowEncargado(true) }
     }
+    // La vuelta al revés: del primer salón, a la derecha, el plano de reservas (su último salón)
+    if (dir === -1 && esEncargado && !enLocal) setPlanoDesdeMapa(true)
+  }
+  const [planoDesdeMapa, setPlanoDesdeMapa] = useState(false)
+  // Fin de la vuelta de deslizar (último salón del plano de reservas): al mapa, primer salón
+  const volverAlMapa = () => {
+    setShowEncargado(false)
+    setPlanoDesdeMapa(false)
+    setView('mapa')
+    const primero = planes?.[0]
+    if (primero) {
+      setPlanId(primero.id)
+      setAvisoSalon(primero.nombre)
+      if (avisoSalonTimer.current) clearTimeout(avisoSalonTimer.current)
+      avisoSalonTimer.current = setTimeout(() => setAvisoSalon(null), 1100)
+    }
   }
 
   // TPV: abrir una mesa tecleando (teclado físico o numérico Bluetooth). Con alguien logueado y sin
@@ -6951,18 +6969,14 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
           onAbrirComanda={id => { setShowEncargado(false); setComandaAbierta(id) }}
           tabInicial={tabEncargado}
           soloCobros={encargadoSoloCobros}
-          onVolverAlMapa={() => {
-            setShowEncargado(false)
-            setView('mapa')
-            const primero = planes?.[0]
-            if (primero) {
-              setPlanId(primero.id)
-              setAvisoSalon(primero.nombre)
-              if (avisoSalonTimer.current) clearTimeout(avisoSalonTimer.current)
-              avisoSalonTimer.current = setTimeout(() => setAvisoSalon(null), 1100)
-            }
-          }}
+          onVolverAlMapa={volverAlMapa}
         />
+      )}
+      {planoDesdeMapa && restaurant && (
+        <PlanoReservas restaurantId={restaurant.id} camareroNombre={camarero?.nombre} empezarPorElUltimo
+          // Hacia la derecha desde su primer salón: la lista de reservas, como en la vuelta normal
+          onClose={() => { setPlanoDesdeMapa(false); setTabEncargado('reservas'); setEncargadoSoloCobros(true); setShowEncargado(true) }}
+          onDespues={volverAlMapa} />
       )}
     </div>
     </TpvCtx.Provider>
