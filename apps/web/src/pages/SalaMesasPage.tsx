@@ -129,6 +129,27 @@ function coloresMesa(estado: 'libre' | Comanda['estado'], isDark: boolean) {
 // Marco interior "falta cobrar" (cuenta impresa de los de antes): rojo, como la cuenta impresa
 const COLOR_SIN_COBRAR = '#ef4444'
 
+// Iconos de línea de la esquina de la mesa (en vez de los emoji 📅 / 🚶): heredan el color del texto
+function IconoReserva({ size = 11 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="3" y="4.5" width="18" height="16.5" rx="2.5" />
+      <path d="M8 2.5v4M16 2.5v4M3 9.5h18" />
+      <path d="m8.5 15 2.5 2.5 4.5-4.5" />
+    </svg>
+  )
+}
+function IconoWalkin({ size = 11 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <circle cx="13.5" cy="4" r="2" fill="currentColor" stroke="none" />
+      <path d="M9 21l2.5-6 2.5 2.5V21" />
+      <path d="M11.5 15l1-6.5 3 3 3 1" />
+      <path d="M12.5 8.5L9 10l-1.5 3.5" />
+    </svg>
+  )
+}
+
 // ── Mesa visual ───────────────────────────────────────────────────────────────
 // pendienteCobro: la mesa tiene además una cuenta impresa sin cobrar (los de antes) mientras ya se
 // sentaron otros → un segundo marco rojo por dentro, más chico, con su aureola.
@@ -177,11 +198,12 @@ function MesaBtn({ mesa, comanda, pendienteCobro = false, onClick }: { mesa: Mes
     }}>
       {comanda?.reserva && (
         <span title={comanda.reserva.origen === 'walkin' ? 'Walk-in' : `Reserva ${comanda.reserva.nombre ?? ''} ${comanda.reserva.hora}`} style={{
-          position: 'absolute', top: -8, right: -8, width: 18, height: 18, borderRadius: '50%',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, lineHeight: 1,
-          background: isDark ? '#0b1220' : '#ffffff', border: `1.5px solid ${comanda.reserva.origen === 'walkin' ? '#94a3b8' : '#38bdf8'}`,
+          position: 'absolute', top: -9, right: -9, width: 20, height: 20, borderRadius: '50%',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1,
+          color: comanda.reserva.origen === 'walkin' ? '#94a3b8' : '#38bdf8',
+          background: isDark ? '#0b1220' : '#ffffff', border: '1.5px solid currentColor',
           transform: mesa.rotacion ? `rotate(${-mesa.rotacion}deg)` : undefined, pointerEvents: 'none', zIndex: 1,
-        }}>{comanda.reserva.origen === 'walkin' ? '🚶' : '📅'}</span>
+        }}>{comanda.reserva.origen === 'walkin' ? <IconoWalkin /> : <IconoReserva />}</span>
       )}
       {pendienteCobro && (
         <div title="Cuenta sin cobrar" style={{
