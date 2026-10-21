@@ -4592,6 +4592,13 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
 
   // Hoy, cada mesa avisa de su reserva por llegar más urgente (próxima / llegando / tarde).
   // Un solo reloj cada 30 s para todo el plano.
+  // Mesas donde no entra el apellido bajo la hora: la línea alterna hora ↔ apellido
+  // (la hora más rato, que es lo primero que se mira)
+  const [verApellido, setVerApellido] = useState(false)
+  useEffect(() => {
+    const t = setTimeout(() => setVerApellido(v => !v), verApellido ? 1500 : 2500)
+    return () => clearTimeout(t)
+  }, [verApellido])
   const [ahoraMin, setAhoraMin] = useState(minutosAhora)
   useEffect(() => {
     const t = setInterval(() => setAhoraMin(minutosAhora()), 30_000)
@@ -4822,7 +4829,15 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
                           background: r.id === elegida ? '#0ea5e9' : 'transparent',
                           textDecoration: r.estado === 'sentada' ? 'line-through' : undefined,
                         }}>
-                        <span>{r.origen === 'walkin' ? '🚶' : ''}{r.hora}</span>
+                        {!conNombre && verApellido && r.origen !== 'walkin' && r.nombre ? (
+                          <span key="apellido" style={{
+                            fontFamily: 'system-ui, -apple-system, sans-serif', fontSize: chicaMesa ? 8 : 10.5, fontWeight: 800, textTransform: 'uppercase',
+                            lineHeight: chicaMesa ? 1.35 : 1.3, maxWidth: w - 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                            animation: 'altoSube 0.25s ease-out',
+                          }}>{apellidoReserva(r.nombre)}</span>
+                        ) : (
+                          <span key="hora" style={!conNombre ? { animation: 'altoSube 0.25s ease-out' } : undefined}>{r.origen === 'walkin' ? '🚶' : ''}{r.hora}</span>
+                        )}
                         {conNombre && r.origen !== 'walkin' && r.nombre && (
                           <span style={{
                             fontFamily: 'system-ui, -apple-system, sans-serif', fontSize: 10, fontWeight: 800, textTransform: 'uppercase',
