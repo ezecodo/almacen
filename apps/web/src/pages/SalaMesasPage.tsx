@@ -4507,12 +4507,14 @@ function minutosHora(h: string) {
   return hh * 60 + (mm || 0)
 }
 
-function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNombre, onClose }: {
+function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNombre, onClose, onDespues }: {
   restaurantId: number
   reservaInicial?: number
   fechaInicial?: string
   camareroNombre?: string
   onClose: () => void
+  // Deslizar a la izquierda desde el último salón: se cierra la vuelta y se va al mapa de la sala
+  onDespues?: () => void
 }) {
   const queryClient = useQueryClient()
   const isDark = useContext(ThemeCtx)
@@ -4582,7 +4584,7 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
   const irASalon = (paso: number) => {
     const i = planes.findIndex(p => p.id === plan?.id)
     const destino = planes[i + paso]
-    if (!destino) { if (paso < 0) onClose(); return }
+    if (!destino) { if (paso < 0) onClose(); else onDespues?.(); return }
     setPlanId(destino.id)
     setAviso(destino.nombre)
     if (avisoTimer.current) clearTimeout(avisoTimer.current)
@@ -5103,6 +5105,7 @@ function EncargadoPanel({
   soloConsulta = false,
   tabInicial,
   soloCobros: soloCobrosInicial = false,
+  onVolverAlMapa,
 }: {
   restaurant: { id: number; nombre: string }
   camarero: { id?: number; nombre: string }
@@ -5116,6 +5119,8 @@ function EncargadoPanel({
   // Llegando deslizando el mapa desde el último salón: solo el cobro, sin las pestañas de herramientas
   // (es lo que más usa el encargado). Deslizar hacia la derecha vuelve al mapa.
   soloCobros?: boolean
+  // Fin de la vuelta de deslizar (último salón del plano de reservas): al mapa de la sala, primer salón
+  onVolverAlMapa?: () => void
 }) {
   const queryClient = useQueryClient()
   const rid = restaurant.id
@@ -5306,7 +5311,8 @@ function EncargadoPanel({
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end" onClick={onClose}>
-      {plano && <PlanoReservas restaurantId={rid} reservaInicial={plano.reservaId} fechaInicial={plano.fecha ?? fechaReservas} camareroNombre={camarero.nombre} onClose={() => setPlano(null)} />}
+      {plano && <PlanoReservas restaurantId={rid} reservaInicial={plano.reservaId} fechaInicial={plano.fecha ?? fechaReservas} camareroNombre={camarero.nombre} onClose={() => setPlano(null)}
+        onDespues={onVolverAlMapa ? () => { setPlano(null); onVolverAlMapa() } : undefined} />}
       <div className="relative w-full sm:max-w-md bg-[var(--sala-hdr)] h-full flex flex-col shadow-2xl border-l border-[var(--sala-brd)]" onClick={e => e.stopPropagation()}
         onTouchStart={e => { if (soloCobros || tab === 'reservas') swipeCobros.current = { x: e.touches[0].clientX, y: e.touches[0].clientY } }}
         onTouchEnd={e => {
@@ -6945,6 +6951,17 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
           onAbrirComanda={id => { setShowEncargado(false); setComandaAbierta(id) }}
           tabInicial={tabEncargado}
           soloCobros={encargadoSoloCobros}
+          onVolverAlMapa={() => {
+            setShowEncargado(false)
+            setView('mapa')
+            const primero = planes?.[0]
+            if (primero) {
+              setPlanId(primero.id)
+              setAvisoSalon(primero.nombre)
+              if (avisoSalonTimer.current) clearTimeout(avisoSalonTimer.current)
+              avisoSalonTimer.current = setTimeout(() => setAvisoSalon(null), 1100)
+            }
+          }}
         />
       )}
     </div>
