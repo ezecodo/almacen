@@ -74,6 +74,7 @@ export interface Turno {
   totalPropinas?:  number
   totalInvitaciones?: number
   totalGastos?:    number   // gastos pagados en efectivo durante el turno (pan, frutería…)
+  reservasNoVinieron?: number // solo en la respuesta del cierre: las que seguían por llegar pasaron a No vino
   numComandas?:    number
   propina?:        PropinaDia | null
 }

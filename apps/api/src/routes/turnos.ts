@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../server'
+import { diaDeServicio } from '../dia-servicio'
 import { broadcast } from '../sse'
 import { boxSinSincronizar } from './red'
 import { efectivoGastado } from './gastos'
@@ -186,10 +187,16 @@ export async function turnoRoutes(app: FastifyInstance) {
     })
     // El turno siguiente arranca con toda la carta: lo agotado vuelve a estar disponible
     await prisma.itemAgotado.deleteMany({ where: { restaurantId: updated.restaurantId } })
+    // Las reservas de esta noche que siguen "por llegar" no vinieron: el día siguiente arranca limpio.
+    // Se deshace desde la lista con "↩ Volver a por llegar".
+    const noVinieron = await prisma.reserva.updateMany({
+      where: { restaurantId: updated.restaurantId, estado: 'confirmada', fecha: new Date(diaDeServicio() + 'T00:00:00.000Z') },
+      data: { estado: 'no_show', enPool: false, poolGestionandoPor: null, poolGestionandoDesde: null },
+    })
 
     broadcast(updated.restaurantId, 'update')
     broadcast(updated.restaurantId, 'agotados')
-    return updated
+    return { ...updated, reservasNoVinieron: noVinieron.count }
   })
 
   // Historial de turnos de un restaurante

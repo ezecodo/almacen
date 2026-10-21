@@ -4378,7 +4378,9 @@ function minutosHasta(hora: string) {
 }
 function minutosAhora() {
   const ahora = new Date()
-  return ahora.getHours() * 60 + ahora.getMinutes()
+  const min = ahora.getHours() * 60 + ahora.getMinutes()
+  // Pasada la medianoche seguimos en el día de servicio de ayer: las 00:30 son "24:30"
+  return ahora.getHours() < CORTE_DIA_HORAS ? min + 24 * 60 : min
 }
 
 // Qué tan cerca está una reserva por llegar: de 30 a 15 min antes "próxima", de 15 antes a 15
@@ -4431,7 +4433,7 @@ function ContactoReserva({ telefono }: { telefono: string }) {
 function QuienEstaSheet({ comanda, onClose }: { comanda: Comanda; onClose: () => void }) {
   const queryClient = useQueryClient()
   const rid = comanda.restaurantId
-  const hoy = fechaLocal(new Date())
+  const hoy = diaServicio()
   const { data: reservas = [] } = useQuery({ queryKey: ['reservas', rid, hoy], queryFn: () => api.reservas.list(rid, hoy) })
   const cambiar = useMutation({
     mutationFn: (reservaId: number | null) => api.comandas.cambiarReserva(comanda.id, reservaId),
@@ -4507,6 +4509,14 @@ const DURACION_RESERVA_DEFECTO = 90
 function fechaLocal(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
+// "Hoy" para las reservas es el día de servicio, que corta a las 06:00 (como el servidor,
+// dia-servicio.ts): a las 00:30 el turno de noche sigue viendo sus reservas
+const CORTE_DIA_HORAS = 6
+function diaServicio(desplazamiento = 0) {
+  const d = new Date(Date.now() - CORTE_DIA_HORAS * 3600_000)
+  d.setDate(d.getDate() + desplazamiento)
+  return fechaLocal(d)
+}
 function minutosHora(h: string) {
   const [hh, mm] = h.split(':').map(Number)
   return hh * 60 + (mm || 0)
@@ -4521,7 +4531,7 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
 }) {
   const queryClient = useQueryClient()
   const isDark = useContext(ThemeCtx)
-  const hoy = fechaLocal(new Date())
+  const hoy = diaServicio()
   const [fecha, setFecha] = useState(fechaInicial ?? hoy)
   const [elegida, setElegida] = useState<number | null>(reservaInicial ?? null)
   const [planId, setPlanId] = useState<number | null>(null)
@@ -4561,7 +4571,19 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
     avisoTimer.current = setTimeout(() => setAviso(null), 1100)
   }
 
-  const vivas = reservas.filter(r => r.estado === 'confirmada' || r.estado === 'sentada')
+  // Hoy, el plano sabe qué mesas tienen gente ahora (las mismas comandas que el mapa de la sala)
+  const esHoyPlano = fecha === hoy
+  const { data: comandasAhora = [] } = useQuery({
+    queryKey: ['comandas-sala', restaurantId],
+    queryFn: () => api.comandas.list(restaurantId),
+    enabled: esHoyPlano,
+    refetchInterval: 15_000,
+  })
+
+  // Hoy, una reserva sentada solo cuenta mientras siguen en la mesa (su comanda sigue activa):
+  // los que ya se fueron no ensucian el plano con horas tachadas
+  const sigueEnLaMesa = (r: Reserva) => !esHoyPlano || comandasAhora.some(c => c.id === r.comandaId)
+  const vivas = reservas.filter(r => r.estado === 'confirmada' || (r.estado === 'sentada' && sigueEnLaMesa(r)))
   const sinMesa = vivas.filter(r => !r.mesaId && r.estado === 'confirmada')
   const duracion = (r: Reserva) => r.config?.duracionMin ?? DURACION_RESERVA_DEFECTO
   const deMesa = (mesaId: number) => vivas.filter(r => r.mesaId === mesaId).sort((a, b) => minutosHora(a.hora) - minutosHora(b.hora))
@@ -4581,14 +4603,6 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
   const mesaDe = (r: Reserva) => todasMesas.find(m => m.id === r.mesaId)
   const chica = (r: Reserva) => { const m = mesaDe(r); return !!m && m.capacidad > 0 && r.pax > m.capacidad }
 
-  // Hoy, el plano sabe qué mesas tienen gente ahora (las mismas comandas que el mapa de la sala)
-  const esHoyPlano = fecha === hoy
-  const { data: comandasAhora = [] } = useQuery({
-    queryKey: ['comandas-sala', restaurantId],
-    queryFn: () => api.comandas.list(restaurantId),
-    enabled: esHoyPlano,
-    refetchInterval: 15_000,
-  })
   const ocupada = (mesaId: number) => esHoyPlano && comandasAhora.some(c => c.mesaId === mesaId)
 
   // Hoy, cada mesa avisa de su reserva por llegar más urgente (próxima / llegando / tarde).
@@ -4652,7 +4666,7 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
     const d = new Date(fecha + 'T12:00:00'); d.setDate(d.getDate() + n)
     setFecha(fechaLocal(d)); setElegida(null)
   }
-  const manana = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return fechaLocal(d) })()
+  const manana = diaServicio(1)
   const etiquetaFecha = fecha === hoy ? 'Hoy' : fecha === manana ? 'Mañana'
     : new Date(fecha + 'T12:00:00').toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'numeric' })
 
@@ -4996,7 +5010,7 @@ function EncargadoPanel({
   const [cobroDe, setCobroDe] = useState<Comanda | null>(null)
   const [reservasSub, setReservasSub] = useState<'hoy' | 'pool'>('hoy')
   // Lista de reservas: el día que se mira (‹ Hoy ›) y si se ven las que no vinieron / se cancelaron
-  const [fechaReservas, setFechaReservas] = useState(() => fechaLocal(new Date()))
+  const [fechaReservas, setFechaReservas] = useState(() => diaServicio())
   const [verDescartadas, setVerDescartadas] = useState(false)
   const [enviandoPoolId, setEnviandoPoolId] = useState<number | null>(null)
   const [motivoPool, setMotivoPool] = useState('')
@@ -5307,6 +5321,11 @@ function EncargadoPanel({
                     <span className="text-[var(--sala-tx3)]">Comandas</span>
                     <span className="text-[var(--sala-txt)] font-bold">{resumenCierre.numComandas ?? 0}</span>
                   </div>
+                  {!!resumenCierre.reservasNoVinieron && (
+                    <p className="text-amber-500 text-xs font-bold pt-1">
+                      📅 {resumenCierre.reservasNoVinieron === 1 ? '1 reserva quedó' : `${resumenCierre.reservasNoVinieron} reservas quedaron`} como "No vino" (se deshace en 📅 Reservas)
+                    </p>
+                  )}
                   {/* Cerrado el turno, toca repartir: se puede ahora o después desde el teléfono (💰 Propinas) */}
                   <button onClick={() => { setPropinasTurnoId(resumenCierre.id); setTab('propinas') }}
                     className="w-full mt-3 py-3.5 rounded-xl text-white font-black active:scale-[0.98] transition-transform"
@@ -5462,7 +5481,7 @@ function EncargadoPanel({
               </div>
 
               {reservasSub === 'hoy' ? (() => {
-                const esHoy = fechaReservas === fechaLocal(new Date())
+                const esHoy = fechaReservas === diaServicio()
                 const numMesa = (id: number | null) => id ? (mesasReserva.find(m => m.id === id)?.numero ?? id) : null
                 const porLlegar = reservasHoy.filter(r => r.estado === 'confirmada')
                 const sentadas = reservasHoy.filter(r => r.estado === 'sentada')
@@ -5470,7 +5489,7 @@ function EncargadoPanel({
                 const reservasVivas = [...porLlegar, ...sentadas.filter(r => r.origen !== 'walkin')]
                 const sinMesa = porLlegar.filter(r => !r.mesaId && !r.enPool).length
                 const moverDia = (n: number) => { const d = new Date(fechaReservas + 'T12:00:00'); d.setDate(d.getDate() + n); setFechaReservas(fechaLocal(d)) }
-                const manana = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return fechaLocal(d) })()
+                const manana = diaServicio(1)
                 const etiquetaDia = esHoy ? 'Hoy' : fechaReservas === manana ? 'Mañana'
                   : new Date(fechaReservas + 'T12:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'short' })
                 const titulo = (t: string, n: number) => (
@@ -5573,7 +5592,7 @@ function EncargadoPanel({
                     {/* Día */}
                     <div className="flex items-center gap-2">
                       <button onClick={() => moverDia(-1)} className="w-10 h-10 rounded-xl bg-[var(--sala-btn2)] text-[var(--sala-txt)] text-lg font-black">‹</button>
-                      <button onClick={() => setFechaReservas(fechaLocal(new Date()))}
+                      <button onClick={() => setFechaReservas(diaServicio())}
                         className="flex-1 h-10 rounded-xl bg-[var(--sala-btn2)] text-[var(--sala-txt)] font-black capitalize">{etiquetaDia}</button>
                       <button onClick={() => moverDia(1)} className="w-10 h-10 rounded-xl bg-[var(--sala-btn2)] text-[var(--sala-txt)] text-lg font-black">›</button>
                     </div>
@@ -6121,8 +6140,7 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
   })
 
   // Encargado al abrir una mesa libre: las reservas de hoy, para sentar una desde el mapa
-  const hoyLocal = new Date()
-  const hoyReservas = `${hoyLocal.getFullYear()}-${String(hoyLocal.getMonth() + 1).padStart(2, '0')}-${String(hoyLocal.getDate()).padStart(2, '0')}`
+  const hoyReservas = diaServicio()
   const { data: reservasHoyMapa } = useQuery({
     queryKey: ['reservas', restaurant?.id, hoyReservas],
     queryFn: () => api.reservas.list(restaurant!.id, hoyReservas),

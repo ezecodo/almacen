@@ -5,17 +5,12 @@ import { prisma } from '../server'
 import { broadcast } from '../sse'
 import { publicarTicket, DestinoImpresion } from '../mqtt'
 import { MODO_LOCAL } from '../local'
+import { ahoraEnMadrid, diaDeServicio } from '../dia-servicio'
 
 // Lo que ve la sala de la reserva de una mesa: 📅 reserva / 🚶 walk-in en el mapa y en la cabecera
 const reservaDeMesa = { select: { id: true, origen: true, nombre: true, hora: true, notas: true } } as const
 
 // Fecha (YYYY-MM-DD) y hora (HH:MM) en Barcelona, para apuntar un walk-in en el libro del día
-function ahoraEnMadrid(momento = new Date()) {
-  const partes = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Europe/Madrid', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-  }).formatToParts(momento).map(p => [p.type, p.value]))
-  return { fecha: `${partes.year}-${partes.month}-${partes.day}`, hora: `${partes.hour}:${partes.minute}` }
-}
 
 const itemSchema = z.object({
   nombre:   z.string().min(1),
@@ -170,7 +165,9 @@ export async function comandaRoutes(app: FastifyInstance) {
       include: { items: true, mesa: true },
     })
     if (walkin && !MODO_LOCAL && (req.user?.encargado || req.user?.tipo === 'admin')) {
-      const { fecha, hora } = ahoraEnMadrid()
+      // Hora real de llegada, pero en el libro del día de servicio (un walk-in a las 00:30 es de esta noche)
+      const { hora } = ahoraEnMadrid()
+      const fecha = diaDeServicio()
       await prisma.reserva.create({
         data: {
           restaurantId, fecha: new Date(fecha + 'T00:00:00.000Z'), hora, pax,
@@ -569,7 +566,8 @@ export async function comandaRoutes(app: FastifyInstance) {
           data: { estado: 'sentada', comandaId: id, mesaId: comanda.mesaId, sentadaAt: new Date() },
         })
       }
-      const { fecha, hora } = ahoraEnMadrid(comanda.createdAt)
+      const { hora } = ahoraEnMadrid(comanda.createdAt)
+      const fecha = diaDeServicio(comanda.createdAt)
       return tx.reserva.create({
         data: {
           restaurantId: comanda.restaurantId, fecha: new Date(fecha + 'T00:00:00.000Z'), hora, pax: comanda.pax,
