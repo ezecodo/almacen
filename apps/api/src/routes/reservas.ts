@@ -196,6 +196,10 @@ export async function reservasRoutes(app: FastifyInstance) {
         origen: 'web',
       },
     })
+    // Aviso a la sala: los teléfonos del encargado vibran y muestran la reserva
+    broadcast(reserva.restaurantId, 'reserva-nueva', {
+      reserva: { id: reserva.id, nombre: reserva.nombre, hora: reserva.hora, pax: reserva.pax, fecha: fecha },
+    })
 
     return reply.status(201).send(reserva)
   })

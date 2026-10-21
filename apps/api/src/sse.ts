@@ -21,8 +21,9 @@ export function unsubscribeGlobal(send: (data: string) => void) {
   globalClients.delete(send)
 }
 
-export function broadcast(restaurantId: number, type: string) {
-  const msg = `data: ${JSON.stringify({ type, restaurantId })}\n\n`
+// datos: lo justo para avisar sin volver a pedir nada (ej. la reserva nueva: nombre, hora, pax)
+export function broadcast(restaurantId: number, type: string, datos?: Record<string, unknown>) {
+  const msg = `data: ${JSON.stringify({ type, restaurantId, ...datos })}\n\n`
   clients.get(restaurantId)?.forEach(send => { try { send(msg) } catch {} })
   globalClients.forEach(send => { try { send(msg) } catch {} })
 }

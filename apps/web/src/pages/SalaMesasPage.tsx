@@ -6605,6 +6605,29 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
       onSalir: () => salir(),
     },
   }
+
+  // Reserva nueva desde la web: el teléfono del encargado vibra (Android; el iPhone no deja vibrar a
+  // una web) y sale un aviso arriba unos segundos; tocarlo lleva a la lista de reservas
+  const [reservaNueva, setReservaNueva] = useState<{ nombre: string | null; hora: string; pax: number; fecha: string } | null>(null)
+  useEffect(() => {
+    if (!esEncargado) return
+    let t: ReturnType<typeof setTimeout> | undefined
+    const alLlegar = (e: Event) => {
+      const r = (e as CustomEvent).detail
+      if (!r) return
+      try { navigator.vibrate?.([200, 100, 200, 100, 400]) } catch { /* sin vibración */ }
+      setReservaNueva(r)
+      clearTimeout(t)
+      t = setTimeout(() => setReservaNueva(null), 10_000)
+    }
+    window.addEventListener('oido:reserva-nueva', alLlegar)
+    return () => { window.removeEventListener('oido:reserva-nueva', alLlegar); clearTimeout(t) }
+  }, [esEncargado])
+  const verReservaNueva = () => {
+    setReservaNueva(null)
+    if (conVuelta) { irAPaso('reservas'); return }
+    setTabEncargado('reservas'); setEncargadoSoloCobros(false); setPanelKey(k => k + 1); setShowEncargado(true)
+  }
   // Fin de la vuelta de deslizar (último salón del plano de reservas): al mapa, primer salón
   const volverAlMapa = () => {
     setShowEncargado(false)
@@ -7065,6 +7088,25 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
         />
       )}
 
+      {reservaNueva && (
+        <div className="fixed top-3 inset-x-0 z-[80] flex justify-center px-3 pointer-events-none">
+        <button onClick={verReservaNueva}
+          className="pointer-events-auto w-full max-w-[420px] flex items-center gap-3 px-4 py-3 rounded-2xl text-left text-white shadow-2xl"
+          style={{ background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)', animation: 'avisoAnadido 10s ease forwards' }}>
+          <svg width={28} height={28} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden>
+            {ICONO_PASO.reservas}
+            <path d="M12 12.5v5M9.5 15h5" />
+          </svg>
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] font-black uppercase tracking-wider opacity-90">
+              Nueva reserva{reservaNueva.fecha !== diaServicio() ? ` · ${new Date(reservaNueva.fecha + 'T12:00:00').toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })}` : ' · hoy'}
+            </p>
+            <p className="font-black text-lg leading-tight truncate">{reservaNueva.nombre ?? 'Sin nombre'} · {reservaNueva.hora} · {reservaNueva.pax} pax</p>
+          </div>
+          <span className="shrink-0 text-sm font-bold opacity-90">Ver ›</span>
+        </button>
+        </div>
+      )}
       {showPerfil && camarero && (
         <PerfilPanel
           camarero={camarero}

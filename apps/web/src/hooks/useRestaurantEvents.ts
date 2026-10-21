@@ -15,7 +15,8 @@ export function useRestaurantEvents(restaurantId: number | null) {
 
     es.onmessage = (e) => {
       try {
-        const { type } = JSON.parse(e.data)
+        const datos = JSON.parse(e.data)
+        const { type } = datos
         if (type === 'update') {
           // Invalida todo lo relacionado con comandas de este restaurante
           queryClient.invalidateQueries({ queryKey: ['comandas-sala', restaurantId] })
@@ -28,6 +29,11 @@ export function useRestaurantEvents(restaurantId: number | null) {
           queryClient.invalidateQueries({ queryKey: ['enc-cobros', restaurantId] })
           queryClient.invalidateQueries({ queryKey: ['turno-activo', restaurantId] })
           queryClient.invalidateQueries({ queryKey: ['reservas', restaurantId] }) // sentar, walk-ins, no vino…
+        }
+        if (type === 'reserva-nueva') {
+          queryClient.invalidateQueries({ queryKey: ['reservas', restaurantId] })
+          // La sala decide qué hacer (vibrar y avisar al encargado)
+          window.dispatchEvent(new CustomEvent('oido:reserva-nueva', { detail: datos.reserva }))
         }
         if (type === 'agotados') queryClient.invalidateQueries({ queryKey: ['agotados', restaurantId] })
         if (type === 'gastos') queryClient.invalidateQueries({ queryKey: ['gastos', restaurantId] })
