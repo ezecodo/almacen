@@ -4532,7 +4532,9 @@ const ICONO_PASO: Record<PasoVuelta['grupo'], JSX.Element> = {
   sala: <><rect x="4" y="6" width="16" height="12" rx="2" /><path d="M8 18v3M16 18v3" /></>,
   cobros: <><rect x="2.5" y="6" width="19" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /><path d="M6 9.5v5M18 9.5v5" /></>,
   reservas: <><rect x="3" y="4.5" width="18" height="16.5" rx="2.5" /><path d="M8 2.5v4M16 2.5v4M3 9.5h18" /></>,
-  plano: <><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 12h7M14 3v7M14 15v6" /></>,
+  // El plano de reservas lleva el calendario de reservas con mesas dentro: se ve que es de reservas
+  // y no el mapa del servicio
+  plano: <><rect x="3" y="4.5" width="18" height="16.5" rx="2.5" /><path d="M8 2.5v4M16 2.5v4M3 9.5h18" /><rect x="6.5" y="12.5" width="4" height="5" rx="0.8" /><rect x="13.5" y="12.5" width="4" height="5" rx="0.8" /></>,
 }
 // Cabecera común de la vuelta: a la izquierda la viñeta con el nombre (abre el perfil), en el centro
 // el paso en el que estás (icono de línea, nombre y un dato corto) y a la derecha lo propio del paso,
@@ -4835,7 +4837,7 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
         <CabeceraVuelta
           grupo="plano"
           titulo={plan?.nombre ?? 'Plano de reservas'}
-          sub={`${etiquetaFecha} · ${vivas.length} ${vivas.length === 1 ? 'reserva' : 'reservas'}${sinMesa.length ? ` · ${sinMesa.length} sin mesa` : ''}`}
+          sub={`Reservas · ${etiquetaFecha} · ${vivas.length}${sinMesa.length ? ` · ${sinMesa.length} sin mesa` : ''}`}
           nombre={vuelta.cabecera.nombre}
           onPerfil={vuelta.cabecera.onPerfil}
           onHerramientas={vuelta.cabecera.onHerramientas}
