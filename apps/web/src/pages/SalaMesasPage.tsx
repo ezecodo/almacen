@@ -5100,8 +5100,6 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
 
       {/* Abajo: la reserva elegida (qué hacer con ella) o la tira de las que no tienen mesa */}
       <div className="border-t border-[var(--sala-brd)] bg-[var(--sala-hdr)] px-4 py-3">
-        {/* En qué paso de la vuelta de deslizar estás (encargado) */}
-        {vuelta && plan && <div className="-mt-2 mb-1.5"><IndicadorVuelta vuelta={vuelta} actual={`plano:${plan.id}`} /></div>}
         {reservaElegida ? (
           <div>
             <div className="flex items-center gap-2">
@@ -5147,6 +5145,12 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
           </>
         )}
       </div>
+      {/* En qué paso de la vuelta de deslizar estás (encargado): abajo del todo, como en el mapa y el panel */}
+      {vuelta && plan && (
+        <div className="shrink-0 pt-0.5 pb-[max(0.25rem,env(safe-area-inset-bottom))] bg-[var(--sala-hdr)] border-t border-[var(--sala-brd)]">
+          <IndicadorVuelta vuelta={vuelta} actual={`plano:${plan.id}`} />
+        </div>
+      )}
     </div>
   )
 }
@@ -5983,7 +5987,7 @@ function EncargadoPanel({
           )}
         </div>
         {soloCobros && vuelta && (
-          <div className="shrink-0 border-t border-[var(--sala-brd)] pt-1 pb-[max(0.375rem,env(safe-area-inset-bottom))]">
+          <div className="shrink-0 pt-0.5 pb-[max(0.25rem,env(safe-area-inset-bottom))] bg-[var(--sala-hdr)] border-t border-[var(--sala-brd)]">
             <IndicadorVuelta vuelta={vuelta} actual={tab} />
           </div>
         )}
@@ -6876,12 +6880,13 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
           <p className="text-[var(--sala-tx4)] text-sm">No hay planos configurados.</p>
         </div>
       ))}
+      {view === 'mapa' && activePlan && <FranjaAltos restaurantId={restaurant.id} />}
+      {/* Indicador de la vuelta: abajo del todo, en el mismo sitio que en el panel y el plano */}
       {view === 'mapa' && activePlan && vuelta.pasos.length > 1 && (
         <div className="shrink-0 pt-0.5 pb-1 bg-[var(--sala-hdr)] border-t border-[var(--sala-brd)]">
           <IndicadorVuelta vuelta={vuelta} actual={`sala:${activePlan.id}`} />
         </div>
       )}
-      {view === 'mapa' && activePlan && <FranjaAltos restaurantId={restaurant.id} />}
 
       {/* Vista: Mesas abiertas */}
       {view === 'mesas' && (
