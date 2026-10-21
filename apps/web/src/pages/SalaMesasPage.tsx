@@ -1,4 +1,4 @@
-import { Fragment, useState, useEffect, useRef, createContext, useContext } from 'react'
+import { Fragment, useId, useState, useEffect, useRef, createContext, useContext } from 'react'
 
 const ThemeCtx = createContext<boolean>(true) // true = dark
 // Puesto TPV (/tpv, tablet compartida): el PIN vale para una sola acción. Cobrar llama a esta
@@ -3382,7 +3382,7 @@ function PerfilPanel({ camarero, restaurantNombre, isDark, onToggleTheme, onClos
   }
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-end z-50" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/70 flex items-end z-[70]" onClick={onClose}>
       <div className="w-full bg-[var(--sala-hdr)] rounded-t-3xl shadow-2xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
         {/* Handle */}
         <div className="flex justify-center pt-3 pb-1">
@@ -4512,7 +4512,12 @@ function minutosHora(h: string) {
 // Un solo indicador, igual en las tres pantallas: en qué paso de la vuelta estás y, tocando un
 // puntito, saltar directo a ese paso. El camarero solo tiene los salones del mapa.
 type PasoVuelta = { clave: string; grupo: 'sala' | 'cobros' | 'reservas' | 'plano'; nombre: string }
-type Vuelta = { pasos: PasoVuelta[]; onIr: (clave: string) => void }
+type Vuelta = {
+  pasos: PasoVuelta[]
+  onIr: (clave: string) => void
+  // Lo que la cabecera común hace igual en todas las pantallas de la vuelta
+  cabecera: { nombre: string; onPerfil: () => void; onHerramientas: () => void; onSalir: () => void }
+}
 function pasosVuelta(planes: { id: number; nombre: string }[], conVuelta: boolean): PasoVuelta[] {
   const sala = planes.map(p => ({ clave: `sala:${p.id}`, grupo: 'sala' as const, nombre: p.nombre }))
   if (!conVuelta) return sala
@@ -4529,6 +4534,76 @@ const ICONO_PASO: Record<PasoVuelta['grupo'], JSX.Element> = {
   reservas: <><rect x="3" y="4.5" width="18" height="16.5" rx="2.5" /><path d="M8 2.5v4M16 2.5v4M3 9.5h18" /></>,
   plano: <><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 12h7M14 3v7M14 15v6" /></>,
 }
+// Cabecera común de la vuelta: a la izquierda la viñeta con el nombre (abre el perfil), en el centro
+// el paso en el que estás (icono de línea, nombre y un dato corto) y a la derecha lo propio del paso,
+// las herramientas del encargado y salir. Misma altura y sitio en el mapa, el panel y el plano.
+function CabeceraVuelta({ grupo, titulo, sub, nombre, onPerfil, onHerramientas, onSalir, extra, salirGrande = false }: {
+  grupo: PasoVuelta['grupo']
+  titulo: string
+  sub?: string
+  nombre: string
+  onPerfil: () => void
+  onHerramientas?: () => void
+  onSalir: () => void
+  extra?: React.ReactNode
+  salirGrande?: boolean
+}) {
+  const idGrad = useId()
+  return (
+    <div className="shrink-0 bg-[var(--sala-hdr)] border-b border-[var(--sala-brd)] px-3 py-1.5">
+      <div className="flex items-stretch gap-2 min-h-12">
+        <button onClick={onPerfil} title={nombre}
+          className="w-16 self-stretch shrink-0 rounded-xl bg-[var(--sala-btn2)] hover:bg-[var(--sala-btn)] flex flex-col items-center justify-center gap-1 active:scale-95 transition-all">
+          <svg viewBox="0 0 68 72" className="w-9 h-9">
+            <defs>
+              <linearGradient id={idGrad} x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stopColor="#4B9EDF"/>
+                <stop offset="100%" stopColor="#4CC8A0"/>
+              </linearGradient>
+            </defs>
+            <path d="M14 2 L54 2 Q66 2 66 14 L66 52 Q66 62 54 62 L40 62 L34 70 L28 62 L14 62 Q2 62 2 52 L2 14 Q2 2 14 2 Z" fill={`url(#${idGrad})`} />
+            <path d="M15 34 L29 48 L55 18" fill="none" stroke="white" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span className="text-[11px] font-bold text-[var(--sala-tx2)] leading-none truncate max-w-[56px]">{nombre.split(' ')[0]}</span>
+        </button>
+        <div className="flex-1 min-w-0 flex items-center gap-1.5">
+          <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="#4CC8A0" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden>
+            {ICONO_PASO[grupo]}
+          </svg>
+          <div className="min-w-0">
+            <p className="text-[var(--sala-txt)] font-black text-base sm:text-lg leading-tight truncate">{titulo}</p>
+            {sub && <p className="text-[var(--sala-tx3)] text-[11px] font-semibold leading-tight truncate">{sub}</p>}
+          </div>
+        </div>
+        <div className="shrink-0 flex items-center gap-2.5">
+          {extra}
+          {onHerramientas && (
+            <button onClick={onHerramientas} aria-label="Modo encargado" title="Herramientas del encargado"
+              className="text-[var(--sala-tx3)] hover:text-[#4CC8A0] transition-colors active:scale-90">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="2" y="7" width="20" height="14" rx="2" />
+                <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" />
+                <path d="M2 13h20" />
+                <path d="M12 11.5v3" />
+              </svg>
+            </button>
+          )}
+          <button onClick={onSalir} aria-label="Salir" title="Salir (cerrar sesión)"
+            className={`text-[var(--sala-tx3)] hover:text-red-400 transition-colors active:scale-90 ${salirGrande
+              ? 'flex items-center gap-2 h-12 px-4 rounded-xl bg-[var(--sala-btn2)] text-[var(--sala-txt)] font-black text-sm uppercase' : ''}`}>
+            {salirGrande && <span>Salir</span>}
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function IndicadorVuelta({ vuelta, actual }: { vuelta: Vuelta; actual: string }) {
   if (vuelta.pasos.length < 2) return null
   const grupos = [...new Set(vuelta.pasos.map(p => p.grupo))]
@@ -4754,7 +4829,27 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
 
   return (
     <div className="fixed inset-0 z-[60] bg-[var(--sala-bg)] flex flex-col" onClick={e => e.stopPropagation()}>
-      {/* Cabecera: volver, fecha y salones */}
+      {/* Cabecera: en la vuelta de deslizar, la común (igual que el mapa y el panel), con el día a la
+          derecha; si no, volver, fecha y salones */}
+      {vuelta ? (
+        <CabeceraVuelta
+          grupo="plano"
+          titulo={plan?.nombre ?? 'Plano de reservas'}
+          sub={`${etiquetaFecha} · ${vivas.length} ${vivas.length === 1 ? 'reserva' : 'reservas'}${sinMesa.length ? ` · ${sinMesa.length} sin mesa` : ''}`}
+          nombre={vuelta.cabecera.nombre}
+          onPerfil={vuelta.cabecera.onPerfil}
+          onHerramientas={vuelta.cabecera.onHerramientas}
+          onSalir={vuelta.cabecera.onSalir}
+          extra={
+            <div className="flex items-center rounded-lg bg-[var(--sala-btn2)] overflow-hidden">
+              <button onClick={() => moverDia(-1)} aria-label="Día anterior" className="w-7 h-9 text-[var(--sala-txt)] font-bold">‹</button>
+              <button onClick={() => { setFecha(hoy); setElegida(null) }}
+                className="h-9 px-1 text-[var(--sala-txt)] text-xs font-bold capitalize whitespace-nowrap">{etiquetaFecha}</button>
+              <button onClick={() => moverDia(1)} aria-label="Día siguiente" className="w-7 h-9 text-[var(--sala-txt)] font-bold">›</button>
+            </div>
+          }
+        />
+      ) : (
       <div className="px-4 pt-4 pb-2 border-b border-[var(--sala-brd)] bg-[var(--sala-hdr)]">
         <div className="flex items-center gap-2">
           <button onClick={onClose} className="text-[var(--sala-tx2)] text-sm font-bold px-2 py-1">← Volver</button>
@@ -4777,6 +4872,7 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
           </div>
         )}
       </div>
+      )}
 
       {/* El plano, escalado a la pantalla como el mapa de la sala */}
       {plan && plan.mesas.length > 0 ? (
@@ -5393,7 +5489,18 @@ function EncargadoPanel({
           if (destino) setTab(destino)
           else if (dx > 0) onClose()
         }}>
-        {/* Header */}
+        {/* Header: en la vuelta de deslizar, la cabecera común (igual que el mapa y el plano) */}
+        {soloCobros && vuelta && !repartiendo ? (
+          <CabeceraVuelta
+            grupo={tab === 'reservas' ? 'reservas' : 'cobros'}
+            titulo={tab === 'reservas' ? 'Reservas' : 'Cobros'}
+            sub={tab === 'reservas' ? `Hoy${pool.length ? ` · ${pool.length} en el pool` : ''}` : `${pendientes.length} por cobrar`}
+            nombre={vuelta.cabecera.nombre}
+            onPerfil={vuelta.cabecera.onPerfil}
+            onHerramientas={() => setSoloCobros(false)}
+            onSalir={vuelta.cabecera.onSalir}
+          />
+        ) : (
         <div className="px-5 pt-5 pb-3 border-b border-[var(--sala-brd)]">
           <div className="flex items-start justify-between">
             {repartiendo ? (
@@ -5450,6 +5557,7 @@ function EncargadoPanel({
           </div>
           )}
         </div>
+        )}
 
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
           {/* ── Cobros pendientes ── */}
@@ -6484,7 +6592,17 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
     setPanelKey(k => k + 1) // el panel toma la pestaña al montarse
     setShowEncargado(true)
   }
-  const vuelta: Vuelta = { pasos: pasosVuelta(planes ?? [], conVuelta), onIr: irAPaso }
+  const vuelta: Vuelta = {
+    pasos: pasosVuelta(planes ?? [], conVuelta),
+    onIr: irAPaso,
+    cabecera: {
+      nombre: camarero?.nombre ?? '',
+      onPerfil: () => setShowPerfil(true),
+      // Todas las herramientas del encargado (el panel con sus pestañas)
+      onHerramientas: () => { setPlanoDesdeMapa(null); setTabEncargado(undefined); setEncargadoSoloCobros(false); setPanelKey(k => k + 1); setShowEncargado(true) },
+      onSalir: () => salir(),
+    },
+  }
   // Fin de la vuelta de deslizar (último salón del plano de reservas): al mapa, primer salón
   const volverAlMapa = () => {
     setShowEncargado(false)
@@ -6659,107 +6777,30 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
         abajo (indicador de la vuelta, franja de altos) quedaba fuera, con scroll. Así todo cabe en pantalla. */}
     <div data-sala-theme={isDark ? 'dark' : 'light'} className="flex flex-col h-[100dvh] overflow-hidden bg-[var(--sala-bg)]"
       style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
-      {/* Header */}
-      <div className="bg-[var(--sala-hdr)] border-b border-[var(--sala-brd)] px-3 py-1.5">
-        <div className="flex items-stretch gap-2">
-          {/* Perfil: viñeta OidoOps + primer nombre, ocupa toda la altura del header
-              (abre restaurante, nombre completo, propinas, producción, wiki, checklists, tema) */}
-          <button onClick={() => setShowPerfil(true)} title={`${restaurant.nombre} · ${camarero.nombre}`}
-            className="w-16 self-stretch shrink-0 rounded-xl bg-[var(--sala-btn2)] hover:bg-[var(--sala-btn)] flex flex-col items-center justify-center gap-1 active:scale-95 transition-all">
-            <svg viewBox="0 0 68 72" className="w-9 h-9">
-              <defs>
-                <linearGradient id="og-hdr" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0%" stopColor="#4B9EDF"/>
-                  <stop offset="100%" stopColor="#4CC8A0"/>
-                </linearGradient>
-              </defs>
-              <path d="M14 2 L54 2 Q66 2 66 14 L66 52 Q66 62 54 62 L40 62 L34 70 L28 62 L14 62 Q2 62 2 52 L2 14 Q2 2 14 2 Z" fill="url(#og-hdr)" />
-              <path d="M15 34 L29 48 L55 18" fill="none" stroke="white" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            <span className="text-[11px] font-bold text-[var(--sala-tx2)] leading-none truncate max-w-[56px]">
-              {camarero.nombre.split(' ')[0]}
-            </span>
-          </button>
-          <div className="flex-1 min-w-0 flex items-center gap-1.5 flex-wrap">
-          <div className="order-2 ml-auto flex items-center gap-3">
-            {/* Modo encargado (sin internet no hay nada de lo que tiene dentro) */}
-            {esEncargado && !enLocal && (
-              <button
-                onClick={() => { setTabEncargado(undefined); setEncargadoSoloCobros(false); setShowEncargado(true) }}
-                aria-label="Modo encargado" title="Modo encargado: cobros, turno, checklists, mermas"
-                className="text-[var(--sala-tx3)] hover:text-[#4CC8A0] transition-colors active:scale-90"
-              >
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="2" y="7" width="20" height="14" rx="2" />
-                  <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" />
-                  <path d="M2 13h20" />
-                  <path d="M12 11.5v3" />
-                </svg>
-              </button>
-            )}
-            {/* En el TPV, "Salir" bien visible: devuelve la tablet al PIN para el siguiente */}
-            <button onClick={salir}
-              aria-label="Salir" title="Salir (cerrar sesión)"
-              className={`text-[var(--sala-tx3)] hover:text-red-400 transition-colors active:scale-90 ${tpv
-                ? 'flex items-center gap-2 h-12 px-4 rounded-xl bg-[var(--sala-btn2)] text-[var(--sala-txt)] font-black text-sm uppercase' : ''}`}>
-              {tpv && <span>Salir</span>}
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                <polyline points="16 17 21 12 16 7" />
-                <line x1="21" y1="12" x2="9" y2="12" />
-              </svg>
-            </button>
-          </div>
-        {/* Vista tabs — botones cuadrados continuos */}
-        <div className="order-1 flex items-center gap-1.5">
+      {/* Cabecera: la misma en toda la vuelta del encargado (mapa, cobros, reservas, plano) */}
+      <CabeceraVuelta
+        grupo={view === 'panel' ? 'cobros' : 'sala'}
+        titulo={view === 'mesas' ? 'Mesas abiertas' : view === 'panel' ? 'Panel' : (activePlan?.nombre ?? 'Sala')}
+        sub={restaurant.nombre}
+        nombre={camarero.nombre}
+        onPerfil={() => setShowPerfil(true)}
+        onHerramientas={esEncargado && !enLocal ? vuelta.cabecera.onHerramientas : undefined}
+        onSalir={salir}
+        salirGrande={tpv}
+        extra={<>
           {/* TPV, encargado: su panel de mesas */}
           {tpv && esEncargado && (
-            <button onClick={() => setView('panel')} aria-label="Panel" title="Panel del encargado"
+            <button onClick={() => setView(view === 'panel' ? 'mapa' : 'panel')} aria-label="Panel" title="Panel del encargado"
               className={`h-12 px-4 rounded-xl text-sm font-black uppercase inline-flex items-center gap-2 active:scale-95 transition-all ${
                 view === 'panel' ? 'bg-[var(--sala-btna)] text-[var(--sala-txt)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)]'}`}>
               📊 Panel
             </button>
           )}
-          {/* Plantas: siempre visibles, llevan al mapa de esa planta */}
-          {planes && planes.map(p => {
-            const lower = p.nombre.toLowerCase()
-            const isAlta = lower.includes('alta')
-            const isBaja = lower.includes('baja')
-            const showIcon = isAlta || isBaja
-            return (
-              <button key={p.id} onClick={() => { setPlanId(p.id); setView('mapa') }}
-                aria-label={p.nombre} title={p.nombre}
-                className={`w-12 h-12 rounded-xl text-xs font-medium inline-flex items-center justify-center active:scale-95 transition-all ${view === 'mapa' && activePlan?.id === p.id ? 'bg-[var(--sala-btna)] text-[var(--sala-txt)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)]'}`}>
-                {showIcon ? (
-                  isAlta ? (
-                    <svg width="22" height="22" viewBox="0 0 28 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
-                      {/* Escalera ascendente (izquierda) */}
-                      <path d="M1 21h2.5v-2.5h2.5v-2.5h2.5v-2.5h2.5v-2.5" strokeWidth="1.6" />
-                      {/* Flecha arriba (derecha, separada del cuerpo de la escalera) */}
-                      <path d="M21 21V4" strokeWidth="2.4" />
-                      <path d="M16 8l5-5 5 5" strokeWidth="2.4" />
-                    </svg>
-                  ) : (
-                    <svg width="22" height="22" viewBox="0 0 28 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
-                      {/* Escalera descendente (izquierda) */}
-                      <path d="M1 3h2.5v2.5h2.5v2.5h2.5v2.5h2.5v2.5" strokeWidth="1.6" />
-                      {/* Flecha abajo (derecha, separada del cuerpo de la escalera) */}
-                      <path d="M21 3v17" strokeWidth="2.4" />
-                      <path d="M16 16l5 5 5-5" strokeWidth="2.4" />
-                    </svg>
-                  )
-                ) : (
-                  <span className="text-[10px] font-bold truncate px-1">{p.nombre}</span>
-                )}
-              </button>
-            )
-          })}
-
-          {/* Mesas */}
-          <button onClick={() => setView('mesas')}
+          {/* Mesas abiertas en lista (tocar otra vez = volver al mapa) */}
+          <button onClick={() => setView(view === 'mesas' ? 'mapa' : 'mesas')}
             aria-label="Mesas" title="Mesas activas"
-            className={`w-12 h-12 rounded-xl inline-flex items-center justify-center active:scale-95 transition-all ${
-              view === 'mesas' ? 'bg-[var(--sala-btna)] text-[var(--sala-txt)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)] hover:bg-gray-700'
+            className={`w-11 h-11 rounded-xl inline-flex items-center justify-center active:scale-95 transition-all ${
+              view === 'mesas' ? 'bg-[var(--sala-btna)] text-[var(--sala-txt)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)]'
             }`}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M3 10h18" />
@@ -6768,10 +6809,8 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
               <path d="M17 10v9" />
             </svg>
           </button>
-        </div>
-          </div>
-        </div>
-      </div>
+        </>}
+      />
 
       {/* Banner grupos programados hoy */}
       {gruposPendientesHoy.length > 0 && (
