@@ -4753,8 +4753,13 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
               const chicaMesa = mesa.tipo === 'silla_alta'
               // Con sitio para todas, cada reserva lleva su apellido bajo la hora (como Zenchef);
               // si no entran, solo las horas
-              const conNombre = !chicaMesa && lista.length > 0 && lista.length <= Math.floor((h - 26) / 27)
-              const caben = chicaMesa ? 1 : Math.max(1, Math.floor((h - 26) / 15))
+              // Con reservas, el número de la mesa pasa a la esquina y deja el centro para horas y nombres
+              const numEnEsquina = !chicaMesa && lista.length > 0
+              // Con reservas, "OCUPADA" no se escribe (el fondo morado ya lo dice) y deja sitio a los nombres
+              const conGenteSinReserva = ocupada(mesa.id) && lista.length === 0
+              const alto = h - (numEnEsquina ? 14 : 26) - (conGenteSinReserva ? 11 : 0)
+              const conNombre = numEnEsquina && lista.length <= Math.floor(alto / 27)
+              const caben = chicaMesa ? 1 : Math.max(1, Math.floor(alto / 15))
               const visibles = lista.length > caben ? lista.slice(0, caben - 1 || 1) : lista
               const resto = lista.length - visibles.length
               const conAviso = (r: Reserva) => pisadas.has(r.id) || chica(r)
@@ -4788,9 +4793,16 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   transform: mesa.rotacion ? `rotate(${mesa.rotacion}deg)` : undefined,
                 }}>
-                  <div style={{ transform: mesa.rotacion ? `rotate(${-mesa.rotacion}deg)` : undefined, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
-                    <span style={{ color: isDark ? '#e2e8f0' : '#0f172a', fontWeight: 800, fontSize: chicaMesa ? 12 : 16, lineHeight: 1.1 }}>{mesa.numero}</span>
-                    {conGente && !chicaMesa && !lista.some(r => r.estado === 'sentada') && <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.05em', color: isDark ? '#c084fc' : '#9333ea' }}>OCUPADA</span>}
+                  {numEnEsquina && (
+                    <span style={{
+                      position: 'absolute', top: 2, ...(isRound ? { left: '50%', translate: '-50% 0' } : { left: 5 }),
+                      rotate: mesa.rotacion ? `${-mesa.rotacion}deg` : undefined,
+                      color: isDark ? '#cbd5e1' : '#334155', fontWeight: 900, fontSize: 11, lineHeight: 1.1, pointerEvents: 'none',
+                    }}>{mesa.numero}</span>
+                  )}
+                  <div style={{ transform: mesa.rotacion ? `rotate(${-mesa.rotacion}deg)` : undefined, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, paddingTop: numEnEsquina ? 8 : 0 }}>
+                    {!numEnEsquina && <span style={{ color: isDark ? '#e2e8f0' : '#0f172a', fontWeight: 800, fontSize: chicaMesa ? 12 : 16, lineHeight: 1.1 }}>{mesa.numero}</span>}
+                    {conGente && !chicaMesa && lista.length === 0 && <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.05em', color: isDark ? '#c084fc' : '#9333ea' }}>OCUPADA</span>}
                     {visibles.map(r => (
                       <span key={r.id} onClick={e => { if (r.estado !== 'confirmada') return; e.stopPropagation(); setElegida(elegida === r.id ? null : r.id) }}
                         style={{
@@ -4804,8 +4816,8 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
                         <span>{r.origen === 'walkin' ? '🚶' : ''}{r.hora}</span>
                         {conNombre && r.origen !== 'walkin' && r.nombre && (
                           <span style={{
-                            fontFamily: 'system-ui, -apple-system, sans-serif', fontSize: 10, fontWeight: 800, letterSpacing: '0.02em', textTransform: 'uppercase',
-                            maxWidth: w - 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                            fontFamily: 'system-ui, -apple-system, sans-serif', fontSize: 10, fontWeight: 800, textTransform: 'uppercase',
+                            maxWidth: w - 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                           }}>{apellidoReserva(r.nombre)}</span>
                         )}
                       </span>
