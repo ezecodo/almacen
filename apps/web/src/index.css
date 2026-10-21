@@ -78,6 +78,12 @@
   100% { opacity: 0; transform: translateY(-6px); }
 }
 
+/* Franja de altos del mapa de sala: cada plato entra subiendo desde abajo */
+@keyframes altoSube {
+  from { opacity: 0; transform: translateY(100%); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 @keyframes animate-shake {
   0%, 100% { transform: translateX(0); }
   20%       { transform: translateX(-8px); }
