@@ -995,57 +995,37 @@ function NombreTile({ nombre }: { nombre: string }) {
 // ── Franja de altos al pie del mapa ───────────────────────────────────────────
 // Lo que se acabó en el servicio, a la vista antes de llegar a la mesa. Solo aparece si hay algo.
 // De a uno, entrando desde abajo y quieto unos segundos (se lee mejor que una marquesina); con un
-// solo plato no se mueve. Lo repuesto sale un par de minutos en verde ("HAY"). Tocarla = la lista.
+// solo plato no se mueve. Lo repuesto simplemente desaparece. Tocarla = la lista.
 const ALTO_SEGUNDOS = 3
-const HAY_MINUTOS = 2
 function FranjaAltos({ restaurantId }: { restaurantId: number }) {
   const { data: agotados = [] } = useQuery({
     queryKey: ['agotados', restaurantId],
     queryFn: () => api.agotados.list(restaurantId),
     staleTime: 30_000,
   })
-  // Repuestos: los que estaban y ya no están (solo los que este dispositivo vio desaparecer)
-  const previos = useRef<Map<number, string> | null>(null)
-  const [repuestos, setRepuestos] = useState<{ id: number; nombre: string; hasta: number }[]>([])
-  useEffect(() => {
-    const ahora = new Map(agotados.map(a => [a.menuItemId, a.menuItem.nombre]))
-    if (previos.current) {
-      const nuevos = [...previos.current].filter(([id]) => !ahora.has(id))
-        .map(([id, nombre]) => ({ id, nombre, hasta: Date.now() + HAY_MINUTOS * 60_000 }))
-      setRepuestos(r => [...r.filter(x => !ahora.has(x.id) && !nuevos.some(n => n.id === x.id)), ...nuevos])
-    }
-    previos.current = ahora
-  }, [agotados])
 
   const [paso, setPaso] = useState(0)
   const [verLista, setVerLista] = useState(false)
   useEffect(() => {
-    const id = window.setInterval(() => {
-      setPaso(p => p + 1)
-      setRepuestos(r => (r.some(x => x.hasta <= Date.now()) ? r.filter(x => x.hasta > Date.now()) : r))
-    }, ALTO_SEGUNDOS * 1000)
+    const id = window.setInterval(() => setPaso(p => p + 1), ALTO_SEGUNDOS * 1000)
     return () => window.clearInterval(id)
   }, [])
 
-  const avisos = [
-    ...agotados.map(a => ({ clave: `a${a.menuItemId}`, hay: false, nombre: a.menuItem.nombre })),
-    ...repuestos.map(r => ({ clave: `h${r.id}`, hay: true, nombre: r.nombre })),
-  ]
-  if (avisos.length === 0) return null
-  const i = paso % avisos.length
-  const actual = avisos[i]
+  if (agotados.length === 0) return null
+  const i = paso % agotados.length
+  const actual = agotados[i]
 
   return (
     <>
       <button onClick={() => setVerLista(true)} aria-label="Ver los platos agotados"
-        className={`shrink-0 h-12 w-full overflow-hidden flex items-center gap-3 px-4 text-white transition-colors ${actual.hay ? 'bg-emerald-600' : 'bg-red-600'}`}>
+        className="shrink-0 h-12 w-full overflow-hidden flex items-center gap-3 px-4 text-white bg-red-600">
         {/* key = vuelve a entrar desde abajo cada vez que cambia el plato (con uno solo, queda quieto) */}
-        <span key={avisos.length > 1 ? `${actual.clave}-${paso}` : actual.clave}
+        <span key={agotados.length > 1 ? `${actual.menuItemId}-${paso}` : actual.menuItemId}
           className="flex-1 min-w-0 text-left font-black uppercase tracking-wide truncate"
-          style={avisos.length > 1 ? { animation: 'altoSube 0.35s ease-out' } : undefined}>
-          {actual.hay ? '✅ HAY' : '🚫 ALTO'} · {actual.nombre}
+          style={agotados.length > 1 ? { animation: 'altoSube 0.35s ease-out' } : undefined}>
+          🚫 ALTO · {actual.menuItem.nombre}
         </span>
-        {avisos.length > 1 && <span className="shrink-0 text-sm font-bold tabular-nums opacity-80">{i + 1}/{avisos.length}</span>}
+        {agotados.length > 1 && <span className="shrink-0 text-sm font-bold tabular-nums opacity-80">{i + 1}/{agotados.length}</span>}
       </button>
 
       {verLista && (
@@ -1053,7 +1033,6 @@ function FranjaAltos({ restaurantId }: { restaurantId: number }) {
           <div className="w-full sm:max-w-md bg-[var(--sala-hdr)] border-t sm:border border-[var(--sala-brd2)] rounded-t-2xl sm:rounded-2xl p-5 shadow-2xl max-h-[75vh] flex flex-col" onClick={e => e.stopPropagation()}>
             <h3 className="text-[var(--sala-txt)] font-black text-xl mb-3">🚫 Se acabó</h3>
             <div className="flex-1 overflow-y-auto space-y-2">
-              {agotados.length === 0 && <p className="text-[var(--sala-tx3)] text-sm">Ahora mismo no falta nada.</p>}
               {agotados.map(a => (
                 <div key={a.menuItemId} className="rounded-xl bg-red-500/10 border border-red-500/30 px-4 py-3">
                   <p className="text-[var(--sala-txt)] font-black uppercase">{a.menuItem.nombre}</p>
@@ -1062,16 +1041,6 @@ function FranjaAltos({ restaurantId }: { restaurantId: number }) {
                   </p>
                 </div>
               ))}
-              {repuestos.length > 0 && (
-                <>
-                  <p className="text-emerald-500 text-xs font-black uppercase tracking-wider pt-2">✅ Vuelve a haber</p>
-                  {repuestos.map(r => (
-                    <div key={r.id} className="rounded-xl bg-emerald-500/10 border border-emerald-500/30 px-4 py-3">
-                      <p className="text-[var(--sala-txt)] font-black uppercase">{r.nombre}</p>
-                    </div>
-                  ))}
-                </>
-              )}
             </div>
             <button onClick={() => setVerLista(false)}
               className="mt-3 w-full py-3 rounded-xl bg-[var(--sala-btn2)] text-[var(--sala-tx2)] text-sm font-semibold">
