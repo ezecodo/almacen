@@ -6559,7 +6559,7 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
   // wiki y ver las propinas; el encargado, además, reviews y reservas. Operar pide estar en el local.
   if (fueraDelLocal) {
     return (
-      <div data-sala-theme={isDark ? 'dark' : 'light'} className="flex flex-col h-screen bg-[var(--sala-bg)] items-center justify-center px-8 text-center">
+      <div data-sala-theme={isDark ? 'dark' : 'light'} className="flex flex-col h-[100dvh] bg-[var(--sala-bg)] items-center justify-center px-8 text-center">
         <p className="text-5xl mb-4">📍</p>
         <p className="text-[var(--sala-txt)] font-black text-xl mb-2">Estás fuera del local</p>
         <p className="text-[var(--sala-tx3)] text-sm mb-8 max-w-xs">
@@ -6609,7 +6609,7 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
   // Bloqueo si el turno no está iniciado
   if (!turnoLoading && turnoActivo === null) {
     return (
-      <div className="flex flex-col h-screen bg-[var(--sala-bg)] items-center justify-center px-8 text-center">
+      <div className="flex flex-col h-[100dvh] bg-[var(--sala-bg)] items-center justify-center px-8 text-center">
         <div className="flex items-center gap-3 mb-8 opacity-60">
           <svg width="52" height="55" viewBox="0 0 68 72">
             <defs>
@@ -6651,7 +6651,10 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
     <ThemeCtx.Provider value={isDark}>
     {/* Tras cobrar vuelve al PIN, salvo el encargado, que suele encadenar varios cobros */}
     <TpvCtx.Provider value={tpv && !esEncargado ? terminarTpv : null}>
-    <div data-sala-theme={isDark ? 'dark' : 'light'} className="flex flex-col h-screen bg-[var(--sala-bg)]">
+    // 100dvh y no h-screen (100vh): en el teléfono 100vh incluye la barra del navegador y la parte de
+    // abajo (indicador de la vuelta, franja de altos) quedaba fuera, con scroll. Así todo cabe en pantalla.
+    <div data-sala-theme={isDark ? 'dark' : 'light'} className="flex flex-col h-[100dvh] overflow-hidden bg-[var(--sala-bg)]"
+      style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
       {/* Header */}
       <div className="bg-[var(--sala-hdr)] border-b border-[var(--sala-brd)] px-3 py-1.5">
         <div className="flex items-stretch gap-2">
