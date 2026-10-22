@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { api, Empleado, MiTurno } from '../api'
+import MiHorario from '../components/MiHorario'
 
 function formatEur(n: number) {
   return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
@@ -121,6 +122,9 @@ function MisPropinas({ empleado, onLogout }: { empleado: Empleado; onLogout: () 
           Salir
         </button>
       </header>
+
+      {/* Mi horario: lo que le planificaron, antes de las propinas */}
+      <div className="px-5 mb-6"><MiHorario restaurantId={empleado.restaurantId ?? undefined} /></div>
 
       {/* Selector de período */}
       <div className="px-5 mb-5 flex items-center gap-3">

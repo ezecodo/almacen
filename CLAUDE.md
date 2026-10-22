@@ -657,6 +657,10 @@ Gestionado desde `/admin/empleados`. Ficha completa de personal del grupo.
 - `pin`: PIN de 4 dígitos para autenticación en la sala (camareros)
 - `activo`: soft-delete
 
+**Revisión del módulo (2026-10-22)**: buscador y filtro por restaurante (o rotativos); el PIN sale como •••• y se toca para verlo; cambiar Cocina/Sala se guarda (antes no viajaba) y apaga los permisos del tipo anterior. **Eliminar** no se permite si tiene propinas repartidas (409: se perderían sus filas y los repartos viejos no cuadrarían → desactivar); **desactivar** borra sus turnos del planning de hoy en adelante (`quitarTurnosFuturos` en `empleados.ts`). Contratos: solo 20/25/30/35/40 h (confirmado por Eze), también en `PATCH /staffing/empleados/:id`.
+
+**Mi horario** (2026-10-22, pedido de Eze): cada empleado ve su semana planificada en el teléfono — bloque `components/MiHorario.tsx` (día por día, hoy resaltado, libre/ausente, ‹ › de la semana pasada a 4 por delante) en el **perfil de la sala** (`PerfilPanel`) y en **`/mis-propinas`** (la gente de cocina). `GET /staffing/mi-horario?desde=<lunes>` devuelve solo los turnos del empleado de la sesión; está en `RUTAS_SALA` y `CONSULTA_SALA` (vale fuera del local). Los horarios los hace el jefe ejecutivo desde `/admin/staffing`.
+
 ---
 
 ## Módulo: Grupos
@@ -739,15 +743,15 @@ StaffingNecesidadFecha   restaurantId + fecha exacta (extras para festivos/event
 - `GET /staffing/tipos?restaurantId=X` — globales + específicos del restaurante
 - `POST /staffing/tipos`, `PUT /staffing/tipos/:id`, `DELETE /staffing/tipos/:id`
 - `GET /staffing/turnos?restaurantId=X&fecha=YYYY-MM-DD` — turnos del día con empleado+tipo incluidos
-- `GET /staffing/semana?restaurantId=X&lunes=YYYY-MM-DD` — vista semanal agrupada por día
+- `GET /staffing/turnos/semana?restaurantId=X&desde=YYYY-MM-DD` — turnos de la semana del local
 - `POST /staffing/turnos` — crear turno
 - `PUT /staffing/turnos/:id` — editar turno (acepta `restaurantId` para transferir a otro restaurante)
 - `DELETE /staffing/turnos/:id` — eliminar turno
 - `DELETE /staffing/turnos/semana-todos?desde=YYYY-MM-DD&restaurantIds=1,2,3` — borrar toda la semana de los restaurantes indicados
 - `GET /staffing/config?restaurantId=X`
 - `PUT /staffing/config` — actualizar ratios
-- `GET /staffing/necesidades/dia?restaurantId=X` — plantilla base por día de la semana
-- `PUT /staffing/necesidades/dia` — actualizar plantilla
+- `GET /staffing/necesidades?restaurantId=X` — plantilla base por día de la semana
+- `PUT /staffing/necesidades` — actualizar plantilla (los 7 días)
 - `GET /staffing/necesidades/fecha?restaurantId=X&desde=&hasta=`
 - `POST/PUT/DELETE /staffing/necesidades/fecha`
 - `POST /staffing/auto-planning` — Wizard: genera turnos automáticamente para una semana
@@ -756,6 +760,13 @@ StaffingNecesidadFecha   restaurantId + fecha exacta (extras para festivos/event
 - `GET /staffing/exceso-personal?rol=X&fecha=YYYY-MM-DD&restaurantId=X` — restaurantes donde ese rol tiene exceso de personal ese día, con lista de empleados transferibles (incluye `turnoId`)
 - `GET /staffing/cobertura?lunes=YYYY-MM-DD` — lista todos los empleados activos con `horasAsignadas` esa semana vs `horasSemanales` de contrato
 - `GET /staffing/huecos-empleado?empId=X&lunes=YYYY-MM-DD` — para un empleado concreto, devuelve los días+restaurantes donde su rol tiene déficit esa semana (`HuecoEmpleado[]`)
+
+### Reglas comunes (revisión 2026-10-22)
+
+- **Ausente no cuenta**: un turno `ausente` sigue ocupando el día (no se planifica encima) pero no cubre puestos ni suma horas, en el servidor y en la cuadrícula.
+- **Una sola regla de cobertura** (`cubiertos()` en el auto-planning, `computeDayCoverageWithSubs` en la pantalla): primero el rol exacto; un suplente (cocinero `puedeJefeCocina`, camarero `puedeEncargado`) solo tapa un déficit y entonces deja de contar en su puesto; sin rol no cubre. Antes la vista previa contaba al suplente dos veces.
+- **Días libres por semana del calendario**: la fase es `(posición en el grupo + faseLibreRotacion + nº de semana desde el 1-1-2024) % 4`; `faseLibreRotacion` ya no se incrementa al generar (antes, generar dos veces la misma semana corría los libres). La vista previa trae `diasLibres` (esta semana y la siguiente) calculados por el servidor; la pantalla ya no repite el reparto.
+- Staffing abre en la pestaña de la semana; la cuadrícula muestra también a los fijos del local sin turnos; asignar a mano avisa si ya trabaja ese día en otro local o se pasa del contrato (no bloquea) y enseña el error si falla; arrastrar un turno a alguien de otro puesto pide confirmación.
 
 ### Wizards
 

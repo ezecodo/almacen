@@ -88,7 +88,7 @@ export const RUTAS_SALA = new Set([
   // en qué red está el dispositivo
   'GET /api/red/estado',
   // propinas propias, almacén y validación de retiros
-  'GET /api/propinas/mis-turnos',
+  'GET /api/propinas/mis-turnos', 'GET /api/staffing/mi-horario',
   // reparto de propinas del encargado (turnos cerrados de su local)
   'GET /api/propinas/encargado/turnos', 'GET /api/propinas/encargado/empleados', 'GET /api/propinas/encargado/resumen', 'PUT /api/propinas/encargado/turnos/:turnoId',
   'GET /api/producto/:barcode', 'POST /api/retiros', 'PATCH /api/retiros/:id/confirmar',
@@ -117,7 +117,7 @@ export const SOLO_ENCARGADO = new Set([
 export const CONSULTA_SALA = new Set([
   'GET /api/red/estado',
   'GET /api/wiki', 'GET /api/menu', 'GET /api/menu/categorias', 'GET /api/alergenos', 'GET /api/maridajes',
-  'GET /api/propinas/mis-turnos',
+  'GET /api/propinas/mis-turnos', 'GET /api/staffing/mi-horario',
 ])
 
 // Además, el encargado: reviews y reservas (solo verlas)

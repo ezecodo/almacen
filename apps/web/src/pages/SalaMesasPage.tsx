@@ -4,6 +4,7 @@ const ThemeCtx = createContext<boolean>(true) // true = dark
 // Puesto TPV (/tpv, tablet compartida): el PIN vale para una sola acción. Cobrar llama a esta
 // función, que devuelve la tablet al PIN; fuera del TPV es null y no hace nada.
 const TpvCtx = createContext<(() => void) | null>(null)
+import MiHorario from '../components/MiHorario'
 import CheckOverlay from '../components/CheckOverlay'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -3342,8 +3343,9 @@ function WikiPanel({ restaurantId, onClose }: { restaurantId: number; onClose: (
   )
 }
 
-function PerfilPanel({ camarero, restaurantNombre, isDark, onToggleTheme, onClose, onOpenWiki, onOpenChecklist, onOpenProduccion }: {
+function PerfilPanel({ camarero, restaurantId, restaurantNombre, isDark, onToggleTheme, onClose, onOpenWiki, onOpenChecklist, onOpenProduccion }: {
   camarero: { id: number; nombre: string }
+  restaurantId: number
   restaurantNombre: string
   isDark: boolean
   onToggleTheme: () => void
@@ -3504,8 +3506,10 @@ function PerfilPanel({ camarero, restaurantNombre, isDark, onToggleTheme, onClos
         </div>
         </>)}
 
-        {/* Lista de turnos */}
+        {/* Mi horario (lo que planificó el planning) + propinas del mes */}
         <div className="flex-1 overflow-y-auto px-5 pb-6">
+          {!enLocal && <div className="pt-3"><MiHorario restaurantId={restaurantId} /></div>}
+          {!enLocal && !!turnos?.length && <p className="text-[var(--sala-tx3)] text-xs font-semibold uppercase tracking-wide mt-5 mb-1">Propinas del mes</p>}
           {isLoading && !enLocal && <p className="text-[var(--sala-tx4)] text-sm text-center py-6">Cargando…</p>}
           {!isLoading && !enLocal && !turnos?.length && (
             <p className="text-[var(--sala-tx4)] text-sm text-center py-6">Sin propinas registradas este mes</p>
@@ -6806,6 +6810,7 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
         {showPerfil && (
           <PerfilPanel
             camarero={camarero}
+            restaurantId={restaurant.id}
             restaurantNombre={restaurant.nombre}
             isDark={isDark}
             onToggleTheme={toggleTheme}
@@ -7190,6 +7195,7 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
       {showPerfil && camarero && (
         <PerfilPanel
           camarero={camarero}
+          restaurantId={restaurant.id}
           restaurantNombre={restaurant.nombre}
           isDark={isDark}
           onToggleTheme={toggleTheme}

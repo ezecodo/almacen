@@ -779,6 +779,12 @@ export interface NecesidadFecha extends NecesidadSlots {
   notas: string | null
 }
 
+// "Mi horario": la semana del empleado de la sesión (desde = lunes)
+export interface MiHorario {
+  desde: string
+  turnos: Array<{ id: number; fecha: string; horaInicio: string; horaFin: string; estado: string; tipo: { nombre: string; color: string } | null; restaurant: { id: number; nombre: string } }>
+}
+
 export interface AutoPlanItem {
   empleadoId:    number
   empleadoNombre: string
@@ -1438,6 +1444,7 @@ export const api = {
     deleteNecesidadFecha: (id: number) => del(`/staffing/necesidades/fecha/${id}`),
     autoPlanning: (body: { restaurantId: number; weekStart: string; preview?: boolean }) =>
       post<{ plan: AutoPlanItem[]; empleadosConTurnos?: number[]; hasNeeds?: boolean; created?: number; coverage?: Array<{ fecha: string; needed: NecesidadSlots; covered: NecesidadSlots; ok: boolean; partial: boolean }>; diasLibres?: Record<number, { esta: number[]; siguiente: number[] }> }>('/staffing/auto-planning', body),
+    miHorario: (desde?: string) => get<MiHorario>(`/staffing/mi-horario${desde ? `?desde=${desde}` : ''}`),
     getCobertura: (lunes: string) => get<CoberturaEmpleado[]>(`/staffing/cobertura?lunes=${lunes}`),
     getHuecosEmpleado: (empId: number, lunes: string) => get<HuecoEmpleado[]>(`/staffing/huecos-empleado?empId=${empId}&lunes=${lunes}`),
   },

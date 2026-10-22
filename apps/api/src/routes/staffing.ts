@@ -145,6 +145,32 @@ export async function staffingRoutes(app: FastifyInstance) {
     return turnos
   })
 
+  // GET /staffing/mi-horario?desde=YYYY-MM-DD — "Mi horario": los turnos de la semana del empleado
+  // de la sesión (el de nadie más), en todos los locales. desde = lunes; sin él, la semana actual.
+  app.get('/staffing/mi-horario', async (req, reply) => {
+    const empleadoId = req.user.empleadoId
+    if (!empleadoId) return reply.status(400).send({ error: 'Entra con tu PIN para ver tu horario' })
+    const { desde } = req.query as { desde?: string }
+    let lunes: Date
+    if (desde && /^\d{4}-\d{2}-\d{2}$/.test(desde)) lunes = new Date(`${desde}T00:00:00.000Z`)
+    else {
+      const hoy = new Date(`${new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Madrid' })}T00:00:00.000Z`)
+      const dow = hoy.getUTCDay()
+      lunes = new Date(hoy.getTime() - (dow === 0 ? 6 : dow - 1) * 24 * 60 * 60 * 1000)
+    }
+    const fin = new Date(lunes.getTime() + 7 * 24 * 60 * 60 * 1000 - 1)
+    const turnos = await prisma.turnoEmpleado.findMany({
+      where: { empleadoId, fecha: { gte: lunes, lte: fin } },
+      select: {
+        id: true, fecha: true, horaInicio: true, horaFin: true, estado: true,
+        tipo: { select: { nombre: true, color: true } },
+        restaurant: { select: { id: true, nombre: true } },
+      },
+      orderBy: [{ fecha: 'asc' }, { horaInicio: 'asc' }],
+    })
+    return { desde: lunes.toISOString().slice(0, 10), turnos }
+  })
+
   // DELETE /staffing/turnos/semana-todos?desde=YYYY-MM-DD&restaurantIds=1,2,3
   app.delete('/staffing/turnos/semana-todos', async (req, reply) => {
     const { desde, restaurantIds } = req.query as { desde?: string; restaurantIds?: string }
