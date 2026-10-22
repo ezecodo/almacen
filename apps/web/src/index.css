@@ -2,6 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Sin "tirar para actualizar": en la app instalada un arrastre hacia abajo con prisa
+   recargaba la página entera (Chrome Android). Se anula en toda la app; los scrolls
+   internos siguen funcionando igual, solo no "rebotan" hacia la página. */
+html, body {
+  overscroll-behavior-y: none;
+}
+
 /* ── SalaMesasPage — escala según ancho real de pantalla ──────────────────────
    Casi todo el sizing de Tailwind (text-*, w-*, h-*, p-*, gap-*) usa rem, es decir
    relativo a este font-size raíz — así que reescalarlo acá reescala en cascada TODA
