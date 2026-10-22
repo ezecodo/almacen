@@ -121,7 +121,7 @@ export async function staffingRoutes(app: FastifyInstance) {
 
     // Todos sus turnos de la semana en CUALQUIER restaurante
     const turnos = await prisma.turnoEmpleado.findMany({
-      where: { empleadoId: { in: empIds }, fecha: { gte: dateStart, lte: dateEnd } },
+      where: { empleadoId: { in: empIds }, fecha: { gte: dateStart, lte: dateEnd }, estado: { not: 'ausente' } },
       select: { empleadoId: true, horaInicio: true, horaFin: true, restaurantId: true },
     })
     return turnos
@@ -278,7 +278,7 @@ export async function staffingRoutes(app: FastifyInstance) {
             where: { restaurantId: r.id, fecha: { gte: dateStart, lte: dateEnd } },
           }),
           prisma.turnoEmpleado.findMany({
-            where: { restaurantId: r.id, fecha: { gte: dateStart, lte: dateEnd } },
+            where: { restaurantId: r.id, fecha: { gte: dateStart, lte: dateEnd }, estado: { not: 'ausente' } },
             include: { empleado: true },
           }),
         ])
@@ -355,7 +355,7 @@ export async function staffingRoutes(app: FastifyInstance) {
               where: { restaurantId: r.id, fecha: { gte: dateStart, lte: dateEnd } },
             }),
             prisma.turnoEmpleado.findMany({
-              where: { restaurantId: r.id, fecha: { gte: dateStart, lte: dateEnd } },
+              where: { restaurantId: r.id, fecha: { gte: dateStart, lte: dateEnd }, estado: { not: 'ausente' } },
               include: { empleado: true },
             }),
           ])
@@ -422,7 +422,7 @@ export async function staffingRoutes(app: FastifyInstance) {
       }),
       // Turnos de toda la semana → para calcular horas ya asignadas
       prisma.turnoEmpleado.findMany({
-        where: { empleadoId: { in: empIds }, fecha: { gte: weekStart, lte: weekEnd } },
+        where: { empleadoId: { in: empIds }, fecha: { gte: weekStart, lte: weekEnd }, estado: { not: 'ausente' } },
         select: { empleadoId: true, horaInicio: true, horaFin: true },
       }),
     ])
@@ -523,7 +523,7 @@ export async function staffingRoutes(app: FastifyInstance) {
         select: { empleadoId: true },
       }),
       prisma.turnoEmpleado.findMany({
-        where: { empleadoId: { in: empIds }, fecha: { gte: weekStart, lte: weekEnd } },
+        where: { empleadoId: { in: empIds }, fecha: { gte: weekStart, lte: weekEnd }, estado: { not: 'ausente' } },
         select: { empleadoId: true, horaInicio: true, horaFin: true },
       }),
     ])
@@ -647,7 +647,7 @@ export async function staffingRoutes(app: FastifyInstance) {
         if (needed === 0) continue
 
         const covered = turnosDia.filter(t => {
-          if (t.restaurantId !== r.id) return false
+          if (t.restaurantId !== r.id || t.estado === 'ausente') return false
           const e = t.empleado
           if (slotKey === 'jefeCocina') return e.rol === 'jefe_cocina' || (e.rol === 'cocinero' && e.puedeJefeCocina)
           if (slotKey === 'encargados') return e.rol === 'encargado'   || (e.rol === 'camarero' && e.puedeEncargado)
@@ -679,7 +679,7 @@ export async function staffingRoutes(app: FastifyInstance) {
         orderBy: { nombre: 'asc' },
       }),
       prisma.turnoEmpleado.findMany({
-        where: { fecha: { gte: weekStart, lte: weekEnd } },
+        where: { fecha: { gte: weekStart, lte: weekEnd }, estado: { not: 'ausente' } },
         include: { restaurant: { select: { id: true, nombre: true } } },
       }),
     ])
@@ -725,7 +725,7 @@ export async function staffingRoutes(app: FastifyInstance) {
   app.patch('/staffing/empleados/:id', async (req, reply) => {
     const id = Number((req.params as { id: string }).id)
     const schema = z.object({
-      horasSemanales:    z.number().int().min(0).optional(),
+      horasSemanales:    z.number().int().refine(v => [20, 25, 30, 35, 40].includes(v), { message: 'Debe ser 20, 25, 30, 35 o 40' }).optional(),
       faseLibreRotacion: z.number().int().min(0).max(3).optional(),
     })
     const result = schema.safeParse(req.body)
@@ -923,6 +923,11 @@ export async function staffingRoutes(app: FastifyInstance) {
       horaInicio: string; horaFin: string; tipoId: number | null; tipoNombre: string | null
     }> = []
 
+    // Un turno marcado ausente sigue ocupando el día (no se le planifica encima), pero no cubre ni suma horas
+    const existingActivos  = existingShifts.filter(s => s.estado !== 'ausente')
+    const minsOtrosDe = (empId: number) => otherRestaurantShifts
+      .filter(s => s.empleadoId === empId && s.estado !== 'ausente')
+      .reduce((m, t) => m + calcMins(t.horaInicio, t.horaFin), 0)
     const existingSet      = new Set(existingShifts.map(s => `${s.empleadoId}-${s.fecha.toISOString().slice(0, 10)}`))
     const empIdsWithShifts = new Set(existingShifts.map(s => s.empleadoId))
 
@@ -956,7 +961,11 @@ export async function staffingRoutes(app: FastifyInstance) {
     // ── Off-day computation ───────────────────────────────────────────────────
     // empIdxInGroup: posición del empleado dentro de su grupo tipo (cocina/sala).
     // Usar índice posicional garantiza distribución uniforme sin depender de los IDs.
-    function getOffDays(emp: typeof empleados[0], empIdxInGroup: number, phaseOverride?: number): Set<number> {
+    // La rotación avanza con la semana del calendario: generar, borrar y volver a generar la misma semana
+    // da los mismos días libres (antes avanzaba cada vez que se generaba). faseLibreRotacion queda como
+    // desfase propio de cada empleado.
+    const SEMANA_N = Math.round((dateStart.getTime() - Date.UTC(2024, 0, 1)) / (7 * 24 * 60 * 60 * 1000)) // 1-1-2024 fue lunes
+    function getOffDays(emp: typeof empleados[0], empIdxInGroup: number, phaseOverride?: number, semana = SEMANA_N): Set<number> {
       const daysOffCount = 2 // siempre 2 días libres, independientemente de las horas contratadas
       const fixed        = emp.diasLibresFijos ?? []
       const off          = new Set(fixed)
@@ -976,7 +985,7 @@ export async function staffingRoutes(app: FastifyInstance) {
           const patterns = daysOffCount >= 3 ? OFF_PATTERNS_3 : OFF_PATTERNS_2
           const phase    = phaseOverride !== undefined
             ? phaseOverride
-            : (empIdxInGroup + (emp.faseLibreRotacion ?? 0)) % 4
+            : (empIdxInGroup + (emp.faseLibreRotacion ?? 0) + semana) % 4
           patterns[phase].forEach(d => off.add(d))
         }
       }
@@ -1035,6 +1044,40 @@ export async function staffingRoutes(app: FastifyInstance) {
       return false
     }
 
+    // ── Cobertura de un día: la misma regla que la cuadrícula de la pantalla ──────
+    // Primero cuentan los de rol exacto; un suplente (cocinero que puede ser jefe, camarero que puede ser
+    // encargado) solo tapa un déficit, y entonces deja de contar en su puesto. Sin rol no cubre nada.
+    const SUPLENTE: Partial<Record<keyof Slots, (e: typeof empleados[0]) => boolean>> = {
+      jefeCocina: e => e.rol === 'cocinero' && e.puedeJefeCocina,
+      encargados: e => e.rol === 'camarero' && e.puedeEncargado,
+    }
+    function cubiertos(dayIdx: number): Slots {
+      const dayStr = days[dayIdx]
+      const ids = [
+        ...existingActivos.filter(s => s.fecha.toISOString().slice(0, 10) === dayStr).map(s => s.empleadoId),
+        ...plan.filter(p => p.fecha === dayStr).map(p => p.empleadoId),
+      ]
+      const trabajando = [...new Set(ids)].map(id => empleados.find(e => e.id === id)).filter((e): e is typeof empleados[0] => !!e && !!e.rol)
+      const needed = needsPerDay[dayIdx]
+      const comoSuplente = new Set<number>()
+      const out: Slots = { ...blank }
+      for (const rk of ROLE_KEYS) {
+        let n = trabajando.filter(e => ROL_MAP[rk].includes(e.rol!)).length
+        const esSuplente = SUPLENTE[rk]
+        if (esSuplente && n < needed[rk]) {
+          const sups = trabajando.filter(e => !comoSuplente.has(e.id) && esSuplente(e)).slice(0, needed[rk] - n)
+          sups.forEach(e => comoSuplente.add(e.id))
+          n += sups.length
+        }
+        out[rk] = n
+      }
+      // El suplente ya no cuenta en su propio puesto
+      for (const rk of ROLE_KEYS) {
+        out[rk] -= trabajando.filter(e => comoSuplente.has(e.id) && ROL_MAP[rk].includes(e.rol!)).length
+      }
+      return out
+    }
+
     // ── Helper: add shifts for one employee (mezcla tipos para alcanzar horas semanales exactas) ──
     // applyNeedsFilter=true solo para rotativos: no añadir si el rol ya está cubierto.
     // Para fijos (contratados) siempre se generan sus 5 días de trabajo.
@@ -1043,7 +1086,7 @@ export async function staffingRoutes(app: FastifyInstance) {
 
       // Horas y días ya asignados en OTROS restaurantes esta semana
       const shiftsOtros = otherRestaurantShifts.filter(s => s.empleadoId === emp.id)
-      const minsYaOtros = shiftsOtros.reduce((s, t) => s + calcMins(t.horaInicio, t.horaFin), 0)
+      const minsYaOtros = minsOtrosDe(emp.id)
       const diasOtros   = new Set(shiftsOtros.map(s => s.fecha.toISOString().slice(0, 10)))
 
       // Target = horas de contrato menos lo ya cubierto en otros restaurantes
@@ -1076,15 +1119,7 @@ export async function staffingRoutes(app: FastifyInstance) {
           for (const d of workingDays) {
             const needed = needsPerDay[d.dayIdx][strictRoleKey]
             if (!needed) { tier3.push(d); continue }
-            const alreadyCovered =
-              plan.filter(p => {
-                const e2 = empleados.find(x => x.id === p.empleadoId)
-                return e2 && empMatchesRole(e2, strictRoleKey) && p.fecha === d.dayStr
-              }).length +
-              existingShifts.filter(s => {
-                const e2 = empleados.find(x => x.id === s.empleadoId)
-                return e2 && empMatchesRole(e2, strictRoleKey) && s.fecha.toISOString().slice(0, 10) === d.dayStr
-              }).length
+            const alreadyCovered = cubiertos(d.dayIdx)[strictRoleKey]
             if (alreadyCovered < needed) tier1.push(d)
             else tier2.push(d)
           }
@@ -1168,15 +1203,7 @@ export async function staffingRoutes(app: FastifyInstance) {
     // Enfoque iterativo: por cada rol, sigue añadiendo rotativos hasta cubrir el déficit
     // (o hasta que no queden rotativos disponibles). coveredByPlan se recalcula cada vez.
     if (hasNeeds) {
-      const coveredByPlan = (roleKey: keyof Slots, dayIdx: number) =>
-        existingShifts.filter(s => {
-          const e = empleados.find(x => x.id === s.empleadoId)
-          return e && empMatchesRole(e, roleKey) && s.fecha.toISOString().slice(0, 10) === days[dayIdx]
-        }).length +
-        plan.filter(p => {
-          const e = empleados.find(x => x.id === p.empleadoId)
-          return e && empMatchesRole(e, roleKey) && p.fecha === days[dayIdx]
-        }).length
+      const coveredByPlan = (roleKey: keyof Slots, dayIdx: number) => cubiertos(dayIdx)[roleKey]
 
       const maxDeficitForRole = (roleKey: keyof Slots) => {
         let max = 0
@@ -1212,9 +1239,7 @@ export async function staffingRoutes(app: FastifyInstance) {
               const aExact = ROL_MAP[roleKey].includes(a.rol ?? '') ? 1 : 0
               const bExact = ROL_MAP[roleKey].includes(b.rol ?? '') ? 1 : 0
               if (bExact !== aExact) return bExact - aExact
-              const aMins = otherRestaurantShifts.filter(s => s.empleadoId === a.id).reduce((s, t) => s + calcMins(t.horaInicio, t.horaFin), 0)
-              const bMins = otherRestaurantShifts.filter(s => s.empleadoId === b.id).reduce((s, t) => s + calcMins(t.horaInicio, t.horaFin), 0)
-              return aMins - bMins
+              return minsOtrosDe(a.id) - minsOtrosDe(b.id)
             })
 
           if (pool.length === 0) break
@@ -1226,7 +1251,7 @@ export async function staffingRoutes(app: FastifyInstance) {
           if (!offDaysMap.has(emp.id)) {
             const rotIdx       = rotatingEmps.filter(e => e.tipo === emp.tipo).indexOf(emp)
             const fixed        = emp.diasLibresFijos ?? []
-            const naturalPhase = (rotIdx + (emp.faseLibreRotacion ?? 0)) % 4
+            const naturalPhase = (rotIdx + (emp.faseLibreRotacion ?? 0) + SEMANA_N) % 4
             const resolvedPhase = fixed.length === 0 && usedPhases.has(naturalPhase)
               ? bestComplementPhase(usedPhases, naturalPhase)
               : naturalPhase
@@ -1277,7 +1302,7 @@ export async function staffingRoutes(app: FastifyInstance) {
           if (!needed) continue
           const dayStr = days[dayIdx]
 
-          const existingCount = existingShifts.filter(s => {
+          const existingCount = existingActivos.filter(s => {
             const e = empleados.find(x => x.id === s.empleadoId)
             return e && empMatchesRoleStrict(e, roleKey) && s.fecha.toISOString().slice(0, 10) === dayStr
           }).length
@@ -1298,9 +1323,7 @@ export async function staffingRoutes(app: FastifyInstance) {
               const emp = empleados.find(x => x.id === c.empleadoId)
               if (!emp) return true
               // Horas en otros restaurantes esta semana (invariantes)
-              const minsOtros = otherRestaurantShifts
-                .filter(s => s.empleadoId === c.empleadoId)
-                .reduce((s, t) => s + calcMins(t.horaInicio, t.horaFin), 0)
+              const minsOtros = minsOtrosDe(c.empleadoId)
               // Horas en este restaurante si se quita este turno
               const minsRestantes = plan
                 .filter(p => p.empleadoId === c.empleadoId && p.fecha !== c.fecha && !toRemoveKeys.has(`${p.empleadoId}-${p.fecha}`))
@@ -1329,18 +1352,7 @@ export async function staffingRoutes(app: FastifyInstance) {
     // Cobertura por rol y día (para el preview)
     const coverage = days.map((dayStr, dayIdx) => {
       const needed = needsPerDay[dayIdx]
-      const covered: Slots = { jefeCocina: 0, cocineros: 0, friegaplatos: 0, produccion: 0, camareros: 0, encargados: 0 }
-      for (const roleKey of ROLE_KEYS) {
-        covered[roleKey] =
-          plan.filter(p => {
-            const e = empleados.find(x => x.id === p.empleadoId)
-            return e && empMatchesRole(e, roleKey) && p.fecha === dayStr
-          }).length +
-          existingShifts.filter(s => {
-            const e = empleados.find(x => x.id === s.empleadoId)
-            return e && empMatchesRole(e, roleKey) && s.fecha.toISOString().slice(0, 10) === dayStr
-          }).length
-      }
+      const covered = cubiertos(dayIdx)
       const roles = ROLE_KEYS.filter(rk => needed[rk] > 0)
       const ok      = roles.every(rk => covered[rk] >= needed[rk])
       const partial = !ok && roles.some(rk => covered[rk] > 0)
@@ -1348,7 +1360,18 @@ export async function staffingRoutes(app: FastifyInstance) {
     })
 
     if (preview) {
-      return { plan, empleadosConTurnos: empleadosConTurnosFinal, hasNeeds, coverage }
+      // Días libres de cada uno esta semana y la siguiente: los calcula solo el servidor, así la pantalla
+      // no repite el reparto (antes lo copiaba y podía no coincidir)
+      const indiceEnGrupo = (emp: typeof empleados[0]) => (emp.restaurantId === null ? rotatingEmps : emp.tipo === 'cocina' ? cocinaFijos : salaFijos).filter(e => e.tipo === emp.tipo).indexOf(emp)
+      const diasLibres: Record<number, { esta: number[]; siguiente: number[] }> = {}
+      for (const id of new Set(plan.map(p => p.empleadoId))) {
+        const emp = empleados.find(e => e.id === id)
+        if (!emp) continue
+        const esta = offDaysMap.get(id) ?? getOffDays(emp, indiceEnGrupo(emp))
+        const siguiente = (emp.diasLibresFijos ?? []).length ? esta : getOffDays(emp, indiceEnGrupo(emp), undefined, SEMANA_N + 1)
+        diasLibres[id] = { esta: [...esta].sort((a, b) => a - b), siguiente: [...siguiente].sort((a, b) => a - b) }
+      }
+      return { plan, empleadosConTurnos: empleadosConTurnosFinal, hasNeeds, coverage, diasLibres }
     }
 
     await Promise.all(
@@ -1362,21 +1385,6 @@ export async function staffingRoutes(app: FastifyInstance) {
         })
       )
     )
-
-    // Avanzar faseLibreRotacion para empleados que usaron el patrón de rotación
-    // (solo los que no tienen días fijos — los que sí los tienen usan ancla fija)
-    const empIdsPlanned = new Set(plan.map(p => p.empleadoId))
-    const rotatingPlanned = [...fixedEmps, ...rotatingEmps].filter(e =>
-      empIdsPlanned.has(e.id) && (e.diasLibresFijos ?? []).length === 0
-    )
-    if (rotatingPlanned.length > 0) {
-      await Promise.all(rotatingPlanned.map(e =>
-        prisma.empleado.update({
-          where: { id: e.id },
-          data:  { faseLibreRotacion: (((e.faseLibreRotacion ?? 0) + 1) % 4) },
-        })
-      ))
-    }
 
     return reply.status(201).send({ created: plan.length, plan })
   })

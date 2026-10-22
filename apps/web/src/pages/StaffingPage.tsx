@@ -67,7 +67,7 @@ function AssignShiftModal({
   const [horaFin, setHoraFin]       = useState(turnoExistente?.horaFin ?? '17:00')
   const [estado, setEstado]         = useState(turnoExistente?.estado ?? 'planificado')
 
-  const empSeleccionado = empleados.find(e => e.id === empleadoId) ?? turnoExistente ? empleados.find(e => e.id === (turnoExistente?.empleadoId ?? empleadoId)) : null
+  const empSeleccionado = empleados.find(e => e.id === (turnoExistente?.empleadoId ?? empleadoId)) ?? null
   const tiposFiltrados  = tipos.filter(t => t.tipoEmpleado === null || t.tipoEmpleado === empSeleccionado?.tipo)
 
   const selectTipo = (t: TurnoTipo) => {
@@ -98,6 +98,23 @@ function AssignShiftModal({
   const isEdit    = !!turnoExistente
   const isPending = crear.isPending || actualizar.isPending || eliminar.isPending
   const horas     = calcHoras(horaInicio, horaFin)
+  const errorGuardar = (crear.error ?? actualizar.error ?? eliminar.error) as Error | null
+
+  // Avisos (no bloquean): ya trabaja ese día en algún local, o se pasa de las horas de su contrato
+  const lunes = toISO(isoWeekStart(new Date(`${fecha}T12:00:00Z`)))
+  const { data: suSemana = [] } = useQuery({
+    queryKey: ['staffing-emp-semana', empSeleccionado?.id, lunes],
+    queryFn: () => api.staffing.getEmpleadoSemana(empSeleccionado!.id, lunes),
+    enabled: !!empSeleccionado,
+  })
+  const otros = suSemana.filter(t => t.id !== turnoExistente?.id && t.estado !== 'ausente')
+  const mismoDia = otros.filter(t => t.fecha.startsWith(fecha))
+  const horasSemana = otros.reduce((h, t) => h + horasEnTurno(t.horaInicio, t.horaFin), 0) + (estado === 'ausente' ? 0 : horas)
+  const contrato = empSeleccionado?.horasSemanales ?? 40
+  const avisos = [
+    ...mismoDia.map(t => `Ese día ya trabaja en ${t.restaurant.nombre} (${t.horaInicio}–${t.horaFin})`),
+    ...(empSeleccionado && horasSemana > contrato ? [`Con este turno suma ${Math.round(horasSemana * 10) / 10} h esta semana y su contrato es de ${contrato} h`] : []),
+  ]
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
@@ -195,6 +212,17 @@ function AssignShiftModal({
             </div>
           )}
         </div>
+
+        {(avisos.length > 0 || errorGuardar) && (
+          <div className="px-5 pb-3 space-y-1.5">
+            {avisos.map(a => (
+              <p key={a} className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">⚠ {a}</p>
+            ))}
+            {errorGuardar && (
+              <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">No se pudo guardar: {errorGuardar.message}</p>
+            )}
+          </div>
+        )}
 
         <div className="px-5 py-4 border-t border-gray-100 flex justify-between">
           <div>
@@ -626,7 +654,7 @@ function computeDayCoverageWithSubs(
 
   // Empleados con turno ese día
   const working = turnosSemana
-    .filter(t => t.fecha.startsWith(dayStr))
+    .filter(t => t.fecha.startsWith(dayStr) && t.estado !== 'ausente')
     .map(t => empleados.find(e => e.id === t.empleadoId))
     .filter((e): e is Empleado => !!e && !!e.rol)
 
@@ -657,6 +685,13 @@ function computeDayCoverageWithSubs(
     }
 
     result[rk] = { covered, needed: n }
+  }
+
+  // Un camarero que cubre de encargado ya no cuenta como camarero (el cocinero que cubre de jefe ya
+  // se excluye solo, porque jefe se cuenta antes que cocineros). Misma regla que el servidor.
+  for (const rk of ROLE_KEYS_FE) {
+    if (rk === 'jefeCocina' || rk === 'encargados') continue
+    result[rk].covered = working.filter(e => !usedAsSupl.has(e.id) && ROL_MAP_FE[rk].includes(e.rol!)).length
   }
 
   return result
@@ -1018,36 +1053,9 @@ function FillDayModal({ restaurantId, fecha, empleados, tipos, turnosSemana, onC
 // ── Helpers rotación días libres (wizard preview) ─────────────────────────────
 // Mismos patrones que el backend. Todos consecutivos. "Día doble" = Lunes (día tranquilo).
 //   Phase 0: Lun+Mar  Phase 1: Mié+Jue  Phase 2: Vie+Sáb  Phase 3: Dom+Lun
-const OFF_PATTERNS_2 = [[0,1],[2,3],[4,5],[6,0]]
 const DIA_LABELS     = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom']
 
 // empIdxInGroup: posición del empleado en su grupo de tipo (cocina/sala), igual que el backend
-function getOffDaysFE(emp: Empleado, empIdxInGroup: number): number[] {
-  const fixed = emp.diasLibresFijos ?? []
-  const off = new Set(fixed)
-  const extra = 2 - fixed.length
-  if (extra > 0) {
-    if (fixed.length > 0) {
-      const anchor = [...fixed].sort((a, b) => a - b).at(-1)!
-      let added = 0
-      for (let i = 1; i <= 7 && added < extra; i++) {
-        const c = (anchor + i) % 7
-        if (!off.has(c)) { off.add(c); added++ }
-      }
-    } else {
-      const phase = (empIdxInGroup + (emp.faseLibreRotacion ?? 0)) % 4
-      OFF_PATTERNS_2[phase].forEach((d: number) => off.add(d))
-    }
-  }
-  return [...off].sort((a, b) => a - b)
-}
-
-function getNextOffDaysFE(emp: Empleado, empIdxInGroup: number): number[] {
-  if ((emp.diasLibresFijos ?? []).length > 0) return []
-  const nextPhase = (empIdxInGroup + (emp.faseLibreRotacion ?? 0) + 1) % 4
-  return OFF_PATTERNS_2[nextPhase]
-}
-
 // ── Modal: Auto-planning ──────────────────────────────────────────────────────
 function AutoPlanningModal({
   restaurantId, weekStart, empleados, tipos, onClose,
@@ -1136,17 +1144,13 @@ function AutoPlanningModal({
               </div>
 
               {(() => {
-                // Índice posicional dentro del grupo tipo — igual que el backend
-                const cocinaGroup = empleados.filter(e => e.tipo === 'cocina' && !(e.diasLibresFijos ?? []).length)
-                const salaGroup   = empleados.filter(e => e.tipo === 'sala'   && !(e.diasLibresFijos ?? []).length)
-                const idxInGroup = (emp: Empleado) =>
-                  (emp.tipo === 'cocina' ? cocinaGroup : salaGroup).findIndex(e => e.id === emp.id)
                 return Object.entries(byEmployee).map(([empIdStr, { nombre, shifts }]) => {
                 const emp        = empleados.find(e => e.id === Number(empIdStr))
                 const totalHoras = shifts.reduce((s, sh) => s + horasEnTurno(sh.horaInicio, sh.horaFin), 0)
-                const empIdx     = emp ? idxInGroup(emp) : 0
-                const offDays    = emp ? getOffDaysFE(emp, empIdx) : []
-                const nextOff    = emp ? getNextOffDaysFE(emp, empIdx) : []
+                // Días libres: los calcula el servidor con la misma regla que usa para planificar
+                const libres     = preview?.diasLibres?.[Number(empIdStr)]
+                const offDays    = libres?.esta ?? []
+                const nextOff    = libres && libres.siguiente.join() !== libres.esta.join() ? libres.siguiente : []
                 const hasFijos   = (emp?.diasLibresFijos ?? []).length > 0
                 const offLabel   = offDays.map(d => DIA_LABELS[d]).join('+')
                 const nextLabel  = nextOff.map(d => DIA_LABELS[d]).join('+')
@@ -1650,6 +1654,9 @@ function TabTurnos({ restaurantId, weekStart }: { restaurantId: number; weekStar
     const sourceFecha = source.fecha.slice(0, 10)
     if (source.empleadoId === targetEmpId && sourceFecha === targetFecha) return
     const targetTurno = turnosSemana.find(t => t.empleadoId === targetEmpId && t.fecha.startsWith(targetFecha))
+    const de = empleados.find(e => e.id === source.empleadoId), a = empleados.find(e => e.id === targetEmpId)
+    if (de && a && (de.tipo !== a.tipo || (de.rol && a.rol && de.rol !== a.rol)) &&
+        !confirm(`${a.nombre} es ${a.rol ?? a.tipo} y el turno era de ${de.rol ?? de.tipo}. ¿Moverlo igual?`)) { setDraggingId(null); return }
     moveMutation.mutate({
       sourceId: source.id, sourceEmpId: source.empleadoId, sourceFecha,
       targetEmpId, targetFecha, ...(targetTurno ? { targetId: targetTurno.id } : {}),
@@ -1669,7 +1676,8 @@ function TabTurnos({ restaurantId, weekStart }: { restaurantId: number; weekStar
   }
 
   const empleadosActivos = (empleados as Empleado[]).filter(e => e.activo)
-  const empleadosEnGrid  = empleadosActivos.filter(emp => turnosSemana.some(t => t.empleadoId === emp.id))
+  const empleadosEnGrid  = empleadosActivos.filter(emp =>
+    turnosSemana.some(t => t.empleadoId === emp.id) || (emp.restaurantId === restaurantId && !emp.excluirPlanning))
   const cocinaEnGrid     = empleadosEnGrid.filter(e => e.tipo === 'cocina').sort(sortEmps)
   const salaEnGrid       = empleadosEnGrid.filter(e => e.tipo === 'sala').sort(sortEmps)
 
@@ -2641,7 +2649,7 @@ function TabCobertura() {
 // ── Main page ──────────────────────────────────────────────────────────────────
 export default function StaffingPage() {
   const [restaurantId,       setRestaurantId]       = useState(0)
-  const [tab,                setTab]                = useState<'turnos' | 'tipos' | 'necesidades' | 'cobertura'>('tipos')
+  const [tab,                setTab]                = useState<'turnos' | 'tipos' | 'necesidades' | 'cobertura'>('turnos')
   const [weekStart,          setWeekStart]          = useState<Date>(() => isoWeekStart(new Date()))
   const [globalPlanModal,    setGlobalPlanModal]    = useState(false)
   const [borrarPlanModal,    setBorrarPlanModal]    = useState(false)

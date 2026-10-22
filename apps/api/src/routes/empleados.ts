@@ -61,6 +61,13 @@ const badgeSchema = z.object({
   nota:         z.string().max(1000),
 })
 
+// Al dar de baja a alguien, sus turnos planificados de hoy en adelante se van: si no, seguían
+// contando como cubiertos en el planning aunque ya no aparecía en la cuadrícula
+async function quitarTurnosFuturos(empleadoId: number) {
+  const hoy = new Date(`${new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Madrid' })}T00:00:00.000Z`)
+  await prisma.turnoEmpleado.deleteMany({ where: { empleadoId, fecha: { gte: hoy } } })
+}
+
 export async function empleadoRoutes(app: FastifyInstance) {
 
   // POST /empleados/:id/badge — dar un badge de Oído Talent a un empleado, a nombre del restaurante.
@@ -93,7 +100,7 @@ export async function empleadoRoutes(app: FastifyInstance) {
   })
 
 
-  // Auth por PIN (solo cocina)
+  // Auth por PIN (sala, almacén y mis propinas)
   app.post('/empleados/auth', async (req, reply) => {
     const { pin, restaurantId } = (req.body ?? {}) as { pin?: string; restaurantId?: number }
     if (!pin) return reply.status(400).send({ error: 'PIN requerido' })
@@ -174,6 +181,7 @@ export async function empleadoRoutes(app: FastifyInstance) {
     }
 
     const empleado = await prisma.empleado.update({ where: { id }, data: result.data })
+    if (result.data.activo === false) await quitarTurnosFuturos(id)
     return empleado
   })
 
@@ -181,6 +189,7 @@ export async function empleadoRoutes(app: FastifyInstance) {
   app.patch('/empleados/:id/desactivar', { preHandler: requireAdmin }, async (req, _reply) => {
     const id = Number((req.params as { id: string }).id)
     const empleado = await prisma.empleado.update({ where: { id }, data: { activo: false } })
+    await quitarTurnosFuturos(id)
     return empleado
   })
 
@@ -191,14 +200,17 @@ export async function empleadoRoutes(app: FastifyInstance) {
     const empleado = await prisma.empleado.findUnique({ where: { id } })
     if (!empleado) return reply.status(404).send({ error: 'Empleado no encontrado' })
 
+    // Con propinas repartidas no se borra: se perderían sus filas y los repartos viejos dejarían de cuadrar
+    const conPropinas = await prisma.propinaTurno.count({ where: { empleadoId: id } })
+    if (conPropinas > 0) return reply.status(409).send({ error: `${empleado.nombre} tiene propinas repartidas en ${conPropinas} turno${conPropinas === 1 ? '' : 's'}: desactívalo en vez de eliminarlo` })
+
     // Anonimizar retiros: guardar nombre, desligar FK
     await prisma.retiro.updateMany({
       where: { empleadoId: id },
       data:  { empleadoId: { set: null }, empleadoNombre: empleado.nombre },
     })
 
-    // Borrar turnos de propinas y luego el empleado
-    await prisma.propinaTurno.deleteMany({ where: { empleadoId: id } })
+    // Borrar sus turnos del planning y luego el empleado
     await prisma.turnoEmpleado.deleteMany({ where: { empleadoId: id } })
     await prisma.empleado.delete({ where: { id } })
     return reply.status(204).send()

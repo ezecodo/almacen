@@ -88,7 +88,7 @@ function EmpleadoModal({
                 <button
                   key={t}
                   type="button"
-                  onClick={() => setForm(f => ({ ...f, tipo: t, rol: null }))}
+                  onClick={() => setForm(f => f.tipo === t ? f : ({ ...f, tipo: t, rol: null, puedeEncargado: false, puedeJefeCocina: false, accesoEncargadoApp: false }))}
                   className={`flex-1 py-2.5 rounded-xl text-sm font-semibold border-2 transition-all ${
                     form.tipo === t
                       ? t === 'cocina'
@@ -140,7 +140,7 @@ function EmpleadoModal({
               </span>
               <div>
                 <p className="text-sm font-semibold text-gray-700">Puede hacer de encargado/a</p>
-                <p className="text-xs text-gray-400">El planning lo usará como encargado si hay déficit (solo afecta al planning — el acceso 💼 de la app se da con el botón de la lista)</p>
+                <p className="text-xs text-gray-400">El planning lo usará como encargado si hay déficit. Solo afecta al planning: el modo encargado 💼 en la app es la casilla de TPV de abajo</p>
               </div>
             </button>
           )}
@@ -417,13 +417,14 @@ export default function EmpleadosPage() {
       setModal(null)
       mostrar('Empleado creado', true)
     },
-    onError: (e: Error) => mostrar(e.message.includes('409') ? 'PIN ya en uso' : 'Error al crear', false),
+    onError: (e: Error) => mostrar(e.message.includes('failed') ? 'Error al crear' : e.message, false),
   })
 
   const actualizar = useMutation({
     mutationFn: ({ id, data }: { id: number; data: Omit<Empleado, 'id' | 'activo'> }) =>
       api.empleados.update(id, {
         nombre:         data.nombre,
+        tipo:           data.tipo,
         pin:            data.pin ?? undefined,
         telefono:       data.telefono || null,
         email:          data.email    || null,
@@ -441,7 +442,7 @@ export default function EmpleadosPage() {
       setModal(null)
       mostrar('Empleado actualizado', true)
     },
-    onError: (e: Error) => mostrar(e.message.includes('409') ? 'PIN ya en uso' : 'Error al actualizar', false),
+    onError: (e: Error) => mostrar(e.message.includes('failed') ? 'Error al actualizar' : e.message, false),
   })
 
   const desactivar = useMutation({
@@ -452,11 +453,19 @@ export default function EmpleadosPage() {
   const eliminar = useMutation({
     mutationFn: (id: number) => api.empleados.delete(id),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['empleados'] }); mostrar('Empleado eliminado', true) },
-    onError: () => mostrar('Tiene retiros — usa Desactivar', false),
+    onError: (e: Error) => mostrar(e.message.includes('failed') ? 'No se pudo eliminar' : e.message, false),
   })
 
-  const activos   = empleados.filter(e => e.activo && e.tipo === tab)
-  const inactivos = empleados.filter(e => !e.activo && e.tipo === tab)
+  // Buscar por nombre y filtrar por restaurante habitual ('rot' = rotativos)
+  const [busca, setBusca] = useState('')
+  const [filtroRest, setFiltroRest] = useState<number | 'rot' | null>(null)
+  const [pinVisible, setPinVisible] = useState<Set<number>>(new Set())
+  const norm = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  const pasaFiltro = (e: Empleado) =>
+    (!busca.trim() || norm(e.nombre).includes(norm(busca.trim()))) &&
+    (filtroRest == null || (filtroRest === 'rot' ? e.restaurantId == null : e.restaurantId === filtroRest))
+  const activos   = empleados.filter(e => e.activo && e.tipo === tab && pasaFiltro(e))
+  const inactivos = empleados.filter(e => !e.activo && e.tipo === tab && pasaFiltro(e))
 
   const isPending = crear.isPending || actualizar.isPending
 
@@ -499,11 +508,33 @@ export default function EmpleadosPage() {
           </button>
         </div>
 
+        {/* Buscar y filtrar */}
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="search"
+            value={busca}
+            onChange={e => setBusca(e.target.value)}
+            placeholder="Buscar por nombre…"
+            className="flex-1 min-w-[180px] border border-gray-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-cyan-400"
+          />
+          {([['Todos', null], ...restaurantes.map(r => [r.nombre, r.id] as const), ['Rotativos', 'rot']] as const).map(([label, v]) => (
+            <button
+              key={String(v)}
+              onClick={() => setFiltroRest(v as number | 'rot' | null)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                filtroRest === v ? 'bg-gray-700 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-500 hover:border-gray-400'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
         {/* Tabla */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           <div className={`px-5 py-3 border-b border-gray-100 flex items-center justify-between ${tab === 'cocina' ? 'bg-orange-50' : 'bg-cyan-50'}`}>
             <span className={`text-sm font-semibold ${tab === 'cocina' ? 'text-orange-600' : 'text-cyan-600'}`}>
-              {TIPO_LABEL[tab]} — {activos.length} activos
+              {TIPO_LABEL[tab]} — {activos.length} activos{(busca.trim() || filtroRest != null) ? ' (filtrado)' : ''}
             </span>
           </div>
 
@@ -545,9 +576,15 @@ export default function EmpleadosPage() {
                       <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${HORAS_COLOR[emp.horasSemanales] ?? 'bg-gray-100 text-gray-500'}`}>
                         {emp.horasSemanales}h
                       </span>
-                      <span className="font-mono text-xs font-semibold text-gray-700 bg-gray-100 px-2.5 py-1 rounded-lg tracking-widest" title="PIN de acceso a la sala">
-                        {emp.pin ?? '—'}
-                      </span>
+                      {/* El PIN no queda a la vista de cualquiera que mire la pantalla: se toca para verlo */}
+                      <button
+                        type="button"
+                        onClick={() => setPinVisible(s => { const n = new Set(s); n.has(emp.id) ? n.delete(emp.id) : n.add(emp.id); return n })}
+                        className="font-mono text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 px-2.5 py-1 rounded-lg tracking-widest"
+                        title={pinVisible.has(emp.id) ? 'Ocultar PIN' : 'Ver PIN'}
+                      >
+                        {emp.pin ? (pinVisible.has(emp.id) ? emp.pin : '••••') : '—'}
+                      </button>
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
                       <button
