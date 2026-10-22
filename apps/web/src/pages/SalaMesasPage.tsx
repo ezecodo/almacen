@@ -4659,7 +4659,7 @@ function IndicadorVuelta({ vuelta, actual }: { vuelta: Vuelta; actual: string })
   )
 }
 
-function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNombre, onClose, onDespues, salonInicial, vuelta }: {
+function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNombre, onClose, onDespues, onAlMapa, salonInicial, vuelta }: {
   restaurantId: number
   // Salón con el que abre (llegando por la vuelta de deslizar o tocando su puntito)
   salonInicial?: number
@@ -4670,6 +4670,8 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
   onClose: () => void
   // Deslizar a la izquierda desde el último salón: se cierra la vuelta y se va al mapa de la sala
   onDespues?: () => void
+  // Encargado: doble toque en un hueco = al mapa del servicio, en este mismo salón
+  onAlMapa?: (salonId: number) => void
 }) {
   const queryClient = useQueryClient()
   const isDark = useContext(ThemeCtx)
@@ -4704,7 +4706,8 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
   // desde el primero, a la derecha se vuelve a la lista. El nombre del salón sale un momento en grande.
   const swipe = useRef<{ x: number; y: number } | null>(null)
   // Zoom propio del plano: pellizcar con dos dedos acerca, con uno se arrastra; con zoom, un toque en
-  // un hueco vuelve a la vista normal, y sin zoom el doble toque acerca ahí. El zoom del navegador no se puede
+  // un hueco vuelve a la vista normal, y sin zoom el doble toque acerca ahí (o, en la vuelta del encargado,
+  // lleva al mapa del servicio de este salón: el zoom queda solo con los dedos). El zoom del navegador no se puede
   // deshacer desde la app, por eso el plano no lo deja pasar (touch-action: none).
   const [vista, setVista] = useState({ z: 1, x: 0, y: 0 })
   const vistaRef = useRef(vista)
@@ -4962,6 +4965,7 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
             const ahora = Date.now(), ult = ultimoToque.current
             if (ult && ahora - ult.t < 320 && Math.hypot(fin.clientX - ult.x, fin.clientY - ult.y) < 40) {
               ultimoToque.current = null
+              if (onAlMapa && plan) { e.preventDefault(); onAlMapa(plan.id); return }
               const p = puntoEn(fin.clientX, fin.clientY)
               alternarZoom(p.x, p.y)
             } else ultimoToque.current = { t: ahora, x: fin.clientX, y: fin.clientY }
@@ -4969,7 +4973,7 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
           // Después de arrastrar o pellizcar, el toque no cuenta como tocar una mesa
           onClickCapture={e => { if (movido.current) { e.stopPropagation(); movido.current = false } }}
           onClick={e => { if (Date.now() - finToque.current > 800 && vistaRef.current.z > 1 && esHueco(e.target)) setVista({ z: 1, x: 0, y: 0 }) }}
-          onDoubleClick={e => { if (Date.now() - finToque.current > 800 && esHueco(e.target)) { const p = puntoEn(e.clientX, e.clientY); alternarZoom(p.x, p.y) } }}
+          onDoubleClick={e => { if (Date.now() - finToque.current > 800 && esHueco(e.target)) { if (onAlMapa && plan) { onAlMapa(plan.id); return } const p = puntoEn(e.clientX, e.clientY); alternarZoom(p.x, p.y) } }}
           ref={el => {
           contRef.current = el
           if (!el) return
@@ -5307,7 +5311,7 @@ function EncargadoPanel({
   // (es lo que más usa el encargado). Deslizar hacia la derecha vuelve al mapa.
   soloCobros?: boolean
   // Fin de la vuelta de deslizar (último salón del plano de reservas): al mapa de la sala, primer salón
-  onVolverAlMapa?: () => void
+  onVolverAlMapa?: (salonId?: number) => void
   // La vuelta completa de deslizar (para su indicador); sin ella, solo los puntitos de cobros/reservas
   vuelta?: Vuelta
 }) {
@@ -5501,7 +5505,8 @@ function EncargadoPanel({
   return (
     <div className="fixed inset-0 z-40 flex justify-end" onClick={onClose}>
       {plano && <PlanoReservas restaurantId={rid} reservaInicial={plano.reservaId} fechaInicial={plano.fecha ?? fechaReservas} camareroNombre={camarero.nombre} onClose={() => setPlano(null)}
-        onDespues={onVolverAlMapa ? () => { setPlano(null); onVolverAlMapa() } : undefined} vuelta={vuelta} />}
+        onDespues={onVolverAlMapa ? () => { setPlano(null); onVolverAlMapa() } : undefined}
+        onAlMapa={onVolverAlMapa && vuelta ? id => { setPlano(null); onVolverAlMapa(id) } : undefined} vuelta={vuelta} />}
       <div className="relative w-full sm:max-w-md bg-[var(--sala-hdr)] h-full flex flex-col shadow-2xl border-l border-[var(--sala-brd)]" onClick={e => e.stopPropagation()}
         onTouchStart={e => { swipeCobros.current = { x: e.touches[0].clientX, y: e.touches[0].clientY } }}
         onTouchEnd={e => {
@@ -6687,12 +6692,13 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
     if (conVuelta) { irAPaso('reservas'); return }
     setTabEncargado('reservas'); setEncargadoSoloCobros(false); setPanelKey(k => k + 1); setShowEncargado(true)
   }
-  // Fin de la vuelta de deslizar (último salón del plano de reservas): al mapa, primer salón
-  const volverAlMapa = () => {
+  // Fin de la vuelta de deslizar (último salón del plano de reservas): al mapa, primer salón.
+  // Con salonId (doble toque en el plano de reservas): al mapa de ese mismo salón
+  const volverAlMapa = (salonId?: number) => {
     setShowEncargado(false)
     setPlanoDesdeMapa(null)
     setView('mapa')
-    const primero = planes?.[0]
+    const primero = planes?.find(p => p.id === salonId) ?? planes?.[0]
     if (primero) {
       setPlanId(primero.id)
       setAvisoSalon(primero.nombre)
@@ -7209,7 +7215,7 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
         <PlanoReservas key={planoDesdeMapa} restaurantId={restaurant.id} camareroNombre={camarero?.nombre} salonInicial={planoDesdeMapa}
           // Hacia la derecha desde su primer salón: la lista de reservas, como en la vuelta normal
           onClose={() => irAPaso('reservas')}
-          onDespues={volverAlMapa} vuelta={conVuelta ? vuelta : undefined} />
+          onDespues={() => volverAlMapa()} onAlMapa={conVuelta ? volverAlMapa : undefined} vuelta={conVuelta ? vuelta : undefined} />
       )}
     </div>
     </TpvCtx.Provider>
