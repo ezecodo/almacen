@@ -653,7 +653,7 @@ Gestionado desde `/admin/empleados`. Ficha completa de personal del grupo.
 - `restaurantId`: restaurante habitual (null = rotativo entre varios)
 - `horasSemanales`: horas de contrato (opciones: 20, 25, 30, 35, 40)
 - `diasLibresFijos`: días fijos de libranza (0=Lun … 6=Dom)
-- `faseLibreRotacion`: fase 0-3 en rotación de días libres para el auto-planning
+- `faseLibreRotacion`: ya no se usa (era la rotación de libres del planning viejo)
 - `pin`: PIN de 4 dígitos para autenticación en la sala (camareros)
 - `activo`: soft-delete
 
@@ -754,7 +754,7 @@ StaffingNecesidadFecha   restaurantId + fecha exacta (extras para festivos/event
 - `PUT /staffing/necesidades` — actualizar plantilla (los 7 días)
 - `GET /staffing/necesidades/fecha?restaurantId=X&desde=&hasta=`
 - `POST/PUT/DELETE /staffing/necesidades/fecha`
-- `POST /staffing/auto-planning` — Wizard: genera turnos automáticamente para una semana
+- `POST /staffing/auto-planning` / `POST /staffing/auto-planning-global` — planning automático (ver abajo)
 - `GET /staffing/disponibles?restaurantId=X&fecha=YYYY-MM-DD&rol=X` — empleados disponibles ese día (sin turno asignado Y con horas semanales libres). Devuelve `horasRestantes` por empleado.
 - `GET /staffing/transferir-destinos?empId=X&fecha=YYYY-MM-DD&origenId=X` — restaurantes donde el rol del empleado tiene déficit ese día (destinos válidos para transferir su turno)
 - `GET /staffing/exceso-personal?rol=X&fecha=YYYY-MM-DD&restaurantId=X` — restaurantes donde ese rol tiene exceso de personal ese día, con lista de empleados transferibles (incluye `turnoId`)
@@ -765,14 +765,20 @@ StaffingNecesidadFecha   restaurantId + fecha exacta (extras para festivos/event
 
 - **Ausente no cuenta**: un turno `ausente` sigue ocupando el día (no se planifica encima) pero no cubre puestos ni suma horas, en el servidor y en la cuadrícula.
 - **Una sola regla de cobertura** (`cubiertos()` en el auto-planning, `computeDayCoverageWithSubs` en la pantalla): primero el rol exacto; un suplente (cocinero `puedeJefeCocina`, camarero `puedeEncargado`) solo tapa un déficit y entonces deja de contar en su puesto; sin rol no cubre. Antes la vista previa contaba al suplente dos veces.
-- **Días libres por semana del calendario**: la fase es `(posición en el grupo + faseLibreRotacion + nº de semana desde el 1-1-2024) % 4`; `faseLibreRotacion` ya no se incrementa al generar (antes, generar dos veces la misma semana corría los libres). La vista previa trae `diasLibres` (esta semana y la siguiente) calculados por el servidor; la pantalla ya no repite el reparto.
 - Staffing abre en la pestaña de la semana; la cuadrícula muestra también a los fijos del local sin turnos; asignar a mano avisa si ya trabaja ese día en otro local o se pasa del contrato (no bloquea) y enseña el error si falla; arrastrar un turno a alguien de otro puesto pide confirmación.
 
-### Wizards
+### Planning automático "por necesidad" (rehecho 2026-10-22)
 
-- **Global Wizard**: genera planificación para todos los restaurantes a la vez. Respeta horas contractuales (`horasSemanales`) — 40h=5×8h, 35h=3×8h+2×5.5h, etc. Fase de pruning: elimina turnos sobrantes solo si el empleado mantiene sus horas de contrato.
-- **HR Planning Wizard**: wizard de planificación RRHH — considera horas contractuales, días libres fijos y fase de rotación de cada empleado.
-- **Borrar Planning Global**: botón junto a "Plan Global" que elimina todos los turnos de la semana actual en los restaurantes seleccionados (`DELETE /staffing/turnos/semana-todos`).
+Auditado con los datos reales (semana completa de los 5 locales): el algoritmo anterior ponía **49 personas de más y dejaba 34 huecos** (a los fijos les daba siempre 5 días, los libres rotaban por patrón sin mirar la demanda, cada local se planificaba por separado y el tipo de turno se elegía por duración: jefes con turno "Friegaplatos"). Ahora: **0 de más, 12 huecos** (el mínimo posible con esa plantilla: faltan 8 turnos de jefe y 4 de cocinero por semana), libres seguidos para todos y tipos de turno del puesto.
+
+- **`apps/api/src/planificador.ts`** — función pura `planificar()` (sin base de datos). Reglas duras: días libres fijos, máx. 5 días, un turno por día, nunca más horas que el contrato, **nunca más gente que la que pide cada local/día/puesto** (decisión de Eze: si sobra gente, se avisa a quién le faltan horas). Lo ya planificado a mano se respeta y cuenta.
+- **Flujo de costo mínimo**: fuente → empleado → empleado×día → hueco (local×día×puesto) → sumidero. Garantiza el **mínimo de huecos** y, a igualdad, prefiere: fijos del local (0) < rotativos (100) < suplentes del local (200) < suplentes rotativos (300) < **fijos prestados de otro local** (400, decisión de Eze) < suplentes prestados (500); reparte días parejo según contrato y reparte los huecos inevitables (mejor 2 de 3 cocineros cada día que un día con 0).
+- **Libres seguidos**: contratos ≥30 h libran al menos 2 días seguidos (par que incluye su fijo si tiene uno); se elige el par donde menos falta hace su puesto y una búsqueda local (400 pruebas, determinista: la vista previa y lo guardado coinciden) cambia pares si baja huecos o costo. ~3 s.
+- **Horas**: primero quién trabaja qué día; al final cada turno con el tipo más largo de su puesto que deje sitio para los demás días (35 h → 8+8+8+5+5). El tipo se reconoce por `rolEmpleado` o, si no lo tiene, por el nombre (cocin/friega/camarer/encargad/produc); un suplente lleva el tipo del puesto que cubre.
+- **Fuera**: producción (decisión de Eze), `excluirPlanning`, empleados sin rol. Suplentes = `puedeJefeCocina` / `puedeEncargado` de la ficha.
+- **Rutas**: `POST /staffing/auto-planning` (un local: sus fijos + rotativos, sin préstamos) y `POST /staffing/auto-planning-global` (`restaurantIds`, todos a la vez, con préstamos; devuelve `porLocal`, `prestados`). Ambas con `preview` y con informe `huecos` (con motivo) y `faltanHoras`. En la pantalla: ✨ (un local) y ✨ Plan Global (una sola llamada, informe y "Crear N turnos").
+- **Medir**: el script de auditoría genera una semana real en local, la compara con necesidades/libres/contratos y la borra (no está en el repo; rehacerlo si hace falta: genera con el global y cuenta por local/día/puesto con suplentes).
+- Ya no se usan: `faseLibreRotacion`, los patrones fijos de libres, el "skip guard" y la poda.
 
 ### Tab Cobertura (`StaffingPage`)
 
@@ -783,56 +789,6 @@ Pestaña independiente en Gestión de Personal que lista todos los empleados act
 - **Botón 🔍 Huecos**: aparece si `horasAsignadas < horasSemanales`. Abre `HuecosPanel` con los días+restaurantes donde el rol del empleado tiene déficit esa semana (pills con nombre de restaurante + nº de hueco).
 - **Tooltip hover**: al pasar el cursor sobre el nombre del empleado, muestra la cuadrícula semanal (misma que en la tab Planning) con los turnos ya asignados y sus restaurantes.
 - Los datos de cobertura provienen de `GET /staffing/cobertura?lunes=YYYY-MM-DD` y los huecos de `GET /staffing/huecos-empleado?empId=X&lunes=YYYY-MM-DD`.
-
-### Patrones de días libres (auto-planning)
-
-4 patrones consecutivos, distribución por índice posicional dentro del grupo tipo (cocina/sala):
-
-```
-Fase 0: Lun+Mar  (días 0+1)
-Fase 1: Mié+Jue  (días 2+3)
-Fase 2: Vie+Sáb  (días 4+5)
-Fase 3: Dom+Lun  (días 6+0)
-```
-
-- Solo el Lunes se repite (aparece en fase 0 y fase 3) — día más tranquilo del restaurante.
-- Días libres siempre consecutivos. Si el empleado tiene `diasLibresFijos`, se completan con días consecutivos al último fijo.
-- La distribución usa **índice posicional** dentro del grupo tipo (no `emp.id % 4`) para garantizar reparto uniforme independientemente de los IDs de BD.
-- `faseLibreRotacion` avanza 1 cada semana planificada para rotar los días libres.
-
-### Asignación de rotativos — sistema de 3 niveles
-
-Cuando un rotativo se incorpora a un restaurante, los días de trabajo se construyen por prioridad hasta completar la **semana entera** del empleado (días disponibles = 7 − 2 días libres, típicamente 5):
-
-| Nivel | Criterio | Propósito |
-|-------|----------|-----------|
-| **1 — Déficit** | needed > 0 y aún no cubierto | Principal: cubrir hueco real |
-| **2 — Cubierto-pero-necesario** | needed > 0, ya cubierto | Rellenar horas de contrato |
-| **3 — No necesario** | needed = 0 | Último recurso |
-
-**Regla clave**: `targetDays = workingDays.length` (días disponibles antes del filtro). Siempre se intenta dar al rotativo su semana completa — 20h → 5×4h, 40h → 5×8h, etc.
-
-**Efecto en el Global Wizard** (secuencial): el primer restaurante que usa al rotativo absorbe su semana completa. Los siguientes lo ven con 0h libres en `otherRestaurantShifts` y no lo vuelven a planificar.
-
-### Diversidad de fases (rotativos sin días libres fijos)
-
-Cuando dos rotativos del mismo rol tienen la misma fase natural, el segundo recibe una fase complementaria calculada por `bestComplementPhase`:
-
-- Recorre las 4 fases no usadas y calcula la cobertura combinada (días-trabajados ∪ nuevos días trabajados).
-- Devuelve la fase que maximiza los días distintos cubiertos entre los dos empleados.
-- Esto evita el patrón "ambos libres Mié+Jue → déficit esos días, exceso el resto".
-
-Solo se aplica cuando el empleado **no tiene** `diasLibresFijos` (los que sí tienen no pueden cambiar su libranza contractual).
-
-### Skip guard (rotativos con días libres fijos)
-
-Antes de añadir turnos a un rotativo, se comprueba si puede cubrir **al menos un día con déficit real**:
-
-- Se calcula `deficitDayNums`: días donde `needed > 0` y `covered < needed`.
-- Se excluyen también los días que el empleado tiene bloqueados en otro restaurante (`otherRestaurantShifts`).
-- Si hay días con déficit pero el empleado no puede cubrir ninguno (todos son sus días libres fijos o días ya ocupados en otro restaurante), se **salta** (`continue`) — no se le asignan turnos.
-
-Esto evita asignar a un rotativo que solo crearía exceso sin resolver el déficit real.
 
 ### Transferir turno / traer personal
 

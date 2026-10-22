@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, AutoPlanItem, CoberturaEmpleado, Empleado, EmpleadoDisponible, ExtraCandidato, NecesidadSlots, NecesidadDia, NecesidadFecha, TurnoEmpleadoType, TurnoTipo, Restaurante } from '../api'
+import { api, AutoPlanItem, HuecoPlan, FaltanHorasPlan, CoberturaEmpleado, Empleado, EmpleadoDisponible, ExtraCandidato, NecesidadSlots, NecesidadDia, NecesidadFecha, TurnoEmpleadoType, TurnoTipo, Restaurante } from '../api'
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function isoWeekStart(date: Date): Date {
@@ -1088,7 +1088,6 @@ function AutoPlanningModal({
     return acc
   }, {} as Record<number, { nombre: string; shifts: AutoPlanItem[] }>)
 
-  const skipped = empleados.filter(e => (preview?.empleadosConTurnos ?? []).includes(e.id))
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
@@ -1106,12 +1105,13 @@ function AutoPlanningModal({
           {isLoading ? (
             <div className="text-center py-10 text-gray-300 text-sm">Calculando plan…</div>
           ) : Object.keys(byEmployee).length === 0 ? (
-            <div className="text-center py-10">
-              <p className="text-gray-400 text-sm">
-                {skipped.length > 0
-                  ? 'Todos los empleados ya tienen turnos esta semana.'
-                  : 'No hay empleados activos para este restaurante.'}
+            <div className="py-6 space-y-4">
+              <p className="text-gray-400 text-sm text-center">
+                {preview?.hasNeeds === false
+                  ? 'Este local no tiene necesidades cargadas (pestaña Necesidades): sin ellas el planning no sabe a cuánta gente poner.'
+                  : 'No hace falta poner a nadie más esta semana.'}
               </p>
+              {preview && <InformePlan huecos={preview.huecos ?? []} faltanHoras={preview.faltanHoras ?? []} restaurantes={[]} conLocal={false} />}
             </div>
           ) : (
             <div className="space-y-2">
@@ -1201,18 +1201,10 @@ function AutoPlanningModal({
                 )
               })})()}
 
-              {skipped.length > 0 && (
-                <div className="mt-3 pt-3 border-t border-gray-100">
-                  <p className="text-xs text-gray-400 mb-1.5">Ya tienen turnos esta semana (omitidos):</p>
-                  <div className="flex flex-wrap gap-1">
-                    {skipped.map(e => (
-                      <span key={e.id} className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
-                        {e.nombre}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <div className="mt-4 pt-4 border-t border-gray-100">
+                <InformePlan huecos={preview?.huecos ?? []} faltanHoras={preview?.faltanHoras ?? []} restaurantes={[]} conLocal={false} />
+                <p className="text-[11px] text-gray-400 mt-2">Solo este local: los fijos de otros locales no se prestan aquí. Para eso, ✨ Plan Global.</p>
+              </div>
             </div>
           )}
         </div>
@@ -2096,6 +2088,51 @@ function TabTurnos({ restaurantId, weekStart }: { restaurantId: number; weekStar
 }
 
 // ── Modal: Planning global (multi-restaurante) ────────────────────────────────
+// Informe del planning automático: huecos que no se pudieron cubrir (y por qué) y a quién le faltan horas
+const PUESTO_LABEL: Record<string, string> = {
+  jefeCocina: 'Jefe/a de cocina', cocineros: 'Cocinero/a', friegaplatos: 'Friegaplatos',
+  produccion: 'Producción', camareros: 'Camarero/a', encargados: 'Encargado/a',
+}
+function InformePlan({ huecos, faltanHoras, restaurantes, conLocal }: {
+  huecos: HuecoPlan[]; faltanHoras: FaltanHorasPlan[]; restaurantes: Restaurante[]; conLocal: boolean
+}) {
+  const DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+  const totalHuecos = huecos.reduce((n, h) => n + h.faltan, 0)
+  return (
+    <div className="space-y-3">
+      <div className={`rounded-xl px-4 py-3 ${totalHuecos ? 'bg-amber-50 border border-amber-200' : 'bg-emerald-50 border border-emerald-200'}`}>
+        <p className={`text-sm font-semibold ${totalHuecos ? 'text-amber-800' : 'text-emerald-700'}`}>
+          {totalHuecos ? `⚠ Quedan ${totalHuecos} hueco${totalHuecos !== 1 ? 's' : ''} sin cubrir` : '✓ Cubre todo lo que piden los locales'}
+        </p>
+        {totalHuecos > 0 && (
+          <ul className="mt-2 space-y-1">
+            {huecos.map((h, i) => (
+              <li key={i} className="text-xs text-amber-900">
+                <span className="font-semibold">{conLocal ? `${restaurantes.find(r => r.id === h.restaurantId)?.nombre ?? h.restaurantId} · ` : ''}{DIAS[h.dia]} · {PUESTO_LABEL[h.puesto] ?? h.puesto}{h.faltan > 1 ? ` ×${h.faltan}` : ''}</span>
+                <span className="text-amber-700"> — {h.motivo}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      {faltanHoras.length > 0 && (
+        <div className="rounded-xl px-4 py-3 bg-gray-50 border border-gray-200">
+          <p className="text-sm font-semibold text-gray-700">Les faltan horas de contrato</p>
+          <p className="text-[11px] text-gray-400 mb-2">No hacía falta más gente en ningún local donde puedan trabajar</p>
+          <ul className="space-y-0.5">
+            {faltanHoras.map(f => (
+              <li key={f.empleadoId} className="flex justify-between text-xs text-gray-600">
+                <span>{f.nombre}</span>
+                <span className="tabular-nums"><span className="font-semibold text-gray-800">{f.asignadas} h</span> de {f.contrato} h · faltan {Math.round((f.contrato - f.asignadas) * 10) / 10} h</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function GlobalPlanningModal({ weekStart, restaurantes, onClose }: {
   weekStart: Date
   restaurantes: Restaurante[]
@@ -2106,150 +2143,93 @@ function GlobalPlanningModal({ weekStart, restaurantes, onClose }: {
   const wEnd   = addDays(weekStart, 6)
   const wLabel = `${weekStart.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })} – ${wEnd.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}`
 
-  const [selected,    setSelected]    = useState<Set<number>>(() => new Set(restaurantes.map(r => r.id)))
-  const [status,      setStatus]      = useState<'select' | 'running' | 'done'>('select')
-  const [results,     setResults]     = useState<{ id: number; nombre: string; created: number; error?: string }[]>([])
-  const [currentIdx,  setCurrentIdx]  = useState(-1)
-
+  const [selected, setSelected] = useState<Set<number>>(() => new Set(restaurantes.map(r => r.id)))
   const toggle = (id: number) => setSelected(s => {
     const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n
   })
+  const ids = restaurantes.filter(r => selected.has(r.id)).map(r => r.id)
 
-  const selectedList = restaurantes.filter(r => selected.has(r.id))
-
-  const generar = async () => {
-    setStatus('running')
-    const res: typeof results = []
-    for (let i = 0; i < selectedList.length; i++) {
-      setCurrentIdx(i)
-      const r = selectedList[i]
-      try {
-        const data = await api.staffing.autoPlanning({ restaurantId: r.id, weekStart: desde })
-        res.push({ id: r.id, nombre: r.nombre, created: data.created ?? 0 })
-      } catch {
-        res.push({ id: r.id, nombre: r.nombre, created: 0, error: 'Error al generar' })
-      }
-      setResults([...res])
-    }
-    setCurrentIdx(-1)
-    setStatus('done')
-    qc.invalidateQueries({ queryKey: ['staffing-semana'] }); qc.invalidateQueries({ queryKey: ['staffing-emp-semana'] }); qc.invalidateQueries({ queryKey: ['staffing-semana-global'] })
-  }
+  // Vista previa de todos los locales elegidos a la vez; "Crear" guarda exactamente lo que se ve
+  const previa = useQuery({
+    queryKey: ['staffing-global-preview', desde, ids.join(',')],
+    queryFn: () => api.staffing.autoPlanningGlobal({ restaurantIds: ids, weekStart: desde, preview: true }),
+    enabled: ids.length > 0,
+    staleTime: 0,
+  })
+  const crear = useMutation({
+    mutationFn: () => api.staffing.autoPlanningGlobal({ restaurantIds: ids, weekStart: desde }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['staffing-semana'] }); qc.invalidateQueries({ queryKey: ['staffing-emp-semana'] }); qc.invalidateQueries({ queryKey: ['staffing-semana-global'] }); qc.invalidateQueries({ queryKey: ['staffing-cobertura'] }) },
+  })
+  const d = crear.data ?? previa.data
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm">
-
-        {/* Header */}
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col">
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
           <div>
             <h3 className="font-bold text-gray-800">✨ Planning global</h3>
-            <p className="text-xs text-gray-400 mt-0.5">Semana del {wLabel}</p>
+            <p className="text-xs text-gray-400 mt-0.5">Semana del {wLabel} · todos los locales a la vez</p>
           </div>
-          {status !== 'running' && (
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
-          )}
+          {!crear.isPending && <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>}
         </div>
 
-        {/* Fase 1: selección */}
-        {status === 'select' && (
-          <>
-            <div className="px-5 py-4 space-y-2">
-              <p className="text-xs text-gray-400 mb-3">
-                Los restaurantes se planifican en orden. Cada uno tiene en cuenta las horas ya asignadas en los anteriores.
-              </p>
+        <div className="px-5 py-4 space-y-4 overflow-y-auto flex-1">
+          {!crear.isSuccess && (
+            <div className="flex flex-wrap gap-2">
               {restaurantes.map(r => (
-                <button
-                  key={r.id}
-                  type="button"
-                  onClick={() => toggle(r.id)}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all text-left ${
-                    selected.has(r.id) ? 'border-indigo-300 bg-indigo-50' : 'border-gray-100 hover:border-gray-200'
-                  }`}
-                >
-                  <span className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${
-                    selected.has(r.id) ? 'bg-indigo-500 border-indigo-500' : 'border-gray-300'
-                  }`}>
-                    {selected.has(r.id) && <span className="text-white text-xs font-bold">✓</span>}
-                  </span>
-                  <span className="text-sm font-medium text-gray-800">{r.nombre}</span>
+                <button key={r.id} type="button" onClick={() => toggle(r.id)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border-2 transition-all ${selected.has(r.id) ? 'border-indigo-400 bg-indigo-50 text-indigo-700' : 'border-gray-200 text-gray-400'}`}>
+                  {selected.has(r.id) ? '✓ ' : ''}{r.nombre}
                 </button>
               ))}
             </div>
-            <div className="px-5 py-4 border-t border-gray-100 flex justify-end gap-2">
+          )}
+          <p className="text-[11px] text-gray-400 leading-relaxed">
+            Solo pone la gente que pide cada local (nunca de más), respeta días libres fijos, 5 días máximo con 2 libres seguidos y las horas de contrato.
+            Primero los fijos de cada local, después rotativos, suplentes y, si sobra alguien en otro local, se presta. Lo ya planificado a mano se respeta.
+          </p>
+
+          {ids.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-4">Elige al menos un local</p>
+          ) : previa.isLoading ? (
+            <p className="text-sm text-gray-400 text-center py-6">Calculando la mejor semana posible…</p>
+          ) : previa.isError ? (
+            <p className="text-sm text-red-500 text-center py-4">No se pudo calcular: {(previa.error as Error).message}</p>
+          ) : d && (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                {ids.map(id => (
+                  <div key={id} className={`rounded-xl px-3 py-2 ${crear.isSuccess ? 'bg-emerald-50' : 'bg-gray-50'}`}>
+                    <p className="text-xs font-semibold text-gray-700 truncate">{restaurantes.find(r => r.id === id)?.nombre}</p>
+                    <p className="text-[11px] text-gray-500">{d.porLocal[id] ?? 0} turno{(d.porLocal[id] ?? 0) !== 1 ? 's' : ''} {crear.isSuccess ? 'creados' : 'a crear'}</p>
+                  </div>
+                ))}
+              </div>
+              {d.prestados > 0 && <p className="text-xs text-indigo-600">↔ {d.prestados} turno{d.prestados !== 1 ? 's' : ''} con gente prestada de otro local</p>}
+              <InformePlan huecos={d.huecos} faltanHoras={d.faltanHoras} restaurantes={restaurantes} conLocal />
+            </>
+          )}
+          {crear.isError && <p className="text-sm text-red-500">No se pudo guardar: {(crear.error as Error).message}</p>}
+        </div>
+
+        <div className="px-5 py-4 border-t border-gray-100 flex justify-end gap-2">
+          {crear.isSuccess ? (
+            <button onClick={onClose} className="text-sm bg-gray-800 text-white px-4 py-1.5 rounded-lg hover:bg-gray-700">Cerrar</button>
+          ) : (
+            <>
               <button onClick={onClose} className="text-sm text-gray-400 hover:text-gray-600 px-3 py-1.5">Cancelar</button>
-              <button
-                onClick={generar}
-                disabled={selected.size === 0}
-                className="text-sm bg-indigo-500 text-white px-4 py-1.5 rounded-lg hover:bg-indigo-600 disabled:opacity-40"
-              >
-                Generar {selected.size > 0 ? `(${selected.size})` : ''}
+              <button onClick={() => crear.mutate()} disabled={!previa.data || !previa.data.plan.length || crear.isPending}
+                className="text-sm bg-indigo-500 text-white px-4 py-1.5 rounded-lg hover:bg-indigo-600 disabled:opacity-40">
+                {crear.isPending ? 'Creando…' : `Crear ${previa.data?.plan.length ?? 0} turnos`}
               </button>
-            </div>
-          </>
-        )}
-
-        {/* Fase 2: ejecutando */}
-        {status === 'running' && (
-          <div className="px-5 py-6 space-y-3">
-            <p className="text-xs text-gray-400 text-center mb-1">Generando planning…</p>
-            {selectedList.map((r, i) => {
-              const done   = results.some(x => x.id === r.id)
-              const active = i === currentIdx
-              return (
-                <div key={r.id} className="flex items-center gap-3">
-                  <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 text-xs transition-colors ${
-                    done   ? 'bg-emerald-400 text-white' :
-                    active ? 'bg-indigo-400 animate-pulse' : 'bg-gray-100'
-                  }`}>
-                    {done ? '✓' : null}
-                  </div>
-                  <span className={`text-sm flex-1 ${
-                    active ? 'font-semibold text-gray-800' : done ? 'text-gray-500' : 'text-gray-300'
-                  }`}>
-                    {r.nombre}
-                  </span>
-                  {done && (
-                    <span className="text-xs text-gray-400">
-                      {results.find(x => x.id === r.id)?.created ?? 0} turnos
-                    </span>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )}
-
-        {/* Fase 3: resultados */}
-        {status === 'done' && (
-          <>
-            <div className="px-5 py-4 space-y-2">
-              {results.map(r => (
-                <div key={r.id} className={`flex items-center gap-3 px-4 py-3 rounded-xl ${r.error ? 'bg-red-50' : 'bg-emerald-50'}`}>
-                  <span className="text-base">{r.error ? '⚠️' : '✅'}</span>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-800 truncate">{r.nombre}</div>
-                    <div className={`text-xs ${r.error ? 'text-red-400' : 'text-emerald-600'}`}>
-                      {r.error ?? `${r.created} turno${r.created !== 1 ? 's' : ''} creado${r.created !== 1 ? 's' : ''}`}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="px-5 py-4 border-t border-gray-100 flex justify-end">
-              <button onClick={onClose} className="text-sm bg-gray-800 text-white px-4 py-1.5 rounded-lg hover:bg-gray-700">
-                Cerrar
-              </button>
-            </div>
-          </>
-        )}
-
+            </>
+          )}
+        </div>
       </div>
     </div>
   )
 }
 
-// ── Modal: Borrar planning global ─────────────────────────────────────────────
 function BorrarPlanningModal({ weekStart, restaurantes, onClose }: {
   weekStart: Date
   restaurantes: Restaurante[]

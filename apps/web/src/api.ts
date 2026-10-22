@@ -785,6 +785,10 @@ export interface MiHorario {
   turnos: Array<{ id: number; fecha: string; horaInicio: string; horaFin: string; estado: string; tipo: { nombre: string; color: string } | null; restaurant: { id: number; nombre: string } }>
 }
 
+// Informe del planning automático: lo que no se pudo cubrir y a quién le faltan horas de contrato
+export interface HuecoPlan { restaurantId: number; dia: number; puesto: keyof NecesidadSlots; faltan: number; motivo: string }
+export interface FaltanHorasPlan { empleadoId: number; nombre: string; asignadas: number; contrato: number }
+
 export interface AutoPlanItem {
   empleadoId:    number
   empleadoNombre: string
@@ -1443,8 +1447,10 @@ export const api = {
       put<NecesidadFecha>('/staffing/necesidades/fecha', body),
     deleteNecesidadFecha: (id: number) => del(`/staffing/necesidades/fecha/${id}`),
     autoPlanning: (body: { restaurantId: number; weekStart: string; preview?: boolean }) =>
-      post<{ plan: AutoPlanItem[]; empleadosConTurnos?: number[]; hasNeeds?: boolean; created?: number; coverage?: Array<{ fecha: string; needed: NecesidadSlots; covered: NecesidadSlots; ok: boolean; partial: boolean }>; diasLibres?: Record<number, { esta: number[]; siguiente: number[] }> }>('/staffing/auto-planning', body),
+      post<{ plan: AutoPlanItem[]; empleadosConTurnos?: number[]; hasNeeds?: boolean; created?: number; coverage?: Array<{ fecha: string; needed: NecesidadSlots; covered: NecesidadSlots; ok: boolean; partial: boolean }>; diasLibres?: Record<number, { esta: number[]; siguiente: number[] }>; huecos?: HuecoPlan[]; faltanHoras?: FaltanHorasPlan[] }>('/staffing/auto-planning', body),
     miHorario: (desde?: string) => get<MiHorario>(`/staffing/mi-horario${desde ? `?desde=${desde}` : ''}`),
+    autoPlanningGlobal: (body: { restaurantIds: number[]; weekStart: string; preview?: boolean }) =>
+      post<{ created: number; porLocal: Record<number, number>; prestados: number; plan: AutoPlanItem[]; huecos: HuecoPlan[]; faltanHoras: FaltanHorasPlan[] }>('/staffing/auto-planning-global', body),
     getCobertura: (lunes: string) => get<CoberturaEmpleado[]>(`/staffing/cobertura?lunes=${lunes}`),
     getHuecosEmpleado: (empId: number, lunes: string) => get<HuecoEmpleado[]>(`/staffing/huecos-empleado?empId=${empId}&lunes=${lunes}`),
   },

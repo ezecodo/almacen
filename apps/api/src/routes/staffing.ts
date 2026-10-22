@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../server'
+import { planificar, PUESTOS, Necesidad } from '../planificador'
 
 export async function staffingRoutes(app: FastifyInstance) {
 
@@ -859,559 +860,103 @@ export async function staffingRoutes(app: FastifyInstance) {
     return reply.status(204).send()
   })
 
-  // POST /staffing/auto-planning
-  app.post('/staffing/auto-planning', async (req, reply) => {
-    const schema = z.object({
-      restaurantId: z.number().int(),
-      weekStart:    z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-      preview:      z.boolean().optional().default(false),
-    })
-    const result = schema.safeParse(req.body)
-    if (!result.success) return reply.status(400).send({ error: result.error.flatten() })
-
-    const { restaurantId, weekStart, preview } = result.data
-
+  // ── Planning automático ("por necesidad", ver planificador.ts) ─────────────────────────
+  // Carga todo lo que el planificador necesita para una semana y unos locales
+  async function cargarPlan(weekStart: string, restaurantIds: number[], prestar: boolean) {
     const dateStart = new Date(`${weekStart}T00:00:00.000Z`)
     const dateEnd   = new Date(dateStart.getTime() + 7 * 24 * 60 * 60 * 1000 - 1)
-
-    // 7 day strings for the week (index 0=Mon ... 6=Sun)
-    const days: string[] = Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(dateStart)
-      d.setUTCDate(d.getUTCDate() + i)
-      return d.toISOString().slice(0, 10)
-    })
-
-    const [empleados, tipos, existingShifts, necesidadesDia, necesidadesFecha] = await Promise.all([
-      prisma.empleado.findMany({
-        where: { activo: true, OR: [{ restaurantId }, { restaurantId: null }] },
-        orderBy: { nombre: 'asc' },
-      }),
-      prisma.turnoTipo.findMany({
-        where: { activo: true, OR: [{ restaurantId: null }, { restaurantId }] },
-      }),
-      prisma.turnoEmpleado.findMany({
-        where: { restaurantId, fecha: { gte: dateStart, lte: dateEnd } },
-      }),
-      prisma.staffingNecesidadDia.findMany({ where: { restaurantId } }),
-      prisma.staffingNecesidadFecha.findMany({
-        where: { restaurantId, fecha: { gte: dateStart, lte: dateEnd } },
-      }),
+    const [empleados, tipos, existentes, necDia, necFecha] = await Promise.all([
+      prisma.empleado.findMany({ where: { activo: true }, orderBy: { nombre: 'asc' } }),
+      prisma.turnoTipo.findMany({ where: { activo: true } }),
+      prisma.turnoEmpleado.findMany({ where: { fecha: { gte: dateStart, lte: dateEnd } } }),
+      prisma.staffingNecesidadDia.findMany({ where: { restaurantId: { in: restaurantIds } } }),
+      prisma.staffingNecesidadFecha.findMany({ where: { restaurantId: { in: restaurantIds }, fecha: { gte: dateStart, lte: dateEnd } } }),
     ])
-
-    // Turnos de estos empleados en OTROS restaurantes esta semana
-    // → para saber qué horas ya tienen cubiertas y qué días ya trabajan en otro sitio
-    const empIds = empleados.map(e => e.id)
-    const otherRestaurantShifts = await prisma.turnoEmpleado.findMany({
-      where: {
-        empleadoId: { in: empIds },
-        restaurantId: { not: restaurantId },
-        fecha: { gte: dateStart, lte: dateEnd },
-      },
+    const dias = Array.from({ length: 7 }, (_, i) => new Date(dateStart.getTime() + i * 24 * 60 * 60 * 1000).toISOString().slice(0, 10))
+    const necesidades: Record<number, Necesidad[]> = {}
+    for (const r of restaurantIds) {
+      necesidades[r] = dias.map((dia, d) => {
+        const base = necDia.find(n => n.restaurantId === r && n.diaSemana === d)
+        const extra = necFecha.find(n => n.restaurantId === r && n.fecha.toISOString().slice(0, 10) === dia)
+        const v = (c: 'jefeCocina' | 'cocineros' | 'friegaplatos' | 'camareros' | 'encargados') => (base?.[c] ?? 0) + (extra?.[c] ?? 0)
+        return { jefeCocina: v('jefeCocina'), cocineros: v('cocineros'), friegaplatos: v('friegaplatos'), camareros: v('camareros'), encargados: v('encargados') }
+      })
+    }
+    // Fuera del automático: los marcados "excluir" y los que encajan con un tipo de turno marcado "excluir del auto-planning"
+    const excluido = (e: typeof empleados[0]) => e.excluirPlanning || tipos.some(t =>
+      t.excluirAutoPlanning && (!t.tipoEmpleado || t.tipoEmpleado === e.tipo) && (!t.rolEmpleado || t.rolEmpleado === e.rol))
+    const resultado = planificar({
+      restaurantIds, necesidades, tipos, prestar,
+      empleados: empleados.filter(e => !excluido(e)).map(e => ({
+        id: e.id, nombre: e.nombre, tipo: e.tipo, rol: e.rol, restaurantId: e.restaurantId, horasSemanales: e.horasSemanales,
+        diasLibresFijos: e.diasLibresFijos ?? [], puedeEncargado: e.puedeEncargado, puedeJefeCocina: e.puedeJefeCocina,
+      })),
+      existentes: existentes.map(t => ({
+        empleadoId: t.empleadoId, restaurantId: t.restaurantId, horaInicio: t.horaInicio, horaFin: t.horaFin, ausente: t.estado === 'ausente',
+        dia: Math.round((new Date(`${t.fecha.toISOString().slice(0, 10)}T00:00:00.000Z`).getTime() - dateStart.getTime()) / (24 * 60 * 60 * 1000)),
+      })),
     })
+    const nombre = new Map(empleados.map(e => [e.id, e.nombre]))
+    const plan = resultado.turnos.map(t => ({ ...t, empleadoNombre: nombre.get(t.empleadoId) ?? '', fecha: dias[t.dia] }))
+    return { dias, resultado, plan, empleados }
+  }
 
-    // Build needs per day (base + extras)
-    type Slots = { jefeCocina: number; cocineros: number; friegaplatos: number; produccion: number; camareros: number; encargados: number }
-    const blank: Slots = { jefeCocina: 0, cocineros: 0, friegaplatos: 0, produccion: 0, camareros: 0, encargados: 0 }
-
-    const needsPerDay: Slots[] = days.map((dayStr, dayIdx) => {
-      const base  = necesidadesDia.find(n => n.diaSemana === dayIdx) ?? blank
-      const extra = necesidadesFecha.find(f => f.fecha.toISOString().slice(0, 10) === dayStr)
-      return {
-        jefeCocina:   base.jefeCocina   + (extra?.jefeCocina   ?? 0),
-        cocineros:    base.cocineros    + (extra?.cocineros    ?? 0),
-        friegaplatos: base.friegaplatos + (extra?.friegaplatos ?? 0),
-        produccion:   base.produccion   + (extra?.produccion   ?? 0),
-        camareros:    base.camareros    + (extra?.camareros    ?? 0),
-        encargados:   base.encargados   + (extra?.encargados   ?? 0),
-      }
+  async function guardarPlan(plan: Array<{ empleadoId: number; restaurantId: number; fecha: string; horaInicio: string; horaFin: string; tipoId: number | null }>) {
+    if (!plan.length) return 0
+    const { count } = await prisma.turnoEmpleado.createMany({
+      data: plan.map(p => ({
+        restaurantId: p.restaurantId, empleadoId: p.empleadoId, tipoId: p.tipoId,
+        fecha: new Date(`${p.fecha}T00:00:00.000Z`), horaInicio: p.horaInicio, horaFin: p.horaFin,
+      })),
     })
+    return count
+  }
 
-    // Check if there are any needs configured at all
-    const hasNeeds = needsPerDay.some(n => Object.values(n).some(v => v > 0))
+  const planSchema = z.object({
+    weekStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    preview:   z.boolean().optional().default(false),
+  })
 
-    function calcMins(ini: string, fin: string): number {
-      const [hI, mI] = ini.split(':').map(Number)
-      const [hF, mF] = fin.split(':').map(Number)
-      let mins = (hF * 60 + mF) - (hI * 60 + mI)
-      if (mins <= 0) mins += 24 * 60
-      return mins
-    }
-
-    function defaultSchedule(targetMins: number): { horaInicio: string; horaFin: string } {
-      const totalEndMins = 9 * 60 + targetMins
-      const endH = Math.floor(totalEndMins / 60) % 24
-      const endM = totalEndMins % 60
-      return { horaInicio: '09:00', horaFin: `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}` }
-    }
-
-    const plan: Array<{
-      empleadoId: number; empleadoNombre: string; fecha: string
-      horaInicio: string; horaFin: string; tipoId: number | null; tipoNombre: string | null
-    }> = []
-
-    // Un turno marcado ausente sigue ocupando el día (no se le planifica encima), pero no cubre ni suma horas
-    const existingActivos  = existingShifts.filter(s => s.estado !== 'ausente')
-    const minsOtrosDe = (empId: number) => otherRestaurantShifts
-      .filter(s => s.empleadoId === empId && s.estado !== 'ausente')
-      .reduce((m, t) => m + calcMins(t.horaInicio, t.horaFin), 0)
-    const existingSet      = new Set(existingShifts.map(s => `${s.empleadoId}-${s.fecha.toISOString().slice(0, 10)}`))
-    const empIdsWithShifts = new Set(existingShifts.map(s => s.empleadoId))
-
-    // ── 4-week rotation patterns (0=Lun … 6=Dom) ─────────────────────────────
-    // Cada fase se asigna por POSICIÓN del empleado dentro de su grupo tipo (cocina/sala),
-    // no por emp.id % 4. Esto garantiza distribución uniforme independientemente de los IDs.
-    //
-    // Patrones diseñados para restaurante: todos los pares son CONSECUTIVOS (o cierran el ciclo semanal).
-    // El "día doble" (aparece en 2 patrones) es el Lunes — día más tranquilo en restaurantes.
-    //   Phase 0: Lun+Mar  → días tranquilos
-    //   Phase 1: Mié+Jue  → días medios
-    //   Phase 2: Vie+Sáb  → fin de semana (solo 25% del equipo libra)
-    //   Phase 3: Dom+Lun  → cierra el ciclo; Lun aparece también en phase 0 (50%), Dom solo aquí (25%)
-    const OFF_PATTERNS_2: number[][] = [[0,1],[2,3],[4,5],[6,0]]
-    // Para contratos con 3 días libres (no se usa actualmente, daysOffCount=2 siempre)
-    const OFF_PATTERNS_3: number[][] = [[0,1,2],[3,4,5],[1,5,6],[0,2,4]]
-
-    // ── Empleados excluidos del auto-planning ─────────────────────────────────
-    const isExcluded = (emp: typeof empleados[0]) =>
-      emp.excluirPlanning ||
-      tipos.some(t =>
-        t.excluirAutoPlanning &&
-        (!t.tipoEmpleado || t.tipoEmpleado === emp.tipo) &&
-        (!t.rolEmpleado  || t.rolEmpleado  === emp.rol)
-      )
-
-    // ── Split: fixed (this restaurant) vs rotating (restaurantId=null) ─────────
-    const fixedEmps    = [...empleados].filter(e => e.restaurantId === restaurantId && !isExcluded(e)).sort((a, b) => a.id - b.id)
-    const rotatingEmps = [...empleados].filter(e => e.restaurantId === null && !isExcluded(e)).sort((a, b) => a.id - b.id)
-
-    // ── Off-day computation ───────────────────────────────────────────────────
-    // empIdxInGroup: posición del empleado dentro de su grupo tipo (cocina/sala).
-    // Usar índice posicional garantiza distribución uniforme sin depender de los IDs.
-    // La rotación avanza con la semana del calendario: generar, borrar y volver a generar la misma semana
-    // da los mismos días libres (antes avanzaba cada vez que se generaba). faseLibreRotacion queda como
-    // desfase propio de cada empleado.
-    const SEMANA_N = Math.round((dateStart.getTime() - Date.UTC(2024, 0, 1)) / (7 * 24 * 60 * 60 * 1000)) // 1-1-2024 fue lunes
-    function getOffDays(emp: typeof empleados[0], empIdxInGroup: number, phaseOverride?: number, semana = SEMANA_N): Set<number> {
-      const daysOffCount = 2 // siempre 2 días libres, independientemente de las horas contratadas
-      const fixed        = emp.diasLibresFijos ?? []
-      const off          = new Set(fixed)
-      const extra        = daysOffCount - fixed.length
-
-      if (extra > 0) {
-        if (fixed.length > 0) {
-          // Tiene días fijos: añadir días consecutivos a partir del último fijo
-          const anchor = [...fixed].sort((a, b) => a - b).at(-1)!
-          let added = 0
-          for (let i = 1; i <= 7 && added < extra; i++) {
-            const c = (anchor + i) % 7
-            if (!off.has(c)) { off.add(c); added++ }
-          }
-        } else {
-          // Sin días fijos: fase = posición en grupo + avance de rotación semanal
-          const patterns = daysOffCount >= 3 ? OFF_PATTERNS_3 : OFF_PATTERNS_2
-          const phase    = phaseOverride !== undefined
-            ? phaseOverride
-            : (empIdxInGroup + (emp.faseLibreRotacion ?? 0) + semana) % 4
-          patterns[phase].forEach(d => off.add(d))
-        }
-      }
-
-      return off
-    }
-
-    // Dado un conjunto de fases ya usadas, devuelve la fase que minimiza días sin cubrir
-    // combinada con las fases existentes (para garantizar máxima cobertura semanal)
-    function bestComplementPhase(usedPhases: Set<number>, naturalPhase: number): number {
-      const allDays = [0, 1, 2, 3, 4, 5, 6]
-      const existingWorking = new Set(
-        allDays.filter(d => [...usedPhases].some(p => !OFF_PATTERNS_2[p].includes(d)))
-      )
-      let bestPhase  = naturalPhase
-      let bestCoverage = -1
-      for (let p = 0; p < 4; p++) {
-        if (usedPhases.has(p)) continue
-        const combined = new Set([...existingWorking, ...allDays.filter(d => !OFF_PATTERNS_2[p].includes(d))])
-        if (combined.size > bestCoverage) { bestCoverage = combined.size; bestPhase = p }
-      }
-      return bestPhase
-    }
-
-    // Índice posicional dentro del grupo tipo → distribución uniforme de patrones
-    const cocinaFijos = fixedEmps.filter(e => e.tipo === 'cocina')
-    const salaFijos   = fixedEmps.filter(e => e.tipo === 'sala')
-    const offDaysMap  = new Map<number, Set<number>>()
-    cocinaFijos.forEach((emp, idx) => offDaysMap.set(emp.id, getOffDays(emp, idx)))
-    salaFijos.forEach((emp, idx)   => offDaysMap.set(emp.id, getOffDays(emp, idx)))
-
-    // ── Role helpers (shared) ─────────────────────────────────────────────────
-    const ROLE_KEYS: (keyof Slots)[] = ['jefeCocina','cocineros','friegaplatos','produccion','camareros','encargados']
-    const ROL_MAP: Record<keyof Slots, string[]> = {
-      jefeCocina:   ['jefe_cocina'],
-      cocineros:    ['cocinero'],
-      friegaplatos: ['friegaplatos'],
-      produccion:   ['produccion'],
-      camareros:    ['camarero'],
-      encargados:   ['encargado'],
-    }
-    const ROL_MAP_FALLBACK: Partial<Record<keyof Slots, string>> = {
-      jefeCocina:   '_cocina',
-      cocineros:    '_cocina',
-      friegaplatos: '_cocina',
-      produccion:   '_cocina',
-      camareros:    '_sala',
-      encargados:   '_sala',
-    }
-    const empRolKey = (e: typeof empleados[0]) => e.rol ?? (e.tipo === 'cocina' ? '_cocina' : '_sala')
-    const empMatchesRole = (e: typeof empleados[0], roleKey: keyof Slots) => {
-      const key = empRolKey(e)
-      if (ROL_MAP[roleKey].includes(key) || ROL_MAP_FALLBACK[roleKey] === key) return true
-      if (roleKey === 'encargados' && e.rol === 'camarero' && e.puedeEncargado) return true
-      if (roleKey === 'jefeCocina' && e.rol === 'cocinero' && e.puedeJefeCocina) return true
-      return false
-    }
-
-    // ── Cobertura de un día: la misma regla que la cuadrícula de la pantalla ──────
-    // Primero cuentan los de rol exacto; un suplente (cocinero que puede ser jefe, camarero que puede ser
-    // encargado) solo tapa un déficit, y entonces deja de contar en su puesto. Sin rol no cubre nada.
-    const SUPLENTE: Partial<Record<keyof Slots, (e: typeof empleados[0]) => boolean>> = {
-      jefeCocina: e => e.rol === 'cocinero' && e.puedeJefeCocina,
-      encargados: e => e.rol === 'camarero' && e.puedeEncargado,
-    }
-    function cubiertos(dayIdx: number): Slots {
-      const dayStr = days[dayIdx]
-      const ids = [
-        ...existingActivos.filter(s => s.fecha.toISOString().slice(0, 10) === dayStr).map(s => s.empleadoId),
-        ...plan.filter(p => p.fecha === dayStr).map(p => p.empleadoId),
-      ]
-      const trabajando = [...new Set(ids)].map(id => empleados.find(e => e.id === id)).filter((e): e is typeof empleados[0] => !!e && !!e.rol)
-      const needed = needsPerDay[dayIdx]
-      const comoSuplente = new Set<number>()
-      const out: Slots = { ...blank }
-      for (const rk of ROLE_KEYS) {
-        let n = trabajando.filter(e => ROL_MAP[rk].includes(e.rol!)).length
-        const esSuplente = SUPLENTE[rk]
-        if (esSuplente && n < needed[rk]) {
-          const sups = trabajando.filter(e => !comoSuplente.has(e.id) && esSuplente(e)).slice(0, needed[rk] - n)
-          sups.forEach(e => comoSuplente.add(e.id))
-          n += sups.length
-        }
-        out[rk] = n
-      }
-      // El suplente ya no cuenta en su propio puesto
-      for (const rk of ROLE_KEYS) {
-        out[rk] -= trabajando.filter(e => comoSuplente.has(e.id) && ROL_MAP[rk].includes(e.rol!)).length
-      }
-      return out
-    }
-
-    // ── Helper: add shifts for one employee (mezcla tipos para alcanzar horas semanales exactas) ──
-    // applyNeedsFilter=true solo para rotativos: no añadir si el rol ya está cubierto.
-    // Para fijos (contratados) siempre se generan sus 5 días de trabajo.
-    function addShiftsForEmp(emp: typeof empleados[0], offDays: Set<number>, applyNeedsFilter = false) {
-      const horasSemanales = emp.horasSemanales ?? 40
-
-      // Horas y días ya asignados en OTROS restaurantes esta semana
-      const shiftsOtros = otherRestaurantShifts.filter(s => s.empleadoId === emp.id)
-      const minsYaOtros = minsOtrosDe(emp.id)
-      const diasOtros   = new Set(shiftsOtros.map(s => s.fecha.toISOString().slice(0, 10)))
-
-      // Target = horas de contrato menos lo ya cubierto en otros restaurantes
-      const targetTotalMins = Math.max(0, horasSemanales * 60 - minsYaOtros)
-      // Si ya tiene las horas completas en otros restaurantes, no planificar aquí
-      if (targetTotalMins === 0) return
-
-      // Pool de tipos elegibles (rol específico primero, luego genérico de tipo)
-      const byRol  = tipos.filter(t => t.rolEmpleado === emp.rol && (!t.tipoEmpleado || t.tipoEmpleado === emp.tipo))
-      const byTipo = tipos.filter(t => !t.rolEmpleado && (!t.tipoEmpleado || t.tipoEmpleado === emp.tipo))
-      const pool   = (byRol.length > 0 ? byRol : byTipo)
-        .sort((a, b) => calcMins(b.horaInicio, b.horaFin) - calcMins(a.horaInicio, a.horaFin))
-
-      let workingDays = days
-        .map((dayStr, dayIdx) => ({ dayStr, dayIdx }))
-        // Excluir días libres fijos + días ya trabajados en otro restaurante
-        .filter(d => !offDays.has(d.dayIdx) && !diasOtros.has(d.dayStr))
-
-      // Para rotativos: prioridad 3 niveles para garantizar horas de contrato
-      // Nivel 1 (déficit): needed > 0 y aún no cubierto  → siempre incluir
-      // Nivel 2 (cubierto-pero-necesario): needed > 0 pero ya cubierto → añadir si nivel 1 no alcanza el contrato
-      // Nivel 3 (no necesario): needed = 0 → último recurso
-      if (hasNeeds && applyNeedsFilter) {
-        const strictRoleKey = ROLE_KEYS.find(rk => ROL_MAP[rk].includes(empRolKey(emp)))
-        if (strictRoleKey) {
-          const tier1: typeof workingDays = []
-          const tier2: typeof workingDays = []
-          const tier3: typeof workingDays = []
-
-          for (const d of workingDays) {
-            const needed = needsPerDay[d.dayIdx][strictRoleKey]
-            if (!needed) { tier3.push(d); continue }
-            const alreadyCovered = cubiertos(d.dayIdx)[strictRoleKey]
-            if (alreadyCovered < needed) tier1.push(d)
-            else tier2.push(d)
-          }
-
-          // Rellenar hasta los días disponibles de la semana (tier1 primero, luego tier2, luego tier3)
-          // Siempre se intenta dar al empleado su semana completa (p.ej. 5 días × 4h = 20h)
-          const targetDays = workingDays.length // días disponibles antes del filtro (típicamente 5)
-          const result: typeof workingDays = [...tier1]
-          for (const d of [...tier2, ...tier3]) {
-            if (result.length >= targetDays) break
-            result.push(d)
-          }
-          workingDays = result
-        }
-      }
-
-      type Assignment = { horaInicio: string; horaFin: string; tipoId: number | null; tipoNombre: string | null }
-      let assignments: Assignment[]
-
-      const numWorkingDays   = workingDays.length > 0 ? workingDays.length : 5
-      const targetMinsPerDay = Math.round(targetTotalMins / numWorkingDays)
-
-      if (pool.length === 0 || workingDays.length === 0) {
-        // Sin tipos configurados: horario uniforme por defecto
-        const sched = defaultSchedule(targetMinsPerDay)
-        assignments = workingDays.map(() => ({ ...sched, tipoId: null, tipoNombre: null }))
-      } else {
-        const tipoMinsArr = pool.map(t => calcMins(t.horaInicio, t.horaFin))
-        const minTipoMins = Math.min(...tipoMinsArr)
-
-        if (targetTotalMins < minTipoMins * workingDays.length) {
-          // Ningún tipo cabe uniformemente (ej: 25h con mínimo de 5.5h/día = 27.5h)
-          // → horario uniforme manual sin tipo asignado
-          const sched = defaultSchedule(targetMinsPerDay)
-          assignments = workingDays.map(() => ({ ...sched, tipoId: null, tipoNombre: null }))
-        } else if (pool.length === 1) {
-          const t = pool[0]
-          const tipoMins = calcMins(t.horaInicio, t.horaFin)
-          if (tipoMins <= targetMinsPerDay + 30) {
-            assignments = workingDays.map(() => ({ horaInicio: t.horaInicio, horaFin: t.horaFin, tipoId: t.id, tipoNombre: t.nombre }))
-          } else {
-            // El único tipo disponible es demasiado largo para las horas contratadas → horario manual
-            const sched = defaultSchedule(targetMinsPerDay)
-            assignments = workingDays.map(() => ({ ...sched, tipoId: null, tipoNombre: null }))
-          }
-        } else {
-          // Seleccionar cada día el tipo más cercano a (horas_restantes / días_restantes)
-          // Esto da distribución uniforme cuando es posible (25h→5×5h) y mezcla
-          // natural cuando no (35h con [8h,5.5h] → 3×8h + 2×5.5h)
-          let remaining = targetTotalMins
-          assignments = []
-          for (let i = 0; i < workingDays.length; i++) {
-            const daysLeft   = workingDays.length - i
-            const targetToday = remaining / daysLeft
-            const best = pool.reduce((prev, curr) =>
-              Math.abs(calcMins(curr.horaInicio, curr.horaFin) - targetToday) <
-              Math.abs(calcMins(prev.horaInicio, prev.horaFin) - targetToday)
-                ? curr : prev
-            )
-            assignments.push({ horaInicio: best.horaInicio, horaFin: best.horaFin, tipoId: best.id, tipoNombre: best.nombre })
-            remaining -= calcMins(best.horaInicio, best.horaFin)
-          }
-        }
-      }
-
-      for (let i = 0; i < workingDays.length; i++) {
-        const { dayStr } = workingDays[i]
-        const key = `${emp.id}-${dayStr}`
-        if (existingSet.has(key)) continue
-        plan.push({ empleadoId: emp.id, empleadoNombre: emp.nombre, fecha: dayStr, ...assignments[i] })
-      }
-    }
-
-    // ── Generate shifts for fixed employees ───────────────────────────────────
-    for (const emp of fixedEmps) {
-      if (empIdsWithShifts.has(emp.id)) continue
-      addShiftsForEmp(emp, offDaysMap.get(emp.id)!)
-    }
-
-    // ── Pull in rotating employees only where still understaffed ─────────────
-    // Enfoque iterativo: por cada rol, sigue añadiendo rotativos hasta cubrir el déficit
-    // (o hasta que no queden rotativos disponibles). coveredByPlan se recalcula cada vez.
-    if (hasNeeds) {
-      const coveredByPlan = (roleKey: keyof Slots, dayIdx: number) => cubiertos(dayIdx)[roleKey]
-
-      const maxDeficitForRole = (roleKey: keyof Slots) => {
-        let max = 0
-        for (let dayIdx = 0; dayIdx < 7; dayIdx++) {
-          const needed = needsPerDay[dayIdx][roleKey]
-          if (!needed) continue
-          max = Math.max(max, needed - coveredByPlan(roleKey, dayIdx))
-        }
-        return max
-      }
-
-      // Fases de días-libres ya usadas por rol → garantiza patrones complementarios
-      const usedPhasesForRole: Partial<Record<keyof Slots, Set<number>>> = {}
-
-      for (const roleKey of ROLE_KEYS) {
-        // Añade rotativos de uno en uno hasta que no hay déficit (o no quedan disponibles)
-        const usedInThisRole = new Set<number>() // evita reintentar el mismo empleado
-        if (!usedPhasesForRole[roleKey]) usedPhasesForRole[roleKey] = new Set()
-        const usedPhases = usedPhasesForRole[roleKey]!
-
-        for (let attempt = 0; attempt < rotatingEmps.length; attempt++) {
-          if (maxDeficitForRole(roleKey) <= 0) break
-
-          const pool = rotatingEmps
-            .filter(e =>
-              empMatchesRole(e, roleKey) &&
-              !empIdsWithShifts.has(e.id) &&
-              !plan.some(p => p.empleadoId === e.id) &&
-              !usedInThisRole.has(e.id)
-            )
-            .sort((a, b) => {
-              // Prioridad: rol exacto primero, luego por horas libres (más horas libres → antes)
-              const aExact = ROL_MAP[roleKey].includes(a.rol ?? '') ? 1 : 0
-              const bExact = ROL_MAP[roleKey].includes(b.rol ?? '') ? 1 : 0
-              if (bExact !== aExact) return bExact - aExact
-              return minsOtrosDe(a.id) - minsOtrosDe(b.id)
-            })
-
-          if (pool.length === 0) break
-
-          const emp = pool[0]
-          usedInThisRole.add(emp.id)
-
-          // Calcular días libres ANTES de decidir si añadir al empleado
-          if (!offDaysMap.has(emp.id)) {
-            const rotIdx       = rotatingEmps.filter(e => e.tipo === emp.tipo).indexOf(emp)
-            const fixed        = emp.diasLibresFijos ?? []
-            const naturalPhase = (rotIdx + (emp.faseLibreRotacion ?? 0) + SEMANA_N) % 4
-            const resolvedPhase = fixed.length === 0 && usedPhases.has(naturalPhase)
-              ? bestComplementPhase(usedPhases, naturalPhase)
-              : naturalPhase
-            if (fixed.length === 0) usedPhases.add(resolvedPhase)
-            offDaysMap.set(emp.id, getOffDays(emp, rotIdx, fixed.length === 0 ? resolvedPhase : undefined))
-          }
-
-          // Solo añadir el rotativo si puede cubrir al menos un día con déficit.
-          // Si sus días libres coinciden exactamente con los días deficitarios,
-          // no puede ayudar — evitar que genere exceso sin resolver el déficit.
-          const empOffDays = offDaysMap.get(emp.id)!
-          const deficitDayNums = days
-            .map((_, i) => i)
-            .filter(i => needsPerDay[i][roleKey] > 0 && coveredByPlan(roleKey, i) < needsPerDay[i][roleKey])
-          const otherDiasBloqueados = new Set(
-            otherRestaurantShifts
-              .filter(s => s.empleadoId === emp.id)
-              .map(s => s.fecha.toISOString().slice(0, 10))
-          )
-          const puedeAlgunDeficit = deficitDayNums.some(
-            i => !empOffDays.has(i) && !otherDiasBloqueados.has(days[i])
-          )
-          if (deficitDayNums.length > 0 && !puedeAlgunDeficit) continue // no puede ayudar, skip
-
-          addShiftsForEmp(emp, empOffDays, true)
-        }
-      }
-    }
-
-    // ── Pruning: eliminar exceso de fijos cuando coverage > need ─────────────
-    // Si la necesidad es 1 encargado/día y hay 2 fijos disponibles ese día,
-    // el excedente se elimina del plan → queda libre para otros restaurantes.
-    // IMPORTANTE: usa matching estricto (solo rol exacto, sin sustitutos)
-    // para no confundir un cocinero-con-puedeJefeCocina con un jefe de cocina real.
-    if (hasNeeds) {
-      const empMatchesRoleStrict = (e: typeof empleados[0], roleKey: keyof Slots) =>
-        ROL_MAP[roleKey].includes(empRolKey(e))
-
-      const toRemoveKeys = new Set<string>() // `${empId}-${fecha}`
-
-      // Helper: contar turnos activos de un empleado (excluyendo ya marcados)
-      const activeCount = (empId: number) =>
-        plan.filter(p => p.empleadoId === empId && !toRemoveKeys.has(`${p.empleadoId}-${p.fecha}`)).length
-
-      for (const roleKey of ROLE_KEYS) {
-        for (let dayIdx = 0; dayIdx < 7; dayIdx++) {
-          const needed = needsPerDay[dayIdx][roleKey]
-          if (!needed) continue
-          const dayStr = days[dayIdx]
-
-          const existingCount = existingActivos.filter(s => {
-            const e = empleados.find(x => x.id === s.empleadoId)
-            return e && empMatchesRoleStrict(e, roleKey) && s.fecha.toISOString().slice(0, 10) === dayStr
-          }).length
-
-          const activeEntries = plan.filter(p => {
-            if (toRemoveKeys.has(`${p.empleadoId}-${p.fecha}`)) return false
-            const e = empleados.find(x => x.id === p.empleadoId)
-            return e && empMatchesRoleStrict(e, roleKey) && p.fecha === dayStr
-          })
-
-          const excess = activeEntries.length + existingCount - needed
-          if (excess <= 0) continue
-
-          // Quitar de los empleados con más turnos asignados (los que "sobran" más),
-          // PERO solo si el empleado sigue cubriendo sus horas contractuales tras la eliminación.
-          const candidates = [...activeEntries]
-            .filter(c => {
-              const emp = empleados.find(x => x.id === c.empleadoId)
-              if (!emp) return true
-              // Horas en otros restaurantes esta semana (invariantes)
-              const minsOtros = minsOtrosDe(c.empleadoId)
-              // Horas en este restaurante si se quita este turno
-              const minsRestantes = plan
-                .filter(p => p.empleadoId === c.empleadoId && p.fecha !== c.fecha && !toRemoveKeys.has(`${p.empleadoId}-${p.fecha}`))
-                .reduce((s, p) => s + calcMins(p.horaInicio, p.horaFin), 0)
-              // Solo eliminar si sigue cubriendo el contrato
-              return (minsRestantes + minsOtros) >= (emp.horasSemanales ?? 40) * 60
-            })
-            .sort((a, b) => activeCount(b.empleadoId) - activeCount(a.empleadoId))
-            .slice(0, excess)
-
-          for (const c of candidates) {
-            toRemoveKeys.add(`${c.empleadoId}-${c.fecha}`)
-          }
-        }
-      }
-
-      // Aplicar eliminaciones
-      for (let i = plan.length - 1; i >= 0; i--) {
-        const p = plan[i]
-        if (toRemoveKeys.has(`${p.empleadoId}-${p.fecha}`)) plan.splice(i, 1)
-      }
-    }
-
-    const empleadosConTurnosFinal = [...new Set(existingShifts.map(s => s.empleadoId))]
-
-    // Cobertura por rol y día (para el preview)
-    const coverage = days.map((dayStr, dayIdx) => {
-      const needed = needsPerDay[dayIdx]
-      const covered = cubiertos(dayIdx)
-      const roles = ROLE_KEYS.filter(rk => needed[rk] > 0)
-      const ok      = roles.every(rk => covered[rk] >= needed[rk])
-      const partial = !ok && roles.some(rk => covered[rk] > 0)
-      return { fecha: dayStr, needed, covered, ok, partial }
-    })
-
+  // POST /staffing/auto-planning — un solo local (con sus fijos y los rotativos; sin prestar fijos de otros
+  // locales, que todavía no se planificaron). Lo ya planificado en la semana se respeta.
+  app.post('/staffing/auto-planning', async (req, reply) => {
+    const result = planSchema.extend({ restaurantId: z.number().int() }).safeParse(req.body)
+    if (!result.success) return reply.status(400).send({ error: result.error.flatten() })
+    const { restaurantId, weekStart, preview } = result.data
+    const { dias, resultado, plan } = await cargarPlan(weekStart, [restaurantId], false)
+    const hasNeeds = resultado.cobertura[restaurantId].some(c => PUESTOS.some(p => c.needed[p] > 0))
     if (preview) {
-      // Días libres de cada uno esta semana y la siguiente: los calcula solo el servidor, así la pantalla
-      // no repite el reparto (antes lo copiaba y podía no coincidir)
-      const indiceEnGrupo = (emp: typeof empleados[0]) => (emp.restaurantId === null ? rotatingEmps : emp.tipo === 'cocina' ? cocinaFijos : salaFijos).filter(e => e.tipo === emp.tipo).indexOf(emp)
+      const coverage = resultado.cobertura[restaurantId].map((c, d) => {
+        const pedidos = PUESTOS.filter(p => c.needed[p] > 0)
+        const ok = pedidos.every(p => c.covered[p] >= c.needed[p])
+        return {
+          fecha: dias[d], ok, partial: !ok && pedidos.some(p => c.covered[p] > 0),
+          needed: { ...c.needed, produccion: 0 }, covered: { ...c.covered, produccion: 0 },
+        }
+      })
+      // Días sin turno de cada planificado (lo que antes era "su patrón de libres")
       const diasLibres: Record<number, { esta: number[]; siguiente: number[] }> = {}
       for (const id of new Set(plan.map(p => p.empleadoId))) {
-        const emp = empleados.find(e => e.id === id)
-        if (!emp) continue
-        const esta = offDaysMap.get(id) ?? getOffDays(emp, indiceEnGrupo(emp))
-        const siguiente = (emp.diasLibresFijos ?? []).length ? esta : getOffDays(emp, indiceEnGrupo(emp), undefined, SEMANA_N + 1)
-        diasLibres[id] = { esta: [...esta].sort((a, b) => a - b), siguiente: [...siguiente].sort((a, b) => a - b) }
+        const trabaja = new Set(plan.filter(p => p.empleadoId === id).map(p => p.dia))
+        diasLibres[id] = { esta: [0, 1, 2, 3, 4, 5, 6].filter(d => !trabaja.has(d)), siguiente: [] }
       }
-      return { plan, empleadosConTurnos: empleadosConTurnosFinal, hasNeeds, coverage, diasLibres }
+      return { plan, empleadosConTurnos: [], hasNeeds, coverage, diasLibres, huecos: resultado.huecos, faltanHoras: resultado.faltanHoras }
     }
+    const created = await guardarPlan(plan)
+    return reply.status(201).send({ created, plan, huecos: resultado.huecos, faltanHoras: resultado.faltanHoras })
+  })
 
-    await Promise.all(
-      plan.map(p =>
-        prisma.turnoEmpleado.create({
-          data: {
-            restaurantId, empleadoId: p.empleadoId, tipoId: p.tipoId,
-            fecha: new Date(`${p.fecha}T00:00:00.000Z`),
-            horaInicio: p.horaInicio, horaFin: p.horaFin,
-          },
-        })
-      )
-    )
-
-    return reply.status(201).send({ created: plan.length, plan })
+  // POST /staffing/auto-planning-global — todos los locales elegidos a la vez: los rotativos van a donde más
+  // falta y un fijo al que le sobra el día en su local se presta a otro que lo necesita.
+  app.post('/staffing/auto-planning-global', async (req, reply) => {
+    const result = planSchema.extend({ restaurantIds: z.array(z.number().int()).min(1) }).safeParse(req.body)
+    if (!result.success) return reply.status(400).send({ error: result.error.flatten() })
+    const { restaurantIds, weekStart, preview } = result.data
+    const { resultado, plan } = await cargarPlan(weekStart, restaurantIds, true)
+    const porLocal: Record<number, number> = {}
+    for (const r of restaurantIds) porLocal[r] = plan.filter(p => p.restaurantId === r).length
+    const prestados = plan.filter(p => p.prestado).length
+    const created = preview ? 0 : await guardarPlan(plan)
+    return reply.status(preview ? 200 : 201).send({ created, porLocal, prestados, plan, huecos: resultado.huecos, faltanHoras: resultado.faltanHoras })
   })
 }
