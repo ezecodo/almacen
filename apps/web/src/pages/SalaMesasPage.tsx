@@ -186,7 +186,7 @@ function MesaBtn({ mesa, comanda, pendienteCobro = false, onClick }: { mesa: Mes
     : 'none'
 
   return (
-    <div onClick={onClick} style={{
+    <div data-mesa onClick={onClick} style={{
       position: 'absolute', left: mesa.x, top: mesa.y, width: w, height: h,
       borderRadius: isRound ? '50%' : '6px',
       background: bg, border: `2px solid ${border}`, boxShadow: glow,
@@ -6623,6 +6623,10 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
   // Deslizar el mapa de lado: siguiente / anterior salón. Desde el último salón, el encargado pasa a
   // cobrar (en el PAD abre 💼 → Cobros; en el TPV, su panel). Al cambiar se ve un momento el nombre.
   const swipeMapa = useRef<{ x: number; y: number } | null>(null)
+  // Encargado: doble toque en un hueco del mapa = al plano de reservas de este salón (y al revés desde el plano)
+  const toqueMapa = useRef<{ t: number; x: number; y: number } | null>(null)
+  const finToqueMapa = useRef(0) // el dblclick que algunos navegadores emiten tras dos toques no cuenta
+  const huecoMapa = (t: EventTarget | null) => !(t as Element | null)?.closest?.('[data-mesa],button')
   const [avisoSalon, setAvisoSalon] = useState<string | null>(null)
   const avisoSalonTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const irASalon = (dir: 1 | -1) => {
@@ -6940,8 +6944,19 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
             const dx = e.changedTouches[0].clientX - st.x
             const dy = e.changedTouches[0].clientY - st.y
             const th = swipeThresholds()
-            if (Math.abs(dx) > th.dx && Math.abs(dy) < th.dy) irASalon(dx < 0 ? 1 : -1)
+            if (Math.abs(dx) > th.dx && Math.abs(dy) < th.dy) { toqueMapa.current = null; irASalon(dx < 0 ? 1 : -1); return }
+            if (!conVuelta) return
+            finToqueMapa.current = Date.now()
+            const fin = e.changedTouches[0]
+            if (Math.hypot(dx, dy) > 12 || !huecoMapa(e.target)) { toqueMapa.current = null; return }
+            const ahora = Date.now(), ult = toqueMapa.current
+            if (ult && ahora - ult.t < 320 && Math.hypot(fin.clientX - ult.x, fin.clientY - ult.y) < 40) {
+              toqueMapa.current = null
+              e.preventDefault()
+              setPlanoDesdeMapa(activePlan.id)
+            } else toqueMapa.current = { t: ahora, x: fin.clientX, y: fin.clientY }
           }}
+          onDoubleClick={e => { if (conVuelta && Date.now() - finToqueMapa.current > 800 && huecoMapa(e.target)) setPlanoDesdeMapa(activePlan.id) }}
           ref={el => {
           if (!el || !activePlan.mesas.length) return
           const applyScale = () => {
