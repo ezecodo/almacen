@@ -4159,6 +4159,7 @@ function CobroSheet({ comanda: inicial, onClose, onDone }: { comanda: Comanda; o
   const dividida = (comanda.division?.pagos.length ?? 0) > 0
   const cuadra = dividida && Math.round(pagadoDivision(comanda.division) * 100) === Math.round(totalComanda(comanda.items) * 100)
   const [dividir, setDividir] = useState(false)
+  const toque = useRef<{ x: number; y: number; arriba: boolean } | null>(null)
   // Con la cuenta dividida, la propina la pone el encargado al cotejar: suma de los tickets de tarjeta
   const [ticketsTarjeta, setTicketsTarjeta] = useState('')
   const parteTarjeta = (comanda.division?.pagos ?? []).filter(p => p.metodo === 'tarjeta').reduce((s, p) => s + p.importe, 0)
@@ -4197,7 +4198,17 @@ function CobroSheet({ comanda: inicial, onClose, onDone }: { comanda: Comanda; o
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center sm:justify-center" onClick={onClose}>
-      <div className="w-full sm:max-w-md bg-[var(--sala-hdr)] border-t sm:border border-[var(--sala-brd2)] rounded-t-2xl sm:rounded-2xl p-5 shadow-2xl max-h-[96vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+      <div className="w-full sm:max-w-md bg-[var(--sala-hdr)] border-t sm:border border-[var(--sala-brd2)] rounded-t-2xl sm:rounded-2xl p-5 shadow-2xl max-h-[96vh] overflow-y-auto" onClick={e => e.stopPropagation()}
+        onTouchStart={e => { const t = e.touches[0]; toque.current = { x: t.clientX, y: t.clientY, arriba: e.currentTarget.scrollTop <= 0 } }}
+        onTouchEnd={e => {
+          // Deslizar para salir (además de la ✕): de lado, o hacia abajo si la ficha está arriba del todo
+          const ini = toque.current; toque.current = null
+          if (!ini || cobrar.isPending) return
+          const t = e.changedTouches[0]
+          const dx = t.clientX - ini.x, dy = t.clientY - ini.y
+          const { dx: umbralX, dy: umbralY } = swipeThresholds()
+          if ((Math.abs(dx) > umbralX && Math.abs(dx) > Math.abs(dy) * 1.5) || (ini.arriba && dy > umbralY * 1.5 && dy > Math.abs(dx) * 1.5)) onClose()
+        }}>
         <div className="flex items-start justify-between">
           <p className="text-[var(--sala-tx3)] text-xs font-semibold uppercase tracking-wider">
             💶 Cobrar · {comanda.pax} PAX · {comanda.items.length} items
