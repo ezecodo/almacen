@@ -8,7 +8,8 @@ import MiHorario from '../components/MiHorario'
 import CheckOverlay from '../components/CheckOverlay'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, Alergeno, Comanda, ComandaItem, FloorPlan, GrupoAgendado, GrupoMenuTemplate, InventarioCategoria, Mesa, MenuCategoria, MenuItem, MermaMotivo, MiTurno, ItemAgotado, Reserva, Turno, WikiCategoria, WikiArticulo, ChecklistSector, sugerirCantidadesMenu, totalComanda, valorItem, waLink, esAvisoBox } from '../api'
+import { api, Alergeno, Comanda, ComandaItem, FloorPlan, GrupoAgendado, GrupoMenuTemplate, InventarioCategoria, Mesa, MenuCategoria, MenuItem, MermaMotivo, MiTurno, ItemAgotado, Reserva, Turno, WikiCategoria, WikiArticulo, ChecklistSector, sugerirCantidadesMenu, totalComanda, valorItem, waLink, esAvisoBox, repartoPago, textoPago, pagadoDivision } from '../api'
+import { DividirCuentaSheet, ResumenDivision } from '../components/DividirCuenta'
 import { speak, VozSelector, LANGS, Lang } from '../lib/tts'
 import { alternarCorteSimulado } from '../lib/conexion'
 import { useSalaEnModoLocal } from '../lib/instalacion'
@@ -1407,6 +1408,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
 
   // Encargado: cobrar la mesa directamente desde el panel (abre el CobroSheet)
   const [showCobro, setShowCobro] = useState(false)
+  const [dividir, setDividir] = useState(false) // ✂️ pagar por separado
   // Encargado: modo "sin cocina" — los items añadidos entran ya servidos (se cobran pero no
   // pasan por el flujo de envío a cocina/barra; ej: se decidió servir algo directamente)
   const [modoSinCocina, setModoSinCocina] = useState(false)
@@ -2289,6 +2291,12 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
           <CobroSheet comanda={comanda} onClose={() => setShowCobro(false)} onDone={onClose} />
         )}
 
+        {/* ✂️ Pagar por separado: cualquier camarero, con la cuenta impresa */}
+        {dividir && (
+          <DividirCuentaSheet comanda={comanda} quien={camareroSesion?.nombre} onClose={() => setDividir(false)}
+            onCerrarMesa={esEncargado && !enLocal ? () => { setDividir(false); setShowCobro(true) } : undefined} />
+        )}
+
         {verVinos && (
           <MaridajeSheet comanda={comanda} menu={menu} agotadoIds={agotadoIds}
             onAdd={vino => addItem.mutate({ item: vino, cantidad: 1 })}
@@ -2395,6 +2403,17 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                   💶 Cobrar mesa
                 </button>
               )}
+              {!comanda.cuentaDesactualizada && !enLocal && (() => {
+                const pagos = comanda.division?.pagos ?? []
+                const falta = total - pagadoDivision(comanda.division)
+                return (
+                  <button onClick={e => { e.stopPropagation(); setDividir(true) }}
+                    className={`w-full py-2.5 px-4 rounded-xl text-sm font-black active:scale-95 transition-transform flex items-center justify-between ${pagos.length ? 'bg-[#4B9EDF]/20 border-2 border-[#4B9EDF] text-[#4B9EDF]' : 'bg-[var(--sala-srf)] border-2 border-[var(--sala-brd2)] text-[var(--sala-txt)]'}`}>
+                    <span>✂️ {pagos.length ? `Por separado · ${pagos.length} ${pagos.length === 1 ? 'pago' : 'pagos'}` : 'Pagar por separado'}</span>
+                    {pagos.length > 0 && <span className="tabular-nums">{falta > 0.004 ? `falta ${falta.toFixed(2)} €` : '✅ pagada'}</span>}
+                  </button>
+                )
+              })()}
               <button onClick={e => { e.stopPropagation(); setVerCuenta(true) }}
                 className="w-full py-1.5 rounded-xl bg-[var(--sala-srf)] border border-[var(--sala-brd2)] text-[var(--sala-tx2)] font-medium text-xs">
                 Ver cuenta de nuevo
@@ -4125,15 +4144,23 @@ function RelojSala() {
 
 // Sheet de cobro — misma lógica que el panel de cobro del dashboard (MesasFeedPage):
 // método de pago, importe recibido con cambio (efectivo) o propina (tarjeta = exceso sobre el total)
-function CobroSheet({ comanda, onClose, onDone }: { comanda: Comanda; onClose: () => void; onDone?: () => void }) {
+function CobroSheet({ comanda: inicial, onClose, onDone }: { comanda: Comanda; onClose: () => void; onDone?: () => void }) {
   const queryClient = useQueryClient()
+  // La mesa al día (si se paga por separado mientras está abierto, la división cambia)
+  const { data: comanda = inicial } = useQuery({
+    queryKey: ['comanda-cobro', inicial.id], queryFn: () => api.comandas.get(inicial.id), initialData: inicial,
+  })
   const [metodoPago, setMetodoPago] = useState<'cash' | 'tarjeta' | null>(null)
   const [importe, setImporte] = useState('')
   const total = totalComanda(comanda.items)
 
   const terminarTpv = useContext(TpvCtx)
+  // Pagada por separado: método y propina salen de la división (el servidor los suma)
+  const dividida = (comanda.division?.pagos.length ?? 0) > 0
+  const cuadra = dividida && Math.round(pagadoDivision(comanda.division) * 100) === Math.round(totalComanda(comanda.items) * 100)
+  const [dividir, setDividir] = useState(false)
   const cobrar = useMutation({
-    mutationFn: ({ metodo, propina }: { metodo: 'cash' | 'tarjeta'; propina: number }) =>
+    mutationFn: ({ metodo, propina }: { metodo?: 'cash' | 'tarjeta'; propina: number }) =>
       api.comandas.cerrar(comanda.id, metodo, propina),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['enc-cobros'] })
@@ -4195,6 +4222,24 @@ function CobroSheet({ comanda, onClose, onDone }: { comanda: Comanda; onClose: (
           </span>
         </div>
 
+        {dividida ? (
+          <div className="space-y-2">
+            <ResumenDivision comanda={comanda} />
+            {cobrar.error && <p className="text-red-400 text-sm font-bold">{(cobrar.error as Error).message}</p>}
+            <button onClick={() => setDividir(true)}
+              className="w-full py-2.5 rounded-xl bg-[var(--sala-srf)] border border-[var(--sala-brd2)] text-[var(--sala-tx2)] text-sm font-bold active:scale-95">
+              ✂️ {cuadra ? 'Ver o corregir la división' : 'Seguir dividiendo'}
+            </button>
+            <button onClick={() => cobrar.mutate({ propina: 0 })} disabled={!cuadra || cobrar.isPending}
+              className="w-full py-4 rounded-2xl bg-amber-500 text-black font-black text-xl disabled:opacity-30 hover:bg-amber-400 active:scale-[0.98] transition-all">
+              {cobrar.isPending ? 'Cobrando…' : cuadra ? `Cobrar Mesa ${comanda.mesa.numero}` : 'Falta pagar una parte'}
+            </button>
+          </div>
+        ) : (<>
+        <button onClick={() => setDividir(true)}
+          className="w-full mb-2 py-2 rounded-xl bg-[var(--sala-srf)] border border-[var(--sala-brd2)] text-[var(--sala-tx2)] text-sm font-bold active:scale-95">
+          ✂️ Pagar por separado
+        </button>
         <div className="grid grid-cols-2 gap-2 mb-3">
           <button onClick={() => { setMetodoPago('cash'); setImporte('') }}
             className={`py-3.5 rounded-xl text-base font-black transition-all ${metodoPago === 'cash' ? 'bg-green-600 text-white' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)]'}`}>
@@ -4268,7 +4313,9 @@ function CobroSheet({ comanda, onClose, onDone }: { comanda: Comanda; onClose: (
                 ? `Cobrar Mesa ${comanda.mesa.numero} · +${propina.toFixed(2)} € propina`
                 : `Cobrar Mesa ${comanda.mesa.numero}`}
         </button>
+        </>)}
       </div>
+      {dividir && <DividirCuentaSheet comanda={comanda} onClose={() => setDividir(false)} onCerrarMesa={() => setDividir(false)} />}
     </div>
   )
 }
@@ -5627,6 +5674,9 @@ function EncargadoPanel({
                       <p className="text-[var(--sala-tx3)] text-xs min-w-0">
                         {c.pax} PAX · {c.items.length} items<br />
                         {c.estado === 'facturada' ? '🧾 Cuenta impresa' : '🔓 Mesa liberada'}
+                        {(c.division?.pagos.length ?? 0) > 0 && (<><br /><span className="text-[#4B9EDF] font-bold">
+                          ✂️ {c.division!.pagos.length} pagos · {totalDe(c) - pagadoDivision(c.division) > 0.004 ? `falta ${(totalDe(c) - pagadoDivision(c.division)).toFixed(2)} €` : '✅ cuadra'}
+                        </span></>)}
                       </p>
                     </div>
                     <span className="text-[#4CC8A0] font-black text-2xl tabular-nums shrink-0">{totalDe(c).toFixed(2)} €</span>
@@ -6225,8 +6275,8 @@ function PanelEncargadoTpv({ restaurantId, comandas, turnoActivo, onAbrirMesa, o
     refetchInterval: 30_000,
   })
   const cobradasOrden = [...cobradas].sort((a, b) => new Date(b.closedAt ?? 0).getTime() - new Date(a.closedAt ?? 0).getTime())
-  const cobradoEfectivo = cobradas.filter(c => c.metodoPago === 'cash').reduce((s, c) => s + totalComanda(c.items), 0)
-  const cobradoTarjeta = cobradas.filter(c => c.metodoPago === 'tarjeta').reduce((s, c) => s + totalComanda(c.items), 0)
+  const cobradoEfectivo = cobradas.reduce((s, c) => s + repartoPago(c).efectivo, 0)
+  const cobradoTarjeta = cobradas.reduce((s, c) => s + repartoPago(c).tarjeta, 0)
   const [verCobrada, setVerCobrada] = useState<Comanda | null>(null)
 
   const porCobrar = [...comandas.filter(c => c.estado === 'facturada'), ...liberadas]
@@ -6288,7 +6338,7 @@ function PanelEncargadoTpv({ restaurantId, comandas, turnoActivo, onAbrirMesa, o
         <span className="text-[var(--sala-txt)] text-lg font-black tabular-nums">{eur(totalComanda(c.items))}</span>
       </div>
       <p className="text-[var(--sala-tx2)] text-xs tabular-nums">
-        ✅ cobrada {c.closedAt ? fmtHora(c.closedAt) : ''} · {c.metodoPago === 'cash' ? '💶 efectivo' : '💳 tarjeta'}{c.propina > 0 ? ` · propina ${eur(c.propina)}` : ''}
+        ✅ cobrada {c.closedAt ? fmtHora(c.closedAt) : ''} · {textoPago(c).toLowerCase()}{c.propina > 0 ? ` · propina ${eur(c.propina)}` : ''}
       </p>
       <p className="text-[var(--sala-tx3)] text-xs">{c.pax} pax{c.camareroNombre ? ` · ${c.camareroNombre.split(' ')[0]}` : ''}{c.mermas.length ? ` · 🗑 ${c.mermas.length}` : ''}</p>
     </div>
@@ -6365,7 +6415,7 @@ function PanelEncargadoTpv({ restaurantId, comandas, turnoActivo, onAbrirMesa, o
             </div>
             <div className="p-5 border-t border-[var(--sala-brd)] space-y-1">
               <div className="flex justify-between text-[var(--sala-txt)] text-xl font-black"><span>Total</span><span className="tabular-nums">{eur(totalComanda(verCobrada.items))}</span></div>
-              <p className="text-[var(--sala-tx2)] text-sm">{verCobrada.metodoPago === 'cash' ? '💶 Efectivo' : '💳 Tarjeta'}{verCobrada.propina > 0 ? ` · propina ${eur(verCobrada.propina)}` : ''}</p>
+              <p className="text-[var(--sala-tx2)] text-sm">{textoPago(verCobrada)}{verCobrada.propina > 0 ? ` · propina ${eur(verCobrada.propina)}` : ''}</p>
             </div>
           </div>
         </div>

@@ -6,6 +6,7 @@ import { broadcast } from '../sse'
 import { publicarTicket, DestinoImpresion } from '../mqtt'
 import { MODO_LOCAL } from '../local'
 import { ahoraEnMadrid, diaDeServicio } from '../dia-servicio'
+import { cierreDeDivision, divisionSchema, totalCobrable } from '../pago'
 
 // Lo que ve la sala de la reserva de una mesa: 📅 reserva / 🚶 walk-in en el mapa y en la cabecera
 const reservaDeMesa = { select: { id: true, origen: true, nombre: true, hora: true, notas: true } } as const
@@ -467,15 +468,40 @@ export async function comandaRoutes(app: FastifyInstance) {
     return comanda
   })
 
-  // Cerrar comanda (cobrada — requiere método de pago)
+  // Pagar por separado: el camarero guarda la división de la cuenta (pagos hechos y cuántos quedan).
+  // No cobra la mesa: la cierra el encargado con PATCH /cerrar, que toma de aquí método y propina.
+  app.put('/comandas/:id/division', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    const body = z.object({ division: divisionSchema.nullable() }).safeParse(req.body)
+    if (!body.success) return reply.status(400).send({ error: 'División inválida' })
+
+    const actual = await prisma.comanda.findUnique({ where: { id }, include: { items: true } })
+    if (!actual) return reply.status(404).send({ error: 'Comanda no encontrada' })
+    if (actual.estado !== 'facturada' && actual.estado !== 'liberada')
+      return reply.status(409).send({ error: actual.estado === 'cerrada' ? 'La mesa ya está cobrada' : 'Primero hay que imprimir la cuenta' })
+
+    const division = body.data.division
+    if (division) {
+      const pagado = division.pagos.reduce((s, p) => s + Math.round(p.importe * 100), 0)
+      if (pagado > Math.round(totalCobrable(actual.items) * 100))
+        return reply.status(400).send({ error: 'Los pagos suman más que la cuenta' })
+    }
+
+    const comanda = await prisma.comanda.update({
+      where: { id },
+      data: { division: division && division.pagos.length + (division.quedan ? 1 : 0) > 0 ? division : Prisma.DbNull },
+      include: { items: true, mesa: true },
+    })
+    broadcast(comanda.restaurantId, 'update')
+    return comanda
+  })
+
+  // Cerrar comanda (cobrada — requiere método de pago, salvo si se pagó por separado: sale de la división)
   app.patch('/comandas/:id/cerrar', async (req, reply) => {
     const id = Number((req.params as { id: string }).id)
-    const { metodoPago, propina = 0 } = req.body as { metodoPago?: 'cash' | 'tarjeta'; propina?: number }
+    const body = req.body as { metodoPago?: 'cash' | 'tarjeta'; propina?: number }
 
-    if (metodoPago !== 'cash' && metodoPago !== 'tarjeta')
-      return reply.status(400).send({ error: 'metodoPago requerido (cash | tarjeta)' })
-
-    const actual = await prisma.comanda.findUnique({ where: { id } })
+    const actual = await prisma.comanda.findUnique({ where: { id }, include: { items: true } })
     if (!actual) return reply.status(404).send({ error: 'Comanda no encontrada' })
     if (actual.estado === 'cerrada')
       return reply.status(409).send({ error: 'La comanda ya está cobrada' })
@@ -484,9 +510,21 @@ export async function comandaRoutes(app: FastifyInstance) {
     if (actual.cuentaDesactualizada)
       return reply.status(409).send({ error: 'La cuenta cambió después de imprimirse — reimprimí la cuenta antes de cobrar' })
 
+    const division = divisionSchema.safeParse(actual.division)
+    let pago: { metodoPago: 'cash' | 'tarjeta' | 'mixto'; pagoEfectivo: number | null; propina: number }
+    if (division.success && division.data.pagos.length > 0) {
+      const r = cierreDeDivision(division.data, totalCobrable(actual.items))
+      if (!r.ok) return reply.status(409).send({ error: r.error })
+      pago = { metodoPago: r.metodoPago, pagoEfectivo: r.pagoEfectivo, propina: r.propina }
+    } else {
+      if (body.metodoPago !== 'cash' && body.metodoPago !== 'tarjeta')
+        return reply.status(400).send({ error: 'metodoPago requerido (cash | tarjeta)' })
+      pago = { metodoPago: body.metodoPago, pagoEfectivo: null, propina: body.propina ?? 0 }
+    }
+
     const comanda = await prisma.comanda.update({
       where: { id },
-      data: { estado: 'cerrada', closedAt: new Date(), metodoPago, propina },
+      data: { estado: 'cerrada', closedAt: new Date(), ...pago },
       include: { items: true, mesa: true },
     })
     broadcast(comanda.restaurantId, 'update')

@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { api, Comanda, totalComanda } from '../api'
+import { api, Comanda, totalComanda, repartoPago, textoPago } from '../api'
 
 
 function fmt(n: number) {
@@ -33,7 +33,7 @@ function ComandaCard({ comanda }: { comanda: Comanda }) {
           <span className={`text-xs font-medium px-2 py-0.5 rounded-lg ${
             isPago ? 'bg-green-50 text-green-700' : 'bg-blue-50 text-blue-700'
           }`}>
-            {isPago ? '💵 Efectivo' : '💳 Tarjeta'}
+            {textoPago(comanda)}
           </span>
           {comanda.propina > 0 && (
             <span className="text-amber-500 text-xs font-medium">+{fmt(comanda.propina)} € propina</span>
@@ -86,10 +86,8 @@ export default function TurnoDetallePage() {
   })
 
   // Aggregate stats from comandas
-  const efectivo = comandas?.filter(c => c.metodoPago === 'cash').reduce((s, c) =>
-    s + totalComanda(c.items), 0) ?? 0
-  const tarjeta = comandas?.filter(c => c.metodoPago === 'tarjeta').reduce((s, c) =>
-    s + totalComanda(c.items), 0) ?? 0
+  const efectivo = comandas?.reduce((s, c) => s + repartoPago(c).efectivo, 0) ?? 0
+  const tarjeta = comandas?.reduce((s, c) => s + repartoPago(c).tarjeta, 0) ?? 0
   const propinas = comandas?.reduce((s, c) => s + (c.propina ?? 0), 0) ?? 0
 
   // Group by mesa

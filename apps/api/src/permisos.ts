@@ -61,6 +61,7 @@ export const RUTAS_SALA = new Set([
   'POST /api/comandas/:id/items', 'PATCH /api/comandas/:id/items/:itemId', 'DELETE /api/comandas/:id/items/:itemId',
   'PATCH /api/comandas/:id/enviar', 'PATCH /api/comandas/:id/facturar', 'PATCH /api/comandas/:id/liberar',
   'PATCH /api/comandas/:id/mover-mesa', 'PATCH /api/comandas/:id/pax', 'PATCH /api/comandas/:id/para-cocina', 'PATCH /api/comandas/:id/cerrar', 'DELETE /api/comandas/:id/vacia',
+  'PUT /api/comandas/:id/division', // pagar por separado (cualquier camarero; cobrar sigue siendo del encargado)
   'GET /api/mermas', 'POST /api/mermas', 'DELETE /api/mermas/:id',
   // platos agotados en el servicio
   'GET /api/agotados', 'POST /api/agotados', 'DELETE /api/agotados/:menuItemId',

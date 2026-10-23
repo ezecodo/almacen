@@ -5,6 +5,7 @@ import { diaDeServicio } from '../dia-servicio'
 import { broadcast } from '../sse'
 import { boxSinSincronizar } from './red'
 import { efectivoGastado } from './gastos'
+import { repartoPago, totalCobrable } from '../pago'
 
 export async function turnoRoutes(app: FastifyInstance) {
 
@@ -67,13 +68,9 @@ export async function turnoRoutes(app: FastifyInstance) {
         include: { items: true },
       })
 
-      const totalEfectivo = comandas
-        .filter(c => c.metodoPago === 'cash')
-        .reduce((s, c) => s + c.items.reduce((ss, i) => ss + (i.invitacion ? 0 : i.precio * i.cantidad), 0), 0)
-
-      const totalTarjeta = comandas
-        .filter(c => c.metodoPago === 'tarjeta')
-        .reduce((s, c) => s + c.items.reduce((ss, i) => ss + (i.invitacion ? 0 : i.precio * i.cantidad), 0), 0)
+      const repartos = comandas.map(c => repartoPago(c, totalCobrable(c.items)))
+      const totalEfectivo = repartos.reduce((s, r) => s + r.efectivo, 0)
+      const totalTarjeta  = repartos.reduce((s, r) => s + r.tarjeta, 0)
 
       return {
         restaurantId: r.id,
@@ -154,13 +151,10 @@ export async function turnoRoutes(app: FastifyInstance) {
     const cobrable = (i: { precio: number; cantidad: number; invitacion: boolean }) =>
       i.invitacion ? 0 : i.precio * i.cantidad
 
-    const totalEfectivo = comandas
-      .filter(c => c.metodoPago === 'cash')
-      .reduce((s, c) => s + c.items.reduce((ss, i) => ss + cobrable(i), 0), 0)
-
-    const totalTarjeta = comandas
-      .filter(c => c.metodoPago === 'tarjeta')
-      .reduce((s, c) => s + c.items.reduce((ss, i) => ss + cobrable(i), 0), 0)
+    // Las mesas pagadas por separado con efectivo y tarjeta (mixto) reparten entre las dos
+    const repartos = comandas.map(c => repartoPago(c, c.items.reduce((ss, i) => ss + cobrable(i), 0)))
+    const totalEfectivo = repartos.reduce((s, r) => s + r.efectivo, 0)
+    const totalTarjeta  = repartos.reduce((s, r) => s + r.tarjeta, 0)
 
     const totalMermas   = mermas.reduce((s, m) => s + m.precio * m.cantidad, 0)
     const totalPropinas = comandas.reduce((s, c) => s + (c.propina ?? 0), 0)

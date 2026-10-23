@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { api, Turno, Restaurante, Empleado, PropinaDia, totalComanda } from '../api'
+import { api, Turno, Restaurante, Empleado, PropinaDia, repartoPago } from '../api'
 
 function fmt(n: number) {
   return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -536,8 +536,8 @@ export default function TurnosPage() {
   const cerradasTurno = cerradasHoy?.filter(c =>
     c.closedAt && new Date(c.closedAt) >= new Date(turnoActivo?.aperturaAt ?? 0)
   ) ?? []
-  const efectivoVivo = cerradasTurno.filter(c => c.metodoPago === 'cash').reduce((s, c) => s + totalComanda(c.items), 0)
-  const tarjetaVivo  = cerradasTurno.filter(c => c.metodoPago === 'tarjeta').reduce((s, c) => s + totalComanda(c.items), 0)
+  const efectivoVivo = cerradasTurno.reduce((s, c) => s + repartoPago(c).efectivo, 0)
+  const tarjetaVivo  = cerradasTurno.reduce((s, c) => s + repartoPago(c).tarjeta, 0)
   const propinasVivo = cerradasTurno.reduce((s, c) => s + (c.propina ?? 0), 0)
 
   const deleteTurno = useMutation({

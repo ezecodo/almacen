@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
-import { api, Comanda, ComandaItem, ComandaMerma, FloorPlan, Mesa, Restaurante, MermaMotivo, Turno, totalComanda, valorItem, esAvisoBox } from '../api'
+import { api, Comanda, ComandaItem, ComandaMerma, FloorPlan, Mesa, Restaurante, MermaMotivo, Turno, totalComanda, valorItem, esAvisoBox, repartoPago, textoPago } from '../api'
 
 function timeAgo(iso: string) {
   const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000)
@@ -193,7 +193,7 @@ function ComandaDetalleModal({ comanda, planNombre, onClose, onCobrar, onRestitu
             )}
             {comanda.metodoPago && (
               <span className="text-gray-400 text-xs">
-                {comanda.metodoPago === 'cash' ? '💵 Efectivo' : '💳 Tarjeta'}
+                {textoPago(comanda)}
               </span>
             )}
           </div>
@@ -519,7 +519,7 @@ function MesaCard({ mesa, onClick }: { mesa: MesaConPlan; onClick?: () => void }
             <span className="text-gray-600">👤 {comanda.camareroNombre}</span>
           )}
           {comanda.metodoPago && (
-            <span>{comanda.metodoPago === 'cash' ? '💵' : '💳'}</span>
+            <span>{comanda.metodoPago === 'cash' ? '💵' : comanda.metodoPago === 'mixto' ? '💳💵' : '💳'}</span>
           )}
         </div>
         <span className="text-white font-bold text-sm">
@@ -894,8 +894,8 @@ export default function MesasFeedPage() {
 
   // Preview live para el modal de cierre de turno
   const turnoPreview: TurnoPreview = {
-    efectivo:    cerradasHoy.filter(c => c.metodoPago === 'cash').reduce((s, c) => s + totalComanda(c.items), 0),
-    tarjeta:     cerradasHoy.filter(c => c.metodoPago === 'tarjeta').reduce((s, c) => s + totalComanda(c.items), 0),
+    efectivo:    cerradasHoy.reduce((s, c) => s + repartoPago(c).efectivo, 0),
+    tarjeta:     cerradasHoy.reduce((s, c) => s + repartoPago(c).tarjeta, 0),
     ventas:      cerradasHoy.reduce((s, c) => s + totalComanda(c.items), 0),
     propinas:    cerradasHoy.reduce((s, c) => s + (c.propina ?? 0), 0),
     numComandas: cerradasHoy.length,

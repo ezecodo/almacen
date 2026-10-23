@@ -1,4 +1,4 @@
-import { Comanda, EmpresaConfig, TicketConfig, valorItem, totalComanda } from '../../api'
+import { Comanda, EmpresaConfig, TicketConfig, valorItem, totalComanda, textoPago } from '../../api'
 
 function fmtHora(iso: string | null) {
   if (!iso) return ''
@@ -82,7 +82,7 @@ export default function TicketCobro({
       )}
 
       {comanda.metodoPago && (
-        <p className="mt-1">Pago: {comanda.metodoPago === 'cash' ? 'Efectivo' : 'Tarjeta'}</p>
+        <p className="mt-1">Pago: {textoPago(comanda, false)}</p>
       )}
 
       {mensajePie && (

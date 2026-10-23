@@ -344,6 +344,41 @@ export const valorItem = (i: Pick<ComandaItem, 'precio' | 'cantidad' | 'invitaci
 export const totalComanda = (items: Pick<ComandaItem, 'precio' | 'cantidad' | 'invitacion'>[]) =>
   items.reduce((s, i) => s + valorItem(i), 0)
 
+// ── Pagar por separado ───────────────────────────────────────────────────────
+// Cada persona que paga su parte (por igual o "cada uno lo suyo"). La mesa la sigue cerrando el
+// encargado: PATCH /cerrar saca de aquí el método (o mixto) y la propina.
+export interface PagoParcial {
+  id:       string
+  importe:  number                 // parte de la cuenta
+  propina:  number                 // con tarjeta: lo que el ticket pasa de su parte
+  metodo:   'tarjeta' | 'cash'
+  consumo?: { itemId: number; cant: number }[] // "cada uno lo suyo": qué se llevó (cant puede ser 1/3 de una botella)
+  at:       string
+  por?:     string
+}
+export interface Division { quedan?: number; pagos: PagoParcial[] }
+
+export const pagadoDivision = (d: Division | null | undefined) =>
+  Math.round((d?.pagos ?? []).reduce((s, p) => s + p.importe, 0) * 100) / 100
+
+// Cuánto de una comanda cobrada entró en efectivo y cuánto con tarjeta (las mixtas reparten)
+export function repartoPago(c: Pick<Comanda, 'metodoPago' | 'pagoEfectivo' | 'items'>) {
+  const total = totalComanda(c.items)
+  if (c.metodoPago === 'cash') return { efectivo: total, tarjeta: 0 }
+  if (c.metodoPago === 'tarjeta') return { efectivo: 0, tarjeta: total }
+  if (c.metodoPago === 'mixto') {
+    const efectivo = Math.min(total, c.pagoEfectivo ?? 0)
+    return { efectivo, tarjeta: total - efectivo }
+  }
+  return { efectivo: 0, tarjeta: 0 }
+}
+
+export const textoPago = (c: Pick<Comanda, 'metodoPago' | 'pagoEfectivo'>, conIcono = true) =>
+  c.metodoPago === 'cash' ? `${conIcono ? '💶 ' : ''}Efectivo`
+  : c.metodoPago === 'tarjeta' ? `${conIcono ? '💳 ' : ''}Tarjeta`
+  : c.metodoPago === 'mixto' ? `${conIcono ? '💳💶 ' : ''}Mixto (${(c.pagoEfectivo ?? 0).toFixed(2)} € en efectivo)`
+  : ''
+
 // Cantidades sugeridas para un menú de grupo (tapeo compartido, todo al centro).
 // Arranca con la ración base floor(pax/ratio) por plato y sube +1 a los platos más
 // baratos mientras el valor en carta no supere el presupuesto (precio del menú × pax).
@@ -426,8 +461,10 @@ export interface Comanda {
   mesa:           Mesa
   pax:            number
   estado:         'abierta' | 'enviada' | 'facturada' | 'liberada' | 'cerrada'
-  metodoPago:     'cash' | 'tarjeta' | null
+  metodoPago:     'cash' | 'tarjeta' | 'mixto' | null
   propina:        number
+  pagoEfectivo?:  number | null   // con 'mixto': parte de la cuenta pagada en efectivo
+  division?:      Division | null // pagar por separado (la va apuntando el camarero en la mesa)
   camareroNombre: string | null
   cuentaDesactualizada: boolean // items cambiados tras imprimir la cuenta → reimprimir antes de cobrar
   noComparten?: boolean // la mesa no comparte: COM: NO COMPARTEN en los tickets de cocina
@@ -1273,8 +1310,10 @@ export const api = {
     paraCocina:(id: number, datos: { noComparten?: boolean; notaMesa?: string; alergenoIds?: number[] }) => patch<Comanda>(`/comandas/${id}/para-cocina`, datos),
     facturar:  (id: number) => patch<Comanda>(`/comandas/${id}/facturar`, {}),
     liberar:   (id: number) => patch<Comanda>(`/comandas/${id}/liberar`, {}),
-    cerrar:    (id: number, metodoPago: 'cash' | 'tarjeta', propina = 0) =>
+    cerrar:    (id: number, metodoPago?: 'cash' | 'tarjeta', propina = 0) =>
       patch<Comanda>(`/comandas/${id}/cerrar`, { metodoPago, propina }),
+    division:  (id: number, division: Division | null) =>
+      put<Comanda>(`/comandas/${id}/division`, { division }),
     moverMesa: (id: number, mesaId: number) =>
       patch<Comanda>(`/comandas/${id}/mover-mesa`, { mesaId }),
     merge:     (sourceId: number, targetId: number, itemIds?: number[]) =>

@@ -427,8 +427,10 @@ model Comanda {
   mesa         Mesa?         @relation(fields: [mesaId], references: [id])
   pax            Int
   estado         String        @default("abierta") // 'abierta' | 'enviada' | 'facturada' | 'liberada' | 'cerrada'
-  metodoPago     String?       // 'cash' | 'tarjeta' | null
+  metodoPago     String?       // 'cash' | 'tarjeta' | 'mixto' | null
   propina        Float         @default(0)
+  pagoEfectivo   Float?        // con metodoPago 'mixto': parte de la cuenta pagada en efectivo (el resto, con tarjeta)
+  division       Json?         // pagar por separado: { quedan?, pagos: [{ id, importe, propina, metodo, consumo?, at, por? }] } — ver pago.ts
   camareroNombre String?
   cuentaDesactualizada Boolean @default(false) // los items cambiaron tras imprimir la cuenta → reimprimir antes de cobrar
   notaMesa             String    @default("") // nota del camarero para cocina sobre toda la mesa: sale como COM: al final de los tickets
