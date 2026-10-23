@@ -2146,8 +2146,10 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                   {filteredMenu.length === 0 && <p className="text-center text-[var(--sala-tx4)] text-sm py-8">Sin resultados</p>}
                 </div>
               ) : selectedCat ? (
-                /* ── Dentro de una categoría: tiles de subcategoría o items ── */
-                <div className="flex-1 overflow-y-auto"
+                /* ── Dentro de una categoría: tiles de subcategoría o items ──
+                   Centrado en vertical (my-auto) para que quede al alcance del pulgar;
+                   si no cabe, se desplaza normal desde arriba */
+                <div className="flex-1 overflow-y-auto flex flex-col"
                   onTouchStart={e => { swipeRef.current = e.touches[0].clientX }}
                   onTouchEnd={e => {
                     // Swipe horizontal en cualquier dirección → un nivel atrás
@@ -2156,9 +2158,10 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                     swipeRef.current = null
                   }}>
                   <button onClick={() => selectedSub ? setSelectedSub(null) : setSelectedCat(null)}
-                    className="flex items-center gap-2 px-4 py-3 text-cyan-400 text-sm font-semibold w-full border-b border-[var(--sala-brd)] hover:bg-[var(--sala-btn2)]/40">
+                    className="shrink-0 flex items-center gap-2 px-4 py-3 text-cyan-400 text-sm font-semibold w-full border-b border-[var(--sala-brd)] hover:bg-[var(--sala-btn2)]/40">
                     ← {selectedSub ?? selectedCat}
                   </button>
+                  <div className="my-auto w-full">
                   {selectedSub ? (
                     /* ── Nivel 4: items de la subcategoría ── */
                     <div className={ancho ? 'p-3 grid grid-cols-2 gap-2' : 'p-4 space-y-1.5'}>
@@ -2194,17 +2197,18 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                       </div>
                     </>
                   )}
+                  </div>
                 </div>
               ) : grupoActivo ? (
-                /* ── Nivel 2: grid de categorías del grupo (tiles cuadrados) ── */
-                <div className="flex-1 overflow-y-auto p-2"
+                /* ── Nivel 2: grid de categorías del grupo (tiles cuadrados), centrado en vertical ── */
+                <div className="flex-1 overflow-y-auto p-2 flex flex-col"
                   onTouchStart={e => { swipeRef.current = e.touches[0].clientX }}
                   onTouchEnd={e => {
                     if (swipeRef.current !== null && Math.abs(e.changedTouches[0].clientX - swipeRef.current) > swipeThresholds().dx && grupos.length > 1)
                       setGrupoTab(null)
                     swipeRef.current = null
                   }}>
-                  <div className={`grid ${ancho ? 'grid-cols-4' : 'grid-cols-3'} gap-2`}>
+                  <div className={`my-auto w-full grid ${ancho ? 'grid-cols-4' : 'grid-cols-3'} gap-2`}>
                     {categoriasSorted.map(cat => {
                       const meta = categorias.find(c => c.nombre === cat)
                       const esBarra = esGrupoBarra(meta?.grupo ?? '')
@@ -2225,8 +2229,9 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                   </div>
                 </div>
               ) : (
-                /* ── Nivel 1: tiles de grupo (COMIDA / BEBIDAS / VINOS) ── */
-                <div className="flex-1 overflow-y-auto p-3 space-y-3">
+                /* ── Nivel 1: tiles de grupo (COMIDA / BEBIDAS / VINOS), centrados en vertical ── */
+                <div className="flex-1 overflow-y-auto p-3 flex flex-col">
+                <div className="my-auto space-y-3">
                   {grupos.map(g => {
                     const esBarra = esGrupoBarra(g)
                     const nCats = categorias.filter(c => (c.grupo || 'Otros') === g).length
@@ -2247,6 +2252,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                       </button>
                     )
                   })}
+                </div>
                 </div>
               )}
             </div>
