@@ -78,6 +78,8 @@ export function DividirCuentaSheet({ comanda, quien, onClose, onCerrarMesa }: {
   const faltaC = Math.max(0, cent(total) - pagadoC)
   const [modo, setModo] = useState<'igual' | 'items'>(() => division.pagos.some(p => p.consumo?.length) ? 'items' : 'igual')
   const [quedan, setQuedan] = useState(() => division.quedan ?? Math.max(1, comanda.pax - division.pagos.length))
+  // Pasar a "por igual": entre los comensales que todavía no pagaron (mesa de 2 con uno pagado → 1)
+  const aPorIgual = () => { setModo('igual'); setQuedan(Math.max(1, comanda.pax - division.pagos.length)) }
   const [metodo, setMetodo] = useState<'tarjeta' | 'cash'>('tarjeta')
   const [quitar, setQuitar] = useState<string | null>(null)
   const [borrarTodo, setBorrarTodo] = useState(false)
@@ -217,7 +219,7 @@ export function DividirCuentaSheet({ comanda, quien, onClose, onCerrarMesa }: {
               {/* Modo */}
               <div className="grid grid-cols-2 gap-2">
                 {([['igual', '⚖️ Por igual'], ['items', '🍽 Cada uno lo suyo']] as const).map(([m, label]) => (
-                  <button key={m} onClick={() => setModo(m)}
+                  <button key={m} onClick={() => m === 'igual' && modo !== 'igual' ? aPorIgual() : setModo(m)}
                     className={`${btn} py-3 text-sm ${modo === m ? 'text-white' : 'bg-[var(--sala-srf)] text-[var(--sala-tx2)]'}`}
                     style={modo === m ? { background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)' } : undefined}>
                     {label}
@@ -283,7 +285,7 @@ export function DividirCuentaSheet({ comanda, quien, onClose, onCerrarMesa }: {
                     )
                   })}
                   {division.pagos.length > 0 && (
-                    <button onClick={() => { setModo('igual'); setQuedan(2) }}
+                    <button onClick={aPorIgual}
                       className={`${btn} w-full py-2.5 bg-[var(--sala-srf)] border border-[var(--sala-brd2)] text-[var(--sala-tx2)] text-sm`}>
                       ⚖️ El resto, entre los que quedan
                     </button>
