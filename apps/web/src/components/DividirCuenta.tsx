@@ -30,33 +30,71 @@ export function detallePago(p: PagoParcial, items: ComandaItem[]) {
   return p.consumo.map(c => `${fmtCant(c.cant)}× ${items.find(i => i.id === c.itemId)?.nombre ?? '?'}`).join(', ')
 }
 
-// Lo que ve el encargado al cobrar: cada pago, y si suma justo la cuenta
-export function ResumenDivision({ comanda }: { comanda: Comanda }) {
+// El encargado coteja: cada pago es un ticket del vasito y ya viene con su importe. Si un ticket de
+// tarjeta dice más (dejaron propina), toca esa línea y escribe lo que dice: la propina sale sola.
+export function propinaDeTickets(division: Division | null | undefined, tickets: Record<string, string>) {
+  let propina = 0, corto = false
+  for (const p of division?.pagos ?? []) {
+    const t = tickets[p.id]
+    if (p.metodo !== 'tarjeta' || !t) continue
+    const dif = cent(parseFloat(t.replace(',', '.')) || 0) - cent(p.importe)
+    if (dif < 0) corto = true; else propina += dif
+  }
+  return { propina: propina / 100, corto }
+}
+
+export function CotejoTickets({ comanda, tickets, onTicket }: {
+  comanda: Comanda
+  tickets: Record<string, string>
+  onTicket: (pagoId: string, valor: string) => void
+}) {
+  const [abierto, setAbierto] = useState<string | null>(null)
   const total = totalComanda(comanda.items)
   const pagos = comanda.division?.pagos ?? []
-  const pagado = pagadoDivision(comanda.division)
-  const propina = pagos.reduce((s, p) => s + (p.metodo === 'tarjeta' ? p.propina : 0), 0)
-  const falta = (cent(total) - cent(pagado)) / 100
-  const efectivo = pagos.filter(p => p.metodo === 'cash').reduce((s, p) => s + p.importe, 0)
+  const falta = (cent(total) - cent(pagadoDivision(comanda.division))) / 100
+  const { propina } = propinaDeTickets(comanda.division, tickets)
   return (
-    <div className="rounded-2xl bg-[var(--sala-srf)] p-3 space-y-1.5">
-      <p className="text-[var(--sala-tx3)] text-xs font-black uppercase tracking-widest">✂️ Pagada por separado · {pagos.length} {pagos.length === 1 ? 'pago' : 'pagos'}</p>
-      {pagos.map((p, n) => (
-        <div key={p.id} className="flex items-baseline gap-2 text-sm">
-          <span className="w-5 text-[var(--sala-tx4)] font-bold tabular-nums">{n + 1}</span>
-          <span>{p.metodo === 'cash' ? '💶' : '💳'}</span>
-          <span className="text-[var(--sala-txt)] font-black tabular-nums">{eur(p.importe)}</span>
-          {p.metodo === 'tarjeta' && p.propina > 0 && <span className="text-amber-400 text-xs font-bold">+{eur(p.propina)} propina</span>}
-          <span className="flex-1 min-w-0 truncate text-[var(--sala-tx3)] text-xs">{detallePago(p, comanda.items)}</span>
-        </div>
-      ))}
-      <div className={`mt-1 rounded-xl px-3 py-2 text-sm font-bold ${falta === 0 ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400'}`}>
-        {falta === 0
-          ? <>✅ Cuadra: {eur(pagado + propina)} cobrados = cuenta {eur(total)}{propina > 0 ? ` + ${eur(propina)} propina` : ''}</>
-          : falta > 0
-            ? <>⚠️ Falta pagar {eur(falta)} de {eur(total)}</>
-            : <>⚠️ Los pagos pasan la cuenta en {eur(-falta)}: revisa la división</>}
-        {falta === 0 && efectivo > 0 && efectivo < total && <span className="block text-xs font-semibold opacity-80">💶 {eur(efectivo)} en efectivo · 💳 {eur(total - efectivo)} con tarjeta</span>}
+    <div className="rounded-2xl bg-[var(--sala-srf)] p-3">
+      <div className="flex items-baseline justify-between px-1">
+        <p className="text-[var(--sala-tx3)] text-xs font-black uppercase tracking-widest">Tickets a cotejar</p>
+        <p className="text-[var(--sala-tx3)] text-xs font-black">{pagos.length}</p>
+      </div>
+      <div className="mt-1.5 divide-y divide-[var(--sala-brd)]">
+        {pagos.map((p, n) => {
+          const t = tickets[p.id] ?? ''
+          const dif = t ? cent(parseFloat(t.replace(',', '.')) || 0) - cent(p.importe) : 0
+          const tarjeta = p.metodo === 'tarjeta'
+          return (
+            <div key={p.id}>
+              <button type="button" disabled={!tarjeta} onClick={() => setAbierto(abierto === p.id ? null : p.id)}
+                className="w-full flex items-center gap-2 px-1 py-2.5 text-left">
+                <span className="w-5 text-[var(--sala-tx4)] text-sm font-black tabular-nums">{n + 1}</span>
+                <span className="text-lg">{tarjeta ? '💳' : '💶'}</span>
+                <span className="text-[var(--sala-txt)] text-xl font-black tabular-nums">{eur(p.importe)}</span>
+                <span className="flex-1 min-w-0 text-right text-xs font-bold">
+                  {!tarjeta ? <span className="text-[var(--sala-tx3)]">efectivo</span>
+                    : dif > 0 ? <span className="text-amber-400">ticket {eur(dif / 100 + p.importe)} · +{eur(dif / 100)}</span>
+                    : dif < 0 ? <span className="text-red-400">ticket {t} · no llega</span>
+                    : <span className="text-[var(--sala-tx4)]">¿dejó propina? ›</span>}
+                </span>
+              </button>
+              {abierto === p.id && (
+                <div className="flex items-center gap-2 px-1 pb-2.5">
+                  <span className="text-[var(--sala-tx2)] text-sm font-bold shrink-0">El ticket dice</span>
+                  <input autoFocus value={t} inputMode="decimal" placeholder={eur(p.importe).replace(' €', '')}
+                    onChange={e => onTicket(p.id, e.target.value.replace(/[^\d.,]/g, '').slice(0, 8))}
+                    onKeyDown={e => { if (e.key === 'Enter') setAbierto(null) }}
+                    className="flex-1 min-w-0 rounded-xl bg-[var(--sala-btn2)] text-[var(--sala-txt)] px-3 py-2 text-xl font-black tabular-nums placeholder:text-[var(--sala-tx4)] outline-none" />
+                  <button onClick={() => setAbierto(null)} className="shrink-0 px-3 py-2 rounded-xl bg-[#4CC8A0] text-white text-sm font-black active:scale-95">OK</button>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+      <div className={`mt-1 rounded-xl px-3 py-2 flex items-center justify-between text-sm font-black ${falta === 0 ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400'}`}>
+        <span>{falta === 0 ? `✅ ${eur(total)} = cuenta` : falta > 0 ? `⚠️ Falta pagar ${eur(falta)}` : `⚠️ Sobran ${eur(-falta)}`}</span>
+        {falta === 0 && propina > 0 && <span className="text-amber-400">🎉 +{eur(propina)} propina</span>}
       </div>
     </div>
   )
