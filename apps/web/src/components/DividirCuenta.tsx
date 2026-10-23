@@ -8,7 +8,6 @@ import { api, Comanda, ComandaItem, Division, PagoParcial, pagadoDivision, total
 
 const cent = (n: number) => Math.round(n * 100)
 const eur = (n: number) => `${n.toFixed(2).replace('.', ',')} €`
-const numero = (s: string) => parseFloat(s.replace(',', '.')) || 0
 
 // Lo que se cobra por cabeza (pan × pax, menú de grupo × pax): en "cada uno lo suyo" entra solo
 const esPorPersona = (i: ComandaItem, pax: number) => i.autoGenerado && i.cantidad === pax && valorItem(i) > 0
@@ -80,7 +79,6 @@ export function DividirCuentaSheet({ comanda, quien, onClose, onCerrarMesa }: {
   const [modo, setModo] = useState<'igual' | 'items'>(() => division.pagos.some(p => p.consumo?.length) ? 'items' : 'igual')
   const [quedan, setQuedan] = useState(() => division.quedan ?? Math.max(1, comanda.pax - division.pagos.length))
   const [metodo, setMetodo] = useState<'tarjeta' | 'cash'>('tarjeta')
-  const [ticket, setTicket] = useState('')
   const [quitar, setQuitar] = useState<string | null>(null)
   const [borrarTodo, setBorrarTodo] = useState(false)
 
@@ -116,10 +114,6 @@ export function DividirCuentaSheet({ comanda, quien, onClose, onCerrarMesa }: {
   const cuotaC = modo === 'igual'
     ? Math.ceil(faltaC / Math.max(1, quedan))
     : Math.min(faltaC, seLlevaTodo ? faltaC : Math.round(importeItemsC))
-  const ticketC = cent(numero(ticket))
-  const propinaC = metodo === 'tarjeta' && ticketC > cuotaC ? ticketC - cuotaC : 0
-  const cambioC = metodo === 'cash' && ticketC > cuotaC ? ticketC - cuotaC : 0
-  const ticketCorto = ticket !== '' && ticketC < cuotaC
 
   const guardar = useMutation({
     mutationFn: (d: Division | null) => api.comandas.division(comanda.id, d),
@@ -132,12 +126,12 @@ export function DividirCuentaSheet({ comanda, quien, onClose, onCerrarMesa }: {
   })
 
   const pagar = () => {
-    if (cuotaC <= 0 || ticketCorto) return
+    if (cuotaC <= 0) return
     navigator.vibrate?.(15)
     const pago: PagoParcial = {
       id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
       importe: cuotaC / 100,
-      propina: propinaC / 100,
+      propina: 0, // la propina la pone el encargado al cotejar los tickets (CobroSheet)
       metodo,
       ...(modo === 'items' ? { consumo: [...sel].map(([itemId, cant]) => ({ itemId, cant })) } : {}),
       at: new Date().toISOString(),
@@ -145,7 +139,6 @@ export function DividirCuentaSheet({ comanda, quien, onClose, onCerrarMesa }: {
     }
     const siguienteQuedan = modo === 'igual' ? Math.max(1, quedan - 1) : division.quedan
     if (modo === 'igual') setQuedan(siguienteQuedan ?? 1)
-    setTicket('')
     setMetodo('tarjeta')
     guardar.mutate({ pagos: [...division.pagos, pago], ...(siguienteQuedan ? { quedan: siguienteQuedan } : {}) })
   }
@@ -317,19 +310,11 @@ export function DividirCuentaSheet({ comanda, quien, onClose, onCerrarMesa }: {
         {/* Pie: cobrar a esta persona */}
         {!completo && (
           <div className="p-4 pt-3 border-t border-[var(--sala-brd)] space-y-2">
-            <div className="flex items-center gap-2">
-              <div className="grid grid-cols-2 gap-1.5 shrink-0">
-                <button onClick={() => setMetodo('tarjeta')} className={`${btn} px-3 py-2.5 text-sm ${metodo === 'tarjeta' ? 'bg-blue-600 text-white' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)]'}`}>💳</button>
-                <button onClick={() => setMetodo('cash')} className={`${btn} px-3 py-2.5 text-sm ${metodo === 'cash' ? 'bg-green-600 text-white' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)]'}`}>💶</button>
-              </div>
-              <input value={ticket} onChange={e => setTicket(e.target.value.replace(/[^\d.,]/g, '').slice(0, 7))}
-                inputMode="decimal" placeholder={metodo === 'tarjeta' ? 'Importe del ticket (si deja propina)' : 'Recibido (para el cambio)'}
-                className="flex-1 min-w-0 rounded-xl bg-[var(--sala-btn2)] text-[var(--sala-txt)] px-3 py-2.5 text-base font-bold tabular-nums placeholder:text-[var(--sala-tx4)] placeholder:font-normal placeholder:text-xs outline-none" />
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => setMetodo('tarjeta')} className={`${btn} py-2.5 text-sm ${metodo === 'tarjeta' ? 'bg-blue-600 text-white' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)]'}`}>💳 Tarjeta</button>
+              <button onClick={() => setMetodo('cash')} className={`${btn} py-2.5 text-sm ${metodo === 'cash' ? 'bg-green-600 text-white' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)]'}`}>💶 Efectivo</button>
             </div>
-            {propinaC > 0 && <p className="text-amber-400 text-sm font-black">🎉 Propina {eur(propinaC / 100)}</p>}
-            {cambioC > 0 && <p className="text-green-400 text-sm font-black">Cambio {eur(cambioC / 100)}</p>}
-            {ticketCorto && <p className="text-red-400 text-sm font-bold">El ticket no llega a su parte ({eur(cuotaC / 100)})</p>}
-            <button onClick={pagar} disabled={cuotaC <= 0 || ticketCorto || guardar.isPending || comanda.cuentaDesactualizada}
+            <button onClick={pagar} disabled={cuotaC <= 0 || guardar.isPending || comanda.cuentaDesactualizada}
               className={`${btn} w-full py-4 text-white text-xl disabled:opacity-30`}
               style={{ background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)' }}>
               {guardar.isPending ? 'Guardando…'

@@ -4159,6 +4159,12 @@ function CobroSheet({ comanda: inicial, onClose, onDone }: { comanda: Comanda; o
   const dividida = (comanda.division?.pagos.length ?? 0) > 0
   const cuadra = dividida && Math.round(pagadoDivision(comanda.division) * 100) === Math.round(totalComanda(comanda.items) * 100)
   const [dividir, setDividir] = useState(false)
+  // Con la cuenta dividida, la propina la pone el encargado al cotejar: suma de los tickets de tarjeta
+  const [ticketsTarjeta, setTicketsTarjeta] = useState('')
+  const parteTarjeta = (comanda.division?.pagos ?? []).filter(p => p.metodo === 'tarjeta').reduce((s, p) => s + p.importe, 0)
+  const ticketsNum = parseFloat(ticketsTarjeta.replace(',', '.')) || 0
+  const propinaDividida = ticketsTarjeta ? Math.round(Math.max(0, ticketsNum - parteTarjeta) * 100) / 100 : 0
+  const ticketsCortos = ticketsTarjeta !== '' && Math.round(ticketsNum * 100) < Math.round(parteTarjeta * 100)
   const cobrar = useMutation({
     mutationFn: ({ metodo, propina }: { metodo?: 'cash' | 'tarjeta'; propina: number }) =>
       api.comandas.cerrar(comanda.id, metodo, propina),
@@ -4225,14 +4231,25 @@ function CobroSheet({ comanda: inicial, onClose, onDone }: { comanda: Comanda; o
         {dividida ? (
           <div className="space-y-2">
             <ResumenDivision comanda={comanda} />
+            {cuadra && parteTarjeta > 0 && (
+              <div className="rounded-2xl bg-[var(--sala-srf)] p-3">
+                <p className="text-[var(--sala-tx2)] text-xs font-bold">💳 Con tarjeta: {parteTarjeta.toFixed(2)} € · si los tickets suman más, escribe el total (la diferencia es propina)</p>
+                <input value={ticketsTarjeta} onChange={e => setTicketsTarjeta(e.target.value.replace(/[^\d.,]/g, '').slice(0, 8))}
+                  inputMode="decimal" placeholder="Suma de los tickets de tarjeta"
+                  className="mt-2 w-full rounded-xl bg-[var(--sala-btn2)] text-[var(--sala-txt)] px-3 py-2.5 text-xl font-black tabular-nums placeholder:text-[var(--sala-tx4)] placeholder:text-sm placeholder:font-normal outline-none" />
+                {propinaDividida > 0 && <p className="mt-1 text-amber-400 text-sm font-black">🎉 Propina {propinaDividida.toFixed(2)} €</p>}
+                {ticketsCortos && <p className="mt-1 text-red-400 text-sm font-bold">Los tickets no llegan a lo pagado con tarjeta: revisa que estén todos</p>}
+              </div>
+            )}
             {cobrar.error && <p className="text-red-400 text-sm font-bold">{(cobrar.error as Error).message}</p>}
             <button onClick={() => setDividir(true)}
               className="w-full py-2.5 rounded-xl bg-[var(--sala-srf)] border border-[var(--sala-brd2)] text-[var(--sala-tx2)] text-sm font-bold active:scale-95">
               ✂️ {cuadra ? 'Ver o corregir la división' : 'Seguir dividiendo'}
             </button>
-            <button onClick={() => cobrar.mutate({ propina: 0 })} disabled={!cuadra || cobrar.isPending}
+            <button onClick={() => cobrar.mutate({ propina: propinaDividida })} disabled={!cuadra || ticketsCortos || cobrar.isPending}
               className="w-full py-4 rounded-2xl bg-amber-500 text-black font-black text-xl disabled:opacity-30 hover:bg-amber-400 active:scale-[0.98] transition-all">
-              {cobrar.isPending ? 'Cobrando…' : cuadra ? `Cobrar Mesa ${comanda.mesa.numero}` : 'Falta pagar una parte'}
+              {cobrar.isPending ? 'Cobrando…' : !cuadra ? 'Falta pagar una parte'
+                : propinaDividida > 0 ? `Cobrar Mesa ${comanda.mesa.numero} · +${propinaDividida.toFixed(2)} € propina` : `Cobrar Mesa ${comanda.mesa.numero}`}
             </button>
           </div>
         ) : (<>

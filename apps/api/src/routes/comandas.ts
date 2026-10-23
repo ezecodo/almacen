@@ -515,7 +515,8 @@ export async function comandaRoutes(app: FastifyInstance) {
     if (division.success && division.data.pagos.length > 0) {
       const r = cierreDeDivision(division.data, totalCobrable(actual.items))
       if (!r.ok) return reply.status(409).send({ error: r.error })
-      pago = { metodoPago: r.metodoPago, pagoEfectivo: r.pagoEfectivo, propina: r.propina }
+      // La propina la pone el encargado al cotejar los tickets (antes podía venir apuntada en cada pago)
+      pago = { metodoPago: r.metodoPago, pagoEfectivo: r.pagoEfectivo, propina: r.propina + Math.max(0, body.propina ?? 0) }
     } else {
       if (body.metodoPago !== 'cash' && body.metodoPago !== 'tarjeta')
         return reply.status(400).send({ error: 'metodoPago requerido (cash | tarjeta)' })
