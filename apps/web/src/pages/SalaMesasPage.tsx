@@ -1719,10 +1719,10 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
 
   // Dentro de una categoría: deslizar a la izquierda pasa a la siguiente del grupo (o a la
   // subcategoría hermana), así se recorre CLÁSICAS → VEGETARIA → PESCADO sin volver atrás.
-  // Desde la última se vuelve a la rejilla. A la derecha, un nivel atrás como siempre.
+  // Da la vuelta: de la última se pasa a la primera. A la derecha, un nivel atrás como siempre.
   const hermanas = selectedSub && selectedCat ? subcatsDe(selectedCat).map(c => c.nombre) : categoriasSorted
   const actual = selectedSub ?? selectedCat
-  const siguienteCat = actual ? hermanas[hermanas.indexOf(actual) + 1] ?? null : null
+  const siguienteCat = actual && hermanas.length > 1 ? hermanas[(hermanas.indexOf(actual) + 1) % hermanas.length] : null
   const irASiguienteCat = () => {
     if (selectedSub) setSelectedSub(siguienteCat)
     else { setSelectedCat(siguienteCat); setSelectedSub(null) }
