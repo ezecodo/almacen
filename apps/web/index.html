@@ -27,6 +27,16 @@
         link.rel = 'manifest'
         link.href = '/manifest-' + app + '.json'
         document.head.appendChild(link)
+        // Sala y TPV: sin zoom del navegador (pellizcar, doble toque, o el que hace iOS al tocar un
+        // campo con letra chica). Con prisa se dispara sin querer y descoloca toda la pantalla.
+        // El plano de reservas tiene su propio zoom y no depende de esto.
+        if (app === 'sala' || app === 'tpv') {
+          var vp = document.querySelector('meta[name="viewport"]')
+          if (vp) vp.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover')
+          // iOS ignora user-scalable=no: el pellizco se corta aquí
+          document.addEventListener('gesturestart', function (e) { e.preventDefault() }, { passive: false })
+          document.documentElement.style.touchAction = 'manipulation' // sin zoom por doble toque
+        }
       })()
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
