@@ -1930,58 +1930,69 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
           }
         }}>
         {/* Header */}
-        <div className={`px-5 pt-5 pb-3 border-b border-[var(--sala-brd)] ${ancho ? 'col-start-2 row-start-1 border-l' : ''}`}>
-          <div className="flex items-start justify-between mb-1">
-            <div>
-              <h2 className="text-[var(--sala-txt)] font-bold text-xl">
-                Mesa {comanda.mesa.numero}
-                <span className="ml-2 text-sm font-bold text-amber-400 tabular-nums align-middle">
-                  🕐 {fmtHora(comanda.enviadaAt ?? comanda.createdAt)}
-                </span>
-                {comanda.noComparten && (
-                  <span className="ml-2 px-1.5 py-0.5 rounded bg-[var(--sala-txt)] text-[var(--sala-bg)] text-[10px] font-black uppercase tracking-wide align-middle">🍽 No comparten</span>
-                )}
-              </h2>
-              {comanda.notaMesa && <p className="text-[var(--sala-tx2)] text-xs truncate">📝 {comanda.notaMesa}</p>}
-              {/* De dónde vino la gente; el encargado lo toca para corregirlo ("No era esta reserva") */}
+        <div className={`px-4 pt-3 pb-3 border-b border-[var(--sala-brd)] ${ancho ? 'col-start-2 row-start-1 border-l' : ''}`}>
+          {/* Una sola línea, como la cabecera del ticket: mesa en recuadro invertido, hora de la
+              primera comanda y pax; a la derecha cuenta, cambiar mesa y cerrar */}
+          <div className="flex items-center gap-3">
+            <h2 className="shrink-0 min-w-11 h-11 px-2 rounded-lg bg-[var(--sala-txt)] text-[var(--sala-bg)] text-[28px] font-black tabular-nums leading-none flex items-center justify-center"
+              aria-label={`Mesa ${comanda.mesa.numero}`}>
+              {comanda.mesa.numero}
+            </h2>
+            <div className="shrink-0 leading-none">
+              <p className={`text-xl font-black tabular-nums ${comanda.enviadaAt ? 'text-amber-400' : 'text-[var(--sala-tx3)]'}`}>
+                {fmtHora(comanda.enviadaAt ?? comanda.createdAt)}
+              </p>
+              <p className="text-[var(--sala-tx4)] text-[10px] font-bold uppercase tracking-wide mt-0.5">
+                {comanda.enviadaAt ? timeAgo(comanda.createdAt) : 'abierta'}
+              </p>
+            </div>
+            <div className="shrink-0 flex items-center gap-1">
+              <button onClick={() => cambiarPax.mutate(Math.max(1, comanda.pax - 1))} aria-label="Un pax menos"
+                className="w-7 h-7 rounded-md bg-[var(--sala-btn)] text-[var(--sala-tx1)] text-base font-bold flex items-center justify-center leading-none active:scale-95">−</button>
+              <div className="min-w-8 text-center leading-none">
+                <p className="text-[var(--sala-txt)] text-xl font-black tabular-nums">{comanda.pax}</p>
+                <p className="text-[var(--sala-tx4)] text-[10px] font-bold uppercase tracking-wide mt-0.5">pax</p>
+              </div>
+              <button onClick={() => cambiarPax.mutate(comanda.pax + 1)} aria-label="Un pax más"
+                className="w-7 h-7 rounded-md bg-[var(--sala-btn)] text-[var(--sala-tx1)] text-base font-bold flex items-center justify-center leading-none active:scale-95">+</button>
+            </div>
+            <div className="ml-auto flex items-center gap-1.5">
+              <button onClick={() => setVerCuenta(true)} title="Ver cuenta" aria-label="Ver cuenta"
+                className="text-xl leading-none px-1 active:scale-95 transition-transform">🧾</button>
+              {onCambiarMesa && (
+                <button onClick={onCambiarMesa} title="Cambiar mesa"
+                  className="text-[var(--sala-tx3)] hover:text-cyan-400 text-sm px-2 py-1 rounded-lg bg-[var(--sala-btn2)] transition-colors">
+                  ↔
+                </button>
+              )}
+              <button onClick={() => itemsNuevos.length > 0 ? setConfirmarCerrar(true) : onClose()} aria-label="Cerrar"
+                className="text-[var(--sala-tx3)] hover:text-[var(--sala-tx1)] text-xl px-1">✕</button>
+            </div>
+          </div>
+          {/* Debajo, en pequeño y solo si hay algo: no comparten, de dónde vino la gente (el encargado
+              lo toca para corregirlo, "No era esta reserva") y la nota para cocina */}
+          {(comanda.noComparten || comanda.reserva || esEncargado || comanda.notaMesa) && (
+            <div className="flex items-center gap-2 mt-2 min-w-0">
+              {comanda.noComparten && (
+                <span className="shrink-0 px-1.5 py-0.5 rounded bg-[var(--sala-txt)] text-[var(--sala-bg)] text-[10px] font-black uppercase tracking-wide">🍽 No comparten</span>
+              )}
               {(comanda.reserva || esEncargado) && (
                 <button type="button" disabled={!esEncargado} onClick={() => setQuienEsta(true)}
-                  className="block max-w-full text-left disabled:cursor-default">
+                  className="min-w-0 text-left truncate disabled:cursor-default">
                   {!comanda.reserva
                     ? <span className="text-[var(--sala-tx4)] text-xs font-bold">📅 ¿Reserva o walk-in?</span>
                     : comanda.reserva.origen === 'walkin'
                       ? <span className="text-[var(--sala-tx2)] text-xs font-bold">🚶 Walk-in · llegó {comanda.reserva.hora}{esEncargado ? ' ›' : ''}</span>
-                      : <span className="block text-sky-400 text-xs font-bold truncate">
+                      : <span className="text-sky-400 text-xs font-bold">
                           📅 {comanda.reserva.nombre ?? 'Reserva'} · {comanda.reserva.hora}
                           {comanda.reserva.notas && <span className="font-normal text-[var(--sala-tx2)]"> · {comanda.reserva.notas}</span>}
                           {esEncargado ? ' ›' : ''}
                         </span>}
                 </button>
               )}
-              <div className="flex items-center gap-2 mt-0.5">
-                <button onClick={() => cambiarPax.mutate(Math.max(1, comanda.pax - 1))}
-                  className="w-6 h-6 rounded-md bg-[var(--sala-btn)] text-[var(--sala-tx1)] text-sm font-bold hover:bg-gray-600 flex items-center justify-center leading-none">−</button>
-                <span className="text-[var(--sala-tx2)] text-sm">{comanda.pax} pax</span>
-                <button onClick={() => cambiarPax.mutate(comanda.pax + 1)}
-                  className="w-6 h-6 rounded-md bg-[var(--sala-btn)] text-[var(--sala-tx1)] text-sm font-bold hover:bg-gray-600 flex items-center justify-center leading-none">+</button>
-                <span className="text-[var(--sala-tx4)] text-xs">·</span>
-                <button onClick={() => setVerCuenta(true)} title="Ver cuenta"
-                  className="text-xl leading-none hover:scale-110 transition-transform active:scale-95">
-                  🧾
-                </button>
-                <span className="text-[var(--sala-tx4)] text-xs">· {timeAgo(comanda.createdAt)}</span>
-              </div>
+              {comanda.notaMesa && <p className="min-w-0 text-[var(--sala-tx2)] text-xs truncate">📝 {comanda.notaMesa}</p>}
             </div>
-            <div className="flex items-center gap-2 mt-1">
-              {onCambiarMesa && (
-                <button onClick={onCambiarMesa} title="Cambiar mesa"
-                  className="text-[var(--sala-tx3)] hover:text-cyan-400 text-sm px-2 py-1 rounded-lg bg-[var(--sala-btn2)] hover:bg-gray-700 transition-colors">
-                  ↔
-                </button>
-              )}
-              <button onClick={() => itemsNuevos.length > 0 ? setConfirmarCerrar(true) : onClose()} className="text-[var(--sala-tx3)] hover:text-[var(--sala-tx1)] text-xl">✕</button>
-            </div>
-          </div>
+          )}
           {!ancho && <div className="flex gap-1.5 mt-3 items-stretch">
             {/* Tabs gemelos: mismo fondo de marca + contenido blanco gordo; el activo brilla, el inactivo se atenúa */}
             <button onClick={() => setTab('pedido')}
