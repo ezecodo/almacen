@@ -62,6 +62,7 @@ export const RUTAS_SALA = new Set([
   'PATCH /api/comandas/:id/enviar', 'PATCH /api/comandas/:id/facturar', 'PATCH /api/comandas/:id/liberar',
   'PATCH /api/comandas/:id/mover-mesa', 'PATCH /api/comandas/:id/pax', 'PATCH /api/comandas/:id/para-cocina', 'PATCH /api/comandas/:id/cerrar', 'DELETE /api/comandas/:id/vacia',
   'PUT /api/comandas/:id/division', // pagar por separado (cualquier camarero; cobrar sigue siendo del encargado)
+  'PATCH /api/comandas/:id/rectificar-pago', 'PATCH /api/comandas/:id/deshacer-cobro', // corregir una mesa cobrada (encargado)
   'GET /api/mermas', 'POST /api/mermas', 'DELETE /api/mermas/:id',
   // platos agotados en el servicio
   'GET /api/agotados', 'POST /api/agotados', 'DELETE /api/agotados/:menuItemId',
@@ -108,6 +109,7 @@ export const SOLO_ENCARGADO = new Set([
   'PATCH /api/reservas/:id/sentar',   // sentar una reserva (el walk-in va con POST /comandas y solo cuenta si es encargado)
   'PATCH /api/reservas/:id',          // no vino / cancelada / volver a por llegar
   'PUT /api/comandas/:id/reserva',    // quién está sentado en la mesa ("No era esta reserva")
+  'PATCH /api/comandas/:id/rectificar-pago', 'PATCH /api/comandas/:id/deshacer-cobro', // corregir una mesa ya cobrada
 ])
 
 // ── Dónde está el dispositivo ────────────────────────────────────────────────────────────────

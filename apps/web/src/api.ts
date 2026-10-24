@@ -454,6 +454,20 @@ export interface ComandaMerma {
   camareroNombre: string | null
 }
 
+// Corrección de una mesa ya cobrada (la apunta la API en Comanda.rectificaciones)
+export type MotivoRectificar = 'error_cobro' | 'cliente_reclamo' | 'otro'
+export const MOTIVO_RECTIFICAR_LABEL: Record<MotivoRectificar, string> = {
+  error_cobro: 'Error de cobro', cliente_reclamo: 'Cliente reclamó', otro: 'Otro',
+}
+export interface Rectificacion {
+  tipo: 'pago' | 'deshacer'
+  por: string
+  at: string
+  motivo?: MotivoRectificar
+  antes: { metodoPago: Comanda['metodoPago']; pagoEfectivo: number | null; propina: number; cobradaAt: string | null }
+  despues?: { metodoPago: 'cash' | 'tarjeta'; pagoEfectivo: null; propina: number }
+}
+
 export interface Comanda {
   id:             number
   restaurantId:   number
@@ -465,6 +479,7 @@ export interface Comanda {
   propina:        number
   pagoEfectivo?:  number | null   // con 'mixto': parte de la cuenta pagada en efectivo
   division?:      Division | null // pagar por separado (la va apuntando el camarero en la mesa)
+  rectificaciones?: Rectificacion[] | null // correcciones hechas después de cobrarla (encargado)
   camareroNombre: string | null
   cuentaDesactualizada: boolean // items cambiados tras imprimir la cuenta → reimprimir antes de cobrar
   noComparten?: boolean // la mesa no comparte: COM: NO COMPARTEN en los tickets de cocina
@@ -1321,6 +1336,9 @@ export const api = {
     liberar:   (id: number) => patch<Comanda>(`/comandas/${id}/liberar`, {}),
     cerrar:    (id: number, metodoPago?: 'cash' | 'tarjeta', propina = 0) =>
       patch<Comanda>(`/comandas/${id}/cerrar`, { metodoPago, propina }),
+    rectificarPago: (id: number, body: { metodoPago: 'cash' | 'tarjeta'; propina: number; motivo?: MotivoRectificar }) =>
+      patch<Comanda>(`/comandas/${id}/rectificar-pago`, body),
+    deshacerCobro:  (id: number, motivo?: MotivoRectificar) => patch<Comanda>(`/comandas/${id}/deshacer-cobro`, { motivo }),
     division:  (id: number, division: Division | null) =>
       put<Comanda>(`/comandas/${id}/division`, { division }),
     moverMesa: (id: number, mesaId: number) =>

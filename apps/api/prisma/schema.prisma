@@ -447,6 +447,7 @@ model Comanda {
   metodoPago     String?       // 'cash' | 'tarjeta' | 'mixto' | null
   propina        Float         @default(0)
   pagoEfectivo   Float?        // con metodoPago 'mixto': parte de la cuenta pagada en efectivo (el resto, con tarjeta)
+  rectificaciones Json?        // correcciones de una mesa ya cobrada: [{ tipo: 'pago'|'deshacer', por, at, motivo?, antes, despues? }] — ver comandas.ts
   division       Json?         // pagar por separado: { quedan?, pagos: [{ id, importe, propina, metodo, consumo?, at, por? }] } — ver pago.ts
   camareroNombre String?
   cuentaDesactualizada Boolean @default(false) // los items cambiaron tras imprimir la cuenta → reimprimir antes de cobrar

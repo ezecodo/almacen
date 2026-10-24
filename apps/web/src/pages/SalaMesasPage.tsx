@@ -8,7 +8,7 @@ import MiHorario from '../components/MiHorario'
 import CheckOverlay from '../components/CheckOverlay'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, Alergeno, Comanda, ComandaItem, FloorPlan, GrupoAgendado, GrupoMenuTemplate, InventarioCategoria, Mesa, MenuCategoria, MenuItem, MermaMotivo, MiTurno, ItemAgotado, Reserva, Turno, WikiCategoria, WikiArticulo, ChecklistSector, sugerirCantidadesMenu, totalComanda, valorItem, waLink, esAvisoBox, repartoPago, textoPago, pagadoDivision } from '../api'
+import { api, MOTIVO_RECTIFICAR_LABEL, MotivoRectificar, Alergeno, Comanda, ComandaItem, FloorPlan, GrupoAgendado, GrupoMenuTemplate, InventarioCategoria, Mesa, MenuCategoria, MenuItem, MermaMotivo, MiTurno, ItemAgotado, Reserva, Turno, WikiCategoria, WikiArticulo, ChecklistSector, sugerirCantidadesMenu, totalComanda, valorItem, waLink, esAvisoBox, repartoPago, textoPago, pagadoDivision } from '../api'
 import { DividirCuentaSheet, CotejoTickets, propinaDeTickets } from '../components/DividirCuenta'
 import { speak, VozSelector, LANGS, Lang } from '../lib/tts'
 import { alternarCorteSimulado } from '../lib/conexion'
@@ -4231,6 +4231,148 @@ const transcurrido = (iso: string) => {
   return min < 60 ? `${min} min` : `${Math.floor(min / 60)}h ${String(min % 60).padStart(2, '0')}m`
 }
 
+// ── Mesa ya cobrada: detalle + correcciones del encargado ─────────────────────
+// Sale al tocar una cobrada (lista del 💶 Cobros en el teléfono y panel del TPV). Dos correcciones,
+// solo con el turno abierto: cambiar forma de pago/propina, o deshacer el cobro (vuelve a por cobrar).
+// Lo apunta la API en Comanda.rectificaciones (quién, cuándo, motivo).
+function DetalleCobrada({ comanda: c, onClose }: { comanda: Comanda; onClose: () => void }) {
+  const queryClient = useQueryClient()
+  const eur = (n: number) => `${n.toFixed(2)} €`
+  const [modo, setModo] = useState<'ver' | 'pago' | 'deshacer'>('ver')
+  const [motivo, setMotivo] = useState<MotivoRectificar | undefined>()
+  const [metodo, setMetodo] = useState<'cash' | 'tarjeta'>(c.metodoPago === 'cash' ? 'cash' : 'tarjeta')
+  const [propina, setPropina] = useState(c.propina > 0 ? String(c.propina) : '')
+  const porSeparado = c.metodoPago === 'mixto' || (c.division?.pagos.length ?? 0) > 0
+  const propinaNum = Math.max(0, Number(propina.replace(',', '.')) || 0)
+  const sinCambios = metodo === c.metodoPago && Math.abs(propinaNum - c.propina) < 0.005
+
+  const corregir = useMutation({
+    mutationFn: () => modo === 'pago'
+      ? api.comandas.rectificarPago(c.id, { metodoPago: metodo, propina: propinaNum, motivo })
+      : api.comandas.deshacerCobro(c.id, motivo),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['enc-cobros'] })
+      queryClient.invalidateQueries({ queryKey: ['comandas-sala'] })
+      onClose()
+    },
+  })
+  const elegir = (m: 'pago' | 'deshacer') => { setModo(m); setMotivo(undefined); corregir.reset() }
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="w-full max-w-md max-h-[90vh] flex flex-col bg-[var(--sala-hdr)] rounded-2xl shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="p-5 border-b border-[var(--sala-brd)] flex items-start justify-between">
+          <div>
+            <p className="text-[var(--sala-tx3)] text-xs font-bold uppercase">✅ Cobrada {c.closedAt ? fmtHora(c.closedAt) : ''}</p>
+            <h3 className="text-[var(--sala-txt)] text-2xl font-black">Mesa {c.mesa.numero}</h3>
+            <p className="text-[var(--sala-tx2)] text-sm">{c.pax} pax{c.camareroNombre ? ` · ${c.camareroNombre}` : ''} · abierta {fmtHora(c.createdAt)}</p>
+          </div>
+          <button onClick={onClose} aria-label="Cerrar" className="text-[var(--sala-tx3)] text-2xl">✕</button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5 space-y-1.5">
+          {c.items.map(i => (
+            <div key={i.id} className="flex items-baseline gap-2 text-sm">
+              <span className="w-7 text-right font-black text-[var(--sala-txt)] tabular-nums">{i.cantidad}</span>
+              <span className="flex-1 text-[var(--sala-txt)]">{i.nombre}{i.invitacion ? ' 🎁' : ''}</span>
+              <span className="text-[var(--sala-tx2)] tabular-nums">{eur(valorItem(i))}</span>
+            </div>
+          ))}
+          {c.mermas.length > 0 && (
+            <div className="pt-3">
+              <p className="text-[var(--sala-tx3)] text-xs font-bold uppercase mb-1">🗑 Mermas</p>
+              {c.mermas.map(m => (
+                <p key={m.id} className="text-sm text-[var(--sala-tx2)]">{m.cantidad} × {m.itemNombre} · {MOTIVO_MERMA_LABEL[m.motivo] ?? m.motivo}{m.camareroNombre ? ` · ${m.camareroNombre}` : ''}</p>
+              ))}
+            </div>
+          )}
+          {(c.rectificaciones?.length ?? 0) > 0 && (
+            <div className="pt-3">
+              <p className="text-[var(--sala-tx3)] text-xs font-bold uppercase mb-1">✏️ Correcciones</p>
+              {c.rectificaciones!.map((r, i) => (
+                <p key={i} className="text-xs text-[var(--sala-tx2)]">
+                  {fmtHora(r.at)} · {r.por.split(' ')[0]} · {r.tipo === 'deshacer' ? 'deshizo el cobro' : `pago: ${textoPago({ metodoPago: r.antes.metodoPago, pagoEfectivo: r.antes.pagoEfectivo }, false).toLowerCase()} → ${textoPago({ metodoPago: r.despues!.metodoPago, pagoEfectivo: null }, false).toLowerCase()}${r.antes.propina !== r.despues!.propina ? `, propina ${eur(r.antes.propina)} → ${eur(r.despues!.propina)}` : ''}`}
+                  {r.motivo ? ` · ${MOTIVO_RECTIFICAR_LABEL[r.motivo]}` : ''}
+                </p>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="p-5 border-t border-[var(--sala-brd)] space-y-3">
+          <div>
+            <div className="flex justify-between text-[var(--sala-txt)] text-xl font-black"><span>Total</span><span className="tabular-nums">{eur(totalComanda(c.items))}</span></div>
+            <p className="text-[var(--sala-tx2)] text-sm">{textoPago(c)}{c.propina > 0 ? ` · propina ${eur(c.propina)}` : ''}</p>
+          </div>
+
+          {modo === 'ver' ? (
+            <div className="flex gap-2">
+              {!porSeparado && (
+                <button onClick={() => elegir('pago')}
+                  className="flex-1 py-3 rounded-xl bg-[var(--sala-btn2)] text-[var(--sala-txt)] text-sm font-bold active:scale-95 transition-transform">
+                  💳 Cambiar forma de pago
+                </button>
+              )}
+              <button onClick={() => elegir('deshacer')}
+                className="flex-1 py-3 rounded-xl bg-[var(--sala-btn2)] text-amber-400 text-sm font-bold active:scale-95 transition-transform">
+                ↩ Deshacer el cobro
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {modo === 'pago' ? (
+                <>
+                  <div className="flex gap-2">
+                    {(['cash', 'tarjeta'] as const).map(m => (
+                      <button key={m} onClick={() => setMetodo(m)}
+                        className={`flex-1 py-3 rounded-xl text-base font-black border-2 transition-all ${metodo === m
+                          ? 'border-[#4CC8A0] bg-[#4CC8A0]/15 text-[var(--sala-txt)]' : 'border-transparent bg-[var(--sala-btn2)] text-[var(--sala-tx3)]'}`}>
+                        {m === 'cash' ? '💶 Efectivo' : '💳 Tarjeta'}
+                      </button>
+                    ))}
+                  </div>
+                  <label className="flex items-center gap-3">
+                    <span className="text-[var(--sala-tx2)] text-sm font-bold">Propina</span>
+                    <input value={propina} onChange={e => setPropina(e.target.value)} inputMode="decimal" placeholder="0"
+                      className="flex-1 bg-[var(--sala-btn2)] text-[var(--sala-txt)] text-lg font-bold rounded-xl px-3 py-2 outline-none tabular-nums" />
+                    <span className="text-[var(--sala-tx2)] font-bold">€</span>
+                  </label>
+                </>
+              ) : (
+                <p className="text-[var(--sala-tx2)] text-sm">
+                  La mesa vuelve a <b className="text-[var(--sala-txt)]">por cobrar</b> con todo lo que tenía. Ahí puedes corregir la cuenta, reimprimirla y cobrarla otra vez.
+                </p>
+              )}
+              <div>
+                <p className="text-[var(--sala-tx3)] text-xs font-bold uppercase mb-1.5">Motivo (opcional)</p>
+                <div className="flex gap-2">
+                  {(Object.keys(MOTIVO_RECTIFICAR_LABEL) as MotivoRectificar[]).map(m => (
+                    <button key={m} onClick={() => setMotivo(v => v === m ? undefined : m)}
+                      className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all ${motivo === m
+                        ? 'border-[#4CC8A0] bg-[#4CC8A0]/15 text-[var(--sala-txt)]' : 'border-[var(--sala-brd2)] text-[var(--sala-tx3)]'}`}>
+                      {MOTIVO_RECTIFICAR_LABEL[m]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {corregir.error instanceof Error && <p className="text-red-400 text-sm font-bold">{corregir.error.message}</p>}
+              <div className="flex gap-2">
+                <button onClick={() => setModo('ver')}
+                  className="px-4 py-3 rounded-xl bg-[var(--sala-btn2)] text-[var(--sala-tx2)] text-sm font-semibold">
+                  Cancelar
+                </button>
+                <button onClick={() => corregir.mutate()} disabled={corregir.isPending || (modo === 'pago' && sinCambios)}
+                  className={`flex-1 py-3 rounded-xl text-sm font-black active:scale-95 transition-transform disabled:opacity-40 ${modo === 'pago' ? 'text-white' : 'bg-amber-500 text-black'}`}
+                  style={modo === 'pago' ? { background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)' } : undefined}>
+                  {corregir.isPending ? 'Guardando…' : modo === 'pago' ? 'Guardar corrección' : 'Sí, deshacer el cobro'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // Reloj en vivo — componente aislado para que el tick no re-renderice el resto de la app
 function RelojSala() {
   const [now, setNow] = useState(() => new Date())
@@ -5561,6 +5703,15 @@ function EncargadoPanel({
   })
   const pendientes = [...facturadas, ...liberadas].filter(c => c.items.length > 0)
   const totalDe = (c: Comanda) => totalComanda(c.items)
+  // Cobradas en este turno (misma clave que el panel del TPV): para revisarlas y corregir un cobro
+  const { data: cobradas = [] } = useQuery({
+    queryKey: ['enc-cobros', rid, 'cerrada', turnoActivo?.id],
+    queryFn: () => api.comandas.list(rid, 'cerrada', turnoActivo!.aperturaAt),
+    enabled: tab === 'cobros' && !!turnoActivo,
+    refetchInterval: 30_000,
+  })
+  const cobradasOrden = [...cobradas].sort((a, b) => new Date(b.closedAt ?? 0).getTime() - new Date(a.closedAt ?? 0).getTime())
+  const [verCobrada, setVerCobrada] = useState<Comanda | null>(null)
 
   const { data: comandasActivas = [] } = useQuery({
     queryKey: ['comandas-sala', rid],
@@ -5824,6 +5975,29 @@ function EncargadoPanel({
                   )}
                 </div>
               ))}
+              {cobradasOrden.length > 0 && (
+                <div className="pt-3">
+                  <NivelEtiqueta titulo={`✅ Cobradas en este turno · ${cobradasOrden.length}`} />
+                  <div className="space-y-1.5">
+                    {cobradasOrden.map(c => (
+                      <button key={c.id} onClick={() => setVerCobrada(c)}
+                        className="w-full flex items-center gap-3 bg-[var(--sala-srf)] rounded-xl px-3 py-2.5 text-left active:scale-[0.99] transition-transform">
+                        <span className="w-12 shrink-0 text-center text-[var(--sala-txt)] text-xl font-black tabular-nums">{c.mesa.numero}</span>
+                        <span className="flex-1 min-w-0">
+                          <span className="block text-[var(--sala-tx2)] text-xs tabular-nums truncate">
+                            {c.closedAt ? fmtHora(c.closedAt) : ''} · {textoPago(c)}{c.propina > 0 ? ` · propina ${c.propina.toFixed(2)} €` : ''}
+                          </span>
+                          <span className="block text-[var(--sala-tx3)] text-xs truncate">
+                            {c.pax} pax{c.camareroNombre ? ` · ${c.camareroNombre.split(' ')[0]}` : ''}{(c.rectificaciones?.length ?? 0) > 0 ? ' · ✏️ corregida' : ''}
+                          </span>
+                        </span>
+                        <span className="text-[var(--sala-txt)] font-black tabular-nums shrink-0">{totalDe(c).toFixed(2)} €</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {verCobrada && <DetalleCobrada comanda={verCobrada} onClose={() => setVerCobrada(null)} />}
             </>
           )}
 
@@ -6513,41 +6687,7 @@ function PanelEncargadoTpv({ restaurantId, comandas, turnoActivo, onAbrirMesa, o
           )}
         </div>
       </div>
-      {verCobrada && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-6" onClick={() => setVerCobrada(null)}>
-          <div className="w-full max-w-md max-h-[85vh] flex flex-col bg-[var(--sala-hdr)] rounded-2xl shadow-2xl" onClick={e => e.stopPropagation()}>
-            <div className="p-5 border-b border-[var(--sala-brd)] flex items-start justify-between">
-              <div>
-                <p className="text-[var(--sala-tx3)] text-xs font-bold uppercase">✅ Cobrada {verCobrada.closedAt ? fmtHora(verCobrada.closedAt) : ''}</p>
-                <h3 className="text-[var(--sala-txt)] text-2xl font-black">Mesa {verCobrada.mesa.numero}</h3>
-                <p className="text-[var(--sala-tx2)] text-sm">{verCobrada.pax} pax{verCobrada.camareroNombre ? ` · ${verCobrada.camareroNombre}` : ''} · abierta {fmtHora(verCobrada.createdAt)}</p>
-              </div>
-              <button onClick={() => setVerCobrada(null)} aria-label="Cerrar" className="text-[var(--sala-tx3)] text-2xl">✕</button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-5 space-y-1.5">
-              {verCobrada.items.map(i => (
-                <div key={i.id} className="flex items-baseline gap-2 text-sm">
-                  <span className="w-7 text-right font-black text-[var(--sala-txt)] tabular-nums">{i.cantidad}</span>
-                  <span className="flex-1 text-[var(--sala-txt)]">{i.nombre}{i.invitacion ? ' 🎁' : ''}</span>
-                  <span className="text-[var(--sala-tx2)] tabular-nums">{eur(valorItem(i))}</span>
-                </div>
-              ))}
-              {verCobrada.mermas.length > 0 && (
-                <div className="pt-3">
-                  <p className="text-[var(--sala-tx3)] text-xs font-bold uppercase mb-1">🗑 Mermas</p>
-                  {verCobrada.mermas.map(m => (
-                    <p key={m.id} className="text-sm text-[var(--sala-tx2)]">{m.cantidad} × {m.itemNombre} · {MOTIVO_MERMA_LABEL[m.motivo] ?? m.motivo}{m.camareroNombre ? ` · ${m.camareroNombre}` : ''}</p>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div className="p-5 border-t border-[var(--sala-brd)] space-y-1">
-              <div className="flex justify-between text-[var(--sala-txt)] text-xl font-black"><span>Total</span><span className="tabular-nums">{eur(totalComanda(verCobrada.items))}</span></div>
-              <p className="text-[var(--sala-tx2)] text-sm">{textoPago(verCobrada)}{verCobrada.propina > 0 ? ` · propina ${eur(verCobrada.propina)}` : ''}</p>
-            </div>
-          </div>
-        </div>
-      )}
+      {verCobrada && <DetalleCobrada comanda={verCobrada} onClose={() => setVerCobrada(null)} />}
       <div className="border-l border-[var(--sala-brd)] p-3 overflow-y-auto space-y-2">
         <p className="text-[var(--sala-tx3)] text-[11px] font-black uppercase tracking-wide px-1">Accesos rápidos</p>
         {ACCESOS_ENCARGADO.map(a => (

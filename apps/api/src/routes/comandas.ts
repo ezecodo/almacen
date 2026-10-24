@@ -532,6 +532,80 @@ export async function comandaRoutes(app: FastifyInstance) {
     return comanda
   })
 
+  // ── Corregir una mesa ya cobrada (encargado, solo mientras su turno sigue abierto) ──
+  // Al cerrar el turno se guardan sus totales: tocar una mesa después los descuadraría.
+  // Cada corrección queda apuntada en `rectificaciones` (quién, cuándo, qué había y qué quedó): es el
+  // control para el dueño y, si llega Veri*factu, lo que se convertirá en factura rectificativa.
+  const MOTIVOS_RECTIFICAR = ['error_cobro', 'cliente_reclamo', 'otro'] as const
+  const rectificarSchema = z.object({ motivo: z.enum(MOTIVOS_RECTIFICAR).optional() })
+  const cambiarPagoSchema = rectificarSchema.extend({
+    metodoPago: z.enum(['cash', 'tarjeta']),
+    propina: z.number().min(0).max(10_000),
+  })
+
+  type Corregible = { error: string; status: number } | { error?: undefined; comanda: NonNullable<Awaited<ReturnType<typeof prisma.comanda.findUnique>>> }
+  async function cobradaCorregible(id: number, req: { user: { restaurantId?: number } }): Promise<Corregible> {
+    const c = await prisma.comanda.findUnique({ where: { id } })
+    if (!c) return { error: 'Comanda no encontrada', status: 404 }
+    if (c.estado !== 'cerrada') return { error: 'Esa mesa no está cobrada', status: 409 }
+    if (req.user.restaurantId !== undefined && req.user.restaurantId !== c.restaurantId)
+      return { error: 'Esa mesa es de otro local', status: 403 }
+    const turno = await prisma.turno.findFirst({ where: { restaurantId: c.restaurantId, estado: 'abierto' } })
+    if (!turno || !c.closedAt || c.closedAt < turno.aperturaAt)
+      return { error: 'Solo se corrigen las mesas cobradas en el turno abierto', status: 409 }
+    return { comanda: c }
+  }
+  const pagoDe = (c: { metodoPago: string | null; pagoEfectivo: number | null; propina: number; closedAt: Date | null }) =>
+    ({ metodoPago: c.metodoPago, pagoEfectivo: c.pagoEfectivo, propina: c.propina, cobradaAt: c.closedAt?.toISOString() ?? null })
+  const conRectificacion = (prev: Prisma.JsonValue | null, r: Record<string, unknown>) =>
+    [...(Array.isArray(prev) ? prev : []), r] as Prisma.InputJsonValue
+
+  // Cambiar forma de pago o propina (se marcó tarjeta y era efectivo…). La mesa sigue cobrada.
+  app.patch('/comandas/:id/rectificar-pago', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    const body = cambiarPagoSchema.parse(req.body)
+    const r = await cobradaCorregible(id, req)
+    if (r.error !== undefined) return reply.status(r.status).send({ error: r.error })
+    const c = r.comanda
+    if (c.metodoPago === 'mixto' || divisionSchema.safeParse(c.division).data?.pagos.length)
+      return reply.status(409).send({ error: 'Esta mesa se pagó por separado: deshaz el cobro para corregir sus pagos' })
+    const despues = { metodoPago: body.metodoPago, pagoEfectivo: null, propina: body.propina }
+    const comanda = await prisma.comanda.update({
+      where: { id },
+      data: {
+        ...despues,
+        rectificaciones: conRectificacion(c.rectificaciones, {
+          tipo: 'pago', por: req.user.nombre, at: new Date().toISOString(), motivo: body.motivo, antes: pagoDe(c), despues,
+        }),
+      },
+      include: { items: true, mesa: true, mermas: true },
+    })
+    broadcast(comanda.restaurantId, 'update')
+    return comanda
+  })
+
+  // Deshacer el cobro: la mesa vuelve a "por cobrar" (liberada, con la cuenta y lo que tenía) para
+  // corregirla y cobrarla otra vez. Si tenía pagos por separado, los conserva.
+  app.patch('/comandas/:id/deshacer-cobro', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    const body = rectificarSchema.parse(req.body ?? {})
+    const r = await cobradaCorregible(id, req)
+    if (r.error !== undefined) return reply.status(r.status).send({ error: r.error })
+    const c = r.comanda
+    const comanda = await prisma.comanda.update({
+      where: { id },
+      data: {
+        estado: 'liberada', closedAt: null, metodoPago: null, pagoEfectivo: null, propina: 0,
+        rectificaciones: conRectificacion(c.rectificaciones, {
+          tipo: 'deshacer', por: req.user.nombre, at: new Date().toISOString(), motivo: body.motivo, antes: pagoDe(c),
+        }),
+      },
+      include: { items: true, mesa: true, mermas: true },
+    })
+    broadcast(comanda.restaurantId, 'update')
+    return comanda
+  })
+
   // Mover comanda a otra mesa libre
   app.patch('/comandas/:id/mover-mesa', async (req, reply) => {
     const id = Number((req.params as { id: string }).id)
