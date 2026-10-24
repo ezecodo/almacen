@@ -1042,6 +1042,15 @@ export interface EscandalloDetalle {
 }
 export type IngredienteBody = { nombre: string; unidad: string; precioCoste: number | null; unidadBase?: string | null; contenido?: number | null; mermaPct?: number }
 
+// ⚡ Accesos rápidos de la carta en sala (configurables en /admin/accesos-rapidos)
+export interface AccesosRapidosAdmin {
+  max: number
+  dias: number
+  auto: boolean
+  fijos: number[]
+  masVendidas: { id: number; vendidas: number }[]
+}
+
 // 🍷 Maridajes: puntos de cada vino con cada plato (los calcula Claude en /admin/maridajes)
 export type ColorVino = 'tinto' | 'blanco' | 'rosado' | 'espumoso'
 export interface ParejaMaridaje { platoId: number; vinoId: number; puntos: number; motivo: string; motivoEn: string }
@@ -1377,6 +1386,11 @@ export const api = {
     list:    (restaurantId: number) => get<ItemAgotado[]>(`/agotados?restaurantId=${restaurantId}`),
     marcar:  (restaurantId: number, menuItemId: number) => post<unknown>('/agotados', { restaurantId, menuItemId }),
     reponer: (restaurantId: number, menuItemId: number) => del(`/agotados/${menuItemId}?restaurantId=${restaurantId}`),
+  },
+  accesosRapidos: {
+    sala:    (restaurantId: number) => get<number[]>(`/accesos-rapidos?restaurantId=${restaurantId}`),
+    admin:   (restaurantId: number) => get<AccesosRapidosAdmin>(`/admin/accesos-rapidos?restaurantId=${restaurantId}`),
+    guardar: (body: { restaurantId: number; auto: boolean; menuItemIds: number[] }) => put<unknown>('/admin/accesos-rapidos', body),
   },
   maridajes: {
     sala:       (restaurantId: number) => get<MaridajesSala>(`/maridajes?restaurantId=${restaurantId}`),

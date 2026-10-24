@@ -19,6 +19,7 @@ import PropinasPage from './pages/PropinasPage'
 import MenuPage from './pages/MenuPage'
 import AlergenosPage from './pages/AlergenosPage'
 import MaridajesPage from './pages/MaridajesPage'
+import AccesosRapidosPage from './pages/AccesosRapidosPage'
 import EscandallosPage from './pages/EscandallosPage'
 import MisPropinasPage from './pages/MisPropinasPage'
 import SalonPage from './pages/SalonPage'
@@ -91,6 +92,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               <Route path="/admin/menu" element={<MenuPage />} />
               <Route path="/admin/alergenos" element={<AlergenosPage />} />
               <Route path="/admin/maridajes" element={<MaridajesPage />} />
+              <Route path="/admin/accesos-rapidos" element={<AccesosRapidosPage />} />
               <Route path="/admin/escandallos" element={<EscandallosPage />} />
               <Route path="/admin/salon" element={<SalonPage />} />
               <Route path="/admin/comandas" element={<ComandasPage />} />

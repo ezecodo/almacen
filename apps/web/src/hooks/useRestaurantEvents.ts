@@ -36,6 +36,7 @@ export function useRestaurantEvents(restaurantId: number | null) {
           window.dispatchEvent(new CustomEvent('oido:reserva-nueva', { detail: datos.reserva }))
         }
         if (type === 'agotados') queryClient.invalidateQueries({ queryKey: ['agotados', restaurantId] })
+        if (type === 'accesos-rapidos') queryClient.invalidateQueries({ queryKey: ['accesos-rapidos', restaurantId] })
         if (type === 'gastos') queryClient.invalidateQueries({ queryKey: ['gastos', restaurantId] })
       } catch {}
     }

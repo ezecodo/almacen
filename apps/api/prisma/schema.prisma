@@ -43,6 +43,8 @@ model Restaurant {
   impresoras             Impresora[]
   facturas               Factura[]
   agotados               ItemAgotado[]
+  accesosRapidos         AccesoRapido[]
+  accesoRapidoAuto       Boolean               @default(true) // completar los accesos rápidos con lo más vendido
   gastos                 Gasto[]
   gastosHabituales       GastoHabitual[]
   // Código de la Raspberry Pi de impresión vinculada a este restaurante (ej. "OIDO-7F3A2C",
@@ -302,6 +304,7 @@ model MenuItem {
   esMixer         Boolean @default(false)  // sirve de mezcla (refrescos, tónicas…)
   suplementoMixer Float   @default(0)      // extra si el mixer es premium (Red Bull +1.50)
   agotadoEn    ItemAgotado[]
+  accesoRapidoEn AccesoRapido[]
   maridajesComoPlato Maridaje[] @relation("MaridajePlato")
   maridajesComoVino  Maridaje[] @relation("MaridajeVino")
   perfilVino         PerfilVino?
@@ -355,6 +358,20 @@ model ItemAgotado {
   menuItem     MenuItem   @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
   marcadoPor   String
   createdAt    DateTime   @default(now())
+
+  @@unique([restaurantId, menuItemId])
+}
+
+// Accesos rápidos de la carta en sala (arriba de COMIDA / BEBIDAS al abrir una mesa), por local.
+// Los fijos los elige el admin; si Restaurant.accesoRapidoAuto, los huecos se llenan con las
+// bebidas más vendidas (routes/accesos-rapidos.ts).
+model AccesoRapido {
+  id           Int        @id @default(autoincrement())
+  restaurantId Int
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  menuItemId   Int
+  menuItem     MenuItem   @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  orden        Int        @default(0)
 
   @@unique([restaurantId, menuItemId])
 }

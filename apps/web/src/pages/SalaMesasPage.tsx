@@ -1250,6 +1250,12 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
     staleTime: 30_000,
   })
   const agotadoIds = new Set(agotadosLista.map(a => a.menuItemId))
+  // ⚡ Accesos rápidos: arriba de COMIDA / BEBIDAS, lo que más se pide (o lo que eligió el admin)
+  const { data: accesosIds = [] } = useQuery({
+    queryKey: ['accesos-rapidos', comanda.restaurantId],
+    queryFn: () => api.accesosRapidos.sala(comanda.restaurantId),
+    staleTime: 10 * 60_000,
+  })
   // ⚠️ Alergias de la mesa: "alguien es alérgico a…" marca en la carta de comida lo que no puede
   // comer y sale en los tickets (COM: ALÉRGICO: …). Se guarda en la comanda.
   const { alergenos, ids: alergiasMesa, guardar: setAlergiasMesa } = useAlergiasMesa(comanda)
@@ -1617,6 +1623,37 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
           <span className="absolute right-3 inset-y-0 flex items-center text-[var(--sala-tx3)] text-sm font-bold">🥤+</span>
         )}
         {isPending && <span className="absolute right-3 inset-y-0 flex items-center"><span className="text-[#4CC8A0] font-black text-2xl">{qtyPending!.qty}×</span></span>}
+      </button>
+    )
+  }
+
+  // ⚡ Accesos rápidos (pantalla de COMIDA / BEBIDAS): mismos gestos que la carta, en botones cortos
+  const accesosRapidos = accesosIds
+    .map(id => menu.find(m => m.id === id))
+    .filter((m): m is MenuItem => !!m && m.activo && !m.ocultoEnCarta)
+  const tileRapido = (item: MenuItem) => {
+    const isPending = qtyPending?.id === item.id
+    const barra = esGrupoBarra(catMeta[catTop(item.categoria)]?.grupo ?? '')
+    if (agotadoIds.has(item.id)) return (
+      <div key={item.id} aria-disabled className="h-20 rounded-2xl px-1.5 flex flex-col items-center justify-center bg-[var(--sala-srf)] opacity-40 select-none">
+        <span className="text-[var(--sala-txt)] text-sm font-black uppercase leading-tight line-through text-center line-clamp-2">{item.nombre}</span>
+        <span className="text-red-400 text-[10px] font-black tracking-wider">AGOTADO</span>
+      </div>
+    )
+    return (
+      <button key={item.id} onClick={() => tapItem(item)}
+        onPointerDown={() => startLongPress(item)} onPointerUp={cancelLongPress} onPointerLeave={cancelLongPress}
+        onTouchMove={cancelLongPress} onContextMenu={e => e.preventDefault()}
+        className={`h-20 rounded-2xl px-1.5 flex items-center justify-center text-center relative overflow-hidden select-none active:scale-95 transition-all border-2 ${
+          isPending ? 'border-[#4CC8A0] bg-[var(--sala-srf2)]'
+          : barra ? 'border-amber-600/25 bg-amber-500/[0.08]'
+          : 'border-[var(--sala-brd)]/50 bg-[var(--sala-srf)]'} ${chocaCon(item).length > 0 && !isPending ? 'opacity-50' : ''}`}>
+        <span className={`text-[var(--sala-txt)] font-black uppercase leading-tight break-words line-clamp-3 ${
+          item.nombre.split(/\s+/).some(w => w.length >= 9) ? 'text-[13px]' : 'text-base'}`}>{item.nombre}</span>
+        {item.combinable && !isPending && <span className="absolute bottom-1 right-1.5 text-[10px] text-[var(--sala-tx3)] font-bold">🥤+</span>}
+        {isPending && (
+          <span className="absolute top-1 right-1 min-w-7 h-7 px-1.5 rounded-full bg-[#4CC8A0] text-white font-black text-sm flex items-center justify-center">{qtyPending!.qty}×</span>
+        )}
       </button>
     )
   }
@@ -2232,6 +2269,12 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                 /* ── Nivel 1: tiles de grupo (COMIDA / BEBIDAS / VINOS), centrados en vertical ── */
                 <div className="flex-1 overflow-y-auto p-3 flex flex-col">
                 <div className="my-auto space-y-3">
+                  {accesosRapidos.length > 0 && (
+                    <div className="pb-2">
+                      <p className="text-[var(--sala-tx3)] text-[11px] font-black uppercase tracking-wider mb-1.5 px-1">⚡ Rápido</p>
+                      <div className="grid grid-cols-3 gap-2">{accesosRapidos.map(tileRapido)}</div>
+                    </div>
+                  )}
                   {grupos.map(g => {
                     const esBarra = esGrupoBarra(g)
                     const nCats = categorias.filter(c => (c.grupo || 'Otros') === g).length

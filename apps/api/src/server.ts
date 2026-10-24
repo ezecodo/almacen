@@ -32,6 +32,7 @@ import { facturaRoutes } from './routes/facturas'
 import { agotadoRoutes } from './routes/agotados'
 import { gastoRoutes } from './routes/gastos'
 import { maridajeRoutes } from './routes/maridajes'
+import { accesoRapidoRoutes } from './routes/accesos-rapidos'
 import { iniciarMqtt, onImpresorasDetectadas } from './mqtt'
 import { iniciarSyncHQ } from './sync-hq'
 import { antesDeEscribir, claveSesionDeLaBox, despuesDeEscribir, iniciarReplicaLocal, MODO_LOCAL, origenDeLaInstalacion, servirHttps, servirWeb } from './local'
@@ -181,6 +182,7 @@ async function start() {
   await app.register(agotadoRoutes, { prefix: '/api' })
   await app.register(gastoRoutes, { prefix: '/api' })
   await app.register(maridajeRoutes, { prefix: '/api' })
+  await app.register(accesoRapidoRoutes, { prefix: '/api' })
 
   app.get('/health', async () => ({ status: 'ok', timestamp: new Date() }))
 

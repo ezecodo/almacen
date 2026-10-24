@@ -70,6 +70,7 @@ export const RUTAS_SALA = new Set([
   // carta (solo lectura), wiki y alérgenos
   'GET /api/menu', 'GET /api/menu/categorias', 'GET /api/alergenos', 'GET /api/wiki',
   'GET /api/maridajes', // 🍷 qué vino recomendar con lo que pidió la mesa
+  'GET /api/accesos-rapidos', // ⚡ lo de un toque arriba de COMIDA / BEBIDAS
   // menús de grupo
   'GET /api/grupo-menu', 'POST /api/grupo-menu/:id/generar', 'GET /api/grupo-menu/agendados',
   'POST /api/grupo-menu/agendados', 'PATCH /api/grupo-menu/agendados/:id', 'DELETE /api/grupo-menu/agendados/:id',
