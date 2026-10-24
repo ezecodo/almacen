@@ -82,6 +82,9 @@ const esGrupoBarra = (g: string) => /vino|bebida/i.test(g)
 // Umbrales de swipe relativos al tamaño real de pantalla (no px fijos) — un mismo gesto
 // físico cubre una fracción de pantalla muy distinta en un teléfono que en una tablet
 // grande tipo SUNMI, así que un valor fijo (ej: 80px) queda mal calibrado en una u otra.
+// Pestaña "⚡ Rápido" de la carta del TPV (valor de grupoTab que no es un grupo del menú)
+const TPV_RAPIDO = '__rapido__'
+
 function swipeThresholds() {
   return {
     dx: Math.max(60, window.innerWidth * 0.12),
@@ -1661,7 +1664,9 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
   // ── Carta del puesto TPV (tablet): todo a la vista, sin entrar y salir de niveles ──
   // Grupos y categorías como pestañas fijas arriba; los platos en cuadrados grandes. Una categoría
   // con subcategorías muestra todas sus subcategorías seguidas, cada una con su título.
-  const tpvGrupo = grupoTab ?? grupos[0] ?? null
+  // ⚡ Rápido: primera pestaña del TPV (y la que se ve al abrir la mesa) si el local tiene accesos rápidos
+  const tpvRapido = accesosRapidos.length > 0 && (grupoTab === null || grupoTab === TPV_RAPIDO)
+  const tpvGrupo = tpvRapido ? null : (grupoTab && grupoTab !== TPV_RAPIDO ? grupoTab : grupos[0] ?? null)
   const tpvCats = categorias
     .filter(c => !c.parentId && (c.grupo || 'Otros') === tpvGrupo)
     .filter(c => itemsDeCat(c.nombre).length > 0 || subcatsDe(c.nombre).some(sc => itemsDeCat(sc.nombre).length > 0))
@@ -1712,9 +1717,17 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
     <div className="flex-1 min-h-0 flex flex-col">
       {!searchMenu.trim() && !tecladoTpv && (
         <div className="px-3 pt-3 pb-2 space-y-2 border-b border-[var(--sala-brd)]">
-          {grupos.length > 1 && (
+          {(grupos.length > 1 || accesosRapidos.length > 0) && (
             <div className="flex gap-2">
-              {grupos.map(g => (
+              {accesosRapidos.length > 0 && (
+                <button onClick={() => { setGrupoTab(TPV_RAPIDO); setSelectedCat(null); setSelectedSub(null) }}
+                  className={`flex-1 h-12 rounded-xl text-base font-black uppercase tracking-wide active:scale-95 transition-all ${
+                    tpvRapido ? 'text-white shadow-lg' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx2)]'}`}
+                  style={tpvRapido ? { background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)' } : undefined}>
+                  ⚡ Rápido
+                </button>
+              )}
+              {(grupos.length > 1 ? grupos : []).map(g => (
                 <button key={g} onClick={() => { setGrupoTab(g); setSelectedCat(null); setSelectedSub(null) }}
                   className={`flex-1 h-12 rounded-xl text-base font-black uppercase tracking-wide active:scale-95 transition-all ${
                     g === tpvGrupo ? 'text-white shadow-lg' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx2)]'}`}
@@ -1724,7 +1737,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
               ))}
             </div>
           )}
-          <div className="flex flex-wrap gap-2">
+          {!tpvRapido && <div className="flex flex-wrap gap-2">
             {tpvCats.map(c => (
               <button key={c.id} onClick={() => { setSelectedCat(c.nombre); setSelectedSub(null) }}
                 className={`h-12 px-4 rounded-xl text-sm font-black uppercase tracking-wide active:scale-95 transition-all border-2 ${
@@ -1734,7 +1747,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                 {c.icono ? <span className="mr-1.5">{c.icono}</span> : null}{c.nombre}
               </button>
             ))}
-          </div>
+          </div>}
         </div>
       )}
       <div className="flex-1 overflow-y-auto p-3 space-y-4">
@@ -1747,6 +1760,8 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
           </>
         ) : tecladoTpv ? (
           <p className="text-[var(--sala-tx3)] text-lg font-bold text-center py-10">Escribe el nombre del plato o la bebida</p>
+        ) : tpvRapido ? (
+          <div className={rejillaTpv}>{accesosRapidos.map(tileTpv)}</div>
         ) : tpvBloques.map((b, i) => (
           <div key={b.titulo ?? i}>
             {b.titulo && <NivelEtiqueta titulo={b.titulo} />}
