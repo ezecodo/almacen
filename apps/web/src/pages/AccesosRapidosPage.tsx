@@ -43,6 +43,7 @@ export default function AccesosRapidosPage() {
   const visibles = menu.filter(m => m.activo && !m.ocultoEnCarta && !m.autoPorPax)
   const porId = new Map(visibles.map(m => [m.id, m]))
   const max = conf?.max ?? 9
+  const autoHasta = conf?.autoHasta ?? 9
   const auto = conf?.auto ?? true
   const fijos = (conf?.fijos ?? []).filter(id => porId.has(id))
   const lleno = fijos.length >= max
@@ -60,7 +61,7 @@ export default function AccesosRapidosPage() {
   // Lo que verá el camarero: los fijos y, si toca, lo más vendido detrás
   const vista = [...fijos]
   if (auto) for (const v of conf?.masVendidas ?? []) {
-    if (vista.length >= max) break
+    if (vista.length >= autoHasta) break
     if (!vista.includes(v.id) && porId.has(v.id)) vista.push(v.id)
   }
   const vendidasDe = new Map((conf?.masVendidas ?? []).map(v => [v.id, v.vendidas]))
@@ -91,7 +92,7 @@ export default function AccesosRapidosPage() {
       <div>
         <h1 className="text-2xl font-black text-gray-800">Accesos rápidos</h1>
         <p className="text-sm text-gray-400">
-          Los botones que el camarero ve arriba de COMIDA y BEBIDAS al abrir una mesa, para marchar las primeras bebidas de un toque. Hasta {max} por local.
+          Los botones que el camarero ve arriba de COMIDA y BEBIDAS al abrir una mesa, para marchar las primeras bebidas de un toque. Hasta {max} por local: en el teléfono se ven las tres primeras filas y el resto deslizando hacia arriba, así que lo más pedido, primero.
         </p>
       </div>
 
@@ -140,7 +141,7 @@ export default function AccesosRapidosPage() {
             <span>
               <span className="block text-sm font-semibold text-gray-800">Completar con las bebidas más vendidas</span>
               <span className="block text-xs text-gray-400">
-                Los huecos que dejen los fijos se llenan solos con lo que más se pidió en barra en este local los últimos {conf?.dias ?? 30} días.
+                Si hay menos de {autoHasta} fijos, los huecos de las tres primeras filas se llenan solos con lo que más se pidió en barra en este local los últimos {conf?.dias ?? 30} días.
               </span>
             </span>
           </label>

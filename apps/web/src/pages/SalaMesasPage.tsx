@@ -324,6 +324,36 @@ function AbrirMesaModal({ mesa, onConfirm, onMenuGrupo, onClose, reservas, onWal
 // ahí mismo: 🗑 merma de una línea, o "＋ Añadir algo que faltó" (ya se sirvió: entra directo a la
 // cuenta, sin imprimirse en cocina ni barra). Si la cuenta ya estaba impresa, el cambio la marca para
 // reimprimir (cuentaDesactualizada), como cualquier otro cambio.
+// ⚡ Accesos rápidos en el teléfono: se ven tres filas y el resto con scroll vertical (de lado no:
+// deslizar de lado ya es volver de nivel). Abajo, degradado y "▾ n más" hasta llegar al final.
+function CajaRapidos({ children }: { children: React.ReactNode[] }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [quedan, setQuedan] = useState(0)
+  const medir = () => {
+    const el = ref.current
+    if (!el) return
+    const fila = el.scrollHeight / Math.ceil(children.length / 3)
+    const ocultas = Math.round((el.scrollHeight - el.clientHeight - el.scrollTop) / fila)
+    setQuedan(Math.max(0, ocultas) * 3)
+  }
+  useEffect(medir, [children.length])
+  const restantes = Math.min(quedan, children.length - 9)
+  return (
+    <div className="relative">
+      <div ref={ref} onScroll={medir} className="grid grid-cols-3 gap-1.5 overflow-y-auto overscroll-contain"
+        style={{ maxHeight: 'calc(3 * 2.75rem + 2 * 0.375rem)' }}>
+        {children}
+      </div>
+      {restantes > 0 && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 flex items-end justify-center"
+          style={{ background: 'linear-gradient(to bottom, transparent, var(--sala-bg))' }}>
+          <span className="text-[10px] font-black uppercase tracking-wider text-[var(--sala-tx2)] bg-[var(--sala-srf2)] rounded-full px-2 py-0.5 translate-y-1/2">▾ {restantes} más</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function VerCuentaModal({ comanda, menu, getTipo, onMerma, onClose, onFacturar }: {
   comanda: Comanda
   menu: MenuItem[]
@@ -2362,7 +2392,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                     {accesosRapidos.length > 0 && (
                       <>
                         <p className="text-[var(--sala-tx3)] text-[10px] font-black uppercase tracking-wider mb-1 px-1">⚡ Rápido</p>
-                        <div className="grid grid-cols-3 gap-1.5">{accesosRapidos.map(tileRapido)}</div>
+                        <CajaRapidos>{accesosRapidos.map(tileRapido)}</CajaRapidos>
                       </>
                     )}
                   </div>

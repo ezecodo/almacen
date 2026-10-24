@@ -1091,6 +1091,7 @@ export type IngredienteBody = { nombre: string; unidad: string; precioCoste: num
 // ⚡ Accesos rápidos de la carta en sala (configurables en /admin/accesos-rapidos)
 export interface AccesosRapidosAdmin {
   max: number
+  autoHasta: number
   dias: number
   auto: boolean
   fijos: number[]

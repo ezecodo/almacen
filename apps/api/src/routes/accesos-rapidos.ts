@@ -4,12 +4,15 @@ import { prisma } from '../server'
 import { broadcast } from '../sse'
 
 // Accesos rápidos de la carta en sala: hasta MAX platos arriba de COMIDA / BEBIDAS al abrir una
-// mesa, para marchar las primeras bebidas sin entrar en categorías. Por local:
+// mesa, para marchar las primeras bebidas sin entrar en categorías (en el teléfono se ven tres
+// filas y el resto con scroll). Por local:
 //   - fijos: los elige el admin en /admin/accesos-rapidos (en su orden)
-//   - si Restaurant.accesoRapidoAuto, los huecos se completan con las bebidas más vendidas
-//     de los últimos DIAS días (unidades, por nombre; un combinado cuenta para su destilado)
+//   - si Restaurant.accesoRapidoAuto, los huecos hasta AUTO_HASTA se completan con las bebidas más
+//     vendidas de los últimos DIAS días (unidades, por nombre; un combinado cuenta para su destilado).
+//     Solo las tres primeras filas: con más huecos se colarían cosas que casi no se piden
 
-const MAX = 9
+const MAX = 24
+const AUTO_HASTA = 9
 const DIAS = 30
 const esGrupoBarra = (g: string) => /vino|bebida/i.test(g) // mismo criterio que la sala
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase()
@@ -81,7 +84,7 @@ export async function accesoRapidoRoutes(app: FastifyInstance) {
     const ids = fijos.filter(id => visibles.has(id)) // un fijo que se ocultó o desactivó no sale
     if (rest?.accesoRapidoAuto) {
       for (const v of await masVendidas(restaurantId)) {
-        if (ids.length >= MAX) break
+        if (ids.length >= AUTO_HASTA) break
         if (!ids.includes(v.id)) ids.push(v.id)
       }
     }
@@ -96,7 +99,7 @@ export async function accesoRapidoRoutes(app: FastifyInstance) {
       fijosDe(restaurantId),
       masVendidas(restaurantId),
     ])
-    return { max: MAX, dias: DIAS, auto: rest?.accesoRapidoAuto ?? true, fijos, masVendidas: vendidas.slice(0, 30) }
+    return { max: MAX, autoHasta: AUTO_HASTA, dias: DIAS, auto: rest?.accesoRapidoAuto ?? true, fijos, masVendidas: vendidas.slice(0, 30) }
   })
 
   app.put('/admin/accesos-rapidos', async (req, reply) => {
