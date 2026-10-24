@@ -1934,10 +1934,12 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
           {/* Una sola línea, como la cabecera del ticket: mesa en recuadro invertido, hora de la
               primera comanda y pax; a la derecha cuenta, cambiar mesa y cerrar */}
           <div className="flex items-center gap-3">
-            <h2 className="shrink-0 min-w-11 h-11 px-2 rounded-lg bg-[var(--sala-txt)] text-[var(--sala-bg)] text-[28px] font-black tabular-nums leading-none flex items-center justify-center"
+            {/* El encargado toca el número para decir quién está sentado (reserva o walk-in) */}
+            <button type="button" disabled={!esEncargado} onClick={() => setQuienEsta(true)}
+              className="shrink-0 min-w-11 h-11 px-2 rounded-lg bg-[var(--sala-txt)] text-[var(--sala-bg)] text-[28px] font-black tabular-nums leading-none flex items-center justify-center active:scale-95 disabled:active:scale-100"
               aria-label={`Mesa ${comanda.mesa.numero}`}>
               {comanda.mesa.numero}
-            </h2>
+            </button>
             <div className="shrink-0 leading-none">
               <p className={`text-xl font-black tabular-nums ${comanda.enviadaAt ? 'text-amber-400' : 'text-[var(--sala-tx3)]'}`}>
                 {fmtHora(comanda.enviadaAt ?? comanda.createdAt)}
@@ -1969,25 +1971,19 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                 className="text-[var(--sala-tx3)] hover:text-[var(--sala-tx1)] text-xl px-1">✕</button>
             </div>
           </div>
-          {/* Debajo, en pequeño y solo si hay algo: no comparten, de dónde vino la gente (el encargado
-              lo toca para corregirlo, "No era esta reserva") y la nota para cocina */}
-          {(comanda.noComparten || comanda.reserva || esEncargado || comanda.notaMesa) && (
+          {/* Debajo, en pequeño y solo si hay algo: no comparten, la reserva sentada (nombre y notas;
+              el encargado la toca para corregirla) y la nota para cocina. Un walk-in no ocupa línea */}
+          {(comanda.noComparten || (comanda.reserva && comanda.reserva.origen !== 'walkin') || comanda.notaMesa) && (
             <div className="flex items-center gap-2 mt-2 min-w-0">
               {comanda.noComparten && (
                 <span className="shrink-0 px-1.5 py-0.5 rounded bg-[var(--sala-txt)] text-[var(--sala-bg)] text-[10px] font-black uppercase tracking-wide">🍽 No comparten</span>
               )}
-              {(comanda.reserva || esEncargado) && (
+              {comanda.reserva && comanda.reserva.origen !== 'walkin' && (
                 <button type="button" disabled={!esEncargado} onClick={() => setQuienEsta(true)}
-                  className="min-w-0 text-left truncate disabled:cursor-default">
-                  {!comanda.reserva
-                    ? <span className="text-[var(--sala-tx4)] text-xs font-bold">📅 ¿Reserva o walk-in?</span>
-                    : comanda.reserva.origen === 'walkin'
-                      ? <span className="text-[var(--sala-tx2)] text-xs font-bold">🚶 Walk-in · llegó {comanda.reserva.hora}{esEncargado ? ' ›' : ''}</span>
-                      : <span className="text-sky-400 text-xs font-bold">
-                          📅 {comanda.reserva.nombre ?? 'Reserva'} · {comanda.reserva.hora}
-                          {comanda.reserva.notas && <span className="font-normal text-[var(--sala-tx2)]"> · {comanda.reserva.notas}</span>}
-                          {esEncargado ? ' ›' : ''}
-                        </span>}
+                  className="min-w-0 text-left truncate disabled:cursor-default text-sky-400 text-xs font-bold">
+                  📅 {comanda.reserva.nombre ?? 'Reserva'} · {comanda.reserva.hora}
+                  {comanda.reserva.notas && <span className="font-normal text-[var(--sala-tx2)]"> · {comanda.reserva.notas}</span>}
+                  {esEncargado ? ' ›' : ''}
                 </button>
               )}
               {comanda.notaMesa && <p className="min-w-0 text-[var(--sala-tx2)] text-xs truncate">📝 {comanda.notaMesa}</p>}
