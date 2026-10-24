@@ -6935,7 +6935,9 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
   const esEncargado = camarero?.rol === 'encargado' || camarero?.accesoEncargadoApp === true
   const enLocal = useSalaEnModoLocal()
   const pantallaPin = tpv ? '/tpv' : '/sala'
-  const salir = () => { sessionStorage.removeItem('oidoops_camarero'); navigate(pantallaPin, { replace: true }) }
+  // Al salir con una mesa abierta (SALIR, minuto del TPV) también se libera si no se pidió nada
+  const liberarAlSalir = useRef<() => void>(() => {})
+  const salir = () => { liberarAlSalir.current(); sessionStorage.removeItem('oidoops_camarero'); navigate(pantallaPin, { replace: true }) }
   // TPV: la viñeta de "hecho" y de vuelta al PIN
   const terminarTpv = (oido = false) => {
     setAnimOido(oido)
@@ -7013,6 +7015,19 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
     refetchInterval: 8_000,
     refetchOnWindowFocus: true,
   })
+  // Se abrió y no se pidió nada (mesa equivocada, pax puesto por error): vuelve a estar libre,
+  // también si se marcó como walk-in. Una reserva sentada no: esa gente tiene nombre y espera.
+  // El servidor comprueba que esté vacía.
+  const liberarSiVacia = (c: Comanda) => {
+    if (c.estado !== 'abierta' || (c.reserva && c.reserva.origen !== 'walkin')) return
+    api.comandas.liberarSiVacia(c.id)
+      .then(() => {
+        queryClient.invalidateQueries({ queryKey: ['comandas-sala', restaurant?.id] })
+        queryClient.invalidateQueries({ queryKey: ['reservas', restaurant?.id] })
+      })
+      .catch(() => {})
+  }
+  liberarAlSalir.current = () => { if (comandaAbierta && comandaDetalle) liberarSiVacia(comandaDetalle) }
   const { data: menu } = useQuery({
     queryKey: ['menu', restaurant?.id],
     queryFn: () => api.menu.list(restaurant!.id),
@@ -7650,13 +7665,7 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
         <ComandaPanel comanda={comandaDetalle} menu={menu ?? []} categorias={menuCategorias}
           onClose={() => {
             setComandaAbierta(null)
-            // Se abrió y no se pidió nada (pax puesto por error): la mesa vuelve a estar libre.
-            // Con reserva o walk-in no: esa gente está sentada esperando. El servidor comprueba que esté vacía.
-            if (comandaDetalle.estado === 'abierta' && !comandaDetalle.reserva) {
-              api.comandas.liberarSiVacia(comandaDetalle.id)
-                .then(() => queryClient.invalidateQueries({ queryKey: ['comandas-sala', restaurant?.id] }))
-                .catch(() => {})
-            }
+            liberarSiVacia(comandaDetalle)
           }}
           onEnviar={(niveles, silent) => enviarComanda.mutate({ id: comandaAbierta, niveles, silent })}
           onLiberar={() => liberarMesa.mutate(comandaAbierta)}

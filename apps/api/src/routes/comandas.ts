@@ -706,14 +706,19 @@ export async function comandaRoutes(app: FastifyInstance) {
     const id = Number((req.params as { id: string }).id)
     const comanda = await prisma.comanda.findUnique({ where: { id }, include: { items: true, mermas: true, reserva: true } })
     if (!comanda) return reply.status(204).send()
-    if (comanda.reserva) return reply.status(409).send({ error: 'Hay gente sentada (reserva o walk-in)' })
+    // Una reserva sentada sí se queda (gente con nombre esperando); un walk-in sin pedir nada casi
+    // siempre es una mesa abierta por error, así que se borra con su apunte del libro
+    if (comanda.reserva && comanda.reserva.origen !== 'walkin') return reply.status(409).send({ error: 'Hay una reserva sentada' })
     const vacia = comanda.estado === 'abierta'
       && comanda.items.every(i => i.autoGenerado && i.ronda === 0)
       && comanda.mermas.length === 0
     if (!vacia) return reply.status(409).send({ error: 'La mesa tiene algo pedido' })
     const grupo = await prisma.grupoAgendado.findFirst({ where: { comandaId: id } })
     if (grupo) return reply.status(409).send({ error: 'Es la mesa de un grupo' })
-    await prisma.comanda.delete({ where: { id } }) // los items se van en cascada
+    await prisma.$transaction([
+      ...(comanda.reserva ? [prisma.reserva.delete({ where: { id: comanda.reserva.id } })] : []),
+      prisma.comanda.delete({ where: { id } }), // los items se van en cascada
+    ])
     broadcast(comanda.restaurantId, 'update')
     return reply.status(204).send()
   })
