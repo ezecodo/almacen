@@ -62,7 +62,8 @@ export async function armarReplica(prisma: PrismaClient, restaurantId: number): 
       perfilVino,
       itemAgotado,
       floorPlan: floorPlan.map(({ mesas: _m, rutas: _r, ...plano }) => plano),
-      mesa: floorPlan.flatMap(p => p.mesas),
+      // Primero las mesas enteras: la otra mitad de una mesa que se separa apunta a la suya
+      mesa: floorPlan.flatMap(p => p.mesas).sort((a, b) => Number(a.parteDeId != null) - Number(b.parteDeId != null)),
       impresora,
       impresionRuta: floorPlan.flatMap(p => p.rutas),
       // El PIN viaja con otro nombre: el filtro global de server.ts borra toda clave "pin" de las respuestas

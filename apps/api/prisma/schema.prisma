@@ -435,6 +435,13 @@ model Mesa {
   rotacion    Int       @default(0) // 0 | 90 | 180 | 270
   ancho       Int?      // ancho px personalizado (barra)
   alto        Int?      // alto px personalizado (barra)
+  // Mesa que se puede separar en dos (ej. la 2 son la 2 y la 3 juntas): la otra mitad es otra fila
+  // con parteDeId = esta, escondida mientras están juntas. Su x/y no se usan: las dos mitades se
+  // dibujan partiendo el sitio de la mesa entera (lib de salon.ts).
+  parteDeId   Int?      @unique
+  parteDe     Mesa?     @relation("MesaMitad", fields: [parteDeId], references: [id], onDelete: Cascade)
+  mitad       Mesa?     @relation("MesaMitad")
+  separada    Boolean   @default(false) // solo en la mesa entera: ahora mismo está partida en dos
   comandas    Comanda[]
   reservas    Reserva[]
   createdAt   DateTime  @default(now())

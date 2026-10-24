@@ -6,6 +6,7 @@ import { broadcast } from '../sse'
 import { boxSinSincronizar } from './red'
 import { efectivoGastado } from './gastos'
 import { repartoPago, totalCobrable } from '../pago'
+import { juntarMesasLibres } from './salon'
 
 export async function turnoRoutes(app: FastifyInstance) {
 
@@ -191,6 +192,9 @@ export async function turnoRoutes(app: FastifyInstance) {
       where: { restaurantId: updated.restaurantId, estado: 'confirmada', fecha: new Date(diaDeServicio() + 'T00:00:00.000Z') },
       data: { estado: 'no_show', enPool: false, poolGestionandoPor: null, poolGestionandoDesde: null },
     })
+
+    // Las mesas que se separaron y quedaron libres vuelven a juntarse: cada noche arranca con el mapa de siempre
+    await juntarMesasLibres(updated.restaurantId)
 
     broadcast(updated.restaurantId, 'update')
     broadcast(updated.restaurantId, 'agotados')

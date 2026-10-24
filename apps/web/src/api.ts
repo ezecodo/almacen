@@ -313,6 +313,13 @@ export interface Mesa {
   rotacion:   number
   ancho?:     number
   alto?:      number
+  // Mesa que se separa (la 2 son la 2 y la 3 juntas). En la sala llegan ya resueltas: juntas, la
+  // entera con separable y pareja = la que esconde; separadas, las dos mitades con separada y pareja.
+  separable?: boolean
+  separada?:  boolean
+  pareja?:    number
+  parteDeId?: number | null
+  mitad?:     Mesa | null // solo en el editor del admin
 }
 
 export interface FloorPlan {
@@ -1382,6 +1389,12 @@ export const api = {
   },
   salon: {
     list:   (restaurantId: number) => get<FloorPlan[]>(`/salon?restaurantId=${restaurantId}`),
+    // El editor del admin: las mesas tal cual, con su otra mitad dentro
+    listEditar: (restaurantId: number) => get<FloorPlan[]>(`/salon?restaurantId=${restaurantId}&editar=1`),
+    separar: (mesaId: number) => patch<{ ok: boolean }>(`/salon/mesas/${mesaId}/separar`, {}),
+    juntar:  (mesaId: number) => patch<{ ok: boolean }>(`/salon/mesas/${mesaId}/juntar`, {}),
+    guardarMitad: (mesaId: number, data: { numero: number; capacidad: number }) => put<Mesa>(`/salon/mesas/${mesaId}/mitad`, data),
+    quitarMitad:  (mesaId: number) => del(`/salon/mesas/${mesaId}/mitad`),
     create: (restaurantId: number, nombre: string) => post<FloorPlan>('/salon', { restaurantId, nombre }),
     rename: (id: number, nombre: string) => put<FloorPlan>(`/salon/${id}`, { nombre }),
     delete: (id: number) => del(`/salon/${id}`),

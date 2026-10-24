@@ -242,14 +242,22 @@ function MesaModal({
   nextNumero,
   onConfirm,
   onClose,
+  onMitad,
 }: {
   tipo?: Mesa['tipo']
   mesa?: Mesa
   nextNumero: number
   onConfirm: (data: { numero: number; capacidad: number; tipo: Mesa['tipo']; ancho: number; alto: number }) => void
   onClose: () => void
+  // Mesa ya guardada: se puede separar en dos (la 2 son la 2 y la 3). Se guarda al momento, aparte del lienzo.
+  onMitad?: (mitad: { numero: number; capacidad: number } | null) => Promise<void>
 }) {
   const [numero,    setNumero]    = useState(mesa?.numero    ?? nextNumero)
+  const [separable, setSeparable] = useState(!!mesa?.mitad)
+  const [numMitad,  setNumMitad]  = useState(mesa?.mitad?.numero ?? nextNumero)
+  const [capMitad,  setCapMitad]  = useState(mesa?.mitad?.capacidad ?? Math.max(1, Math.floor((mesa?.capacidad ?? 4) / 2)))
+  const [errorMitad, setErrorMitad] = useState<string | null>(null)
+  const [guardando, setGuardando] = useState(false)
   const [capacidad, setCapacidad] = useState(mesa?.capacidad ?? 4)
   const [tipoLocal, setTipoLocal] = useState<Mesa['tipo']>(mesa?.tipo ?? tipo ?? 'square')
   const [base,      setBase]      = useState<number>(mesa ? baseFromMesa(mesa) : 80)
@@ -350,17 +358,65 @@ function MesaModal({
 
         {!isRect && <div className="mb-6" />}
 
+        {/* Se puede separar: la 2 son en realidad la 2 y la 3 juntas, que a veces se separan */}
+        {onMitad && !isSilla && (
+          <div className="mb-6 rounded-xl border border-gray-700 p-3">
+            <label className="flex items-center gap-2 text-sm text-gray-200 font-medium cursor-pointer">
+              <input type="checkbox" checked={separable} onChange={e => setSeparable(e.target.checked)} className="w-4 h-4 accent-amber-400" />
+              ⇹ Se puede separar en dos
+            </label>
+            {separable && (
+              <>
+                <div className="flex gap-2 mt-3">
+                  <div className="flex-1">
+                    <label className="text-gray-400 text-xs mb-1 block">Nº de la otra mitad</label>
+                    <input type="number" value={numMitad} onChange={e => setNumMitad(Number(e.target.value))} onFocus={e => e.target.select()}
+                      className="w-full bg-gray-800 text-white rounded-xl px-3 py-2 text-center text-lg font-bold outline-none focus:ring-2 focus:ring-amber-400" />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-gray-400 text-xs mb-1 block">Sus pax</label>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => setCapMitad(c => Math.max(1, c - 1))} className="w-8 h-10 rounded-lg bg-gray-700 text-white">−</button>
+                      <span className="flex-1 text-center text-white text-lg font-bold">{capMitad}</span>
+                      <button onClick={() => setCapMitad(c => Math.min(capacidad - 1, c + 1))} className="w-8 h-10 rounded-lg bg-gray-700 text-white">+</button>
+                    </div>
+                  </div>
+                </div>
+                <p className="text-gray-500 text-xs mt-2">
+                  Separadas: {numero} de {Math.max(1, capacidad - capMitad)} y {numMitad} de {capMitad}. En la sala se parte en dos con un botón; al cerrar el turno se vuelven a juntar si están libres.
+                </p>
+              </>
+            )}
+            {errorMitad && <p className="text-red-400 text-xs mt-2">{errorMitad}</p>}
+          </div>
+        )}
+
         <div className="flex gap-3">
           <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-gray-700 text-gray-300 font-medium hover:bg-gray-600">
             Cancelar
           </button>
           <button
-            onClick={() => onConfirm({
-              numero, capacidad, tipo: tipoLocal,
-              ancho: snapTo(isRect ? base * ratio : base),
-              alto:  snapTo(base),
-            })}
-            className="flex-1 py-3 rounded-xl bg-cyan-500 text-white font-bold hover:bg-cyan-400"
+            disabled={guardando}
+            onClick={async () => {
+              if (onMitad) {
+                const antes = mesa?.mitad
+                const cambio = separable
+                  ? !antes || antes.numero !== numMitad || antes.capacidad !== capMitad
+                  : !!antes
+                if (cambio) {
+                  setGuardando(true); setErrorMitad(null)
+                  try { await onMitad(separable ? { numero: numMitad, capacidad: capMitad } : null) }
+                  catch (e) { setErrorMitad(e instanceof Error ? e.message : 'No se pudo guardar'); setGuardando(false); return }
+                  setGuardando(false)
+                }
+              }
+              onConfirm({
+                numero, capacidad, tipo: tipoLocal,
+                ancho: snapTo(isRect ? base * ratio : base),
+                alto:  snapTo(base),
+              })
+            }}
+            className="flex-1 py-3 rounded-xl bg-cyan-500 text-white font-bold hover:bg-cyan-400 disabled:opacity-50"
           >
             {mesa ? 'Guardar' : 'Añadir'}
           </button>
@@ -507,6 +563,11 @@ function MesaShape({
         <span style={{ color: '#4ade80', fontSize: 10, marginTop: 2, opacity: 0.8 }}>
           {mesa.capacidad} pax
         </span>
+        {mesa.mitad && (
+          <span title={`Se separa en ${mesa.numero} y ${mesa.mitad.numero}`} style={{ color: '#fbbf24', fontSize: 10, fontWeight: 800, marginTop: 1 }}>
+            ⇹ {mesa.mitad.numero}
+          </span>
+        )}
       </div>
     </div>
   )
@@ -640,7 +701,7 @@ function SalonCanvas({ plan }: { plan: FloorPlan }) {
       }
       setDirty(false)
       setDeletedIds(new Set())
-      queryClient.invalidateQueries({ queryKey: ['salon-planes', plan.restaurantId] })
+      queryClient.invalidateQueries({ queryKey: ['salon-planes-editar', plan.restaurantId] })
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : ''
       setSaveError(msg.includes('409') ? 'Una mesa tiene comandas activas y no puede eliminarse' : `Error al guardar${msg ? ': ' + msg : ''}`)
@@ -657,7 +718,9 @@ function SalonCanvas({ plan }: { plan: FloorPlan }) {
     setSelectedIds(new Set())
   }
 
-  const nextNumero = mesas.length > 0 ? Math.max(...mesas.map(m => m.numero)) + 1 : 1
+  // Cuenta también la otra mitad escondida de las mesas que se separan (la 3 de la 2)
+  const numeros = mesas.flatMap(m => m.mitad ? [m.numero, m.mitad.numero] : [m.numero])
+  const nextNumero = numeros.length > 0 ? Math.max(...numeros) + 1 : 1
 
   // ── Drag ──────────────────────────────────────────────────────────────────
   const handleMouseDown = useCallback((e: React.MouseEvent, mesaId: number) => {
@@ -1009,6 +1072,14 @@ function SalonCanvas({ plan }: { plan: FloorPlan }) {
           mesa={modal.mesa}
           nextNumero={nextNumero}
           onClose={() => setModal(null)}
+          onMitad={modal.mesa && modal.mesa.id > 0 ? async mitad => {
+            const id = modal.mesa!.id
+            if (mitad) await api.salon.guardarMitad(id, mitad)
+            else await api.salon.quitarMitad(id)
+            const guardada = mitad ? { ...(modal.mesa!.mitad ?? modal.mesa!), ...mitad } : null
+            setMesas(prev => prev.map(m => m.id === id ? { ...m, mitad: guardada } : m))
+            queryClient.invalidateQueries({ queryKey: ['salon-planes-editar', plan.restaurantId] })
+          } : undefined}
           onConfirm={({ numero, capacidad, tipo, ancho, alto }) => {
             if (modal.mesa) {
               localUpdate(modal.mesa.id, { numero, capacidad, tipo, ancho, alto })
@@ -1097,8 +1168,8 @@ export default function SalonPage() {
   })
 
   const { data: planes } = useQuery({
-    queryKey: ['salon-planes', restaurantId],
-    queryFn: () => api.salon.list(restaurantId!),
+    queryKey: ['salon-planes-editar', restaurantId],
+    queryFn: () => api.salon.listEditar(restaurantId!),
     enabled: !!restaurantId,
   })
 
@@ -1116,7 +1187,7 @@ export default function SalonPage() {
   const createPlan = useMutation({
     mutationFn: () => api.salon.create(restaurantId!, newPlanNombre.trim()),
     onSuccess: (plan) => {
-      queryClient.invalidateQueries({ queryKey: ['salon-planes', restaurantId] })
+      queryClient.invalidateQueries({ queryKey: ['salon-planes-editar', restaurantId] })
       setPlanId(plan.id)
       setNewPlanNombre('')
       setShowNewPlan(false)
@@ -1126,7 +1197,7 @@ export default function SalonPage() {
   const deletePlan = useMutation({
     mutationFn: (id: number) => api.salon.delete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['salon-planes', restaurantId] })
+      queryClient.invalidateQueries({ queryKey: ['salon-planes-editar', restaurantId] })
       setPlanId(null)
     },
   })
