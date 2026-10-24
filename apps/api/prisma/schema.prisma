@@ -46,6 +46,7 @@ model Restaurant {
   accesosRapidos         AccesoRapido[]
   rectificativas         Rectificativa[]
   accesoRapidoAuto       Boolean               @default(true) // completar los accesos rápidos con lo más vendido
+  accesoRapidoPropia     Boolean? // true = lista propia; false = la del grupo; null = nunca tocado (propia si tiene filas)
   gastos                 Gasto[]
   gastosHabituales       GastoHabitual[]
   // Código de la Raspberry Pi de impresión vinculada a este restaurante (ej. "OIDO-7F3A2C",
@@ -364,13 +365,14 @@ model ItemAgotado {
   @@unique([restaurantId, menuItemId])
 }
 
-// Accesos rápidos de la carta en sala (arriba de COMIDA / BEBIDAS al abrir una mesa), por local.
-// Los fijos los elige el admin; si Restaurant.accesoRapidoAuto, los huecos se llenan con las
-// bebidas más vendidas (routes/accesos-rapidos.ts).
+// Accesos rápidos de la carta en sala (arriba de COMIDA / BEBIDAS al abrir una mesa).
+// restaurantId null = lista del grupo; X = lista propia de un local (solo se usa si
+// Restaurant.accesoRapidoPropia). Si Restaurant.accesoRapidoAuto, los huecos se llenan con las
+// bebidas más vendidas del local (routes/accesos-rapidos.ts).
 model AccesoRapido {
-  id           Int        @id @default(autoincrement())
-  restaurantId Int
-  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  id           Int         @id @default(autoincrement())
+  restaurantId Int?
+  restaurant   Restaurant? @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   menuItemId   Int
   menuItem     MenuItem   @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
   orden        Int        @default(0)

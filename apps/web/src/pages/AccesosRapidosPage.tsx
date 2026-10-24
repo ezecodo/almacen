@@ -3,7 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, AccesosRapidosAdmin, MenuItem } from '../api'
 
 // ⚡ Accesos rápidos de la carta en sala: los botones que salen arriba de COMIDA / BEBIDAS al abrir
-// una mesa. Por local: los fijos que se eligen aquí y, si está encendido, el resto con lo más vendido.
+// una mesa. Hay una lista del grupo (🌐 Global) y cada local la usa o tiene la suya; el relleno con
+// lo más vendido es siempre del local.
 
 const esGrupoBarra = (g: string) => /vino|bebida/i.test(g)
 const normTxt = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
@@ -11,44 +12,53 @@ const normTxt = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowe
 export default function AccesosRapidosPage() {
   const qc = useQueryClient()
   const { data: restaurantes = [] } = useQuery({ queryKey: ['restaurantes'], queryFn: api.restaurantes.list })
-  const [ridSel, setRidSel] = useState<number | null>(null)
-  const rid = ridSel ?? restaurantes[0]?.id ?? null
+  const [rid, setRid] = useState<number | null>(null) // null = lista del grupo
   const [buscar, setBuscar] = useState('')
   const [error, setError] = useState('')
 
-  const { data: menu = [] } = useQuery({ queryKey: ['menu', rid], queryFn: () => api.menu.list(rid), enabled: rid !== null })
-  const { data: cats = [] } = useQuery({ queryKey: ['menu-cats', rid], queryFn: () => api.menuCategorias.list(rid), enabled: rid !== null })
+  const { data: menu = [] } = useQuery({ queryKey: ['menu', rid], queryFn: () => api.menu.list(rid) })
+  const { data: cats = [] } = useQuery({ queryKey: ['menu-cats', rid], queryFn: () => api.menuCategorias.list(rid) })
   const { data: conf } = useQuery({
     queryKey: ['accesos-rapidos-admin', rid],
-    queryFn: () => api.accesosRapidos.admin(rid!),
-    enabled: rid !== null,
+    queryFn: () => api.accesosRapidos.admin(rid),
   })
 
   const guardar = useMutation({
-    mutationFn: (body: { auto: boolean; fijos: number[] }) =>
-      api.accesosRapidos.guardar({ restaurantId: rid!, auto: body.auto, menuItemIds: body.fijos }),
+    mutationFn: (body: { auto?: boolean; propia?: boolean; fijos: number[] }) =>
+      api.accesosRapidos.guardar({ restaurantId: rid, auto: body.auto, propia: body.propia, menuItemIds: body.fijos }),
     onMutate: async body => {
       setError('')
       await qc.cancelQueries({ queryKey: ['accesos-rapidos-admin', rid] })
-      qc.setQueryData<AccesosRapidosAdmin>(['accesos-rapidos-admin', rid], prev => prev && { ...prev, ...body })
+      qc.setQueryData<AccesosRapidosAdmin>(['accesos-rapidos-admin', rid], prev => prev && {
+        ...prev, fijos: body.fijos, auto: body.auto ?? prev.auto, propia: body.propia ?? prev.propia,
+        ...(rid === null ? { fijosGrupo: body.fijos } : {}),
+      })
     },
     onError: (e: Error) => setError(e.message),
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: ['accesos-rapidos-admin', rid] })
-      qc.invalidateQueries({ queryKey: ['accesos-rapidos', rid] })
+      qc.invalidateQueries({ queryKey: ['accesos-rapidos-admin'] })
+      qc.invalidateQueries({ queryKey: ['accesos-rapidos'] })
     },
   })
 
   const grupoDe = new Map(cats.map(c => [c.nombre, c.grupo]))
-  const visibles = menu.filter(m => m.activo && !m.ocultoEnCarta && !m.autoPorPax)
+  // En 🌐 Global solo la carta global: la lista tiene que servir en todos los locales
+  const visibles = menu.filter(m => m.activo && !m.ocultoEnCarta && !m.autoPorPax && (rid !== null || m.restaurantId == null))
   const porId = new Map(visibles.map(m => [m.id, m]))
-  const max = conf?.max ?? 9
+  const max = conf?.max ?? 24
   const autoHasta = conf?.autoHasta ?? 9
   const auto = conf?.auto ?? true
+  const esGrupo = rid === null
+  const propia = esGrupo || (conf?.propia ?? false)
+  const fijosGrupo = (conf?.fijosGrupo ?? []).filter(id => porId.has(id))
   const fijos = (conf?.fijos ?? []).filter(id => porId.has(id))
   const lleno = fijos.length >= max
+  const nombreLocal = restaurantes.find(r => r.id === rid)?.nombre ?? ''
 
-  const cambiar = (nuevos: number[], nuevoAuto = auto) => guardar.mutate({ auto: nuevoAuto, fijos: nuevos })
+  const cambiar = (nuevos: number[]) => guardar.mutate({ auto, propia: esGrupo ? undefined : propia, fijos: nuevos })
+  const cambiarAuto = (v: boolean) => guardar.mutate({ auto: v, propia, fijos })
+  // Al pasar a lista propia sin nada todavía, arranca con la del grupo para retocarla
+  const cambiarPropia = (v: boolean) => guardar.mutate({ auto, propia: v, fijos: v && fijos.length === 0 ? fijosGrupo : fijos })
   const anadir = (id: number) => { if (!lleno && !fijos.includes(id)) cambiar([...fijos, id]) }
   const quitar = (id: number) => cambiar(fijos.filter(f => f !== id))
   const mover = (i: number, d: -1 | 1) => {
@@ -58,9 +68,10 @@ export default function AccesosRapidosPage() {
     cambiar(n)
   }
 
-  // Lo que verá el camarero: los fijos y, si toca, lo más vendido detrás
-  const vista = [...fijos]
-  if (auto) for (const v of conf?.masVendidas ?? []) {
+  // Lo que verá el camarero: los fijos (del local o del grupo) y, si toca, lo más vendido detrás
+  const base = propia ? fijos : fijosGrupo
+  const vista = [...base]
+  if (!esGrupo && auto) for (const v of conf?.masVendidas ?? []) {
     if (vista.length >= autoHasta) break
     if (!vista.includes(v.id) && porId.has(v.id)) vista.push(v.id)
   }
@@ -87,100 +98,135 @@ export default function AccesosRapidosPage() {
     )
   }
 
+  const pill = (activo: boolean) => `px-3 py-1.5 rounded-xl text-sm font-semibold border transition-colors ${
+    activo ? 'bg-cyan-500 border-cyan-500 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'}`
+
   return (
     <div className="space-y-5">
       <div>
         <h1 className="text-2xl font-black text-gray-800">Accesos rápidos</h1>
         <p className="text-sm text-gray-400">
-          Los botones que el camarero ve arriba de COMIDA y BEBIDAS al abrir una mesa, para marchar las primeras bebidas de un toque. Hasta {max} por local: en el teléfono se ven las tres primeras filas y el resto deslizando hacia arriba, así que lo más pedido, primero.
+          Los botones que el camarero ve arriba de COMIDA y BEBIDAS al abrir una mesa, para marchar las primeras bebidas de un toque. Hasta {max}: en el teléfono se ven las tres primeras filas y el resto deslizando hacia arriba, así que lo más pedido, primero.
         </p>
       </div>
 
       <div className="flex flex-wrap gap-2">
+        <button onClick={() => { setRid(null); setBuscar('') }} className={pill(esGrupo)}>🌐 Global</button>
         {restaurantes.map(r => (
-          <button key={r.id} onClick={() => setRidSel(r.id)}
-            className={`px-3 py-1.5 rounded-xl text-sm font-semibold border transition-colors ${
-              rid === r.id ? 'bg-cyan-500 border-cyan-500 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
-            }`}>
-            {r.nombre}
-          </button>
+          <button key={r.id} onClick={() => { setRid(r.id); setBuscar('') }} className={pill(rid === r.id)}>{r.nombre}</button>
         ))}
       </div>
 
       {error && <p className="text-sm text-red-500">{error}</p>}
 
+      {!esGrupo && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-start gap-3">
+          <input id="usar-grupo" type="checkbox" checked={!propia} onChange={e => cambiarPropia(!e.target.checked)}
+            className="mt-0.5 w-4 h-4 accent-cyan-500" />
+          <label htmlFor="usar-grupo" className="cursor-pointer">
+            <span className="block text-sm font-semibold text-gray-800">Usar la lista del grupo</span>
+            <span className="block text-xs text-gray-400">
+              {propia
+                ? `${nombreLocal} tiene su propia lista. Márcalo para volver a la del grupo (la propia se guarda por si vuelves).`
+                : `${nombreLocal} usa la lista de 🌐 Global. Desmárcalo si este local necesita otra: arranca con la del grupo para retocarla.`}
+            </span>
+          </label>
+        </div>
+      )}
+
       <div className="grid lg:grid-cols-2 gap-5">
         {/* Lo que se ve en la sala */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4">
           <div>
-            <h2 className="font-bold text-gray-800">Así lo ve el camarero</h2>
-            <p className="text-xs text-gray-400 mt-0.5">📌 fijo · 🔥 de lo más vendido (cambia solo)</p>
+            <h2 className="font-bold text-gray-800">{esGrupo ? 'Así lo ven los locales que usan la del grupo' : 'Así lo ve el camarero'}</h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {esGrupo ? 'Cada local puede completarla con lo que más vende (se elige en cada local).' : `📌 fijo${propia ? '' : ' (del grupo)'} · 🔥 de lo más vendido (cambia solo)`}
+            </p>
           </div>
           {vista.length === 0 ? (
             <p className="text-sm text-gray-400 py-6 text-center">
-              No sale nada: fija algún plato{auto ? ' o espera a que este local tenga ventas' : ''}.
+              No sale nada: fija algún plato{!esGrupo && auto ? ' o espera a que este local tenga ventas' : ''}.
             </p>
           ) : (
             <div className="grid grid-cols-3 gap-2 max-w-sm">
-              {vista.map(id => {
+              {vista.map((id, i) => {
                 const m = porId.get(id)!
                 const barra = esGrupoBarra(grupoDe.get(m.categoria) ?? '')
                 return (
                   <div key={id} className={`h-20 rounded-2xl px-1.5 flex items-center justify-center text-center relative border-2 ${
-                    barra ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-200'}`}>
+                    barra ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-200'} ${i >= 9 ? 'opacity-60' : ''}`}>
                     <span className="text-[13px] font-black uppercase leading-tight text-gray-800 line-clamp-3 break-words">{m.nombre}</span>
-                    <span className="absolute top-1 left-1.5 text-[10px]">{fijos.includes(id) ? '📌' : '🔥'}</span>
+                    <span className="absolute top-1 left-1.5 text-[10px]">{base.includes(id) ? '📌' : '🔥'}</span>
                   </div>
                 )
               })}
             </div>
           )}
+          {vista.length > 9 && <p className="text-xs text-gray-400">Los apagados se ven deslizando en el teléfono.</p>}
 
-          <label className="flex items-start gap-3 pt-3 border-t border-gray-100 cursor-pointer">
-            <input type="checkbox" checked={auto} onChange={e => cambiar(fijos, e.target.checked)} className="mt-0.5 w-4 h-4 accent-cyan-500" />
-            <span>
-              <span className="block text-sm font-semibold text-gray-800">Completar con las bebidas más vendidas</span>
-              <span className="block text-xs text-gray-400">
-                Si hay menos de {autoHasta} fijos, los huecos de las tres primeras filas se llenan solos con lo que más se pidió en barra en este local los últimos {conf?.dias ?? 30} días.
+          {!esGrupo && (
+            <label className="flex items-start gap-3 pt-3 border-t border-gray-100 cursor-pointer">
+              <input type="checkbox" checked={auto} onChange={e => cambiarAuto(e.target.checked)} className="mt-0.5 w-4 h-4 accent-cyan-500" />
+              <span>
+                <span className="block text-sm font-semibold text-gray-800">Completar con las bebidas más vendidas</span>
+                <span className="block text-xs text-gray-400">
+                  Si hay menos de {autoHasta} fijos, los huecos de las tres primeras filas se llenan solos con lo que más se pidió en barra en este local los últimos {conf?.dias ?? 30} días.
+                </span>
               </span>
-            </span>
-          </label>
+            </label>
+          )}
         </div>
 
         {/* Fijos */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-          <h2 className="font-bold text-gray-800">Fijos ({fijos.length}/{max})</h2>
-          <p className="text-xs text-gray-400 mt-0.5 mb-3">Salen siempre, primero y en este orden.</p>
-          {fijos.length === 0 && <p className="text-sm text-gray-400 py-2">Ninguno todavía.</p>}
-          <div className="space-y-1.5">
-            {fijos.map((id, i) => (
-              <div key={id} className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2">
-                <span className="text-xs text-gray-400 w-4 tabular-nums">{i + 1}</span>
-                <span className="flex-1 text-sm font-semibold text-gray-800 truncate">{porId.get(id)!.nombre}</span>
-                <button onClick={() => mover(i, -1)} disabled={i === 0} className="text-gray-400 hover:text-gray-700 disabled:opacity-30 px-1">▲</button>
-                <button onClick={() => mover(i, 1)} disabled={i === fijos.length - 1} className="text-gray-400 hover:text-gray-700 disabled:opacity-30 px-1">▼</button>
-                <button onClick={() => quitar(id)} className="text-xs text-red-500 hover:text-red-700 px-2">Quitar</button>
-              </div>
-            ))}
-          </div>
+        {propia ? (
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+            <h2 className="font-bold text-gray-800">{esGrupo ? 'Lista del grupo' : 'Fijos de este local'} ({fijos.length}/{max})</h2>
+            <p className="text-xs text-gray-400 mt-0.5 mb-3">
+              Salen siempre, primero y en este orden.{esGrupo ? ' Solo platos de la carta global.' : ''}
+            </p>
+            {fijos.length === 0 && <p className="text-sm text-gray-400 py-2">Ninguno todavía.</p>}
+            <div className="space-y-1.5">
+              {fijos.map((id, i) => (
+                <div key={id} className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2">
+                  <span className="text-xs text-gray-400 w-4 tabular-nums">{i + 1}</span>
+                  <span className="flex-1 text-sm font-semibold text-gray-800 truncate">{porId.get(id)!.nombre}</span>
+                  <button onClick={() => mover(i, -1)} disabled={i === 0} className="text-gray-400 hover:text-gray-700 disabled:opacity-30 px-1">▲</button>
+                  <button onClick={() => mover(i, 1)} disabled={i === fijos.length - 1} className="text-gray-400 hover:text-gray-700 disabled:opacity-30 px-1">▼</button>
+                  <button onClick={() => quitar(id)} className="text-xs text-red-500 hover:text-red-700 px-2">Quitar</button>
+                </div>
+              ))}
+            </div>
 
-          <div className="mt-5 pt-4 border-t border-gray-100">
-            <input value={buscar} onChange={e => setBuscar(e.target.value)} placeholder="Buscar en la carta para fijar…"
-              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyan-400" />
-            {lleno && <p className="text-xs text-amber-600 mt-2">Ya hay {max} fijos: quita uno para poner otro.</p>}
-            <div className="mt-2">
-              {q
-                ? (resultados.length ? resultados.map(m => filaPlato(m)) : <p className="text-sm text-gray-400 py-3">Sin resultados</p>)
-                : (conf?.masVendidas ?? []).filter(v => porId.has(v.id)).slice(0, 15).length > 0 && (
-                  <>
-                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mt-2 mb-1">Lo más vendido en barra · {conf?.dias ?? 30} días</p>
-                    {(conf?.masVendidas ?? []).filter(v => porId.has(v.id)).slice(0, 15)
-                      .map(v => filaPlato(porId.get(v.id)!, <> · {vendidasDe.get(v.id)} uds</>))}
-                  </>
-                )}
+            <div className="mt-5 pt-4 border-t border-gray-100">
+              <input value={buscar} onChange={e => setBuscar(e.target.value)} placeholder="Buscar en la carta para fijar…"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyan-400" />
+              {lleno && <p className="text-xs text-amber-600 mt-2">Ya hay {max} fijos: quita uno para poner otro.</p>}
+              <div className="mt-2">
+                {q
+                  ? (resultados.length ? resultados.map(m => filaPlato(m)) : <p className="text-sm text-gray-400 py-3">Sin resultados</p>)
+                  : (conf?.masVendidas ?? []).filter(v => porId.has(v.id)).slice(0, 15).length > 0 && (
+                    <>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mt-2 mb-1">Lo más vendido en barra · {conf?.dias ?? 30} días</p>
+                      {(conf?.masVendidas ?? []).filter(v => porId.has(v.id)).slice(0, 15)
+                        .map(v => filaPlato(porId.get(v.id)!, <> · {vendidasDe.get(v.id)} uds</>))}
+                    </>
+                  )}
+              </div>
             </div>
           </div>
-        </div>
+        ) : (
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+            <h2 className="font-bold text-gray-800">Lista del grupo ({fijosGrupo.length})</h2>
+            <p className="text-xs text-gray-400 mt-0.5 mb-3">Se cambia en 🌐 Global y vale para todos los locales que la usan.</p>
+            {fijosGrupo.length === 0 && <p className="text-sm text-gray-400 py-2">El grupo todavía no tiene lista.</p>}
+            <ol className="space-y-1">
+              {fijosGrupo.map((id, i) => (
+                <li key={id} className="flex gap-2 text-sm text-gray-700"><span className="text-xs text-gray-400 w-4 tabular-nums">{i + 1}</span>{porId.get(id)!.nombre}</li>
+              ))}
+            </ol>
+            <button onClick={() => setRid(null)} className="mt-4 text-sm font-semibold text-cyan-600 hover:text-cyan-700">Editar en 🌐 Global →</button>
+          </div>
+        )}
       </div>
     </div>
   )

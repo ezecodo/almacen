@@ -1094,7 +1094,9 @@ export interface AccesosRapidosAdmin {
   autoHasta: number
   dias: number
   auto: boolean
-  fijos: number[]
+  propia: boolean     // el local usa su lista; false = la del grupo
+  fijos: number[]     // los de la vista elegida (grupo o local)
+  fijosGrupo: number[]
   masVendidas: { id: number; vendidas: number }[]
 }
 
@@ -1439,8 +1441,8 @@ export const api = {
   },
   accesosRapidos: {
     sala:    (restaurantId: number) => get<number[]>(`/accesos-rapidos?restaurantId=${restaurantId}`),
-    admin:   (restaurantId: number) => get<AccesosRapidosAdmin>(`/admin/accesos-rapidos?restaurantId=${restaurantId}`),
-    guardar: (body: { restaurantId: number; auto: boolean; menuItemIds: number[] }) => put<unknown>('/admin/accesos-rapidos', body),
+    admin:   (restaurantId: number | null) => get<AccesosRapidosAdmin>(`/admin/accesos-rapidos${restaurantId ? `?restaurantId=${restaurantId}` : ''}`),
+    guardar: (body: { restaurantId: number | null; auto?: boolean; propia?: boolean; menuItemIds: number[] }) => put<unknown>('/admin/accesos-rapidos', body),
   },
   maridajes: {
     sala:       (restaurantId: number) => get<MaridajesSala>(`/maridajes?restaurantId=${restaurantId}`),
