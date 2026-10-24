@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { api, Comanda, totalComanda, repartoPago, textoPago } from '../api'
+import { api, Comanda, totalComanda, repartoPago, textoPago, MOTIVO_RECTIFICAR_LABEL } from '../api'
 
 
 function fmt(n: number) {
@@ -59,6 +59,24 @@ function ComandaCard({ comanda }: { comanda: Comanda }) {
         ))}
       </div>
 
+      {/* Rectificativas: se deshizo el cobro y se volvió a cobrar por otro importe */}
+      {(comanda.rectificativas ?? []).map(r => (
+        <div key={r.id} className="border-t border-rose-100 bg-rose-50/50 px-4 py-2 text-xs space-y-0.5">
+          <div className="flex items-center justify-between font-semibold text-rose-700">
+            <span>🧾 Rectificada {fmtHora(r.createdAt)}{r.numero ? ` · ${r.serie ?? ''}${r.numero}` : ''}</span>
+            <span>{fmt(r.importeOriginal)} → {fmt(r.importeNuevo)} € ({r.diferencia > 0 ? '+' : ''}{fmt(r.diferencia)})</span>
+          </div>
+          {r.lineas.map((l, i) => (
+            <p key={i} className="text-rose-600">{l.antes} → {l.despues} × {l.nombre} ({l.importe > 0 ? '+' : ''}{fmt(l.importe)} €)</p>
+          ))}
+          <p className="text-gray-500">
+            {r.deshizoPor && r.deshizoPor !== r.por ? `Deshizo ${r.deshizoPor}, cobró ${r.por}` : r.por}
+            {r.motivo ? ` · ${MOTIVO_RECTIFICAR_LABEL[r.motivo]}` : ''}
+            {r.diferencia < 0 && r.devolucion ? ` · devuelto por ${textoPago({ metodoPago: r.devolucion, pagoEfectivo: null }, false).toLowerCase()}` : ''}
+          </p>
+        </div>
+      ))}
+
       {/* Mermas */}
       {comanda.mermas.length > 0 && (
         <div className="border-t border-gray-50 px-4 py-2 space-y-1">
@@ -89,6 +107,8 @@ export default function TurnoDetallePage() {
   const efectivo = comandas?.reduce((s, c) => s + repartoPago(c).efectivo, 0) ?? 0
   const tarjeta = comandas?.reduce((s, c) => s + repartoPago(c).tarjeta, 0) ?? 0
   const propinas = comandas?.reduce((s, c) => s + (c.propina ?? 0), 0) ?? 0
+  const rectificativas = comandas?.flatMap(c => c.rectificativas ?? []) ?? []
+  const rectificado = rectificativas.reduce((s, r) => s + r.diferencia, 0)
 
   // Group by mesa
   const byMesa = comandas?.reduce((acc, c) => {
@@ -133,6 +153,13 @@ export default function TurnoDetallePage() {
             <p className="text-gray-400 text-xs mb-1">Comandas</p>
             <p className="text-gray-900 font-black text-lg">{comandas?.length ?? 0}</p>
           </div>
+          {rectificativas.length > 0 && (
+            <div className="col-span-2 sm:col-span-4 bg-rose-50 border border-rose-100 rounded-xl p-3 text-center">
+              <p className="text-rose-700 text-sm font-semibold">
+                🧾 {rectificativas.length === 1 ? '1 rectificativa' : `${rectificativas.length} rectificativas`}: {rectificado > 0 ? '+' : ''}{fmt(rectificado)} €
+              </p>
+            </div>
+          )}
           {propinas > 0 && (
             <div className="col-span-2 sm:col-span-4 bg-amber-50 border border-amber-100 rounded-xl p-3 text-center">
               <p className="text-amber-600 text-sm font-semibold">Propinas tarjeta: {fmt(propinas)} €</p>

@@ -44,6 +44,7 @@ model Restaurant {
   facturas               Factura[]
   agotados               ItemAgotado[]
   accesosRapidos         AccesoRapido[]
+  rectificativas         Rectificativa[]
   accesoRapidoAuto       Boolean               @default(true) // completar los accesos rápidos con lo más vendido
   gastos                 Gasto[]
   gastosHabituales       GastoHabitual[]
@@ -158,6 +159,7 @@ model Turno {
   totalPropinas   Float?
   totalInvitaciones Float?  // valor de items marcados como invitación de la casa (no suman a ventas)
   totalGastos     Float?     // gastos pagados en efectivo durante el turno (salieron de la caja)
+  totalRectificado Float?    // suma de las diferencias de las rectificativas del turno (negativo = se devolvió dinero)
   numComandas     Int?
   propina         PropinaDia?
   createdAt       DateTime   @default(now())
@@ -448,6 +450,8 @@ model Comanda {
   propina        Float         @default(0)
   pagoEfectivo   Float?        // con metodoPago 'mixto': parte de la cuenta pagada en efectivo (el resto, con tarjeta)
   rectificaciones Json?        // correcciones de una mesa ya cobrada: [{ tipo: 'pago'|'deshacer', por, at, motivo?, antes, despues? }] — ver comandas.ts
+  cobroDeshecho   Json?        // foto de la cuenta cobrada mientras la mesa espera volver a cobrarse tras "deshacer el cobro"; al recobrar, si el importe cambió, nace una Rectificativa
+  rectificativas  Rectificativa[]
   division       Json?         // pagar por separado: { quedan?, pagos: [{ id, importe, propina, metodo, consumo?, at, por? }] } — ver pago.ts
   camareroNombre String?
   cuentaDesactualizada Boolean @default(false) // los items cambiaron tras imprimir la cuenta → reimprimir antes de cobrar
@@ -460,6 +464,39 @@ model Comanda {
   reserva      Reserva?
   createdAt    DateTime      @default(now())
   closedAt     DateTime?
+}
+
+// Rectificativa por diferencias de una mesa ya cobrada: se deshizo el cobro, se cambió la cuenta
+// (se quitó un plato, merma, invitación…) y se volvió a cobrar por otro importe. La crea
+// PATCH /comandas/:id/cerrar. Los campos fiscales (serie, número, huella…) quedan vacíos hasta que
+// se defina con la gestoría si la app emite las facturas (docs/verifactu.md): entonces cada fila es
+// una rectificativa R5 por diferencias de la factura original.
+model Rectificativa {
+  id              Int        @id @default(autoincrement())
+  restaurantId    Int
+  restaurant      Restaurant @relation(fields: [restaurantId], references: [id])
+  comandaId       Int?
+  comanda         Comanda?   @relation(fields: [comandaId], references: [id], onDelete: SetNull)
+  turnoId         Int?                 // turno abierto al recobrar (para los totales del cierre)
+  mesaNumero      String?
+  por             String               // quién volvió a cobrar
+  deshizoPor      String?              // quién deshizo el cobro
+  motivo          String?              // 'error_cobro' | 'cliente_reclamo' | 'otro'
+  importeOriginal Float
+  importeNuevo    Float
+  diferencia      Float                // nuevo − original: negativo = se devolvió dinero al cliente
+  devolucion      String?              // por dónde se devolvió/cobró la diferencia: método del cobro original ('cash' | 'tarjeta' | 'mixto')
+  lineas          Json                 // [{ nombre, precio, antes, despues, importe }] solo lo que cambió
+  original        Json                 // la cuenta tal como se cobró: { items, total, metodoPago, pagoEfectivo, propina, cobradaAt }
+  // Fiscales (Veri*factu): vacíos por ahora
+  serie           String?
+  numero          Int?
+  facturaOriginal String?
+  huella          String?
+  emitidaAt       DateTime?
+  createdAt       DateTime   @default(now())
+
+  @@index([restaurantId, createdAt])
 }
 
 model ComandaItem {

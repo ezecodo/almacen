@@ -74,6 +74,7 @@ export interface Turno {
   totalPropinas?:  number
   totalInvitaciones?: number
   totalGastos?:    number   // gastos pagados en efectivo durante el turno (pan, frutería…)
+  totalRectificado?: number // suma de las rectificativas del turno (negativo = se devolvió dinero)
   reservasNoVinieron?: number // solo en la respuesta del cierre: las que seguían por llegar pasaron a No vino
   numComandas?:    number
   propina?:        PropinaDia | null
@@ -468,6 +469,34 @@ export interface Rectificacion {
   despues?: { metodoPago: 'cash' | 'tarjeta'; pagoEfectivo: null; propina: number }
 }
 
+export interface CobroDeshecho {
+  items: { nombre: string; precio: number; cantidad: number; invitacion: boolean }[]
+  total: number
+  metodoPago: Comanda['metodoPago']
+  pagoEfectivo: number | null
+  propina: number
+  cobradaAt: string | null
+  por: string
+  motivo?: MotivoRectificar
+}
+// Rectificativa por diferencias: se volvió a cobrar una mesa por otro importe. Serie, número y huella
+// quedan vacíos hasta que la app emita facturas fiscales (Veri*factu)
+export interface Rectificativa {
+  id: number
+  mesaNumero: string | null
+  por: string
+  deshizoPor: string | null
+  motivo: MotivoRectificar | null
+  importeOriginal: number
+  importeNuevo: number
+  diferencia: number
+  devolucion: Comanda['metodoPago']
+  lineas: { nombre: string; precio: number; antes: number; despues: number; importe: number }[]
+  serie: string | null
+  numero: number | null
+  createdAt: string
+}
+
 export interface Comanda {
   id:             number
   restaurantId:   number
@@ -480,6 +509,8 @@ export interface Comanda {
   pagoEfectivo?:  number | null   // con 'mixto': parte de la cuenta pagada en efectivo
   division?:      Division | null // pagar por separado (la va apuntando el camarero en la mesa)
   rectificaciones?: Rectificacion[] | null // correcciones hechas después de cobrarla (encargado)
+  cobroDeshecho?: CobroDeshecho | null     // se deshizo su cobro: la cuenta como estaba (al recobrar, rectificativa si cambia)
+  rectificativas?: Rectificativa[]        // solo en las cerradas (lista del turno)
   camareroNombre: string | null
   cuentaDesactualizada: boolean // items cambiados tras imprimir la cuenta → reimprimir antes de cobrar
   noComparten?: boolean // la mesa no comparte: COM: NO COMPARTEN en los tickets de cocina

@@ -100,6 +100,45 @@ async function imprimirTicketComanda(comanda: ComandaConMesa, items: ComandaItem
   })
 }
 
+// Foto de la cuenta cobrada al deshacer el cobro (Comanda.cobroDeshecho)
+const cobroDeshechoSchema = z.object({
+  items: z.array(z.object({ nombre: z.string(), precio: z.number(), cantidad: z.number(), invitacion: z.boolean() })),
+  total: z.number(),
+  metodoPago: z.string().nullable(),
+  pagoEfectivo: z.number().nullable(),
+  propina: z.number(),
+  cobradaAt: z.string().nullable(),
+  por: z.string(),
+  motivo: z.string().optional(),
+})
+type CobroDeshecho = z.infer<typeof cobroDeshechoSchema>
+
+// Qué cambió entre la cuenta cobrada y la nueva, plato a plato (nombre + precio), contando solo lo
+// que se cobra (una invitación pasa a 0 €: es como quitar el plato)
+function lineasCambiadas(antes: CobroDeshecho['items'], despues: { nombre: string; precio: number; cantidad: number; invitacion: boolean }[]) {
+  const cuenta = (lista: typeof despues) => {
+    const m = new Map<string, { nombre: string; precio: number; n: number }>()
+    for (const i of lista) {
+      if (i.invitacion) continue
+      const k = `${i.nombre}|${i.precio}`
+      const e = m.get(k) ?? { nombre: i.nombre, precio: i.precio, n: 0 }
+      e.n += i.cantidad
+      m.set(k, e)
+    }
+    return m
+  }
+  const a = cuenta(antes), d = cuenta(despues)
+  const lineas: { nombre: string; precio: number; antes: number; despues: number; importe: number }[] = []
+  for (const k of new Set([...a.keys(), ...d.keys()])) {
+    const x = a.get(k), y = d.get(k)
+    const na = x?.n ?? 0, nd = y?.n ?? 0
+    if (na === nd) continue
+    const { nombre, precio } = (x ?? y)!
+    lineas.push({ nombre, precio, antes: na, despues: nd, importe: Math.round((nd - na) * precio * 100) / 100 })
+  }
+  return lineas
+}
+
 export async function comandaRoutes(app: FastifyInstance) {
 
   // Comandas abiertas de un restaurante (para ver estado del salón)
@@ -127,6 +166,7 @@ export async function comandaRoutes(app: FastifyInstance) {
         mesa: true,
         mermas: true,
         reserva: reservaDeMesa,
+        ...(estado === 'cerrada' ? { rectificativas: { orderBy: { createdAt: 'asc' as const } } } : {}),
       },
       orderBy: { createdAt: 'desc' },
     })
@@ -523,10 +563,33 @@ export async function comandaRoutes(app: FastifyInstance) {
       pago = { metodoPago: body.metodoPago, pagoEfectivo: null, propina: body.propina ?? 0 }
     }
 
-    const comanda = await prisma.comanda.update({
-      where: { id },
-      data: { estado: 'cerrada', closedAt: new Date(), ...pago },
-      include: { items: true, mesa: true },
+    // Se vuelve a cobrar una mesa cuyo cobro se deshizo: si el importe cambió, queda la rectificativa
+    const deshecho = cobroDeshechoSchema.safeParse(actual.cobroDeshecho)
+    const comanda = await prisma.$transaction(async tx => {
+      const c = await tx.comanda.update({
+        where: { id },
+        data: { estado: 'cerrada', closedAt: new Date(), ...pago, cobroDeshecho: Prisma.DbNull },
+        include: { items: true, mesa: true },
+      })
+      if (deshecho.success) {
+        const original = deshecho.data
+        const importeNuevo = totalCobrable(c.items)
+        const diferencia = Math.round((importeNuevo - original.total) * 100) / 100
+        if (Math.abs(diferencia) >= 0.01) {
+          const turno = await tx.turno.findFirst({ where: { restaurantId: c.restaurantId, estado: 'abierto' }, select: { id: true } })
+          await tx.rectificativa.create({
+            data: {
+              restaurantId: c.restaurantId, comandaId: c.id, turnoId: turno?.id ?? null, mesaNumero: c.mesa ? String(c.mesa.numero) : null,
+              por: req.user.nombre, deshizoPor: original.por, motivo: original.motivo ?? null,
+              importeOriginal: original.total, importeNuevo, diferencia,
+              devolucion: original.metodoPago,
+              lineas: lineasCambiadas(original.items, c.items) as Prisma.InputJsonValue,
+              original: original as Prisma.InputJsonValue,
+            },
+          })
+        }
+      }
+      return c
     })
     broadcast(comanda.restaurantId, 'update')
     return comanda
@@ -592,10 +655,18 @@ export async function comandaRoutes(app: FastifyInstance) {
     const r = await cobradaCorregible(id, req)
     if (r.error !== undefined) return reply.status(r.status).send({ error: r.error })
     const c = r.comanda
+    const items = await prisma.comandaItem.findMany({ where: { comandaId: id } })
+    // La cuenta como se cobró: al volver a cobrar se compara con la nueva (rectificativa si cambió)
+    const foto: CobroDeshecho = {
+      items: items.map(i => ({ nombre: i.nombre, precio: i.precio, cantidad: i.cantidad, invitacion: i.invitacion })),
+      total: totalCobrable(items), metodoPago: c.metodoPago, pagoEfectivo: c.pagoEfectivo, propina: c.propina,
+      cobradaAt: c.closedAt?.toISOString() ?? null, por: req.user.nombre, motivo: body.motivo,
+    }
     const comanda = await prisma.comanda.update({
       where: { id },
       data: {
         estado: 'liberada', closedAt: null, metodoPago: null, pagoEfectivo: null, propina: 0,
+        cobroDeshecho: foto as Prisma.InputJsonValue,
         rectificaciones: conRectificacion(c.rectificaciones, {
           tipo: 'deshacer', por: req.user.nombre, at: new Date().toISOString(), motivo: body.motivo, antes: pagoDe(c),
         }),

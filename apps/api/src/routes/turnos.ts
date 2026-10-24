@@ -164,6 +164,9 @@ export async function turnoRoutes(app: FastifyInstance) {
     const now = new Date()
     // Gastos pagados en efectivo durante el turno (pan, frutería…): salieron de la caja
     const totalGastos = await efectivoGastado(turno.restaurantId, turno.aperturaAt, now)
+    // Rectificativas del turno (mesas cobradas otra vez por otro importe): negativo = se devolvió dinero
+    const rectificado = await prisma.rectificativa.aggregate({ where: { turnoId: id }, _sum: { diferencia: true } })
+    const totalRectificado = rectificado._sum.diferencia ?? 0
     const updated = await prisma.turno.update({
       where: { id },
       data: {
@@ -176,6 +179,7 @@ export async function turnoRoutes(app: FastifyInstance) {
         totalPropinas,
         totalInvitaciones,
         totalGastos,
+        totalRectificado,
         numComandas:  comandas.length,
       },
     })
@@ -225,7 +229,7 @@ export async function turnoRoutes(app: FastifyInstance) {
         estado: 'cerrada',
         closedAt: { gte: turno.aperturaAt, lte: hasta },
       },
-      include: { items: true, mermas: true, mesa: true },
+      include: { items: true, mermas: true, mesa: true, rectificativas: { orderBy: { createdAt: 'asc' } } },
       orderBy: { closedAt: 'asc' },
     })
   })

@@ -4285,6 +4285,15 @@ function DetalleCobrada({ comanda: c, onClose }: { comanda: Comanda; onClose: ()
               ))}
             </div>
           )}
+          {(c.rectificativas ?? []).map(r => (
+            <div key={r.id} className="mt-3 rounded-xl bg-rose-500/10 border border-rose-500/30 px-3 py-2">
+              <p className="text-rose-300 text-xs font-black uppercase">🧾 Rectificada {fmtHora(r.createdAt)}{r.numero ? ` · ${r.serie ?? ''}${r.numero}` : ''}</p>
+              <p className="text-[var(--sala-txt)] text-sm font-bold">{eur(r.importeOriginal)} → {eur(r.importeNuevo)} ({r.diferencia > 0 ? '+' : ''}{eur(r.diferencia)})</p>
+              {r.lineas.map((l, i) => (
+                <p key={i} className="text-[var(--sala-tx2)] text-xs">{l.antes} → {l.despues} × {l.nombre} ({l.importe > 0 ? '+' : ''}{eur(l.importe)})</p>
+              ))}
+            </div>
+          ))}
           {(c.rectificaciones?.length ?? 0) > 0 && (
             <div className="pt-3">
               <p className="text-[var(--sala-tx3)] text-xs font-bold uppercase mb-1">✏️ Correcciones</p>
@@ -4471,6 +4480,24 @@ function CobroSheet({ comanda: inicial, onClose, onDone }: { comanda: Comanda; o
             <p className="text-[var(--sala-txt)] text-5xl font-black tabular-nums leading-none">{total.toFixed(2).replace('.', ',')} €</p>
           </div>
         </div>
+
+        {/* Se deshizo el cobro: lo que se cobró antes y la diferencia a devolver (o a cobrar de más) */}
+        {comanda.cobroDeshecho && (() => {
+          const antes = comanda.cobroDeshecho
+          const dif = Math.round((total - antes.total) * 100) / 100
+          const por = textoPago({ metodoPago: antes.metodoPago, pagoEfectivo: antes.pagoEfectivo }, false).toLowerCase()
+          return (
+            <div className="mt-3 px-4 py-2.5 rounded-xl bg-rose-500/10 border border-rose-500/40">
+              <p className="text-rose-300 text-xs font-black uppercase tracking-wide">↩ Cobro deshecho · se cobró antes {antes.total.toFixed(2)} € ({por})</p>
+              <p className="text-[var(--sala-txt)] text-base font-black mt-0.5">
+                {Math.abs(dif) < 0.01 ? 'Mismo importe: no hay nada que devolver'
+                  : dif < 0 ? `Devolver ${(-dif).toFixed(2)} € ${antes.metodoPago === 'cash' ? 'en efectivo' : antes.metodoPago === 'tarjeta' ? 'por tarjeta' : ''}`
+                  : `Faltan ${dif.toFixed(2)} € por cobrar`}
+              </p>
+              {Math.abs(dif) >= 0.01 && <p className="text-[var(--sala-tx3)] text-xs mt-0.5">Al cobrar queda la rectificativa con lo que cambió.</p>}
+            </div>
+          )
+        })()}
 
         {/* Hora de apertura — crucial para no cobrar una comanda vieja de la misma mesa */}
         <div className="flex items-center justify-between px-4 py-1.5 mt-3 mb-3 rounded-xl bg-amber-500/15 border border-amber-500/40">
@@ -5712,6 +5739,7 @@ function EncargadoPanel({
   })
   const cobradasOrden = [...cobradas].sort((a, b) => new Date(b.closedAt ?? 0).getTime() - new Date(a.closedAt ?? 0).getTime())
   const [verCobrada, setVerCobrada] = useState<Comanda | null>(null)
+  const [verCobradas, setVerCobradas] = useState(false) // la lista va plegada
 
   const { data: comandasActivas = [] } = useQuery({
     queryKey: ['comandas-sala', rid],
@@ -5977,8 +6005,14 @@ function EncargadoPanel({
               ))}
               {cobradasOrden.length > 0 && (
                 <div className="pt-3">
-                  <NivelEtiqueta titulo={`✅ Cobradas en este turno · ${cobradasOrden.length}`} />
-                  <div className="space-y-1.5">
+                  <button onClick={() => setVerCobradas(v => !v)} aria-expanded={verCobradas}
+                    className="w-full flex items-center gap-2 bg-[var(--sala-srf)] rounded-xl px-4 py-3 text-left active:scale-[0.99] transition-transform">
+                    <span className="flex-1 text-[var(--sala-txt)] text-sm font-black uppercase tracking-wide">✅ Cobradas en este turno · {cobradasOrden.length}</span>
+                    <span className="text-[var(--sala-tx2)] text-sm font-bold tabular-nums">{cobradasOrden.reduce((t, c) => t + totalDe(c), 0).toFixed(2)} €</span>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                      className={`text-[var(--sala-tx3)] shrink-0 transition-transform ${verCobradas ? 'rotate-180' : ''}`}><path d="M6 9l6 6 6-6" /></svg>
+                  </button>
+                  {verCobradas && <div className="space-y-1.5 mt-1.5">
                     {cobradasOrden.map(c => (
                       <button key={c.id} onClick={() => setVerCobrada(c)}
                         className="w-full flex items-center gap-3 bg-[var(--sala-srf)] rounded-xl px-3 py-2.5 text-left active:scale-[0.99] transition-transform">
@@ -5988,13 +6022,13 @@ function EncargadoPanel({
                             {c.closedAt ? fmtHora(c.closedAt) : ''} · {textoPago(c)}{c.propina > 0 ? ` · propina ${c.propina.toFixed(2)} €` : ''}
                           </span>
                           <span className="block text-[var(--sala-tx3)] text-xs truncate">
-                            {c.pax} pax{c.camareroNombre ? ` · ${c.camareroNombre.split(' ')[0]}` : ''}{(c.rectificaciones?.length ?? 0) > 0 ? ' · ✏️ corregida' : ''}
+                            {c.pax} pax{c.camareroNombre ? ` · ${c.camareroNombre.split(' ')[0]}` : ''}{(c.rectificativas?.length ?? 0) > 0 ? ` · 🧾 rectificada ${c.rectificativas!.reduce((t, r) => t + r.diferencia, 0).toFixed(2)} €` : (c.rectificaciones?.length ?? 0) > 0 ? ' · ✏️ corregida' : ''}
                           </span>
                         </span>
                         <span className="text-[var(--sala-txt)] font-black tabular-nums shrink-0">{totalDe(c).toFixed(2)} €</span>
                       </button>
                     ))}
-                  </div>
+                  </div>}
                 </div>
               )}
               {verCobrada && <DetalleCobrada comanda={verCobrada} onClose={() => setVerCobrada(null)} />}
@@ -6014,6 +6048,7 @@ function EncargadoPanel({
                     ['Mermas', resumenCierre.totalMermas],
                     ['🎁 Invitaciones', resumenCierre.totalInvitaciones],
                     ['🥖 Gastos en efectivo', resumenCierre.totalGastos],
+                    ...(resumenCierre.totalRectificado ? [['🧾 Rectificativas', resumenCierre.totalRectificado]] : []),
                   ].map(([label, val]) => (
                     <div key={label as string} className="flex justify-between text-sm">
                       <span className="text-[var(--sala-tx3)]">{label}</span>
@@ -6580,6 +6615,7 @@ function PanelEncargadoTpv({ restaurantId, comandas, turnoActivo, onAbrirMesa, o
   const cobradoEfectivo = cobradas.reduce((s, c) => s + repartoPago(c).efectivo, 0)
   const cobradoTarjeta = cobradas.reduce((s, c) => s + repartoPago(c).tarjeta, 0)
   const [verCobrada, setVerCobrada] = useState<Comanda | null>(null)
+  const [verCobradas, setVerCobradas] = useState(false) // la lista va plegada
 
   const porCobrar = [...comandas.filter(c => c.estado === 'facturada'), ...liberadas]
     .filter(c => c.items.length > 0)
@@ -6642,7 +6678,7 @@ function PanelEncargadoTpv({ restaurantId, comandas, turnoActivo, onAbrirMesa, o
       <p className="text-[var(--sala-tx2)] text-xs tabular-nums">
         ✅ cobrada {c.closedAt ? fmtHora(c.closedAt) : ''} · {textoPago(c).toLowerCase()}{c.propina > 0 ? ` · propina ${eur(c.propina)}` : ''}
       </p>
-      <p className="text-[var(--sala-tx3)] text-xs">{c.pax} pax{c.camareroNombre ? ` · ${c.camareroNombre.split(' ')[0]}` : ''}{c.mermas.length ? ` · 🗑 ${c.mermas.length}` : ''}</p>
+      <p className="text-[var(--sala-tx3)] text-xs">{c.pax} pax{c.camareroNombre ? ` · ${c.camareroNombre.split(' ')[0]}` : ''}{c.mermas.length ? ` · 🗑 ${c.mermas.length}` : ''}{(c.rectificativas?.length ?? 0) > 0 ? ' · 🧾 rectificada' : (c.rectificaciones?.length ?? 0) > 0 ? ' · ✏️ corregida' : ''}</p>
     </div>
   )
   const seccion = (titulo: string, lista: Comanda[]) => lista.length > 0 && (
@@ -6679,10 +6715,14 @@ function PanelEncargadoTpv({ restaurantId, comandas, turnoActivo, onAbrirMesa, o
           )}
           {cobradasOrden.length > 0 && (
             <div>
-              <NivelEtiqueta titulo={`✅ Cobradas en este turno · ${cobradasOrden.length}`}>
-                <span className="text-[var(--sala-tx3)] text-xs font-bold shrink-0 tabular-nums">💶 {eur(cobradoEfectivo)} · 💳 {eur(cobradoTarjeta)}</span>
-              </NivelEtiqueta>
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-2.5">{cobradasOrden.map(tarjetaCobrada)}</div>
+              <button onClick={() => setVerCobradas(v => !v)} aria-expanded={verCobradas}
+                className="w-full flex items-center gap-3 bg-[var(--sala-srf)] rounded-xl px-4 py-3 text-left active:scale-[0.99] transition-transform">
+                <span className="flex-1 text-[var(--sala-txt)] text-base font-black uppercase tracking-wide">✅ Cobradas en este turno · {cobradasOrden.length}</span>
+                <span className="text-[var(--sala-tx2)] text-sm font-bold shrink-0 tabular-nums">💶 {eur(cobradoEfectivo)} · 💳 {eur(cobradoTarjeta)}</span>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                  className={`text-[var(--sala-tx3)] shrink-0 transition-transform ${verCobradas ? 'rotate-180' : ''}`}><path d="M6 9l6 6 6-6" /></svg>
+              </button>
+              {verCobradas && <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-2.5 mt-2.5">{cobradasOrden.map(tarjetaCobrada)}</div>}
             </div>
           )}
         </div>
