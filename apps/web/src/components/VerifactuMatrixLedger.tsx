@@ -32,13 +32,18 @@ export interface TransaccionVerifactu {
   motivo?: MotivoRectificacion // por qué se rectifica (solo R5)
 }
 
-// Lo que hoy es "cuenta desactualizada" (merma o invitación después de imprimir la cuenta)
-// con Veri*factu pasa a ser una rectificativa: este es su motivo.
+// Misma forma que la Rectificativa real de la app (apps/api, modelo Rectificativa): el encargado deshace
+// el cobro, cambia la cuenta (quita un plato, merma o invitación) y vuelve a cobrar por otro importe.
 export interface MotivoRectificacion {
-  tipo: 'merma' | 'invitacion'
+  causa: 'error_cobro' | 'cliente_reclamo' | 'otro' // motivo de un toque al deshacer el cobro
+  cambio: 'quitado' | 'merma' | 'invitacion'         // qué se hizo en la cuenta
   plato: string
-  causa: string
-  por: string // quién la registró
+  precio: number
+  antes: number    // unidades cobradas
+  despues: number  // unidades en el nuevo cobro
+  devolucion: 'cash' | 'tarjeta'
+  deshizoPor: string
+  cobroPor: string
 }
 
 export interface Bloque extends TransaccionVerifactu {
@@ -115,10 +120,16 @@ const PLATOS: [string, number][] = [
   ['PULPO', 14.95], ['SOLOMILLO', 16.45], ['BURRATA', 10.95], ['PATATAS BRAVAS', 6.95],
   ['GAMBAS', 9.99], ['CROQ. GAMBAS', 5.85], ['TARTAR DE ATÙN', 13.95], ['CARRILLERA', 12.95],
 ]
-const CAUSAS_MERMA = ['queja del cliente', 'no servido', 'error de comanda']
+const CAUSAS_MERMA = ['queja del cliente', 'no servido', 'error de comanda'] // mermas antes de la cuenta (no fiscales)
 const PERSONAL = ['Marta', 'Jordi', 'Lucía', 'Pau', 'Nerea']
 const alAzar = <T,>(lista: T[]): T => lista[Math.floor(Math.random() * lista.length)]
-const textoMotivo = (m: MotivoRectificacion) => `${m.tipo === 'merma' ? 'merma' : 'invitación de la casa'}: ${m.plato} (${m.causa}) — ${m.por}`
+const CAUSA_LABEL: Record<MotivoRectificacion['causa'], string> = { error_cobro: 'Error de cobro', cliente_reclamo: 'Cliente reclamó', otro: 'Otro' }
+const CAUSA_BADGE: Record<MotivoRectificacion['causa'], string> = { error_cobro: 'ERROR COBRO', cliente_reclamo: 'RECLAMÓ', otro: 'OTRO' }
+const CAMBIO_LABEL: Record<MotivoRectificacion['cambio'], string> = { quitado: 'Se quitó de la cuenta', merma: 'Merma', invitacion: 'Invitación de la casa' }
+const quienes = (m: MotivoRectificacion) => (m.deshizoPor === m.cobroPor ? m.cobroPor : `${m.deshizoPor} → ${m.cobroPor}`)
+const lineaMotivo = (m: MotivoRectificacion) => `${m.antes} → ${m.despues} × ${m.plato}`
+const textoMotivo = (m: MotivoRectificacion) =>
+  `${lineaMotivo(m)} (${CAMBIO_LABEL[m.cambio].toLowerCase()}) · ${CAUSA_LABEL[m.causa].toLowerCase()} · devuelto por ${m.devolucion === 'cash' ? 'efectivo' : 'tarjeta'} — ${quienes(m)}`
 
 interface Local { nombre: string; serie: string }
 const LOCALES_EJEMPLO = ['Restaurante 1', 'Restaurante 2', 'Restaurante 3', 'Restaurante 4', 'Restaurante 5']
@@ -398,12 +409,18 @@ export default function VerifactuMatrixLedger({
   const venta = useCallback((local: number, fechaHora: string, estado: EstadoAeat): TransaccionVerifactu => (
     { local, numSerie: `${locales[local].serie}-2026-${++contador.current.fac[local]}`, tipo: 'F2', fechaHora, ...conIva(importeAlAzar()), estado }
   ), [locales])
-  // Rectificativa por diferencias: descuenta solo el plato de la merma o la invitación, no anula el ticket
+  // Rectificativa por diferencias: descuenta solo lo que cambió en la cuenta, no anula el ticket
   const rectificativa = useCallback((origen: Pick<Bloque, 'local' | 'numSerie' | 'importeTotal'>, fechaHora: string, estado: EstadoAeat): TransaccionVerifactu => {
     const [plato, precio] = alAzar(PLATOS.filter(([, pr]) => pr <= origen.importeTotal))
-    const motivo: MotivoRectificacion = Math.random() < 0.7
-      ? { tipo: 'merma', plato, causa: alAzar(CAUSAS_MERMA), por: alAzar(PERSONAL) }
-      : { tipo: 'invitacion', plato, causa: 'compensación al cliente', por: alAzar(PERSONAL) }
+    const antes = 1 + Math.floor(Math.random() * 3)
+    const deshizoPor = alAzar(PERSONAL)
+    const motivo: MotivoRectificacion = {
+      causa: alAzar(['error_cobro', 'cliente_reclamo', 'cliente_reclamo', 'otro'] as const),
+      cambio: alAzar(['quitado', 'merma', 'merma', 'invitacion'] as const),
+      plato, precio, antes, despues: antes - 1,
+      devolucion: Math.random() < 0.7 ? 'tarjeta' : 'cash',
+      deshizoPor, cobroPor: Math.random() < 0.8 ? deshizoPor : alAzar(PERSONAL),
+    }
     return {
       local: origen.local, tipo: 'R5', fechaHora, ...conIva(-precio), estado, rectificaA: origen.numSerie, motivo,
       numSerie: `${locales[origen.local].serie}-R-2026-${String(++contador.current.rect[origen.local]).padStart(3, '0')}`,
@@ -789,11 +806,11 @@ export default function VerifactuMatrixLedger({
                   <div className="flex items-baseline justify-between gap-2 text-[11px] text-slate-400">
                     <span className="truncate">
                       {b.motivo && tono !== 'rota'
-                        ? `${b.motivo.plato} · ${b.motivo.por}`
+                        ? `${lineaMotivo(b.motivo)} · ${b.motivo.cobroPor}`
                         : `#${String(b.indice).padStart(4, '0')} · ${horaCorta(b.fechaHora).slice(0, 8)} · ${truncar(b.huella)}`}
                     </span>
                     <span className={`shrink-0 font-bold ${e.texto} ${tono === 'rota' ? 'animate-pulse' : ''}`}>
-                      {b.motivo && tono === 'rectificativa' ? (b.motivo.tipo === 'merma' ? '🗑 RECT · MERMA' : '🎁 RECT · INVITACIÓN') : e.badge}
+                      {b.motivo && tono === 'rectificativa' ? `🧾 RECT · ${CAUSA_BADGE[b.motivo.causa]}` : e.badge}
                     </span>
                   </div>
                 </motion.button>
@@ -905,7 +922,7 @@ function CadenaMovil({ bloques, locales, porLocal, nif, listo, tonoDe, foco, onE
                   </div>
                   {b.rectificaA && (
                     <p className="text-[10px] text-rose-300 mt-0.5 truncate">
-                      ↩ corrige {b.rectificaA}{b.motivo ? ` · ${b.motivo.tipo === 'merma' ? '🗑' : '🎁'} ${b.motivo.plato} · ${b.motivo.por}` : ''}
+                      ↩ corrige {b.rectificaA}{b.motivo ? ` · ${lineaMotivo(b.motivo)} · ${b.motivo.cobroPor}` : ''}
                     </p>
                   )}
                 </button>
@@ -981,13 +998,15 @@ function Inspector({ bloque, nif, local, roto, onClose }: { bloque: Bloque; nif:
           <>
             <p className="text-slate-400 mb-1">// MOTIVO DE LA RECTIFICACIÓN</p>
             <div className="rounded border border-rose-400/40 bg-rose-500/10 p-3 mb-3 text-slate-200">
-              <p className="text-base font-bold text-rose-300">
-                {bloque.motivo.tipo === 'merma' ? '🗑 Merma después de imprimir la cuenta' : '🎁 Invitación de la casa después de imprimir la cuenta'}
+              <p className="text-base font-bold text-rose-300">↩ Cobro deshecho y vuelto a cobrar · {CAUSA_LABEL[bloque.motivo.causa]}</p>
+              <p className="mt-1">
+                <b>{lineaMotivo(bloque.motivo)}</b> ({CAMBIO_LABEL[bloque.motivo.cambio].toLowerCase()}) · −{dos(bloque.motivo.precio)} €
               </p>
-              <p className="mt-1">Plato: <b>{bloque.motivo.plato}</b> · {dos(Math.abs(bloque.importeTotal))} €</p>
-              <p>Causa: {bloque.motivo.causa}</p>
-              <p>Registrada por: <b>{bloque.motivo.por}</b></p>
-              <p>Corrige a: <b>{bloque.rectificaA}</b> (rectificativa por diferencias: descuenta solo este plato)</p>
+              <p>Devuelto al cliente por: <b>{bloque.motivo.devolucion === 'cash' ? 'efectivo (de la caja)' : 'tarjeta (datáfono)'}</b></p>
+              <p>{bloque.motivo.deshizoPor === bloque.motivo.cobroPor
+                ? <>Lo hizo: <b>{bloque.motivo.cobroPor}</b></>
+                : <>Deshizo el cobro: <b>{bloque.motivo.deshizoPor}</b> · volvió a cobrar: <b>{bloque.motivo.cobroPor}</b></>}</p>
+              <p>Corrige a: <b>{bloque.rectificaA}</b> (rectificativa por diferencias: descuenta solo lo que cambió)</p>
             </div>
           </>
         )}
