@@ -1318,6 +1318,10 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
   const [selectedCat, setSelectedCat] = useState<string | null>(null)
   const [selectedSub, setSelectedSub] = useState<string | null>(null)
   const swipeRef = useRef<number | null>(null)
+  const swipeYRef = useRef(0)
+  // Nombre de la categoría en grande un momento al pasar a la siguiente deslizando
+  const [avisoCat, setAvisoCat] = useState<string | null>(null)
+  const avisoCatTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [nota, setNota] = useState<{ itemId: number; value: string } | null>(null)
   // Aviso de "añadido" abajo a la derecha: no tapa nada, así se pueden seguir tocando platos
   // rápido (antes un check tapaba el plato un segundo). Se apilan y se van solos.
@@ -1712,6 +1716,22 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
   const categoriasSorted = Object.keys(menuByCategoria).sort((a, b) =>
     (catMeta[a]?.orden ?? 99) - (catMeta[b]?.orden ?? 99)
   )
+
+  // Dentro de una categoría: deslizar a la izquierda pasa a la siguiente del grupo (o a la
+  // subcategoría hermana), así se recorre CLÁSICAS → VEGETARIA → PESCADO sin volver atrás.
+  // Desde la última se vuelve a la rejilla. A la derecha, un nivel atrás como siempre.
+  const hermanas = selectedSub && selectedCat ? subcatsDe(selectedCat).map(c => c.nombre) : categoriasSorted
+  const actual = selectedSub ?? selectedCat
+  const siguienteCat = actual ? hermanas[hermanas.indexOf(actual) + 1] ?? null : null
+  const irASiguienteCat = () => {
+    if (selectedSub) setSelectedSub(siguienteCat)
+    else { setSelectedCat(siguienteCat); setSelectedSub(null) }
+    if (!siguienteCat) return
+    setAvisoCat(siguienteCat)
+    if (avisoCatTimer.current) clearTimeout(avisoCatTimer.current)
+    avisoCatTimer.current = setTimeout(() => setAvisoCat(null), 900)
+  }
+  const volverCat = () => selectedSub ? setSelectedSub(null) : setSelectedCat(null)
 
   // Botón de plato (vista de categoría) — tap añade, long-press abre comentario
   const renderItemBtn = (item: MenuItem) => {
@@ -2305,14 +2325,27 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                    Centrado en vertical (my-auto) para que quede al alcance del pulgar;
                    si no cabe, se desplaza normal desde arriba */
                 <div className="flex-1 overflow-y-auto flex flex-col"
-                  onTouchStart={e => { swipeRef.current = e.touches[0].clientX }}
+                  onTouchStart={e => { swipeRef.current = e.touches[0].clientX; swipeYRef.current = e.touches[0].clientY }}
                   onTouchEnd={e => {
-                    // Swipe horizontal en cualquier dirección → un nivel atrás
-                    if (swipeRef.current !== null && Math.abs(e.changedTouches[0].clientX - swipeRef.current) > swipeThresholds().dx)
-                      selectedSub ? setSelectedSub(null) : setSelectedCat(null)
+                    // A la izquierda → siguiente categoría; a la derecha → un nivel atrás
+                    const x0 = swipeRef.current
                     swipeRef.current = null
+                    if (x0 === null) return
+                    const dx = e.changedTouches[0].clientX - x0
+                    const dy = e.changedTouches[0].clientY - swipeYRef.current
+                    if (Math.abs(dx) <= swipeThresholds().dx || Math.abs(dx) < Math.abs(dy)) return
+                    if (dx < 0) irASiguienteCat()
+                    else volverCat()
                   }}>
-                  <button onClick={() => selectedSub ? setSelectedSub(null) : setSelectedCat(null)}
+                  {avisoCat && (
+                    <div key={avisoCat} className="fixed inset-0 z-[60] pointer-events-none flex items-center justify-center">
+                      <span className="px-6 py-3 rounded-2xl text-white text-2xl font-black uppercase tracking-wide shadow-2xl"
+                        style={{ background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)', animation: 'fadeInOut 0.9s ease forwards' }}>
+                        {avisoCat}
+                      </span>
+                    </div>
+                  )}
+                  <button onClick={volverCat}
                     className="shrink-0 flex items-center gap-2 px-4 py-3 text-cyan-400 text-sm font-semibold w-full border-b border-[var(--sala-brd)] hover:bg-[var(--sala-btn2)]/40">
                     ← {selectedSub ?? selectedCat}
                   </button>
@@ -2351,6 +2384,15 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                         {itemsDeCat(selectedCat).map(renderItemBtn)}
                       </div>
                     </>
+                  )}
+                  {/* Por si deslizar falla en el teléfono: el mismo paso con un toque */}
+                  {siguienteCat && (selectedSub || subcatsDe(selectedCat).length === 0) && (
+                    <div className="px-4 pb-4 flex justify-end">
+                      <button onClick={irASiguienteCat}
+                        className="px-4 py-2.5 rounded-xl text-sm font-black uppercase tracking-wide text-cyan-400 bg-[var(--sala-btn2)]/50 active:scale-95 transition-all">
+                        {siguienteCat} ›
+                      </button>
+                    </div>
                   )}
                   </div>
                 </div>
