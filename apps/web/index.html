@@ -36,6 +36,7 @@
           // iOS ignora user-scalable=no: el pellizco se corta aquí
           document.addEventListener('gesturestart', function (e) { e.preventDefault() }, { passive: false })
           document.documentElement.style.touchAction = 'manipulation' // sin zoom por doble toque
+          document.documentElement.style.overscrollBehaviorX = 'none' // en el navegador, deslizar de lado no cambia de página
         }
       })()
     </script>

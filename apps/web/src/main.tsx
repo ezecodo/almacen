@@ -10,6 +10,7 @@ import ProductosPage from './pages/ProductosPage'
 import EmpleadosPage from './pages/EmpleadosPage'
 import StatsPage from './pages/StatsPage'
 import AdminGuard from './components/AdminGuard'
+import BloquearAtras from './components/BloquearAtras'
 import PulsoGuard from './components/PulsoGuard'
 import PulsoPage from './pages/PulsoPage'
 import AdminLayout from './components/AdminLayout'
@@ -60,6 +61,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
+        <BloquearAtras />
         <Routes>
           <Route path="/" element={<InicioPage />} />
           <Route path="/entrar" element={<EntrarPage />} />
