@@ -366,6 +366,10 @@ Para cuando fallan los PADs (pasa seguido): una tablet en cualquier sitio del lo
 Registrar items no servidos o con queja. Motivos: `no_servido`, `queja_cliente`, `otro`.
 Una merma se puede restituir (deshacer) desde el panel de detalle de comanda del admin **y desde la app de sala**: sección "🗑 Mermas" al final de la pestaña Pedido del `ComandaPanel`, con botón "↩ Deshacer" por merma (`DELETE /mermas/:id` — el item vuelve a la comanda y se cobra normal; si la cuenta estaba impresa, marca `cuentaDesactualizada`).
 
+### Ver la cuenta antes de entregarla (2026-10-24)
+
+`VerCuentaModal` (lo abre "Imprimir cuenta"): platos en filas grandes, **🗑 merma** en cada línea (abre el `MermaModal` de siempre, que va encima: se monta después) y **"＋ Añadir algo que faltó"** — buscador en la carta que suma 1 con `directo: true` (ya servido: se cobra y no sale por cocina ni barra), para cualquier camarero. Un combinable entra solo, sin refresco. Si la cuenta ya estaba impresa, el cambio marca `cuentaDesactualizada` como cualquier otro.
+
 ### Cuenta desactualizada (reimprimir antes de cobrar)
 
 `Comanda.cuentaDesactualizada Boolean` — se enciende **en el backend** cuando cambian los items de una comanda `facturada`/`liberada` (merma → PATCH/DELETE item, invitación, restituir merma) y se apaga al volver a facturar (`PATCH /comandas/:id/facturar`). Mientras está encendido: `PATCH /comandas/:id/cerrar` devuelve 409, y en la UI el botón "Cobrar mesa" se reemplaza por **"🧾 Reimprimir cuenta"** (en `ComandaPanel` abre `VerCuentaModal` → "Entregar cuenta" re-factura; en la card de Cobros del panel 💼 abre la mesa) + aviso rojo "⚠️ La cuenta cambió después de imprimirse". Tras reimprimir, "Cobrar mesa" reaparece.

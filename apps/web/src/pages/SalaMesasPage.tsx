@@ -320,41 +320,114 @@ function AbrirMesaModal({ mesa, onConfirm, onMenuGrupo, onClose, reservas, onWal
 }
 
 // ── Modal ver cuenta (para el camarero, sin cobrar) ───────────────────────────
-function VerCuentaModal({ comanda, onClose, onFacturar }: { comanda: Comanda; onClose: () => void; onFacturar: () => void }) {
+// Ver la cuenta antes de entregarla. El camarero repasa lo cobrado y, si algo está mal, lo arregla
+// ahí mismo: 🗑 merma de una línea, o "＋ Añadir algo que faltó" (ya se sirvió: entra directo a la
+// cuenta, sin imprimirse en cocina ni barra). Si la cuenta ya estaba impresa, el cambio la marca para
+// reimprimir (cuentaDesactualizada), como cualquier otro cambio.
+function VerCuentaModal({ comanda, menu, getTipo, onMerma, onClose, onFacturar }: {
+  comanda: Comanda
+  menu: MenuItem[]
+  getTipo: (item: MenuItem) => 'cocina' | 'barra'
+  onMerma: (item: ComandaItem) => void
+  onClose: () => void
+  onFacturar: () => void
+}) {
+  const queryClient = useQueryClient()
   const total = totalComanda(comanda.items)
+  const [anadiendo, setAnadiendo] = useState(false)
+  const [buscar, setBuscar] = useState('')
+  const [aviso, setAviso] = useState<string | null>(null)
+  const q = normTxt(buscar.trim())
+  const resultados = q
+    ? menu.filter(m => m.activo && !m.ocultoEnCarta && (normTxt(m.nombre).includes(q) || normTxt(m.categoria).includes(q))).slice(0, 12)
+    : []
+  const anadir = useMutation({
+    mutationFn: (item: MenuItem) =>
+      api.comandas.addItem(comanda.id, { nombre: item.nombre, precio: item.precio, cantidad: 1, tipo: getTipo(item), directo: true }),
+    onSuccess: (_, item) => {
+      queryClient.invalidateQueries({ queryKey: ['comanda-sala', comanda.id] })
+      queryClient.invalidateQueries({ queryKey: ['comandas-sala'] })
+      setAviso(`✓ 1× ${item.nombre}`)
+      window.setTimeout(() => setAviso(null), 1800)
+    },
+  })
+
   return (
     <div className="fixed inset-0 bg-black/80 flex items-end sm:items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-[var(--sala-hdr)] w-full sm:max-w-sm rounded-t-3xl sm:rounded-2xl overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
-        <div className="px-5 pt-5 pb-3 border-b border-[var(--sala-brd)] flex items-center justify-between">
+      <div className="bg-[var(--sala-hdr)] w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl overflow-hidden shadow-2xl max-h-[94vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="px-5 pt-5 pb-3 border-b border-[var(--sala-brd)] flex items-center justify-between shrink-0">
           <div>
-            <h3 className="text-[var(--sala-txt)] font-bold text-lg">Mesa {comanda.mesa.numero}</h3>
-            <p className="text-[var(--sala-tx2)] text-sm">{comanda.pax} pax</p>
+            <h3 className="text-[var(--sala-txt)] font-black text-2xl">Mesa {comanda.mesa.numero}</h3>
+            <p className="text-[var(--sala-tx2)] text-sm">{comanda.pax} pax · revisa la cuenta antes de entregarla</p>
           </div>
-          <button onClick={onClose} className="text-[var(--sala-tx3)] text-xl">✕</button>
+          <button onClick={onClose} className="text-[var(--sala-tx3)] text-2xl">✕</button>
         </div>
-        <div className="px-5 py-4 space-y-2 max-h-64 overflow-y-auto">
+
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-1.5">
           {comanda.items.map(item => (
-            <div key={item.id} className="flex items-center justify-between gap-2">
-              <span className="text-[var(--sala-tx1)] text-sm min-w-0">
-                {item.cantidad > 1 && <span className="text-cyan-400 font-bold mr-1">{item.cantidad}×</span>}{item.nombre}
-                {item.invitacion && <span className="ml-1.5 text-xs bg-amber-500/15 text-amber-500 font-bold px-1.5 py-0.5 rounded whitespace-nowrap">🎁 Invitación</span>}
+            <div key={item.id} className="flex items-center gap-3 rounded-xl bg-[var(--sala-srf)] pl-3 pr-1.5 py-2">
+              <span className="w-8 shrink-0 text-right text-[#4CC8A0] text-lg font-black tabular-nums">{item.cantidad}</span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[var(--sala-txt)] text-lg font-bold leading-tight">{item.nombre}</span>
+                {(item.invitacion || item.autoGenerado) && (
+                  <span className="block text-xs mt-0.5">
+                    {item.invitacion && <span className="text-amber-500 font-bold mr-2">🎁 Invitación</span>}
+                    {item.autoGenerado && !item.invitacion && <span className="text-[var(--sala-tx3)]">🔇 sin cocina</span>}
+                  </span>
+                )}
               </span>
               {item.invitacion ? (
-                <span className="font-semibold text-sm shrink-0">
-                  <s className="text-[var(--sala-tx4)] mr-1.5">{(item.precio * item.cantidad).toFixed(2)}</s>
+                <span className="font-bold text-base shrink-0 tabular-nums">
+                  <s className="text-[var(--sala-tx4)] mr-1.5 text-sm">{(item.precio * item.cantidad).toFixed(2)}</s>
                   <span className="text-amber-500">0,00 €</span>
                 </span>
               ) : (
-                <span className="text-[var(--sala-txt)] font-semibold text-sm shrink-0">{(item.precio * item.cantidad).toFixed(2)} €</span>
+                <span className="text-[var(--sala-txt)] font-bold text-base shrink-0 tabular-nums">{(item.precio * item.cantidad).toFixed(2)} €</span>
               )}
+              <button onClick={() => onMerma(item)} aria-label={`Merma de ${item.nombre}`}
+                className="shrink-0 w-11 h-11 rounded-lg bg-[var(--sala-btn2)] text-lg active:scale-90 transition-transform">🗑</button>
             </div>
           ))}
+          {comanda.items.length === 0 && <p className="text-center text-[var(--sala-tx4)] py-6">La cuenta está vacía</p>}
+
+          {/* Algo que se sirvió y no se apuntó: entra directo a la cuenta, no se imprime */}
+          {!anadiendo ? (
+            <button onClick={() => setAnadiendo(true)}
+              className="w-full mt-2 py-3 rounded-xl border-2 border-dashed border-[var(--sala-brd2)] text-[var(--sala-tx2)] font-bold active:scale-[0.98] transition-transform">
+              ＋ Añadir algo que faltó
+            </button>
+          ) : (
+            <div className="mt-2 rounded-xl border border-[#4CC8A0]/50 bg-[#4CC8A0]/5 p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-[var(--sala-txt)] text-sm font-black">＋ Añadir algo que faltó</p>
+                <button onClick={() => { setAnadiendo(false); setBuscar('') }} className="text-[var(--sala-tx3)] text-sm">Listo</button>
+              </div>
+              <p className="text-[var(--sala-tx3)] text-xs">Ya se sirvió: entra a la cuenta y no sale por cocina ni barra.</p>
+              <input autoFocus value={buscar} onChange={e => setBuscar(e.target.value)} placeholder="Buscar: copa, agua, pan…"
+                className="w-full bg-[var(--sala-btn2)] text-[var(--sala-txt)] text-base rounded-lg px-3 py-2.5 outline-none placeholder:text-[var(--sala-tx4)]" />
+              {aviso && <p className="text-[#4CC8A0] text-sm font-black">{aviso}</p>}
+              <div className="space-y-1">
+                {resultados.map(m => (
+                  <button key={m.id} onClick={() => anadir.mutate(m)} disabled={anadir.isPending}
+                    className="w-full flex items-center justify-between gap-2 rounded-lg bg-[var(--sala-srf)] px-3 py-2.5 text-left active:scale-[0.98] transition-transform disabled:opacity-60">
+                    <span className="min-w-0">
+                      <span className="block text-[var(--sala-txt)] font-bold truncate">{m.nombre}</span>
+                      <span className="block text-[var(--sala-tx3)] text-xs truncate">{m.categoria}</span>
+                    </span>
+                    <span className="text-[var(--sala-tx2)] font-bold tabular-nums shrink-0">{m.precio.toFixed(2)} €</span>
+                  </button>
+                ))}
+                {q && resultados.length === 0 && <p className="text-[var(--sala-tx4)] text-sm py-2 text-center">Sin resultados</p>}
+              </div>
+            </div>
+          )}
         </div>
-        <div className="px-5 py-4 border-t border-[var(--sala-brd)] flex items-center justify-between">
+
+        <div className="px-5 py-3 border-t border-[var(--sala-brd)] flex items-center justify-between shrink-0">
           <span className="text-[var(--sala-tx2)] font-medium">Total</span>
-          <span className="text-[var(--sala-txt)] text-3xl font-black">{total.toFixed(2)} €</span>
+          <span className="text-[var(--sala-txt)] text-3xl font-black tabular-nums">{total.toFixed(2)} €</span>
         </div>
-        <div className="px-5 pb-5">
+        <div className="px-5 pb-5 shrink-0">
           <button onClick={onFacturar} className="w-full py-4 rounded-2xl bg-[#f59e0b] text-[var(--sala-txt)] font-bold text-lg">
             🧾 Entregar cuenta
           </button>
@@ -1032,14 +1105,15 @@ function FranjaAltos({ restaurantId }: { restaurantId: number }) {
   return (
     <>
       <button onClick={() => setVerLista(true)} aria-label="Ver los platos agotados"
-        className="shrink-0 h-12 w-full overflow-hidden flex items-center gap-3 px-4 text-white bg-red-600">
-        {/* key = vuelve a entrar desde abajo cada vez que cambia el plato (con uno solo, queda quieto) */}
+        className="relative shrink-0 h-12 w-full overflow-hidden flex items-center justify-center px-14 text-white bg-red-600">
+        {/* key = vuelve a entrar desde abajo cada vez que cambia el plato (con uno solo, queda quieto).
+            Centrado; el contador va aparte a la derecha para no descentrarlo */}
         <span key={agotados.length > 1 ? `${actual.menuItemId}-${paso}` : actual.menuItemId}
-          className="flex-1 min-w-0 text-left font-black uppercase tracking-wide truncate"
+          className="min-w-0 text-center font-black uppercase tracking-wide truncate"
           style={agotados.length > 1 ? { animation: 'altoSube 0.35s ease-out' } : undefined}>
           🚫 ALTO · {actual.menuItem.nombre}
         </span>
-        {agotados.length > 1 && <span className="shrink-0 text-sm font-bold tabular-nums opacity-80">{i + 1}/{agotados.length}</span>}
+        {agotados.length > 1 && <span className="absolute right-4 text-sm font-bold tabular-nums opacity-80">{i + 1}/{agotados.length}</span>}
       </button>
 
       {verLista && (
@@ -2630,6 +2704,9 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
         </div>
       )}
 
+      {/* Antes que la merma: así la ventana de merma sale encima de la cuenta */}
+      {verCuenta && <VerCuentaModal comanda={comanda} menu={menu} getTipo={getTipo} onMerma={setMermaItem}
+        onClose={() => setVerCuenta(false)} onFacturar={() => facturarComanda.mutate()} />}
       {mermaItem && (
         <MermaModal
           item={mermaItem}
@@ -2640,7 +2717,6 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
       )}
 
       {quienEsta && <QuienEstaSheet comanda={comanda} onClose={() => setQuienEsta(false)} />}
-      {verCuenta && <VerCuentaModal comanda={comanda} onClose={() => setVerCuenta(false)} onFacturar={() => facturarComanda.mutate()} />}
     </div>
   )
 }
@@ -6015,17 +6091,25 @@ function EncargadoPanel({
                   {verCobradas && <div className="space-y-1.5 mt-1.5">
                     {cobradasOrden.map(c => (
                       <button key={c.id} onClick={() => setVerCobrada(c)}
-                        className="w-full flex items-center gap-3 bg-[var(--sala-srf)] rounded-xl px-3 py-2.5 text-left active:scale-[0.99] transition-transform">
-                        <span className="w-12 shrink-0 text-center text-[var(--sala-txt)] text-xl font-black tabular-nums">{c.mesa.numero}</span>
-                        <span className="flex-1 min-w-0">
-                          <span className="block text-[var(--sala-tx2)] text-xs tabular-nums truncate">
-                            {c.closedAt ? fmtHora(c.closedAt) : ''} · {textoPago(c)}{c.propina > 0 ? ` · propina ${c.propina.toFixed(2)} €` : ''}
-                          </span>
-                          <span className="block text-[var(--sala-tx3)] text-xs truncate">
-                            {c.pax} pax{c.camareroNombre ? ` · ${c.camareroNombre.split(' ')[0]}` : ''}{(c.rectificativas?.length ?? 0) > 0 ? ` · 🧾 rectificada ${c.rectificativas!.reduce((t, r) => t + r.diferencia, 0).toFixed(2)} €` : (c.rectificaciones?.length ?? 0) > 0 ? ' · ✏️ corregida' : ''}
-                          </span>
+                        className="w-full flex items-center gap-2.5 bg-[var(--sala-srf)] rounded-xl p-2 text-left active:scale-[0.99] transition-transform">
+                        {/* Mesa y hora de cobro, grandes: es lo que el encargado busca con la vista */}
+                        <span className="shrink-0 min-w-16 rounded-xl px-2 py-1.5 flex flex-col items-center justify-center bg-[#4CC8A0]/15 border border-[#4CC8A0]/40">
+                          <span className="text-[9px] font-black uppercase tracking-widest text-[#4CC8A0]/80 leading-none">Mesa</span>
+                          <span className="text-3xl font-black tabular-nums leading-none mt-0.5 text-[var(--sala-txt)]">{c.mesa.numero}</span>
                         </span>
-                        <span className="text-[var(--sala-txt)] font-black tabular-nums shrink-0">{totalDe(c).toFixed(2)} €</span>
+                        <span className="shrink-0 rounded-xl px-2 py-1.5 flex flex-col items-center justify-center bg-[var(--sala-btn2)]">
+                          <span className="text-[9px] font-black uppercase tracking-widest text-[var(--sala-tx3)] leading-none">Cobrada</span>
+                          <span className="text-2xl font-black tabular-nums leading-none mt-0.5 text-[var(--sala-txt)]">{c.closedAt ? fmtHora(c.closedAt) : '—'}</span>
+                        </span>
+                        <span className="flex-1 min-w-0">
+                          <span className="block text-[var(--sala-txt)] text-base font-black tabular-nums">{totalDe(c).toFixed(2)} €</span>
+                          <span className="block text-[var(--sala-tx2)] text-[11px] truncate">
+                            {textoPago(c)}{c.propina > 0 ? ` · +${c.propina.toFixed(2)}` : ''} · {c.pax} pax{c.camareroNombre ? ` · ${c.camareroNombre.split(' ')[0]}` : ''}
+                          </span>
+                          {(c.rectificativas?.length ?? 0) > 0
+                            ? <span className="block text-rose-400 text-[11px] font-bold truncate">🧾 rectificada {c.rectificativas!.reduce((t, r) => t + r.diferencia, 0).toFixed(2)} €</span>
+                            : (c.rectificaciones?.length ?? 0) > 0 && <span className="block text-[var(--sala-tx3)] text-[11px] truncate">✏️ corregida</span>}
+                        </span>
                       </button>
                     ))}
                   </div>}
@@ -6671,12 +6755,14 @@ function PanelEncargadoTpv({ restaurantId, comandas, turnoActivo, onAbrirMesa, o
     <div key={c.id} onClick={() => setVerCobrada(c)}
       style={{ background: coloresMesa('cerrada', isDark).bg, borderColor: coloresMesa('cerrada', isDark).borde }}
       className="rounded-md p-3 flex flex-col gap-1 cursor-pointer active:scale-[0.98] transition-transform opacity-70 border-2 hover:opacity-100">
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="text-xl font-black" style={{ color: coloresMesa('cerrada', isDark).texto }}>Mesa {c.mesa.numero}</span>
-        <span className="text-[var(--sala-txt)] text-lg font-black tabular-nums">{eur(totalComanda(c.items))}</span>
+      {/* Mesa y hora de cobro, grandes: es lo que el encargado busca con la vista */}
+      <div className="flex items-baseline gap-3">
+        <span className="text-3xl font-black tabular-nums leading-none" style={{ color: coloresMesa('cerrada', isDark).texto }}>{c.mesa.numero}</span>
+        <span className="text-2xl font-black tabular-nums leading-none text-[var(--sala-txt)]">{c.closedAt ? fmtHora(c.closedAt) : ''}</span>
+        <span className="ml-auto text-[var(--sala-txt)] text-lg font-black tabular-nums">{eur(totalComanda(c.items))}</span>
       </div>
       <p className="text-[var(--sala-tx2)] text-xs tabular-nums">
-        ✅ cobrada {c.closedAt ? fmtHora(c.closedAt) : ''} · {textoPago(c).toLowerCase()}{c.propina > 0 ? ` · propina ${eur(c.propina)}` : ''}
+        {textoPago(c)}{c.propina > 0 ? ` · propina ${eur(c.propina)}` : ''}
       </p>
       <p className="text-[var(--sala-tx3)] text-xs">{c.pax} pax{c.camareroNombre ? ` · ${c.camareroNombre.split(' ')[0]}` : ''}{c.mermas.length ? ` · 🗑 ${c.mermas.length}` : ''}{(c.rectificativas?.length ?? 0) > 0 ? ' · 🧾 rectificada' : (c.rectificaciones?.length ?? 0) > 0 ? ' · ✏️ corregida' : ''}</p>
     </div>
