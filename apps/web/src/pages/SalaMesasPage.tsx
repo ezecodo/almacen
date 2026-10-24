@@ -1257,7 +1257,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
   const { data: accesosIds = [] } = useQuery({
     queryKey: ['accesos-rapidos', comanda.restaurantId],
     queryFn: () => api.accesosRapidos.sala(comanda.restaurantId),
-    staleTime: 10 * 60_000,
+    staleTime: 0, // se pide al abrir cada mesa (es barato: lo más vendido lo cachea la API)
   })
   // ⚠️ Alergias de la mesa: "alguien es alérgico a…" marca en la carta de comida lo que no puede
   // comer y sale en los tickets (COM: ALÉRGICO: …). Se guarda en la comanda.
@@ -1638,24 +1638,23 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
     const isPending = qtyPending?.id === item.id
     const barra = esGrupoBarra(catMeta[catTop(item.categoria)]?.grupo ?? '')
     if (agotadoIds.has(item.id)) return (
-      <div key={item.id} aria-disabled className="h-20 rounded-2xl px-1.5 flex flex-col items-center justify-center bg-[var(--sala-srf)] opacity-40 select-none">
-        <span className="text-[var(--sala-txt)] text-sm font-black uppercase leading-tight line-through text-center line-clamp-2">{item.nombre}</span>
-        <span className="text-red-400 text-[10px] font-black tracking-wider">AGOTADO</span>
+      <div key={item.id} aria-disabled className="h-11 rounded-xl px-1 flex flex-col items-center justify-center bg-[var(--sala-srf)] opacity-40 select-none">
+        <span className="text-[var(--sala-txt)] text-[11px] font-black uppercase leading-tight line-through text-center line-clamp-1">{item.nombre}</span>
+        <span className="text-red-400 text-[9px] font-black tracking-wider">AGOTADO</span>
       </div>
     )
     return (
       <button key={item.id} onClick={() => tapItem(item)}
         onPointerDown={() => startLongPress(item)} onPointerUp={cancelLongPress} onPointerLeave={cancelLongPress}
         onTouchMove={cancelLongPress} onContextMenu={e => e.preventDefault()}
-        className={`h-20 rounded-2xl px-1.5 flex items-center justify-center text-center relative overflow-hidden select-none active:scale-95 transition-all border-2 ${
+        className={`h-11 rounded-xl px-1 flex items-center justify-center text-center relative overflow-hidden select-none active:scale-95 transition-all border ${
           isPending ? 'border-[#4CC8A0] bg-[var(--sala-srf2)]'
           : barra ? 'border-amber-600/25 bg-amber-500/[0.08]'
           : 'border-[var(--sala-brd)]/50 bg-[var(--sala-srf)]'} ${chocaCon(item).length > 0 && !isPending ? 'opacity-50' : ''}`}>
-        <span className={`text-[var(--sala-txt)] font-black uppercase leading-tight break-words line-clamp-3 ${
-          item.nombre.split(/\s+/).some(w => w.length >= 9) ? 'text-[13px]' : 'text-base'}`}>{item.nombre}</span>
-        {item.combinable && !isPending && <span className="absolute bottom-1 right-1.5 text-[10px] text-[var(--sala-tx3)] font-bold">🥤+</span>}
+        <span className={`text-[var(--sala-txt)] font-black uppercase leading-tight break-words line-clamp-2 ${
+          item.nombre.split(/\s+/).some(w => w.length >= 9) ? 'text-[10px]' : 'text-xs'}`}>{item.nombre}</span>
         {isPending && (
-          <span className="absolute top-1 right-1 min-w-7 h-7 px-1.5 rounded-full bg-[#4CC8A0] text-white font-black text-sm flex items-center justify-center">{qtyPending!.qty}×</span>
+          <span className="absolute top-0.5 right-0.5 min-w-5 h-5 px-1 rounded-full bg-[#4CC8A0] text-white font-black text-[11px] flex items-center justify-center">{qtyPending!.qty}×</span>
         )}
       </button>
     )
@@ -2281,15 +2280,19 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                   </div>
                 </div>
               ) : (
-                /* ── Nivel 1: tiles de grupo (COMIDA / BEBIDAS / VINOS), centrados en vertical ── */
-                <div className="flex-1 overflow-y-auto p-3 flex flex-col">
-                <div className="my-auto space-y-3">
-                  {accesosRapidos.length > 0 && (
-                    <div className="pb-2">
-                      <p className="text-[var(--sala-tx3)] text-[11px] font-black uppercase tracking-wider mb-1.5 px-1">⚡ Rápido</p>
-                      <div className="grid grid-cols-3 gap-2">{accesosRapidos.map(tileRapido)}</div>
-                    </div>
-                  )}
+                /* ── Nivel 1: tiles de grupo (COMIDA / BEBIDAS / VINOS), centrados en vertical ──
+                   Tres filas: las de arriba y abajo miden lo mismo (1fr), así los grupos quedan en el
+                   centro de la pantalla; los accesos rápidos van en el hueco de arriba, pegados a ellos */
+                <div className="flex-1 overflow-y-auto p-3 grid grid-rows-[1fr_auto_1fr]">
+                  <div className="self-end pb-4">
+                    {accesosRapidos.length > 0 && (
+                      <>
+                        <p className="text-[var(--sala-tx3)] text-[10px] font-black uppercase tracking-wider mb-1 px-1">⚡ Rápido</p>
+                        <div className="grid grid-cols-3 gap-1.5">{accesosRapidos.map(tileRapido)}</div>
+                      </>
+                    )}
+                  </div>
+                <div className="space-y-3">
                   {grupos.map(g => {
                     const esBarra = esGrupoBarra(g)
                     const nCats = categorias.filter(c => (c.grupo || 'Otros') === g).length
