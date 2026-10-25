@@ -247,12 +247,20 @@ function MesaBtn({ mesa, comanda, pendienteCobro = false, onClick }: { mesa: Mes
 // ── Modal abrir mesa ──────────────────────────────────────────────────────────
 // Encargado: en vez de "Abrir mesa" elige 🚶 Walk-in (queda en el libro de reservas del día) o
 // 📅 Tiene reserva (lista de las de hoy sin sentar → se sienta esa). El camarero abre como siempre.
+// Mesa que son dos juntas (la 2 y la 3): con los pax de una mitad se separa al abrir, y [2] [3]
+// dice en cuál se sientan (por defecto la 2; si llegaron primero los de la 3, se toca 3).
 function AbrirMesaModal({ mesa, onConfirm, onMenuGrupo, onClose, reservas, onWalkin, onReserva }: {
-  mesa: Mesa; onConfirm: (pax: number) => void; onMenuGrupo?: (pax: number) => void; onClose: () => void
-  reservas?: Reserva[]; onWalkin?: (pax: number) => void; onReserva?: (reserva: Reserva, pax: number) => void
+  mesa: Mesa; onConfirm: (pax: number, enPareja?: boolean) => void; onMenuGrupo?: (pax: number) => void; onClose: () => void
+  reservas?: Reserva[]; onWalkin?: (pax: number, enPareja?: boolean) => void; onReserva?: (reserva: Reserva, pax: number) => void
 }) {
   const [pax, setPax] = useState(2)
   const [paxTocado, setPaxTocado] = useState(false)
+  const [elegida, setElegida] = useState<'entera' | 'pareja'>('entera')
+  const paxPareja = mesa.separable ? mesa.paxPareja ?? 0 : 0
+  const paxEntera = Math.max(1, mesa.capacidad - paxPareja)
+  const cabeEntera = pax <= paxEntera, cabePareja = pax <= paxPareja
+  const conMitades = cabeEntera || cabePareja
+  const enPareja = conMitades && cabePareja && (elegida === 'pareja' || !cabeEntera)
   const [eligiendoReserva, setEligiendoReserva] = useState(false)
   const cambiarPax = (n: number) => { setPax(n); setPaxTocado(true) }
 
@@ -304,11 +312,27 @@ function AbrirMesaModal({ mesa, onConfirm, onMenuGrupo, onClose, reservas, onWal
           <span className="flex-1 text-center text-[var(--sala-txt)] text-5xl font-bold">{pax}</span>
           <button onClick={() => cambiarPax(pax + 1)} className="w-14 h-14 rounded-xl bg-[var(--sala-btn)] text-[var(--sala-txt)] text-3xl hover:bg-gray-600">+</button>
         </div>
+        {mesa.separable && conMitades && (
+          <div className="-mt-4 mb-6">
+            <p className="text-[var(--sala-tx3)] text-xs font-bold text-center mb-2">¿En cuál se sientan?</p>
+            <div className="flex gap-3">
+              {([['entera', mesa.numero, cabeEntera], ['pareja', mesa.pareja, cabePareja]] as const).map(([lado, num, cabe]) => {
+                const activa = (lado === 'pareja') === enPareja
+                return (
+                  <button key={lado} disabled={!cabe} onClick={() => setElegida(lado)}
+                    className={`flex-1 py-3 rounded-xl text-3xl font-black border-2 transition-colors disabled:opacity-30 ${activa ? 'border-[#4CC8A0] bg-[#4CC8A0]/15 text-[var(--sala-txt)]' : 'border-transparent bg-[var(--sala-btn)] text-[var(--sala-tx2)]'}`}>
+                    {num}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
         <div className="flex gap-3">
           <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-[var(--sala-btn)] text-[var(--sala-tx1)] font-medium">Cancelar</button>
           {onWalkin
-            ? <button onClick={() => onWalkin(pax)} className="flex-1 py-3 rounded-xl bg-[#4CC8A0] text-[var(--sala-txt)] font-bold">🚶 Walk-in</button>
-            : <button onClick={() => onConfirm(pax)} className="flex-1 py-3 rounded-xl bg-[#4CC8A0] text-[var(--sala-txt)] font-bold">Abrir mesa</button>}
+            ? <button onClick={() => onWalkin(pax, enPareja)} className="flex-1 py-3 rounded-xl bg-[#4CC8A0] text-[var(--sala-txt)] font-bold">🚶 Walk-in</button>
+            : <button onClick={() => onConfirm(pax, enPareja)} className="flex-1 py-3 rounded-xl bg-[#4CC8A0] text-[var(--sala-txt)] font-bold">Abrir mesa</button>}
         </div>
         {onReserva && (
           <button onClick={() => setEligiendoReserva(true)}
@@ -7061,8 +7085,8 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
   }, [planes])
 
   const abrirComanda = useMutation({
-    mutationFn: ({ mesaId, pax, walkin }: { mesaId: number; pax: number; walkin?: boolean }) =>
-      api.comandas.abrir(restaurant!.id, mesaId, pax, camarero?.nombre, walkin),
+    mutationFn: ({ mesaId, pax, walkin, enPareja }: { mesaId: number; pax: number; walkin?: boolean; enPareja?: boolean }) =>
+      api.comandas.abrir(restaurant!.id, mesaId, pax, camarero?.nombre, walkin, enPareja),
     onSuccess: (comanda, { walkin }) => {
       setAbrirMesa(null)
       setComandaAbierta(comanda.id)
@@ -7265,7 +7289,7 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
   // TPV: abrir una mesa tecleando (teclado físico o numérico Bluetooth). Con alguien logueado y sin
   // ninguna ventana abierta: se teclea el número de mesa y Enter; si está ocupada se abre, si está
   // libre pide los PAX y Enter. Lo tecleado se ve en el visor de abajo. ⌫ borra, Esc cancela.
-  const [atajo, setAtajo] = useState<{ paso: 'mesa' | 'pax'; mesa: string; pax: string; mesaId?: number; error?: string } | null>(null)
+  const [atajo, setAtajo] = useState<{ paso: 'mesa' | 'pax'; mesa: string; pax: string; mesaId?: number; enPareja?: boolean; error?: string } | null>(null)
   const teclaAtajo = useRef<(e: KeyboardEvent) => void>(() => {})
   teclaAtajo.current = e => {
     const libreDeVentanas = !comandaAbierta && !abrirMesa && !menuGrupo && !showEncargado && !cobroPanel && !showPerfil
@@ -7295,16 +7319,18 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
     if (e.key === 'Enter' || e.code === 'NumpadEnter') {
       e.preventDefault()
       if (atajo.paso === 'mesa') {
-        const mesa = todasLasMesas.find(m => String(m.numero) === atajo.mesa && m.tipo !== 'barra' && !isElemDeco(m.tipo))
+        // La 3 escondida dentro de la 2 (juntas): se abre la 2 sentándolos en la 3
+        const junta = todasLasMesas.find(m => m.separable && String(m.pareja) === atajo.mesa)
+        const mesa = todasLasMesas.find(m => String(m.numero) === atajo.mesa && m.tipo !== 'barra' && !isElemDeco(m.tipo)) ?? junta
         if (!mesa) { setAtajo({ ...atajo, error: `La mesa ${atajo.mesa} no existe` }); return }
         const comanda = comandaByMesa(mesa.id)
         if (comanda) { setComandaAbierta(comanda.id); setAtajo(null); return }
-        setAtajo({ paso: 'pax', mesa: atajo.mesa, pax: '', mesaId: mesa.id })
+        setAtajo({ paso: 'pax', mesa: atajo.mesa, pax: '', mesaId: mesa.id, enPareja: mesa === junta })
         return
       }
       const pax = Number(atajo.pax)
       if (!pax) { setAtajo({ ...atajo, error: '¿Cuántos PAX?' }); return }
-      abrirComanda.mutate({ mesaId: atajo.mesaId!, pax })
+      abrirComanda.mutate({ mesaId: atajo.mesaId!, pax, enPareja: atajo.enPareja })
       setAtajo(null)
     }
   }
@@ -7639,10 +7665,10 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
 
       {abrirMesa && (
         <AbrirMesaModal mesa={abrirMesa} onClose={() => setAbrirMesa(null)}
-          onConfirm={pax => abrirComanda.mutate({ mesaId: abrirMesa.id, pax })}
+          onConfirm={(pax, enPareja) => abrirComanda.mutate({ mesaId: abrirMesa.id, pax, enPareja })}
           {...(esEncargado && !enLocal ? {
             reservas: reservasHoyMapa,
-            onWalkin: (pax: number) => abrirComanda.mutate({ mesaId: abrirMesa.id, pax, walkin: true }),
+            onWalkin: (pax: number, enPareja?: boolean) => abrirComanda.mutate({ mesaId: abrirMesa.id, pax, walkin: true, enPareja }),
             onReserva: (reserva: Reserva, pax: number) => sentarReserva.mutate({ reserva, mesaId: abrirMesa.id, pax }),
           } : {})}
           onMenuGrupo={pax => { setMenuGrupo({ mesa: abrirMesa, pax }); setAbrirMesa(null) }} />

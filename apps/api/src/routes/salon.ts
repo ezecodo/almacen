@@ -43,7 +43,7 @@ const SQUARE_SIZE = 80, RECT_W = 160, RECT_H = 80, HUECO = 10 // el hueco de la 
 const TIPOS_SEPARABLES = ['round', 'square', 'rectangular']
 
 type MesaConMitad = Mesa & { mitad: Mesa | null }
-export type MesaVista = Mesa & { separable?: boolean; pareja?: number }
+export type MesaVista = Mesa & { separable?: boolean; pareja?: number; paxPareja?: number }
 
 function partir(entera: Mesa, mitad: Mesa): [MesaVista, MesaVista] {
   const rect = entera.tipo === 'rectangular'
@@ -89,7 +89,7 @@ function mesasVisibles(mesas: MesaConMitad[]): MesaVista[] {
     if (m.parteDeId) continue // sale con su mesa entera
     if (!mitad) { r.push(m); continue }
     if (m.separada) r.push(...partir(m, mitad))
-    else r.push({ ...m, separable: true, pareja: mitad.numero })
+    else r.push({ ...m, separable: true, pareja: mitad.numero, paxPareja: mitad.capacidad })
   }
   return r.sort((a, b) => a.numero - b.numero)
 }
@@ -110,12 +110,15 @@ async function juntar(entera: Mesa, mitadId: number) {
 
 // Al abrir la mesa entera con los pax de una mitad (1 o 2 en una de 4), se separa: la gente se
 // queda en esta y la otra mitad aparece libre al lado. Con más pax se abre entera.
-// Devuelve si se separó (el aviso 'salon' va después de guardar).
-export async function separarAlAbrir(tx: Prisma.TransactionClient, mesaId: number, pax: number) {
+// enPareja: llegaron primero los de la otra mitad (la 3) → se quedan ellos y la 2 queda libre.
+// Devuelve en qué mesa se abre y si se separó (el aviso 'salon' va después de guardar).
+export async function separarAlAbrir(tx: Prisma.TransactionClient, mesaId: number, pax: number, enPareja = false) {
   const m = await tx.mesa.findUnique({ where: { id: mesaId }, include: { mitad: true } })
-  if (!m?.mitad || m.separada || pax > Math.max(1, m.capacidad - m.mitad.capacidad)) return false
+  if (!m?.mitad || m.separada) return { mesaId, separada: false }
+  const pareja = enPareja && pax <= m.mitad.capacidad
+  if (!pareja && pax > Math.max(1, m.capacidad - m.mitad.capacidad)) return { mesaId, separada: false }
   await tx.mesa.update({ where: { id: m.id }, data: { separada: true } })
-  return true
+  return { mesaId: pareja ? m.mitad.id : mesaId, separada: true }
 }
 
 // Cuando las dos mitades quedan libres (y al cerrar el turno), vuelven a juntarse

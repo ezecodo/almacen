@@ -318,6 +318,7 @@ export interface Mesa {
   separable?: boolean
   separada?:  boolean
   pareja?:    number
+  paxPareja?: number // pax de la otra mitad (mesa junta)
   parteDeId?: number | null
   mitad?:     Mesa | null // solo en el editor del admin
 }
@@ -1357,8 +1358,9 @@ export const api = {
     list:      (restaurantId: number, estado?: string, desde?: string) =>
       get<Comanda[]>(`/comandas?restaurantId=${restaurantId}${estado ? `&estado=${estado}` : ''}${desde ? `&desde=${encodeURIComponent(desde)}` : ''}`),
     // walkin: el encargado sentó gente sin reserva (queda en el libro de reservas del día)
-    abrir:     (restaurantId: number, mesaId: number, pax: number, camareroNombre?: string, walkin?: boolean) =>
-      post<Comanda>('/comandas', { restaurantId, mesaId, pax, camareroNombre, walkin }),
+    // enPareja: mesa que son dos juntas (la 2 y la 3) y llegaron primero los de la 3
+    abrir:     (restaurantId: number, mesaId: number, pax: number, camareroNombre?: string, walkin?: boolean, enPareja?: boolean) =>
+      post<Comanda>('/comandas', { restaurantId, mesaId, pax, camareroNombre, walkin, enPareja }),
     get:       (id: number) => get<Comanda>(`/comandas/${id}`),
     // Al salir de una mesa abierta sin pedir nada vuelve a quedar libre (el servidor decide si está vacía)
     liberarSiVacia: (id: number) => del(`/comandas/${id}/vacia`),

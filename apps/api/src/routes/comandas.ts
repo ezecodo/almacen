@@ -185,7 +185,8 @@ export async function comandaRoutes(app: FastifyInstance) {
   app.post('/comandas', async (req, reply) => {
     // walkin: el encargado sentó gente sin reserva — queda apuntado en el libro de reservas del día
     // (sin nombre ni teléfono). Solo cuenta si lo pide un encargado; sin internet no se apunta.
-    const { restaurantId, mesaId, pax, camareroNombre, walkin } = req.body as { restaurantId: number; mesaId: number; pax: number; camareroNombre?: string; walkin?: boolean }
+    const { restaurantId, pax, camareroNombre, walkin, enPareja } = req.body as { restaurantId: number; mesaId: number; pax: number; camareroNombre?: string; walkin?: boolean; enPareja?: boolean }
+    let { mesaId } = req.body as { mesaId: number }
     if (!restaurantId || !mesaId || !pax) return reply.status(400).send({ error: 'restaurantId, mesaId y pax requeridos' })
 
     // Verificar que la mesa no tenga ya una comanda abierta
@@ -200,7 +201,7 @@ export async function comandaRoutes(app: FastifyInstance) {
     // En la misma transacción que la comanda, para que nada la vuelva a juntar entre medio.
     let separada = false
     const comanda = await prisma.$transaction(async tx => {
-      if (!MODO_LOCAL) separada = await separarAlAbrir(tx, mesaId, pax)
+      if (!MODO_LOCAL) ({ mesaId, separada } = await separarAlAbrir(tx, mesaId, pax, enPareja))
       return tx.comanda.create({
       data: {
         restaurantId, mesaId, pax, estado: 'abierta', camareroNombre: camareroNombre ?? null,
