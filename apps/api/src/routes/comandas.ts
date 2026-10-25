@@ -2,11 +2,20 @@ import { FastifyInstance } from 'fastify'
 import { Prisma, ComandaItem } from '@prisma/client'
 import { z } from 'zod'
 import { prisma } from '../server'
-import { broadcast } from '../sse'
+import { broadcast as avisar } from '../sse'
+import { juntarMesasLibres, separarAlAbrir } from './salon'
 import { publicarTicket, DestinoImpresion } from '../mqtt'
 import { MODO_LOCAL } from '../local'
 import { ahoraEnMadrid, diaDeServicio } from '../dia-servicio'
 import { cierreDeDivision, divisionSchema, totalCobrable } from '../pago'
+
+// Cada cambio de una comanda puede dejar libre la mitad de una mesa separada (se cobró, se liberó,
+// se cambió de mesa…): si las dos quedan libres, vuelven a juntarse. Sin internet la Box no toca
+// el salón (lo manda la nube).
+function broadcast(restaurantId: number, type: string) {
+  avisar(restaurantId, type)
+  if (type === 'update' && !MODO_LOCAL) juntarMesasLibres(restaurantId).catch(() => {})
+}
 
 // Lo que ve la sala de la reserva de una mesa: 📅 reserva / 🚶 walk-in en el mapa y en la cabecera
 const reservaDeMesa = { select: { id: true, origen: true, nombre: true, hora: true, notas: true } } as const
@@ -187,7 +196,12 @@ export async function comandaRoutes(app: FastifyInstance) {
       where: { restaurantId, autoPorPax: true, activo: true },
     })
 
-    const comanda = await prisma.comanda.create({
+    // La 2 que son la 2 y la 3 juntas: con 1 o 2 pax se separa sola y la 3 queda libre al lado.
+    // En la misma transacción que la comanda, para que nada la vuelva a juntar entre medio.
+    let separada = false
+    const comanda = await prisma.$transaction(async tx => {
+      if (!MODO_LOCAL) separada = await separarAlAbrir(tx, mesaId, pax)
+      return tx.comanda.create({
       data: {
         restaurantId, mesaId, pax, estado: 'abierta', camareroNombre: camareroNombre ?? null,
         items: autoItems.length > 0 ? {
@@ -205,6 +219,8 @@ export async function comandaRoutes(app: FastifyInstance) {
       },
       include: { items: true, mesa: true },
     })
+    })
+    if (separada) avisar(restaurantId, 'salon')
     if (walkin && !MODO_LOCAL && (req.user?.encargado || req.user?.tipo === 'admin')) {
       // Hora real de llegada, pero en el libro del día de servicio (un walk-in a las 00:30 es de esta noche)
       const { hora } = ahoraEnMadrid()

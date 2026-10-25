@@ -57,7 +57,6 @@ export const RUTAS_SALA = new Set([
   'GET /api/events', 'GET /api/events/global',
   // mesas y comandas
   'GET /api/salon', 'GET /api/turnos/activo',
-  'PATCH /api/salon/mesas/:id/separar', 'PATCH /api/salon/mesas/:id/juntar', // la 2 son la 2 y la 3 juntas
   'GET /api/comandas', 'GET /api/comandas/:id', 'POST /api/comandas', 'POST /api/comandas/merge',
   'POST /api/comandas/:id/items', 'PATCH /api/comandas/:id/items/:itemId', 'DELETE /api/comandas/:id/items/:itemId',
   'PATCH /api/comandas/:id/enviar', 'PATCH /api/comandas/:id/facturar', 'PATCH /api/comandas/:id/liberar',

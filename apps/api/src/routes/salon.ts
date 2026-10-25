@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../server'
-import type { Mesa } from '@prisma/client'
+import type { Mesa, Prisma } from '@prisma/client'
 import { broadcast } from '../sse'
 import { diaDeServicio } from '../dia-servicio'
 
@@ -108,7 +108,17 @@ async function juntar(entera: Mesa, mitadId: number) {
   ])
 }
 
-// Al cerrar el turno: las mesas que quedaron separadas y libres vuelven a juntarse
+// Al abrir la mesa entera con los pax de una mitad (1 o 2 en una de 4), se separa: la gente se
+// queda en esta y la otra mitad aparece libre al lado. Con más pax se abre entera.
+// Devuelve si se separó (el aviso 'salon' va después de guardar).
+export async function separarAlAbrir(tx: Prisma.TransactionClient, mesaId: number, pax: number) {
+  const m = await tx.mesa.findUnique({ where: { id: mesaId }, include: { mitad: true } })
+  if (!m?.mitad || m.separada || pax > Math.max(1, m.capacidad - m.mitad.capacidad)) return false
+  await tx.mesa.update({ where: { id: m.id }, data: { separada: true } })
+  return true
+}
+
+// Cuando las dos mitades quedan libres (y al cerrar el turno), vuelven a juntarse
 export async function juntarMesasLibres(restaurantId: number) {
   const separadas = await prisma.mesa.findMany({
     where: { separada: true, floorPlan: { restaurantId } }, include: { mitad: true },
@@ -139,45 +149,6 @@ export async function salonRoutes(app: FastifyInstance) {
     // El editor del admin ve las filas tal cual (la mitad escondida va dentro de su mesa)
     if (editar) return planes.map(p => ({ ...p, mesas: p.mesas.filter(m => !m.parteDeId) }))
     return planes.map(p => ({ ...p, mesas: mesasVisibles(p.mesas) }))
-  })
-
-  // Mesa de la sesión de sala: tiene que ser del local donde está el dispositivo
-  async function enteraDe(req: { user: { tipo: string; restaurantId?: number } }, id: number) {
-    const m = await prisma.mesa.findUnique({ where: { id }, include: { floorPlan: true } })
-    if (!m) return { ok: false as const, error: 404, msg: 'Mesa no encontrada' }
-    const entera = m.parteDeId
-      ? await prisma.mesa.findUnique({ where: { id: m.parteDeId }, include: { floorPlan: true, mitad: true } })
-      : await prisma.mesa.findUnique({ where: { id }, include: { floorPlan: true, mitad: true } })
-    if (!entera?.mitad) return { ok: false as const, error: 409, msg: 'Esta mesa no se puede separar' }
-    if (req.user.tipo === 'sala' && req.user.restaurantId !== entera.floorPlan.restaurantId) {
-      return { ok: false as const, error: 403, msg: 'La mesa es de otro local' }
-    }
-    return { ok: true as const, entera, mitad: entera.mitad }
-  }
-
-  // Separar la 2 en la 2 y la 3 (cualquier camarero, con la mesa libre)
-  app.patch('/salon/mesas/:id/separar', async (req, reply) => {
-    const r = await enteraDe(req, Number((req.params as { id: string }).id))
-    if (!r.ok) return reply.status(r.error).send({ error: r.msg })
-    if (r.entera.separada) return { ok: true }
-    if (await ocupadas([r.entera.id])) return reply.status(409).send({ error: `La ${r.entera.numero} tiene gente: libérala antes de separarla` })
-    await prisma.mesa.update({ where: { id: r.entera.id }, data: { separada: true } })
-    broadcast(r.entera.floorPlan.restaurantId, 'salon')
-    return { ok: true }
-  })
-
-  // Volver a juntarlas (las dos libres)
-  app.patch('/salon/mesas/:id/juntar', async (req, reply) => {
-    const r = await enteraDe(req, Number((req.params as { id: string }).id))
-    if (!r.ok) return reply.status(r.error).send({ error: r.msg })
-    if (!r.entera.separada) return { ok: true }
-    if (await ocupadas([r.entera.id, r.mitad.id])) {
-      return reply.status(409).send({ error: `Para juntarlas, la ${r.entera.numero} y la ${r.mitad.numero} tienen que estar libres` })
-    }
-    await juntar(r.entera, r.mitad.id)
-    broadcast(r.entera.floorPlan.restaurantId, 'salon')
-    broadcast(r.entera.floorPlan.restaurantId, 'update') // reservas que pasaron a la mesa entera
-    return { ok: true }
   })
 
   // Admin: hacer separable una mesa (o cambiar el número / los pax de la otra mitad)

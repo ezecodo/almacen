@@ -247,21 +247,11 @@ function MesaBtn({ mesa, comanda, pendienteCobro = false, onClick }: { mesa: Mes
 // ── Modal abrir mesa ──────────────────────────────────────────────────────────
 // Encargado: en vez de "Abrir mesa" elige 🚶 Walk-in (queda en el libro de reservas del día) o
 // 📅 Tiene reserva (lista de las de hoy sin sentar → se sienta esa). El camarero abre como siempre.
-// separarJuntar: la mesa se separa (la 2 son la 2 y la 3 juntas) → botón "Separar" o "Juntar"
-function AbrirMesaModal({ mesa, onConfirm, onMenuGrupo, onClose, reservas, onWalkin, onReserva, separarJuntar }: {
+function AbrirMesaModal({ mesa, onConfirm, onMenuGrupo, onClose, reservas, onWalkin, onReserva }: {
   mesa: Mesa; onConfirm: (pax: number) => void; onMenuGrupo?: (pax: number) => void; onClose: () => void
   reservas?: Reserva[]; onWalkin?: (pax: number) => void; onReserva?: (reserva: Reserva, pax: number) => void
-  separarJuntar?: { texto: string; aviso?: string; accion: () => Promise<unknown> }
 }) {
   const [pax, setPax] = useState(2)
-  const [cambiando, setCambiando] = useState(false)
-  const [errorCambio, setErrorCambio] = useState<string | null>(null)
-  const cambiarMesa = async () => {
-    if (!separarJuntar || cambiando) return
-    setCambiando(true); setErrorCambio(null)
-    try { await separarJuntar.accion(); onClose() }
-    catch (e) { setErrorCambio(e instanceof Error ? e.message : 'No se pudo'); setCambiando(false) }
-  }
   const [paxTocado, setPaxTocado] = useState(false)
   const [eligiendoReserva, setEligiendoReserva] = useState(false)
   const cambiarPax = (n: number) => { setPax(n); setPaxTocado(true) }
@@ -332,17 +322,6 @@ function AbrirMesaModal({ mesa, onConfirm, onMenuGrupo, onClose, reservas, onWal
             className="w-full mt-3 py-3 rounded-xl border-2 border-indigo-400/60 bg-indigo-500/10 text-indigo-300 font-bold active:scale-95 transition-transform">
             🍽 Menú grupo ({pax} PAX)
           </button>
-        )}
-        {separarJuntar && (
-          <>
-            <button onClick={cambiarMesa} disabled={cambiando || !!separarJuntar.aviso}
-              className="w-full mt-3 py-3 rounded-xl border-2 border-dashed border-[var(--sala-tx3)] text-[var(--sala-tx1)] font-bold active:scale-95 transition-transform disabled:opacity-50">
-              {cambiando ? '…' : separarJuntar.texto}
-            </button>
-            {(errorCambio || separarJuntar.aviso) && (
-              <p className="text-amber-500 text-xs font-bold text-center mt-2">{errorCambio ?? separarJuntar.aviso}</p>
-            )}
-          </>
         )}
       </div>
     </div>
@@ -7192,25 +7171,6 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
   const todasLasMesas = planes?.flatMap(p => p.mesas.map(m => ({ ...m, planNombre: p.nombre }))) ?? []
   const mesasLibres   = todasLasMesas.filter(m => !comandaByMesa(m.id))
 
-  // Mesa que se separa (la 2 son la 2 y la 3 juntas): cualquier camarero, con la mesa libre. Separadas,
-  // se juntan cuando las dos están libres. Sin internet no (la Box no lo guarda).
-  const separarJuntarDe = (mesa: Mesa) => {
-    if (enLocal) return undefined
-    const recargar = () => queryClient.invalidateQueries({ queryKey: ['salon-planes', restaurant?.id] })
-    if (mesa.separable) return {
-      texto: `⇹ Separar en ${mesa.numero} y ${mesa.pareja}`,
-      accion: () => api.salon.separar(mesa.id).then(recargar),
-    }
-    if (!mesa.separada) return undefined
-    const otra = todasLasMesas.find(m => m.floorPlanId === mesa.floorPlanId && m.numero === mesa.pareja)
-    const [a, b] = [mesa.numero, mesa.pareja ?? 0].sort((x, y) => x - y)
-    return {
-      texto: `⇹ Juntar ${a} y ${b}`,
-      aviso: otra && comandaByMesa(otra.id) ? `La ${otra.numero} tiene gente: se juntan cuando las dos estén libres` : undefined,
-      accion: () => api.salon.juntar(mesa.id).then(recargar),
-    }
-  }
-
   // Deslizar el mapa de lado: siguiente / anterior salón. Desde el último salón, el encargado pasa a
   // cobrar (en el PAD abre 💼 → Cobros; en el TPV, su panel). Al cambiar se ve un momento el nombre.
   const swipeMapa = useRef<{ x: number; y: number } | null>(null)
@@ -7685,8 +7645,7 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
             onWalkin: (pax: number) => abrirComanda.mutate({ mesaId: abrirMesa.id, pax, walkin: true }),
             onReserva: (reserva: Reserva, pax: number) => sentarReserva.mutate({ reserva, mesaId: abrirMesa.id, pax }),
           } : {})}
-          onMenuGrupo={pax => { setMenuGrupo({ mesa: abrirMesa, pax }); setAbrirMesa(null) }}
-          separarJuntar={separarJuntarDe(abrirMesa)} />
+          onMenuGrupo={pax => { setMenuGrupo({ mesa: abrirMesa, pax }); setAbrirMesa(null) }} />
       )}
 
       {menuGrupo && (

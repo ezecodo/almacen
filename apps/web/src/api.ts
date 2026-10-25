@@ -1391,8 +1391,6 @@ export const api = {
     list:   (restaurantId: number) => get<FloorPlan[]>(`/salon?restaurantId=${restaurantId}`),
     // El editor del admin: las mesas tal cual, con su otra mitad dentro
     listEditar: (restaurantId: number) => get<FloorPlan[]>(`/salon?restaurantId=${restaurantId}&editar=1`),
-    separar: (mesaId: number) => patch<{ ok: boolean }>(`/salon/mesas/${mesaId}/separar`, {}),
-    juntar:  (mesaId: number) => patch<{ ok: boolean }>(`/salon/mesas/${mesaId}/juntar`, {}),
     guardarMitad: (mesaId: number, data: { numero: number; capacidad: number }) => put<Mesa>(`/salon/mesas/${mesaId}/mitad`, data),
     quitarMitad:  (mesaId: number) => del(`/salon/mesas/${mesaId}/mitad`),
     create: (restaurantId: number, nombre: string) => post<FloorPlan>('/salon', { restaurantId, nombre }),
