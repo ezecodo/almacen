@@ -5397,11 +5397,15 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
     },
   })
 
+  const abrirWalkin = (mesa: Mesa) => { setPaxWalkin(2); sentarWalkin.reset(); setWalkinEn(mesa) }
   const tocarMesa = (mesa: Mesa) => {
     if (!reservaElegida) {
-      const alerta = alertaDe(mesa.id)
-      if (alerta && alerta.nivel !== 'proxima') { sentarAqui.reset(); noVino.reset(); setMenuDe({ reserva: alerta.r, mesa }); return }
-      if (esHoyPlano && !ocupada(mesa.id)) { setPaxWalkin(2); sentarWalkin.reset(); setWalkinEn(mesa) }
+      if (!esHoyPlano) return
+      // Hoy, una mesa con reserva por llegar abre esa reserva (la más urgente; si no, la siguiente),
+      // aunque lleguen mucho antes de su hora: sentar, cambiar de mesa, no vino o sentar a otros
+      const siguiente = alertaDe(mesa.id)?.r ?? deMesa(mesa.id).find(r => r.estado === 'confirmada')
+      if (siguiente) { sentarAqui.reset(); noVino.reset(); setMenuDe({ reserva: siguiente, mesa }); return }
+      if (!ocupada(mesa.id)) abrirWalkin(mesa)
       return
     }
     if (asignar.isPending) return
@@ -5727,20 +5731,21 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
       {menuDe && (() => {
         const { reserva, mesa } = menuDe
         const n = nivelReserva(reserva.hora, ahoraMin)
+        const faltan = minutosHora(reserva.hora) - ahoraMin
         const conGenteAhi = ocupada(mesa.id)
         return (
           <div className="fixed inset-0 z-[70] bg-black/70 flex items-end sm:items-center justify-center" onClick={() => setMenuDe(null)}>
             <div className="bg-[var(--sala-srf)] rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
               <div className="flex">
                 <BloqueHoraPax hora={reserva.hora} pax={reserva.pax}
-                  tono={n?.nivel === 'tarde' ? 'text-red-500' : 'text-orange-500'} />
+                  tono={n?.nivel === 'tarde' ? 'text-red-500' : n?.nivel === 'llega' ? 'text-orange-500' : 'text-sky-500'} />
                 <div className="flex-1 min-w-0 p-4">
                   <div className="flex items-start gap-2">
                     <p className="flex-1 min-w-0 text-[var(--sala-txt)] font-black text-lg leading-tight truncate">{nombreDe(reserva)}</p>
                     <button onClick={() => setMenuDe(null)} className="text-[var(--sala-tx3)] text-lg px-1 -mt-1">✕</button>
                   </div>
-                  <p className={`text-sm font-black mt-0.5 ${n?.nivel === 'tarde' ? 'text-red-500' : 'text-orange-500'}`}>
-                    Mesa {sitioDe(reserva)?.numero ?? mesa.numero} · {n?.nivel === 'tarde' ? `${-n.faltan} min tarde` : n && n.faltan > 0 ? `llega en ${n.faltan} min` : 'ya deberían estar'}
+                  <p className={`text-sm font-black mt-0.5 ${n?.nivel === 'tarde' ? 'text-red-500' : n?.nivel === 'llega' ? 'text-orange-500' : 'text-sky-500'}`}>
+                    Mesa {sitioDe(reserva)?.numero ?? mesa.numero} · {n?.nivel === 'tarde' ? `${-faltan} min tarde` : faltan > 0 ? `llega en ${faltan > 90 ? `${Math.floor(faltan / 60)} h ${faltan % 60} min` : `${faltan} min`}` : 'ya deberían estar'}
                   </p>
                   {reserva.notas && <p className="flex items-start gap-1 text-amber-500 text-xs font-bold mt-1"><Ico n="nota" size={12} className="mt-px" /> {reserva.notas}</p>}
                 </div>
@@ -5758,6 +5763,11 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
                   <button onClick={() => noVino.mutate(reserva.id)} disabled={noVino.isPending}
                     className="flex-1 py-2.5 rounded-xl bg-red-500/15 text-red-500 text-sm font-black disabled:opacity-50 inline-flex items-center justify-center gap-1.5"><Ico n="noVino" size={15} /> No vino</button>
                 </div>
+                {/* Los que llegaron no son esta reserva: walk-in en esta mesa (avisa de la reserva) */}
+                {!conGenteAhi && (
+                  <button onClick={() => { setMenuDe(null); abrirWalkin(mesa) }}
+                    className="w-full py-2.5 rounded-xl bg-[var(--sala-btn)] text-[var(--sala-tx1)] text-sm font-bold">🚶 Son otros · walk-in en {mesa.numero}</button>
+                )}
                 {(sentarAqui.error || noVino.error) && <p className="text-red-400 text-xs font-bold">{((sentarAqui.error || noVino.error) as Error).message}</p>}
               </div>
             </div>
