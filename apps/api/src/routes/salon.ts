@@ -45,14 +45,16 @@ const TIPOS_SEPARABLES = ['round', 'square', 'rectangular']
 type MesaConMitad = Mesa & { mitad: Mesa | null }
 export type MesaVista = Mesa & { separable?: boolean; pareja?: number; paxPareja?: number }
 
-function partir(entera: Mesa, mitad: Mesa): [MesaVista, MesaVista] {
+// lado: el de las mesas normales de esos pax en el mismo salón (Eze: separadas tienen que verse
+// como las de 2). Sin ninguna de referencia, cada mitad es media mesa entera.
+function partir(entera: Mesa, mitad: Mesa, lado?: number): [MesaVista, MesaVista] {
   const rect = entera.tipo === 'rectangular'
   const w = rect ? entera.ancho ?? RECT_W : entera.ancho ?? SQUARE_SIZE
   const h = rect ? entera.alto ?? RECT_H : entera.ancho ?? SQUARE_SIZE
-  const deLado = w >= h
-  const mw = deLado ? (w - HUECO) / 2 : w
-  const mh = deLado ? h : (h - HUECO) / 2
-  const desp = ((deLado ? w : h) + HUECO) / 4
+  const deLado = w > h // cuadrada: una encima de la otra
+  const mw = lado ?? (deLado ? (w - HUECO) / 2 : w)
+  const mh = lado ?? (deLado ? h : (h - HUECO) / 2)
+  const desp = lado ? (lado + HUECO) / 2 : ((deLado ? w : h) + HUECO) / 4
   const rad = (entera.rotacion * Math.PI) / 180
   const cx = entera.x + w / 2, cy = entera.y + h / 2
   const forma = (m: Mesa, signo: number, capacidad: number, pareja: number): MesaVista => {
@@ -82,13 +84,26 @@ function partir(entera: Mesa, mitad: Mesa): [MesaVista, MesaVista] {
   ]
 }
 
+// El tamaño más repetido entre las mesas sueltas de esos pax del salón (cuadradas, o redondas si
+// la que se parte es redonda)
+function ladoDe(mesas: MesaConMitad[], capacidad: number, tipo: 'square' | 'round') {
+  const n = new Map<number, number>()
+  for (const m of mesas) {
+    if (m.parteDeId || m.mitad || m.tipo !== tipo || m.capacidad !== capacidad) continue
+    const l = m.ancho ?? SQUARE_SIZE
+    n.set(l, (n.get(l) ?? 0) + 1)
+  }
+  return [...n].sort((a, b) => b[1] - a[1])[0]?.[0]
+}
+
 // Las mesas tal como están ahora: juntas (la entera, con su pareja escondida) o las dos mitades
+// (mesas: las de un mismo salón)
 function mesasVisibles(mesas: MesaConMitad[]): MesaVista[] {
   const r: MesaVista[] = []
   for (const { mitad, ...m } of mesas) {
     if (m.parteDeId) continue // sale con su mesa entera
     if (!mitad) { r.push(m); continue }
-    if (m.separada) r.push(...partir(m, mitad))
+    if (m.separada) r.push(...partir(m, mitad, ladoDe(mesas, mitad.capacidad, m.tipo === 'round' ? 'round' : 'square')))
     else r.push({ ...m, separable: true, pareja: mitad.numero, paxPareja: mitad.capacidad })
   }
   return r.sort((a, b) => a.numero - b.numero)
