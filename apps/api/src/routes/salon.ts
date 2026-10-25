@@ -39,7 +39,7 @@ const batchSchema = z.array(z.object({
 // La 2 del mapa son la 2 y la 3 juntas: la 3 es otra fila (parteDeId = la 2) que solo aparece
 // cuando se separan. Separadas, las dos mitades se dibujan partiendo el sitio de la mesa entera por
 // su lado largo, así no hay que dibujarlas aparte en el admin. Mismas medidas que el mapa de la sala.
-const SQUARE_SIZE = 80, RECT_W = 160, RECT_H = 80, HUECO = 6
+const SQUARE_SIZE = 80, RECT_W = 160, RECT_H = 80, HUECO = 10 // el hueco de la rejilla del editor: una mesa "Doble" se parte en dos del tamaño base
 const TIPOS_SEPARABLES = ['round', 'square', 'rectangular']
 
 type MesaConMitad = Mesa & { mitad: Mesa | null }

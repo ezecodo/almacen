@@ -219,7 +219,15 @@ const SIZE_PRESETS: { label: string; base: number }[] = [
   { label: 'L',  base: 100 },
   { label: 'XL', base: 120 },
 ]
+// "Doble" = lo que ocupan dos mesas de ese tamaño puestas una al lado de la otra, con el
+// hueco de la rejilla entre medio: una de 4 al lado de dos de 2 queda igual de larga, y al
+// separarla en la sala sus mitades salen del mismo tamaño que las de 2.
+const DOBLE = 0
+function largoDe(base: number, ratio: number) {
+  return ratio === DOBLE ? base * 2 + SNAP : base * ratio
+}
 const LARGO_RATIOS: { label: string; value: number }[] = [
+  { label: 'Doble', value: DOBLE },
   { label: '1.5×', value: 1.5 },
   { label: '2×',   value: 2   },
   { label: '2.5×', value: 2.5 },
@@ -230,7 +238,8 @@ function baseFromMesa(mesa: Mesa): number {
   return mesa.ancho ?? 80
 }
 function ratioFromMesa(mesa: Mesa): number {
-  if (mesa.tipo !== 'rectangular' || !mesa.ancho || !mesa.alto) return 2
+  if (mesa.tipo !== 'rectangular' || !mesa.ancho || !mesa.alto) return DOBLE
+  if (mesa.ancho === mesa.alto * 2 + SNAP) return DOBLE
   // redondear al 0.5 más cercano
   return Math.round((mesa.ancho / mesa.alto) * 2) / 2
 }
@@ -261,7 +270,7 @@ function MesaModal({
   const [capacidad, setCapacidad] = useState(mesa?.capacidad ?? 4)
   const [tipoLocal, setTipoLocal] = useState<Mesa['tipo']>(mesa?.tipo ?? tipo ?? 'square')
   const [base,      setBase]      = useState<number>(mesa ? baseFromMesa(mesa) : 80)
-  const [ratio,     setRatio]     = useState<number>(mesa ? ratioFromMesa(mesa) : 2)
+  const [ratio,     setRatio]     = useState<number>(mesa ? ratioFromMesa(mesa) : DOBLE)
 
   const isSilla = tipoLocal === 'silla_alta'
   const isRect  = tipoLocal === 'rectangular'
@@ -316,7 +325,7 @@ function MesaModal({
           <label className="text-gray-400 text-xs mb-2 block">Tamaño</label>
           <div className="flex gap-2">
             {SIZE_PRESETS.map(p => {
-              const previewW = isRect ? Math.round(p.base * ratio) : p.base
+              const previewW = isRect ? Math.round(largoDe(p.base, ratio)) : p.base
               const previewH = p.base
               const isRound = tipoLocal === 'round' || tipoLocal === 'silla_alta'
               const active = base === p.base
@@ -412,7 +421,7 @@ function MesaModal({
               }
               onConfirm({
                 numero, capacidad, tipo: tipoLocal,
-                ancho: snapTo(isRect ? base * ratio : base),
+                ancho: snapTo(isRect ? largoDe(base, ratio) : base),
                 alto:  snapTo(base),
               })
             }}
