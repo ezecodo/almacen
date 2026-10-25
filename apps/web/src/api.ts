@@ -319,6 +319,7 @@ export interface Mesa {
   separada?:  boolean
   pareja?:    number
   paxPareja?: number // pax de la otra mitad (mesa junta)
+  idPareja?:  number // id de la otra mitad, escondida mientras están juntas (sus reservas siguen apuntándola)
   parteDeId?: number | null
   mitad?:     Mesa | null // solo en el editor del admin
 }

@@ -251,7 +251,7 @@ function MesaBtn({ mesa, comanda, pendienteCobro = false, onClick }: { mesa: Mes
 // dice en cuál se sientan (por defecto la 2; si llegaron primero los de la 3, se toca 3).
 function AbrirMesaModal({ mesa, onConfirm, onMenuGrupo, onClose, reservas, onWalkin, onReserva }: {
   mesa: Mesa; onConfirm: (pax: number, enPareja?: boolean) => void; onMenuGrupo?: (pax: number) => void; onClose: () => void
-  reservas?: Reserva[]; onWalkin?: (pax: number, enPareja?: boolean) => void; onReserva?: (reserva: Reserva, pax: number) => void
+  reservas?: Reserva[]; onWalkin?: (pax: number, enPareja?: boolean) => void; onReserva?: (reserva: Reserva, pax: number, enPareja?: boolean) => void
 }) {
   const [pax, setPax] = useState(2)
   const [paxTocado, setPaxTocado] = useState(false)
@@ -267,9 +267,11 @@ function AbrirMesaModal({ mesa, onConfirm, onMenuGrupo, onClose, reservas, onWal
   // Primero las que ya tenían esta mesa asignada; después, la más cercana a la hora de ahora
   const ahora = new Date().getHours() * 60 + new Date().getMinutes()
   const minutos = (h: string) => { const [hh, mm] = h.split(':').map(Number); return hh * 60 + (mm || 0) }
+  // La reserva era para esta mesa (en una mesa junta, también las de la otra mitad escondida)
+  const esDeEsta = (r: Reserva) => r.mesaId === mesa.id || (!!mesa.idPareja && r.mesaId === mesa.idPareja)
   const pendientes = (reservas ?? [])
     .filter(r => r.estado === 'confirmada' && !r.enPool)
-    .sort((a, b) => (Number(b.mesaId === mesa.id) - Number(a.mesaId === mesa.id))
+    .sort((a, b) => (Number(esDeEsta(b)) - Number(esDeEsta(a)))
       || Math.abs(minutos(a.hora) - ahora) - Math.abs(minutos(b.hora) - ahora))
 
   if (eligiendoReserva && onReserva) return (
@@ -284,12 +286,12 @@ function AbrirMesaModal({ mesa, onConfirm, onMenuGrupo, onClose, reservas, onWal
             <p className="text-center text-[var(--sala-tx4)] text-sm py-8">No quedan reservas por sentar hoy</p>
           )}
           {pendientes.map(r => (
-            <button key={r.id} onClick={() => onReserva(r, paxTocado ? pax : r.pax)}
-              className={`w-full flex items-stretch text-left bg-[var(--sala-btn)] rounded-xl overflow-hidden border-2 active:scale-[0.98] transition-transform ${r.mesaId === mesa.id ? 'border-emerald-500' : 'border-transparent'}`}>
+            <button key={r.id} onClick={() => onReserva(r, paxTocado ? pax : r.pax, r.mesaId === mesa.idPareja || (paxTocado && enPareja))}
+              className={`w-full flex items-stretch text-left bg-[var(--sala-btn)] rounded-xl overflow-hidden border-2 active:scale-[0.98] transition-transform ${esDeEsta(r) ? 'border-emerald-500' : 'border-transparent'}`}>
               <BloqueHoraPax hora={r.hora} pax={r.pax} />
               <div className="flex-1 min-w-0 p-3 flex flex-col justify-center">
                 <span className="text-[var(--sala-txt)] font-black truncate">{r.nombre}</span>
-                {r.mesaId === mesa.id && <span className="text-emerald-500 text-xs font-bold">🪑 Era para esta mesa</span>}
+                {esDeEsta(r) && <span className="text-emerald-500 text-xs font-bold">🪑 Era para {r.mesaId === mesa.idPareja ? `la ${mesa.pareja}` : 'esta mesa'}</span>}
                 {r.notas && <span className="text-amber-500 text-xs font-bold truncate">📝 {r.notas}</span>}
               </div>
             </button>
@@ -5300,9 +5302,33 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
   const vivas = reservas.filter(r => r.estado === 'confirmada' || (r.estado === 'sentada' && sigueEnLaMesa(r)))
   const sinMesa = vivas.filter(r => !r.mesaId && r.estado === 'confirmada')
   const duracion = (r: Reserva) => r.config?.duracionMin ?? DURACION_RESERVA_DEFECTO
-  const deMesa = (mesaId: number) => vivas.filter(r => r.mesaId === mesaId).sort((a, b) => minutosHora(a.hora) - minutosHora(b.hora))
+  const todasMesas = planes.flatMap(p => p.mesas)
+  // Mesa que son dos juntas (la 2 y la 3): la 3 está escondida, pero sus reservas la siguen apuntando
+  // y se ven dentro de la mesa junta. Una reserva en la 2 junta con los pax de una mitad es de la 2;
+  // con más, de la mesa entera.
+  const juntaDe = new Map<number, Mesa>() // id de la mitad escondida → la mesa junta
+  for (const m of todasMesas) if (m.separable && m.idPareja) juntaDe.set(m.idPareja, m)
+  const deMesa = (mesaId: number) => vivas
+    .filter(r => r.mesaId === mesaId || (r.mesaId != null && juntaDe.get(r.mesaId)?.id === mesaId))
+    .sort((a, b) => minutosHora(a.hora) - minutosHora(b.hora))
+  const mesaDe = (r: Reserva) => todasMesas.find(m => m.id === r.mesaId) ?? (r.mesaId != null ? juntaDe.get(r.mesaId) : undefined)
+  const paxEnteraDe = (m: Mesa) => Math.max(1, m.capacidad - (m.paxPareja ?? 0))
+  const ladoDe = (m: Mesa, r: Reserva) => !m.separable ? 'toda'
+    : r.mesaId === m.idPareja ? 'pareja' : r.pax > paxEnteraDe(m) ? 'toda' : 'entera'
+  // Dónde va de verdad: número y pax de la mitad, o de la mesa
+  const sitioDe = (r: Reserva) => {
+    const m = mesaDe(r)
+    if (!m) return null
+    const lado = ladoDe(m, r)
+    return lado === 'pareja' ? { numero: m.pareja!, capacidad: m.paxPareja ?? 0, mesa: m }
+      : lado === 'entera' ? { numero: m.numero, capacidad: paxEnteraDe(m), mesa: m }
+      : { numero: m.numero, capacidad: m.capacidad, mesa: m }
+  }
   // Dos reservas de la misma mesa se pisan si la segunda llega antes de que termine la primera
+  // (en una mesa junta, la de la 2 y la de la 3 no se pisan entre sí; la de la mesa entera, con todas)
   const sePisan = (a: Reserva, b: Reserva) => {
+    const m = mesaDe(a)
+    if (m?.separable) { const la = ladoDe(m, a), lb = ladoDe(m, b); if (la !== 'toda' && lb !== 'toda' && la !== lb) return false }
     const [antes, despues] = minutosHora(a.hora) <= minutosHora(b.hora) ? [a, b] : [b, a]
     return minutosHora(despues.hora) - minutosHora(antes.hora) < duracion(antes)
   }
@@ -5313,9 +5339,7 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
       if (sePisan(lista[i], lista[j])) { pisadas.add(lista[i].id); pisadas.add(lista[j].id) }
     }
   }
-  const todasMesas = planes.flatMap(p => p.mesas)
-  const mesaDe = (r: Reserva) => todasMesas.find(m => m.id === r.mesaId)
-  const chica = (r: Reserva) => { const m = mesaDe(r); return !!m && m.capacidad > 0 && r.pax > m.capacidad }
+  const chica = (r: Reserva) => { const s = sitioDe(r); return !!s && s.capacidad > 0 && r.pax > s.capacidad }
 
   const ocupada = (mesaId: number) => esHoyPlano && comandasAhora.some(c => c.mesaId === mesaId)
 
@@ -5347,7 +5371,9 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
   // Tocar una mesa que está llegando o tarde: qué hacer con esa reserva (llamar, sentar, no vino)
   const [menuDe, setMenuDe] = useState<{ reserva: Reserva; mesa: Mesa } | null>(null)
   const sentarAqui = useMutation({
-    mutationFn: ({ reserva, mesa }: { reserva: Reserva; mesa: Mesa }) => api.reservas.sentar(reserva.id, mesa.id, camareroNombre),
+    // Reserva de la 3 escondida: se sienta en la 3 (el servidor separa la mesa)
+    mutationFn: ({ reserva, mesa }: { reserva: Reserva; mesa: Mesa }) =>
+      api.reservas.sentar(reserva.id, reserva.mesaId && reserva.mesaId === mesa.idPareja ? reserva.mesaId : mesa.id, camareroNombre),
     onSuccess: () => {
       setMenuDe(null)
       queryClient.invalidateQueries({ queryKey: ['reservas', restaurantId] })
@@ -5379,9 +5405,12 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
       return
     }
     if (asignar.isPending) return
+    // Mesa junta y la reserva cabe en una mitad: ¿en la 2 o en la 3?
+    if (mesa.separable && mesa.idPareja && reservaElegida.pax <= Math.max(paxEnteraDe(mesa), mesa.paxPareja ?? 0)) { setElegirMitad(mesa); return }
     if (reservaElegida.mesaId === mesa.id) { setElegida(null); return }
     asignar.mutate({ id: reservaElegida.id, mesaId: mesa.id })
   }
+  const [elegirMitad, setElegirMitad] = useState<Mesa | null>(null)
 
   const moverDia = (n: number) => {
     const d = new Date(fecha + 'T12:00:00'); d.setDate(d.getDate() + n)
@@ -5588,7 +5617,7 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
               const conAviso = (r: Reserva) => pisadas.has(r.id) || chica(r)
               const hayAviso = lista.some(conAviso)
               const esDestino = !!reservaElegida
-              const esLaDeElegida = reservaElegida?.mesaId === mesa.id
+              const esLaDeElegida = !!reservaElegida && mesaDe(reservaElegida)?.id === mesa.id
               const conGente = ocupada(mesa.id)
               const alerta = alertaDe(mesa.id)
               const estiloAlerta = alerta ? ESTILO_RESERVA[alerta.nivel] : null
@@ -5644,7 +5673,11 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
                             animation: 'altoSube 0.25s ease-out',
                           }}>{apellidoReserva(r.nombre)}</span>
                         ) : (
-                          <span key="hora" style={!conNombre ? { animation: 'altoSube 0.25s ease-out' } : undefined}>{r.origen === 'walkin' ? '🚶' : ''}{r.hora}</span>
+                          <span key="hora" style={!conNombre ? { animation: 'altoSube 0.25s ease-out' } : undefined}>
+                            {/* Mesa junta: de cuál mitad es (sin número = la mesa entera) */}
+                            {mesa.separable && ladoDe(mesa, r) !== 'toda' ? `${ladoDe(mesa, r) === 'pareja' ? mesa.pareja : mesa.numero}·` : ''}
+                            {r.origen === 'walkin' ? '🚶' : ''}{r.hora}
+                          </span>
                         )}
                         {conNombre && r.origen !== 'walkin' && r.nombre && (
                           <span style={{
@@ -5707,7 +5740,7 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
                     <button onClick={() => setMenuDe(null)} className="text-[var(--sala-tx3)] text-lg px-1 -mt-1">✕</button>
                   </div>
                   <p className={`text-sm font-black mt-0.5 ${n?.nivel === 'tarde' ? 'text-red-500' : 'text-orange-500'}`}>
-                    Mesa {mesa.numero} · {n?.nivel === 'tarde' ? `${-n.faltan} min tarde` : n && n.faltan > 0 ? `llega en ${n.faltan} min` : 'ya deberían estar'}
+                    Mesa {sitioDe(reserva)?.numero ?? mesa.numero} · {n?.nivel === 'tarde' ? `${-n.faltan} min tarde` : n && n.faltan > 0 ? `llega en ${n.faltan} min` : 'ya deberían estar'}
                   </p>
                   {reserva.notas && <p className="flex items-start gap-1 text-amber-500 text-xs font-bold mt-1"><Ico n="nota" size={12} className="mt-px" /> {reserva.notas}</p>}
                 </div>
@@ -5717,7 +5750,7 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
                 {conGenteAhi && <p className="text-purple-400 text-xs font-bold">La mesa {mesa.numero} tiene gente ahora: toca "Cambiar de mesa" para sentarlos en otra.</p>}
                 <button onClick={() => sentarAqui.mutate({ reserva, mesa })} disabled={sentarAqui.isPending || conGenteAhi}
                   className="w-full py-3 rounded-xl text-white font-black disabled:opacity-40" style={{ background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)' }}>
-                  <span className="inline-flex items-center justify-center gap-2"><Ico n="check" size={18} /> {sentarAqui.isPending ? 'Sentando…' : `Llegaron · sentar en ${mesa.numero}`}</span>
+                  <span className="inline-flex items-center justify-center gap-2"><Ico n="check" size={18} /> {sentarAqui.isPending ? 'Sentando…' : `Llegaron · sentar en ${sitioDe(reserva)?.numero ?? mesa.numero}`}</span>
                 </button>
                 <div className="flex gap-2">
                   <button onClick={() => { setMenuDe(null); setElegida(reserva.id) }}
@@ -5731,6 +5764,25 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
           </div>
         )
       })()}
+
+      {elegirMitad && reservaElegida && (
+        <div className="fixed inset-0 z-[70] bg-black/70 flex items-center justify-center px-4" onClick={() => setElegirMitad(null)}>
+          <div className="bg-[var(--sala-srf)] rounded-2xl p-6 w-full max-w-xs shadow-2xl" onClick={e => e.stopPropagation()}>
+            <p className="text-[var(--sala-tx3)] text-xs font-bold uppercase tracking-wider">{reservaElegida.hora} · {reservaElegida.pax} pax · {nombreDe(reservaElegida)}</p>
+            <h3 className="text-[var(--sala-txt)] font-black text-xl mb-4">¿En cuál va?</h3>
+            <div className="flex gap-3">
+              {([[elegirMitad.id, elegirMitad.numero, paxEnteraDe(elegirMitad)], [elegirMitad.idPareja!, elegirMitad.pareja!, elegirMitad.paxPareja ?? 0]] as const).map(([id, num, cap]) => (
+                <button key={id} disabled={reservaElegida.pax > cap || asignar.isPending}
+                  onClick={() => { setElegirMitad(null); if (reservaElegida.mesaId === id) setElegida(null); else asignar.mutate({ id: reservaElegida.id, mesaId: id }) }}
+                  className={`flex-1 py-4 rounded-xl text-4xl font-black border-2 disabled:opacity-30 ${reservaElegida.mesaId === id ? 'border-sky-400 bg-sky-500/15 text-[var(--sala-txt)]' : 'border-transparent bg-[var(--sala-btn)] text-[var(--sala-txt)]'}`}>
+                  {num}
+                </button>
+              ))}
+            </div>
+            <p className="text-[var(--sala-tx4)] text-xs mt-3 text-center">Están juntas: al sentarlos se separan solas</p>
+          </div>
+        </div>
+      )}
 
       {walkinEn && (
         <div className="fixed inset-0 z-[70] bg-black/70 flex items-center justify-center px-4" onClick={() => setWalkinEn(null)}>
@@ -5780,15 +5832,15 @@ function PlanoReservas({ restaurantId, reservaInicial, fechaInicial, camareroNom
               <button onClick={() => setElegida(null)} className="text-[var(--sala-tx3)] text-lg px-1">✕</button>
             </div>
             <p className="text-sky-500 text-xs font-bold mt-1">
-              {reservaElegida.mesaId ? `En la mesa ${mesaDe(reservaElegida)?.numero ?? '?'} · toca otra mesa para cambiarla` : 'Toca la mesa donde va'}
+              {reservaElegida.mesaId ? `En la mesa ${sitioDe(reservaElegida)?.numero ?? '?'} · toca otra mesa para cambiarla` : 'Toca la mesa donde va'}
             </p>
             {reservaElegida.notas && <p className="text-[var(--sala-tx3)] text-xs mt-0.5 truncate">📝 {reservaElegida.notas}</p>}
             {pisadas.has(reservaElegida.id) && (
               <p className="text-amber-500 text-xs font-bold mt-0.5">
-                ⚠ Se pisa con {deMesa(reservaElegida.mesaId!).filter(o => o.id !== reservaElegida.id && sePisan(o, reservaElegida)).map(o => o.hora).join(', ')} (cada reserva ocupa {duracion(reservaElegida)} min)
+                ⚠ Se pisa con {deMesa(mesaDe(reservaElegida)?.id ?? -1).filter(o => o.id !== reservaElegida.id && sePisan(o, reservaElegida)).map(o => o.hora).join(', ')} (cada reserva ocupa {duracion(reservaElegida)} min)
               </p>
             )}
-            {chica(reservaElegida) && <p className="text-amber-500 text-xs font-bold mt-0.5">⚠ Son {reservaElegida.pax} y la mesa es para {mesaDe(reservaElegida)?.capacidad}</p>}
+            {chica(reservaElegida) && <p className="text-amber-500 text-xs font-bold mt-0.5">⚠ Son {reservaElegida.pax} y la mesa es para {sitioDe(reservaElegida)?.capacidad}</p>}
             {asignar.isError && <p className="text-red-400 text-xs mt-0.5">{(asignar.error as Error).message}</p>}
           </div>
         ) : (
@@ -6419,7 +6471,8 @@ function EncargadoPanel({
 
               {reservasSub === 'hoy' ? (() => {
                 const esHoy = fechaReservas === diaServicio()
-                const numMesa = (id: number | null) => id ? (mesasReserva.find(m => m.id === id)?.numero ?? id) : null
+                // La 3 escondida dentro de la 2 junta también tiene número
+                const numMesa = (id: number | null) => id ? (mesasReserva.find(m => m.id === id)?.numero ?? mesasReserva.find(m => m.idPareja === id)?.pareja ?? id) : null
                 const porLlegar = reservasHoy.filter(r => r.estado === 'confirmada')
                 const sentadas = reservasHoy.filter(r => r.estado === 'sentada')
                 const descartadas = reservasHoy.filter(r => r.estado === 'cancelada' || r.estado === 'no_show')
@@ -7669,7 +7722,9 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
           {...(esEncargado && !enLocal ? {
             reservas: reservasHoyMapa,
             onWalkin: (pax: number, enPareja?: boolean) => abrirComanda.mutate({ mesaId: abrirMesa.id, pax, walkin: true, enPareja }),
-            onReserva: (reserva: Reserva, pax: number) => sentarReserva.mutate({ reserva, mesaId: abrirMesa.id, pax }),
+            // Reserva de la 3 (o elegida la 3) en la mesa junta: se sienta en la 3 y el servidor la separa
+            onReserva: (reserva: Reserva, pax: number, enPareja?: boolean) =>
+              sentarReserva.mutate({ reserva, mesaId: enPareja && abrirMesa.idPareja ? abrirMesa.idPareja : abrirMesa.id, pax }),
           } : {})}
           onMenuGrupo={pax => { setMenuGrupo({ mesa: abrirMesa, pax }); setAbrirMesa(null) }} />
       )}

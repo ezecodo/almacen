@@ -43,7 +43,7 @@ const SQUARE_SIZE = 80, RECT_W = 160, RECT_H = 80, HUECO = 10 // el hueco de la 
 const TIPOS_SEPARABLES = ['round', 'square', 'rectangular']
 
 type MesaConMitad = Mesa & { mitad: Mesa | null }
-export type MesaVista = Mesa & { separable?: boolean; pareja?: number; paxPareja?: number }
+export type MesaVista = Mesa & { separable?: boolean; pareja?: number; paxPareja?: number; idPareja?: number }
 
 // lado: el de las mesas normales de esos pax en el mismo salón (Eze: separadas tienen que verse
 // como las de 2). Sin ninguna de referencia, cada mitad es media mesa entera.
@@ -104,7 +104,7 @@ function mesasVisibles(mesas: MesaConMitad[]): MesaVista[] {
     if (m.parteDeId) continue // sale con su mesa entera
     if (!mitad) { r.push(m); continue }
     if (m.separada) r.push(...partir(m, mitad, ladoDe(mesas, mitad.capacidad, m.tipo === 'round' ? 'round' : 'square')))
-    else r.push({ ...m, separable: true, pareja: mitad.numero, paxPareja: mitad.capacidad })
+    else r.push({ ...m, separable: true, pareja: mitad.numero, paxPareja: mitad.capacidad, idPareja: mitad.id })
   }
   return r.sort((a, b) => a.numero - b.numero)
 }
@@ -112,24 +112,27 @@ function mesasVisibles(mesas: MesaConMitad[]): MesaVista[] {
 const OCUPADA = ['abierta', 'enviada', 'facturada']
 const ocupadas = (ids: number[]) => prisma.comanda.count({ where: { mesaId: { in: ids }, estado: { in: OCUPADA } } })
 
-// Junta una mesa separada: las reservas que esperaban la otra mitad pasan a la mesa entera
-async function juntar(entera: Mesa, mitadId: number) {
-  await prisma.$transaction([
-    prisma.reserva.updateMany({
-      where: { mesaId: mitadId, estado: 'confirmada', fecha: { gte: new Date(diaDeServicio() + 'T00:00:00.000Z') } },
-      data: { mesaId: entera.id },
-    }),
-    prisma.mesa.update({ where: { id: entera.id }, data: { separada: false } }),
-  ])
+// Junta una mesa separada. Las reservas de la otra mitad se quedan en ella (el plano de reservas
+// las enseña dentro de la mesa junta, y al sentarlas se vuelve a separar)
+async function juntar(entera: Mesa) {
+  await prisma.mesa.update({ where: { id: entera.id }, data: { separada: false } })
 }
 
 // Al abrir la mesa entera con los pax de una mitad (1 o 2 en una de 4), se separa: la gente se
 // queda en esta y la otra mitad aparece libre al lado. Con más pax se abre entera.
 // enPareja: llegaron primero los de la otra mitad (la 3) → se quedan ellos y la 2 queda libre.
 // Devuelve en qué mesa se abre y si se separó (el aviso 'salon' va después de guardar).
+// mesaId puede ser la 3 escondida (una reserva asignada a la 3): es lo mismo que enPareja.
+// Con gente en la mesa junta no se separa nada.
 export async function separarAlAbrir(tx: Prisma.TransactionClient, mesaId: number, pax: number, enPareja = false) {
-  const m = await tx.mesa.findUnique({ where: { id: mesaId }, include: { mitad: true } })
+  let m = await tx.mesa.findUnique({ where: { id: mesaId }, include: { mitad: true } })
+  if (m?.parteDeId) {
+    m = await tx.mesa.findUnique({ where: { id: m.parteDeId }, include: { mitad: true } })
+    if (!m || m.separada) return { mesaId, separada: false } // ya separadas: la 3 se ve sola
+    enPareja = true
+  }
   if (!m?.mitad || m.separada) return { mesaId, separada: false }
+  if (await tx.comanda.count({ where: { mesaId: m.id, estado: { in: OCUPADA } } })) return { mesaId: m.id, separada: false }
   const pareja = enPareja && pax <= m.mitad.capacidad
   if (!pareja && pax > Math.max(1, m.capacidad - m.mitad.capacidad)) return { mesaId, separada: false }
   await tx.mesa.update({ where: { id: m.id }, data: { separada: true } })
@@ -144,7 +147,7 @@ export async function juntarMesasLibres(restaurantId: number) {
   let n = 0
   for (const m of separadas) {
     if (!m.mitad || await ocupadas([m.id, m.mitad.id])) continue
-    await juntar(m, m.mitad.id)
+    await juntar(m)
     n++
   }
   if (n) broadcast(restaurantId, 'salon')
@@ -202,8 +205,13 @@ export async function salonRoutes(app: FastifyInstance) {
     if (await prisma.comanda.count({ where: { mesaId: mitadId, estado: { not: 'cerrada' } } })) {
       return reply.status(409).send({ error: `La ${entera.mitad.numero} tiene una mesa sin cobrar` })
     }
-    await juntar(entera, mitadId)
+    await juntar(entera)
     await prisma.$transaction([
+      // Las reservas por llegar de la mitad que desaparece pasan a la mesa entera
+      prisma.reserva.updateMany({
+        where: { mesaId: mitadId, estado: 'confirmada', fecha: { gte: new Date(diaDeServicio() + 'T00:00:00.000Z') } },
+        data: { mesaId: entera.id },
+      }),
       prisma.comanda.updateMany({ where: { mesaId: mitadId }, data: { mesaId: null } }),
       prisma.reserva.updateMany({ where: { mesaId: mitadId }, data: { mesaId: null } }),
       prisma.mesa.delete({ where: { id: mitadId } }),

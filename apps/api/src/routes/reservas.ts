@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../server'
 import { broadcast } from '../sse'
+import { separarAlAbrir } from './salon'
 
 const POOL_LOCK_TIMEOUT_MS = 10 * 60 * 1000 // 10 min — pasado esto, otro encargado puede tomar el lock
 
@@ -536,7 +537,7 @@ export async function reservasRoutes(app: FastifyInstance) {
     if (!actual) return reply.status(404).send({ error: 'Reserva no encontrada' })
     if (actual.estado !== 'confirmada') return reply.status(409).send({ error: 'La reserva no está confirmada' })
 
-    const mesaId = mesaIdBody ?? actual.mesaId
+    let mesaId = mesaIdBody ?? actual.mesaId
     if (!mesaId) return reply.status(400).send({ error: 'Asigná una mesa primero' })
 
     const mesa = await prisma.mesa.findUnique({ where: { id: mesaId }, include: { floorPlan: true } })
@@ -544,17 +545,21 @@ export async function reservasRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'La mesa no pertenece a este restaurante' })
     }
 
-    const mesaOcupada = await prisma.comanda.findFirst({
-      where: { mesaId, estado: { in: ['abierta', 'enviada', 'facturada'] } },
-    })
-    if (mesaOcupada) return reply.status(409).send({ error: 'La mesa ya tiene una comanda activa' })
-
     const autoItems = await prisma.menuItem.findMany({
       where: { restaurantId: actual.restaurantId, autoPorPax: true, activo: true },
     })
     const pax = paxBody && paxBody > 0 ? paxBody : actual.pax
 
-    const comanda = await prisma.comanda.create({
+    // Mesa que son dos juntas (la 2 y la 3): sentar es abrirla, así que con los pax de una mitad se
+    // separa, y una reserva de la 3 se sienta en la 3. En una transacción, para que nada la junte entre medio.
+    let separada = false
+    const comanda = await prisma.$transaction(async tx => {
+      ({ mesaId, separada } = await separarAlAbrir(tx, mesaId!, paxBody && paxBody > 0 ? paxBody : actual.pax))
+      const mesaOcupada = await tx.comanda.findFirst({
+        where: { mesaId, estado: { in: ['abierta', 'enviada', 'facturada'] } },
+      })
+      if (mesaOcupada) return null
+      return tx.comanda.create({
       data: {
         restaurantId: actual.restaurantId,
         mesaId,
@@ -576,6 +581,9 @@ export async function reservasRoutes(app: FastifyInstance) {
       },
       include: { items: true, mesa: true },
     })
+    })
+    if (!comanda) return reply.status(409).send({ error: 'La mesa ya tiene una comanda activa' })
+    if (separada) broadcast(actual.restaurantId, 'salon')
 
     const reserva = await prisma.reserva.update({
       where: { id },
