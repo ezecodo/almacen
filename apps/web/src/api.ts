@@ -1155,7 +1155,7 @@ async function authFetch(path: string, init: { method?: string; json?: unknown; 
 // ── Escandallos (coste de materia prima por plato) — rutas /admin/escandallos*, sesión de admin ──
 export type EstadoEscandallo = 'verde' | 'ambar' | 'rojo' | 'sin_receta' | 'incompleta'
 export interface EscandalloPlato {
-  id: number; nombre: string; categoria: string; grupo: string; restaurantId: number | null
+  id: number; nombre: string; categoria: string; categoriaOrden: number; grupo: string; restaurantId: number | null
   precio: number; precioSinIva: number
   coste: number | null; foodCost: number | null; margen: number | null
   ingredientes: number; sinPrecio: number; estado: EstadoEscandallo

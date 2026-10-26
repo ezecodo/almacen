@@ -81,6 +81,13 @@ export async function escandalloRoutes(app: FastifyInstance) {
       prisma.menuCategoria.findMany({ where: { OR: [{ restaurantId: null }, { restaurantId: rid }] } }),
     ])
     const catPorNombre = new Map(cats.map(c => [c.nombre, c]))
+    const catPorId = new Map(cats.map(c => [c.id, c]))
+    // Orden de la carta: una subcategoría va detrás de su categoría padre
+    const ordenCat = (c: (typeof cats)[number] | undefined) => {
+      if (!c) return Number.MAX_SAFE_INTEGER
+      const padre = c.parentId ? catPorId.get(c.parentId) : undefined
+      return padre ? padre.orden * 1000 + 1 + c.orden : c.orden * 1000
+    }
 
     const platos = items.map(item => {
       const cat = catPorNombre.get(item.categoria)
@@ -105,7 +112,7 @@ export async function escandalloRoutes(app: FastifyInstance) {
           : foodCost <= cfg.ambar ? 'ambar'
           : 'rojo'
       return {
-        id: item.id, nombre: item.nombre, categoria: item.categoria, grupo: cat?.grupo ?? '', restaurantId: item.restaurantId,
+        id: item.id, nombre: item.nombre, categoria: item.categoria, categoriaOrden: ordenCat(cat), grupo: cat?.grupo ?? '', restaurantId: item.restaurantId,
         precio: item.precio, precioSinIva: r2(precioSinIva),
         coste: coste === null ? null : r2(coste),
         foodCost: foodCost === null ? null : Math.round(foodCost * 10) / 10,

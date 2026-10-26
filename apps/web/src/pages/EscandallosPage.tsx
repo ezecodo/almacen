@@ -358,6 +358,8 @@ export default function EscandallosPage() {
   const [grupoSel, setGrupoSel] = useState<string | null>(null)
   const [soloEstado, setSoloEstado] = useState<EstadoEscandallo | null>(null)
   const [orden, setOrden] = useState<Orden>('peor')
+  const [porCategoria, setPorCategoria] = useState(true)
+  const [catSel, setCatSel] = useState<string | null>(null)
   const [abierto, setAbierto] = useState<number | null>(null)
   const [umbrales, setUmbrales] = useState<{ verde: string; ambar: string } | null>(null)
 
@@ -379,7 +381,12 @@ export default function EscandallosPage() {
   const platos = matriz.data?.platos ?? []
   const grupos = [...new Set(platos.map(p => p.grupo).filter(Boolean))]
   const grupo = grupoSel ?? grupos.find(g => /comida/i.test(g)) ?? grupos[0] ?? null
-  const delGrupo = platos.filter(p => p.grupo === grupo)
+  const delSeccion = platos.filter(p => p.grupo === grupo)
+  // Categorías de la sección en el orden de la carta
+  const categorias = [...new Map(delSeccion.map(p => [p.categoria, p.categoriaOrden])).entries()]
+    .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0], 'es')).map(([c]) => c)
+  const cat = catSel !== null && categorias.includes(catSel) ? catSel : null
+  const delGrupo = cat === null ? delSeccion : delSeccion.filter(p => p.categoria === cat)
   const conCoste = delGrupo.filter(p => p.coste !== null && p.foodCost !== null)
   const visibles = delGrupo
     .filter(p => soloEstado === null || p.estado === soloEstado)
@@ -393,6 +400,29 @@ export default function EscandallosPage() {
   const mejor = [...conCoste].sort((a, b) => (b.margen ?? 0) - (a.margen ?? 0))[0]
   const verde = matriz.data?.verde ?? 30
   const ambar = matriz.data?.ambar ?? 35
+  const foodCostMedio = (ps: EscandalloPlato[]) => {
+    const c = ps.filter(p => p.foodCost !== null)
+    return c.length ? c.reduce((s, p) => s + (p.foodCost ?? 0), 0) / c.length : null
+  }
+  const bloques: { categoria: string | null; platos: EscandalloPlato[] }[] = porCategoria
+    ? categorias.map(c => ({ categoria: c, platos: visibles.filter(p => p.categoria === c) })).filter(b => b.platos.length > 0)
+    : [{ categoria: null, platos: visibles }]
+  const cabecera = (c: string, ps: EscandalloPlato[]) => {
+    const todos = delGrupo.filter(p => p.categoria === c)
+    const con = todos.filter(p => p.estado !== 'sin_receta').length
+    const m = foodCostMedio(todos)
+    return (
+      <tr key={`cat-${c}`} className="bg-white/[0.03] border-t border-white/10">
+        <td colSpan={8} className="px-4 py-2">
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-black uppercase tracking-widest text-white">{c}</span>
+            <span className="text-[11px] text-slate-500">{con} / {todos.length} con escandallo{ps.length < todos.length ? ` · se ven ${ps.length}` : ''}</span>
+            {m !== null && <span className={`ml-auto text-[11px] font-mono font-bold ${ESTADO[estadoDe(m, verde, ambar)].texto}`}>food cost medio {m.toFixed(1)} %</span>}
+          </div>
+        </td>
+      </tr>
+    )
+  }
   const pill = (activo: boolean) => `px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${activo ? 'bg-[#4CC8A0] text-[#0f1a2e]' : 'bg-white/5 text-slate-300 hover:bg-white/10'}`
 
   const fila = (p: EscandalloPlato) => {
@@ -402,7 +432,7 @@ export default function EscandallosPage() {
         <td className="pl-4 pr-2 py-2.5"><span className={`block w-3 h-3 rounded-full ${e.punto}`} title={e.etiqueta} /></td>
         <td className="px-2 py-2.5">
           <p className="font-semibold text-white">{p.nombre}{p.restaurantId === null && <span className="ml-1.5 text-[10px] text-slate-500" title="Plato global">🌐</span>}</p>
-          <p className="text-[11px] text-slate-500">{p.categoria}</p>
+          {!porCategoria && <p className="text-[11px] text-slate-500">{p.categoria}</p>}
         </td>
         <td className="px-2 py-2.5 text-right font-mono tabular-nums text-slate-200">{eur(p.precio)}</td>
         <td className="hidden md:table-cell px-2 py-2.5 text-right font-mono tabular-nums text-slate-500">{eur(p.precioSinIva)}</td>
@@ -434,7 +464,7 @@ export default function EscandallosPage() {
           <p className="text-sm text-slate-400">Coste de materia prima, food cost y margen de cada plato. Precios de venta sin IVA ({matriz.data?.tasaIva ?? 10} %).</p>
         </div>
         <div className="flex flex-wrap gap-1.5">
-          {restaurantes.map(r => <button key={r.id} onClick={() => { setRidSel(r.id); setGrupoSel(null) }} className={pill(rid === r.id)}>{r.nombre}</button>)}
+          {restaurantes.map(r => <button key={r.id} onClick={() => { setRidSel(r.id); setGrupoSel(null); setCatSel(null) }} className={pill(rid === r.id)}>{r.nombre}</button>)}
         </div>
       </div>
 
@@ -464,7 +494,7 @@ export default function EscandallosPage() {
 
       {/* Filtros */}
       <div className="flex flex-wrap items-center gap-2">
-        {grupos.map(g => <button key={g} onClick={() => setGrupoSel(g)} className={pill(grupo === g)}>{g}</button>)}
+        {grupos.map(g => <button key={g} onClick={() => { setGrupoSel(g); setCatSel(null) }} className={pill(grupo === g)}>{g}</button>)}
         <span className="w-px h-5 bg-white/10 mx-1" />
         {(['rojo', 'ambar', 'verde', 'sin_receta'] as EstadoEscandallo[]).map(e => (
           <button key={e} onClick={() => setSoloEstado(soloEstado === e ? null : e)} className={`flex items-center gap-1.5 ${pill(soloEstado === e)}`}>
@@ -476,7 +506,14 @@ export default function EscandallosPage() {
           <option value="margen">Mayor margen</option>
           <option value="nombre">Por nombre</option>
         </select>
+        <button onClick={() => setPorCategoria(!porCategoria)} className={pill(porCategoria)}>▤ Por categoría</button>
       </div>
+      {categorias.length > 1 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button onClick={() => setCatSel(null)} className={pill(cat === null)}>Todas</button>
+          {categorias.map(c => <button key={c} onClick={() => setCatSel(c)} className={pill(cat === c)}>{c}</button>)}
+        </div>
+      )}
 
       {/* Matriz */}
       <div className={`${tarjeta} overflow-x-auto`}>
@@ -493,7 +530,7 @@ export default function EscandallosPage() {
               <th />
             </tr>
           </thead>
-          <tbody>{visibles.map(fila)}</tbody>
+          <tbody>{bloques.map(b => b.categoria === null ? b.platos.map(fila) : [cabecera(b.categoria, b.platos), ...b.platos.map(fila)])}</tbody>
         </table>
         {matriz.isLoading && <p className="px-4 py-6 text-sm text-slate-500">Cargando…</p>}
         {matriz.isError && !sesionCaida && <p className="px-4 py-6 text-sm text-red-400">{(matriz.error as Error).message}</p>}
