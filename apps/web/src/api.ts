@@ -699,6 +699,58 @@ export interface DesdeCartaResultado {
   creados: number
 }
 
+// Pedidos a proveedores (/admin/pedidos). Cantidades en formatos de compra (3 cajas).
+export type EstadoPedido = 'borrador' | 'enviado' | 'recibido' | 'recibido_diferencias' | 'cancelado'
+
+export interface PedidoLinea {
+  id: number
+  productoId: number | null
+  nombre: string
+  unidad: string
+  formato: string | null
+  unidadesPorFormato: number
+  cantidad: number
+  precioFormato: number | null
+  cantidadRecibida: number | null
+  incidencia: 'falta' | 'roto' | 'otro' | null
+  notaRecepcion: string | null
+  orden: number
+}
+
+export interface Pedido {
+  id: number
+  restaurantId: number
+  proveedorId: number
+  estado: EstadoPedido
+  nota: string
+  creadoPor: string
+  enviadoAt: string | null
+  recibidoAt: string | null
+  recibidoPor: string | null
+  createdAt: string
+  proveedor: { id: number; nombre: string; telefono: string | null; email: string | null }
+  restaurant: { id: number; nombre: string }
+  lineas: PedidoLinea[]
+}
+
+export interface SugerenciaPedido {
+  productoId: number
+  nombre: string
+  categoria: string
+  unidad: string
+  formato: string | null
+  unidadesPorFormato: number
+  precioFormato: number | null
+  precioOrigen: PrecioOrigen | null
+  stockMinimo: number
+  stock: number | null       // último conteo de ese local (null = nunca contado)
+  stockFecha: string | null
+  enCamino: number           // en unidades, de pedidos enviados sin recibir
+  sugerido: number           // en formatos
+}
+
+export type LineaPedidoBody = { productoId: number; cantidad: number; precioFormato: number | null }
+
 export interface InventarioConteoResumen {
   id: number
   restaurantId: number
@@ -1205,6 +1257,8 @@ export const api = {
       authFetch('/facturas/proveedores', { method: 'POST', json: { nombre } }).then(r => r.json() as Promise<Proveedor>),
     renombrarProveedor: (id: number, nombre: string) =>
       authFetch(`/facturas/proveedores/${id}`, { method: 'PUT', json: { nombre } }).then(r => r.json() as Promise<Proveedor>),
+    editarProveedor: (id: number, body: { nombre: string; telefono: string | null; email: string | null }) =>
+      authFetch(`/facturas/proveedores/${id}`, { method: 'PUT', json: body }).then(r => r.json() as Promise<Proveedor>),
     quitarProveedor: (id: number) => authFetch(`/facturas/proveedores/${id}`, { method: 'DELETE' }).then(() => undefined),
     crear: (body: { restaurantId: number; proveedorId?: number; proveedor?: string; numero?: string; nota?: string }) =>
       authFetch('/facturas', { method: 'POST', json: body }).then(r => r.json() as Promise<Factura>),
@@ -1454,6 +1508,22 @@ export const api = {
     },
   },
   // Platos que se acabaron en el servicio (por local). Marcar y reponer: solo encargado.
+  pedidos: {
+    list: (params: { restaurantId?: number; estado?: string } = {}) => {
+      const q = new URLSearchParams()
+      if (params.restaurantId) q.set('restaurantId', String(params.restaurantId))
+      if (params.estado) q.set('estado', params.estado)
+      return get<Pedido[]>(`/pedidos?${q}`)
+    },
+    get: (id: number) => get<Pedido>(`/pedidos/${id}`),
+    sugerencia: (restaurantId: number, proveedorId: number) =>
+      get<SugerenciaPedido[]>(`/pedidos/sugerencia?restaurantId=${restaurantId}&proveedorId=${proveedorId}`),
+    crear: (body: { restaurantId: number; proveedorId: number; nota: string; lineas: LineaPedidoBody[]; enviar: boolean }) =>
+      post<Pedido>('/pedidos', body),
+    editar: (id: number, body: { nota: string; lineas: LineaPedidoBody[] }) => put<Pedido>(`/pedidos/${id}`, body),
+    estado: (id: number, estado: 'borrador' | 'enviado' | 'cancelado') => patch<Pedido>(`/pedidos/${id}/estado`, { estado }),
+    borrar: (id: number) => del(`/pedidos/${id}`),
+  },
   gastos: {
     habituales: (restaurantId: number) => get<GastoHabitual[]>(`/gastos/habituales?restaurantId=${restaurantId}`),
     delTurno: (restaurantId: number) => get<{ desde: string; hoy: Gasto[]; pendientes: Gasto[]; efectivo: number }>(`/gastos?restaurantId=${restaurantId}`),

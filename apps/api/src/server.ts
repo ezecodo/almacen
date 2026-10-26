@@ -31,6 +31,7 @@ import { CONSULTA_ENCARGADO, CONSULTA_SALA, RUTAS_LOCAL, RUTAS_PUBLICAS, RUTAS_P
 import { facturaRoutes } from './routes/facturas'
 import { agotadoRoutes } from './routes/agotados'
 import { gastoRoutes } from './routes/gastos'
+import { pedidoRoutes } from './routes/pedidos'
 import { maridajeRoutes } from './routes/maridajes'
 import { accesoRapidoRoutes } from './routes/accesos-rapidos'
 import { iniciarMqtt, onImpresorasDetectadas } from './mqtt'
@@ -181,6 +182,7 @@ async function start() {
   await app.register(facturaRoutes, { prefix: '/api' })
   await app.register(agotadoRoutes, { prefix: '/api' })
   await app.register(gastoRoutes, { prefix: '/api' })
+  await app.register(pedidoRoutes, { prefix: '/api' })
   await app.register(maridajeRoutes, { prefix: '/api' })
   await app.register(accesoRapidoRoutes, { prefix: '/api' })
 

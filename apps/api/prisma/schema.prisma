@@ -49,6 +49,7 @@ model Restaurant {
   accesoRapidoPropia     Boolean? // true = lista propia; false = la del grupo; null = nunca tocado (propia si tiene filas)
   gastos                 Gasto[]
   gastosHabituales       GastoHabitual[]
+  pedidos                Pedido[]
   // Código de la Raspberry Pi de impresión vinculada a este restaurante (ej. "OIDO-7F3A2C",
   // sale del número de serie de la Pi). null = sin Pi → las comandas no se imprimen.
   piCodigo               String?               @unique
@@ -567,6 +568,7 @@ model InventarioProducto {
   precioOrigen       String?                // de dónde sale precioCoste: 'pedido' | 'chef' | 'referencia' | 'estimado'
   menuItemId         Int?                   // plato de la carta del que se trajo (se vende tal cual: botella, lata…)
   menuItem           MenuItem?  @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
+  pedidoLineas       PedidoLinea[]
   orden          Int                    @default(0)
   activo         Boolean                @default(true)
   categoriaId    Int
@@ -851,6 +853,7 @@ model Proveedor {
   telefono  String?
   email     String?
   productos InventarioProducto[]
+  pedidos   Pedido[]
   createdAt DateTime  @default(now())
 }
 
@@ -921,4 +924,46 @@ model Gasto {
   createdAt    DateTime       @default(now())
 
   @@index([restaurantId, createdAt])
+}
+
+// ── Pedidos a proveedores ─────────────────────────────────────────────────────
+// El dueño arma el pedido por restaurante y proveedor (/admin/pedidos); días después el encargado lo
+// recibe con el albarán y coteja línea por línea (💼). Las facturas van a la oficina, no al local.
+// Cantidades en formatos de compra (3 cajas); cada línea guarda copia del producto por si cambia.
+model Pedido {
+  id           Int           @id @default(autoincrement())
+  restaurantId Int
+  restaurant   Restaurant    @relation(fields: [restaurantId], references: [id])
+  proveedorId  Int
+  proveedor    Proveedor     @relation(fields: [proveedorId], references: [id])
+  estado       String        @default("borrador") // 'borrador' | 'enviado' | 'recibido' | 'recibido_diferencias' | 'cancelado'
+  nota         String        @default("")
+  creadoPor    String        @default("")
+  enviadoAt    DateTime?
+  recibidoAt   DateTime?
+  recibidoPor  String?
+  lineas       PedidoLinea[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@index([restaurantId, estado])
+}
+
+model PedidoLinea {
+  id                 Int                 @id @default(autoincrement())
+  pedidoId           Int
+  pedido             Pedido              @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  productoId         Int?
+  producto           InventarioProducto? @relation(fields: [productoId], references: [id], onDelete: SetNull)
+  nombre             String
+  unidad             String
+  formato            String?             // 'Caja'… null = suelto
+  unidadesPorFormato Float               @default(1)
+  cantidad           Float               // en formatos (3 cajas)
+  precioFormato      Float?              // € por formato al hacer el pedido
+  // Recepción (la completa el encargado)
+  cantidadRecibida   Float?              // en formatos; null = sin recibir todavía
+  incidencia         String?             // 'falta' | 'roto' | 'otro'
+  notaRecepcion      String?
+  orden              Int                 @default(0)
 }
