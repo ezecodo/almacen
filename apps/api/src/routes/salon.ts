@@ -45,13 +45,40 @@ const TIPOS_SEPARABLES = ['round', 'square', 'rectangular']
 type MesaConMitad = Mesa & { mitad: Mesa | null }
 export type MesaVista = Mesa & { separable?: boolean; pareja?: number; paxPareja?: number; idPareja?: number }
 
+// Ancho y alto de una mesa como la dibuja el mapa
+function medidas(m: Mesa) {
+  const rect = m.tipo === 'rectangular' || m.tipo === 'barra'
+  return { w: rect ? m.ancho ?? RECT_W : m.ancho ?? SQUARE_SIZE, h: rect ? m.alto ?? RECT_H : m.ancho ?? SQUARE_SIZE }
+}
+
+// Caja que ocupa en el mapa (girada 90° o 270°, ancho y alto se cambian)
+function caja(m: Mesa) {
+  const { w, h } = medidas(m)
+  const girada = Math.abs(m.rotacion % 180) === 90
+  const cw = girada ? h : w, ch = girada ? w : h
+  const cx = m.x + w / 2, cy = m.y + h / 2
+  return { x1: cx - cw / 2, y1: cy - ch / 2, x2: cx + cw / 2, y2: cy + ch / 2 }
+}
+
+// Cuánto aire queda entre unas mesas y las demás del salón (negativo = se pisan)
+function aire(mesas: Mesa[], otras: Mesa[]) {
+  let min = Infinity
+  for (const m of mesas) {
+    const a = caja(m)
+    for (const o of otras) {
+      const b = caja(o)
+      min = Math.min(min, Math.max(b.x1 - a.x2, a.x1 - b.x2, b.y1 - a.y2, a.y1 - b.y2))
+    }
+  }
+  return min
+}
+
 // lado: el de las mesas normales de esos pax en el mismo salón (Eze: separadas tienen que verse
 // como las de 2). Sin ninguna de referencia, cada mitad es media mesa entera.
-function partir(entera: Mesa, mitad: Mesa, lado?: number): [MesaVista, MesaVista] {
-  const rect = entera.tipo === 'rectangular'
-  const w = rect ? entera.ancho ?? RECT_W : entera.ancho ?? SQUARE_SIZE
-  const h = rect ? entera.alto ?? RECT_H : entera.ancho ?? SQUARE_SIZE
-  const deLado = w > h // cuadrada: una encima de la otra
+// deLado: una al lado de la otra; si no, una encima de la otra (por defecto, por su lado largo)
+function partir(entera: Mesa, mitad: Mesa, lado?: number, deLadoPedido?: boolean): [MesaVista, MesaVista] {
+  const { w, h } = medidas(entera)
+  const deLado = deLadoPedido ?? w > h
   // Media mesa redonda o cuadrada queda diminuta (una redonda de 80 → dos de 35, sin sitio para el
   // número): entonces cada mitad toma un tamaño mínimo y salen del sitio de la entera
   if (!lado && Math.min(deLado ? (w - HUECO) / 2 : w, deLado ? h : (h - HUECO) / 2) < MIN_MITAD) lado = MIN_MITAD
@@ -108,8 +135,14 @@ function mesasVisibles(mesas: MesaConMitad[]): MesaVista[] {
     if (!mitad) { r.push(m); continue }
     // Redonda sin redondas de esos pax en el salón: del tamaño de las cuadradas de esos pax
     const lado = (m.tipo === 'round' ? ladoDe(mesas, mitad.capacidad, 'round') : undefined) ?? ladoDe(mesas, mitad.capacidad, 'square')
-    if (m.separada) r.push(...partir(m, mitad, lado))
-    else r.push({ ...m, separable: true, pareja: mitad.numero, paxPareja: mitad.capacidad, idPareja: mitad.id })
+    if (!m.separada) { r.push({ ...m, separable: true, pareja: mitad.numero, paxPareja: mitad.capacidad, idPareja: mitad.id }); continue }
+    const { w, h } = medidas(m)
+    if (w !== h) { r.push(...partir(m, mitad, lado)); continue }
+    // Redonda o cuadrada: al lado o encima, la que deje más aire con las demás mesas (Eze: aprovechar
+    // el ancho que hay); si da igual, al lado
+    const otras = mesas.filter(o => o.id !== m.id && !o.parteDeId)
+    const alLado = partir(m, mitad, lado, true), encima = partir(m, mitad, lado, false)
+    r.push(...(aire(encima, otras) > aire(alLado, otras) ? encima : alLado))
   }
   return r.sort((a, b) => a.numero - b.numero)
 }
