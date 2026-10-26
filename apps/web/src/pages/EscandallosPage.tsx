@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, ADMIN_TOKEN_KEY, EscandalloPlato, EstadoEscandallo, Ingrediente, IngredienteBody } from '../api'
+import { api, ADMIN_TOKEN_KEY, Elaboracion, EscandalloPlato, EstadoEscandallo, Ingrediente, IngredienteBody } from '../api'
 
 // Escandallos: qué cuesta en materia prima cada plato y qué margen deja.
 // Paleta oscura de marca (la misma del monitor Veri*factu y de Pulso), sin animaciones:
@@ -128,8 +128,109 @@ function IngredienteForm({ inicial, nombreInicial, onGuardado, onCancelar }: {
   )
 }
 
-// ── Detalle del plato: receta, reparto del coste y precio objetivo ─────────────
+// ── Líneas de una receta (plato o elaboración): ingredientes, cantidades, alta y edición ──
 interface LineaEdit { productoId: number; cantidad: string }
+
+function calcularFilas(lineas: LineaEdit[], porId: Map<number, Ingrediente>) {
+  return lineas.map(l => {
+    const ing = porId.get(l.productoId)
+    const cantidad = num(l.cantidad)
+    const coste = ing && ing.costeUnitario !== null && cantidad > 0 ? ing.costeUnitario * cantidad : null
+    return { ...l, ing, coste }
+  })
+}
+
+// Precio de un ingrediente para mostrar: el de compra o, si es elaboración, lo que vale por kg / l / ud
+function textoPrecio(i: Ingrediente) {
+  if (i.elaboracion) return i.costeUnitario === null ? '⚗️ falta algún precio en su receta' : `⚗️ ${eur(i.costeUnitario * i.contenido)} / ${i.unidad}`
+  return i.precioCoste === null ? null : `${eur(i.precioCoste)} / ${i.unidad}`
+}
+
+function LineasReceta({ ingredientes, lineas, setLineas, divisor, excluirId, onCambioIngredientes, vacio }: {
+  ingredientes: Ingrediente[]
+  lineas: LineaEdit[]
+  setLineas: (f: (l: LineaEdit[]) => LineaEdit[]) => void
+  divisor: number            // el coste de cada línea se muestra ÷ esto (raciones del plato; 1 en una tanda)
+  excluirId?: number         // una elaboración no se lleva a sí misma
+  onCambioIngredientes: () => void
+  vacio: string
+}) {
+  const [busca, setBusca] = useState('')
+  const [creando, setCreando] = useState(false)
+  const [editandoId, setEditandoId] = useState<number | null>(null)
+  const porId = useMemo(() => new Map(ingredientes.map(i => [i.id, i])), [ingredientes])
+  const filas = calcularFilas(lineas, porId)
+  const agregar = (id: number) => { setLineas(l => [...l, { productoId: id, cantidad: '' }]); setBusca('') }
+  const usados = new Set(lineas.map(l => l.productoId))
+  const nb = norm(busca.trim())
+  const candidatos = nb ? ingredientes.filter(i => i.id !== excluirId && !usados.has(i.id) && norm(i.nombre).includes(nb)).slice(0, 8) : []
+
+  return (
+    <>
+      <div className="space-y-1.5">
+        {filas.length === 0 && <p className="text-sm text-slate-500 py-3">{vacio}</p>}
+        {filas.map((f, i) => {
+          const precio = f.ing ? textoPrecio(f.ing) : null
+          return (
+            <div key={f.productoId}>
+              <div className={`${tarjeta} flex items-center gap-2 px-3 py-2`}>
+                <button onClick={() => !f.ing?.elaboracion && setEditandoId(editandoId === f.productoId ? null : f.productoId)} className="min-w-0 flex-1 text-left"
+                  title={f.ing?.elaboracion ? 'Su coste sale de su receta (pestaña Elaboraciones)' : 'Editar precio y merma del ingrediente'}>
+                  <p className="text-sm font-semibold text-white truncate">{f.ing?.elaboracion && '⚗️ '}{f.ing?.nombre ?? '…'}</p>
+                  <p className="text-[11px] text-slate-500 truncate">
+                    {precio === null
+                      ? <span className="text-amber-300">sin precio de coste — toca para ponerlo</span>
+                      : <span className={f.ing?.costeUnitario === null ? 'text-amber-300' : ''}>{precio}{!f.ing?.elaboracion && f.ing && f.ing.mermaPct > 0 ? ` · merma ${f.ing.mermaPct} %` : ''}</span>}
+                  </p>
+                </button>
+                <input
+                  value={f.cantidad}
+                  onChange={ev => setLineas(l => l.map((x, k) => (k === i ? { ...x, cantidad: ev.target.value } : x)))}
+                  inputMode="decimal" placeholder="0" autoFocus={f.cantidad === ''}
+                  className={`${campo} w-20 text-right font-mono`}
+                />
+                <span className="w-6 text-xs text-slate-400">{f.ing?.unidadBase}</span>
+                <span className="w-20 text-right text-sm font-mono tabular-nums text-white">{f.coste === null ? '—' : eur(f.coste / divisor)}</span>
+                <button onClick={() => setLineas(l => l.filter((_, k) => k !== i))} className="text-slate-500 hover:text-red-400 px-1">✕</button>
+              </div>
+              {editandoId === f.productoId && f.ing && (
+                <div className="mt-1.5">
+                  <IngredienteForm inicial={f.ing} onCancelar={() => setEditandoId(null)} onGuardado={() => { setEditandoId(null); onCambioIngredientes() }} />
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Añadir ingrediente (o elaboración) */}
+      <div className="mt-3">
+        {creando ? (
+          <IngredienteForm nombreInicial={busca.trim()} onCancelar={() => setCreando(false)} onGuardado={i => { setCreando(false); onCambioIngredientes(); agregar(i.id) }} />
+        ) : (
+          <>
+            <input value={busca} onChange={ev => setBusca(ev.target.value)} placeholder="+ Añadir ingrediente o elaboración (escribe para buscar)" className={`${campo} w-full py-2.5`} />
+            {nb && (
+              <div className={`${tarjeta} mt-1.5 overflow-hidden`}>
+                {candidatos.map(i => (
+                  <button key={i.id} onClick={() => agregar(i.id)} className="w-full flex items-center justify-between px-3 py-2 text-left text-sm hover:bg-white/5">
+                    <span className="text-white">{i.elaboracion && '⚗️ '}{i.nombre}</span>
+                    <span className="text-xs text-slate-500">{textoPrecio(i) ?? 'sin precio'}</span>
+                  </button>
+                ))}
+                <button onClick={() => setCreando(true)} className="w-full px-3 py-2 text-left text-sm font-semibold text-[#4B9EDF] hover:bg-white/5 border-t border-white/10">
+                  + Crear ingrediente «{busca.trim()}»
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </>
+  )
+}
+
+// ── Detalle del plato: receta, reparto del coste y precio objetivo ─────────────
 
 function DetallePlato({ menuItemId, restaurantId, onClose }: { menuItemId: number; restaurantId: number; onClose: () => void }) {
   const qc = useQueryClient()
@@ -138,9 +239,6 @@ function DetallePlato({ menuItemId, restaurantId, onClose }: { menuItemId: numbe
 
   const [lineas, setLineas] = useState<LineaEdit[] | null>(null)
   const [raciones, setRaciones] = useState('1')
-  const [busca, setBusca] = useState('')
-  const [creando, setCreando] = useState(false)
-  const [editandoId, setEditandoId] = useState<number | null>(null)
   const [objetivo, setObjetivo] = useState('')
 
   // Copia editable de la receta: se carga una vez por plato
@@ -152,12 +250,7 @@ function DetallePlato({ menuItemId, restaurantId, onClose }: { menuItemId: numbe
   }, [detalle, lineas])
 
   const porId = useMemo(() => new Map(ingredientes.map(i => [i.id, i])), [ingredientes])
-  const filas = (lineas ?? []).map(l => {
-    const ing = porId.get(l.productoId)
-    const cantidad = num(l.cantidad)
-    const coste = ing && ing.costeUnitario !== null && cantidad > 0 ? ing.costeUnitario * cantidad : null
-    return { ...l, ing, coste }
-  })
+  const filas = calcularFilas(lineas ?? [], porId)
   const nRaciones = num(raciones) > 0 ? num(raciones) : 1
   const costeTotal = filas.reduce((s, f) => s + (f.coste ?? 0), 0) / nRaciones
   const sinPrecio = filas.filter(f => f.ing && f.ing.costeUnitario === null).length
@@ -182,11 +275,8 @@ function DetallePlato({ menuItemId, restaurantId, onClose }: { menuItemId: numbe
   const refrescarIngredientes = () => {
     qc.invalidateQueries({ queryKey: ['escandallo-ingredientes'] })
     qc.invalidateQueries({ queryKey: ['escandallos'] })
+    qc.invalidateQueries({ queryKey: ['elaboraciones'] })
   }
-  const agregar = (id: number) => { setLineas(l => [...(l ?? []), { productoId: id, cantidad: '' }]); setBusca('') }
-  const usados = new Set((lineas ?? []).map(l => l.productoId))
-  const nb = norm(busca.trim())
-  const candidatos = nb ? ingredientes.filter(i => !usados.has(i.id) && norm(i.nombre).includes(nb)).slice(0, 8) : []
   const ranking = [...filas].filter(f => f.coste !== null).sort((a, b) => (b.coste ?? 0) - (a.coste ?? 0))
   const maxCoste = ranking[0]?.coste ?? 0
   const e = ESTADO[estado]
@@ -235,61 +325,8 @@ function DetallePlato({ menuItemId, restaurantId, onClose }: { menuItemId: numbe
                   {nRaciones === 1 ? 'ración' : 'raciones'}
                 </label>
               </div>
-              <div className="space-y-1.5">
-                {filas.length === 0 && <p className="text-sm text-slate-500 py-3">Todavía no tiene ingredientes. Búscalos abajo.</p>}
-                {filas.map((f, i) => (
-                  <div key={f.productoId}>
-                    <div className={`${tarjeta} flex items-center gap-2 px-3 py-2`}>
-                      <button onClick={() => setEditandoId(editandoId === f.productoId ? null : f.productoId)} className="min-w-0 flex-1 text-left" title="Editar precio y merma del ingrediente">
-                        <p className="text-sm font-semibold text-white truncate">{f.ing?.nombre ?? '…'}</p>
-                        <p className="text-[11px] text-slate-500 truncate">
-                          {f.ing?.precioCoste === null || f.ing?.precioCoste === undefined
-                            ? <span className="text-amber-300">sin precio de coste — toca para ponerlo</span>
-                            : `${eur(f.ing.precioCoste)} / ${f.ing.unidad}${f.ing.mermaPct > 0 ? ` · merma ${f.ing.mermaPct} %` : ''}`}
-                        </p>
-                      </button>
-                      <input
-                        value={f.cantidad}
-                        onChange={ev => setLineas(l => (l ?? []).map((x, k) => (k === i ? { ...x, cantidad: ev.target.value } : x)))}
-                        inputMode="decimal" placeholder="0" autoFocus={f.cantidad === ''}
-                        className={`${campo} w-20 text-right font-mono`}
-                      />
-                      <span className="w-6 text-xs text-slate-400">{f.ing?.unidadBase}</span>
-                      <span className="w-20 text-right text-sm font-mono tabular-nums text-white">{f.coste === null ? '—' : eur(f.coste / nRaciones)}</span>
-                      <button onClick={() => setLineas(l => (l ?? []).filter((_, k) => k !== i))} className="text-slate-500 hover:text-red-400 px-1">✕</button>
-                    </div>
-                    {editandoId === f.productoId && f.ing && (
-                      <div className="mt-1.5">
-                        <IngredienteForm inicial={f.ing} onCancelar={() => setEditandoId(null)} onGuardado={() => { setEditandoId(null); refrescarIngredientes() }} />
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              {/* Añadir ingrediente */}
-              <div className="mt-3">
-                {creando ? (
-                  <IngredienteForm nombreInicial={busca.trim()} onCancelar={() => setCreando(false)} onGuardado={i => { setCreando(false); refrescarIngredientes(); agregar(i.id) }} />
-                ) : (
-                  <>
-                    <input value={busca} onChange={ev => setBusca(ev.target.value)} placeholder="+ Añadir ingrediente (escribe para buscar)" className={`${campo} w-full py-2.5`} />
-                    {nb && (
-                      <div className={`${tarjeta} mt-1.5 overflow-hidden`}>
-                        {candidatos.map(i => (
-                          <button key={i.id} onClick={() => agregar(i.id)} className="w-full flex items-center justify-between px-3 py-2 text-left text-sm hover:bg-white/5">
-                            <span className="text-white">{i.nombre}</span>
-                            <span className="text-xs text-slate-500">{i.precioCoste === null ? 'sin precio' : `${eur(i.precioCoste)} / ${i.unidad}`}</span>
-                          </button>
-                        ))}
-                        <button onClick={() => setCreando(true)} className="w-full px-3 py-2 text-left text-sm font-semibold text-[#4B9EDF] hover:bg-white/5 border-t border-white/10">
-                          + Crear ingrediente «{busca.trim()}»
-                        </button>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
+              <LineasReceta ingredientes={ingredientes} lineas={lineas} setLineas={f => setLineas(l => f(l ?? []))} divisor={nRaciones}
+                onCambioIngredientes={refrescarIngredientes} vacio="Todavía no tiene ingredientes. Búscalos abajo." />
             </div>
 
             {/* Qué ingredientes pesan más en el coste */}
@@ -338,6 +375,181 @@ function DetallePlato({ menuItemId, restaurantId, onClose }: { menuItemId: numbe
   )
 }
 
+// ── ⚗️ Elaboraciones: receta por tanda de salsas, fondos, premixes… ─────────────
+const fmtCant = (n: number) => n.toLocaleString('es-ES', { maximumFractionDigits: 2 })
+// La tanda se escribe en kg / l / ud y se guarda en la unidad base (g / ml / ud)
+const porUnidadBase = (unidad: string) => (unidad === 'kg' || unidad === 'l' ? 1000 : 1)
+
+function DetalleElaboracion({ productoId, restaurantId, onClose }: { productoId: number; restaurantId: number; onClose: () => void }) {
+  const qc = useQueryClient()
+  const { data: detalle } = useQuery({ queryKey: ['elaboracion', productoId], queryFn: () => api.escandallos.elaboracion(productoId) })
+  const { data: ingredientes = [] } = useQuery({ queryKey: ['escandallo-ingredientes', restaurantId], queryFn: () => api.escandallos.ingredientes(restaurantId) })
+  const [lineas, setLineas] = useState<LineaEdit[] | null>(null)
+  const [rinde, setRinde] = useState('')
+
+  useEffect(() => {
+    if (!detalle || lineas !== null) return
+    setLineas(detalle.lineas.map(l => ({ productoId: l.productoId, cantidad: String(l.cantidad) })))
+    setRinde(detalle.rendimiento ? String(detalle.rendimiento / porUnidadBase(detalle.unidad)) : '')
+  }, [detalle, lineas])
+
+  const porId = useMemo(() => new Map(ingredientes.map(i => [i.id, i])), [ingredientes])
+  const filas = calcularFilas(lineas ?? [], porId)
+  const costeTanda = filas.reduce((s, f) => s + (f.coste ?? 0), 0)
+  const sinPrecio = filas.filter(f => f.ing && f.ing.costeUnitario === null).length
+  const rindeNum = num(rinde)
+  const porUnidad = rindeNum > 0 && filas.length > 0 ? costeTanda / rindeNum : null
+  const refrescar = () => {
+    qc.invalidateQueries({ queryKey: ['escandallo-ingredientes'] })
+    qc.invalidateQueries({ queryKey: ['escandallos'] })
+    qc.invalidateQueries({ queryKey: ['elaboraciones'] })
+  }
+  const guardar = useMutation({
+    mutationFn: () => api.escandallos.guardarElaboracion(productoId, {
+      rendimiento: rindeNum * porUnidadBase(detalle!.unidad),
+      lineas: filas.filter(f => num(f.cantidad) > 0).map(f => ({ productoId: f.productoId, cantidad: num(f.cantidad) })),
+    }),
+    onSuccess: () => { refrescar(); qc.invalidateQueries({ queryKey: ['elaboracion', productoId] }); onClose() },
+  })
+  const listo = rindeNum > 0 || filas.length === 0
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/60" onClick={onClose}>
+      <div className="h-full w-full max-w-2xl overflow-y-auto bg-[#0f1a2e] border-l border-[#4B9EDF]/40 text-slate-200" onClick={ev => ev.stopPropagation()}>
+        <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-white/10 bg-[#0f1a2e] px-5 py-4">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs text-slate-400 uppercase tracking-wider">⚗️ Elaboración · {detalle?.categoria ?? '…'}</p>
+            <h2 className="text-xl font-black text-white truncate">{detalle?.nombre ?? 'Cargando…'}</h2>
+          </div>
+          <button onClick={onClose} className="text-slate-400 text-xl px-2">✕</button>
+        </div>
+
+        {detalle && lineas !== null && (
+          <div className="p-5 space-y-5">
+            <div className="grid grid-cols-2 gap-2">
+              <div className={`${tarjeta} px-3 py-2.5`}>
+                <p className="text-[10px] uppercase tracking-widest text-slate-400">Coste de la tanda</p>
+                <p className="text-xl font-black font-mono tabular-nums text-white">{filas.length ? eur(costeTanda) : '—'}</p>
+              </div>
+              <div className={`${tarjeta} px-3 py-2.5`}>
+                <p className="text-[10px] uppercase tracking-widest text-slate-400">Coste por {detalle.unidad}</p>
+                <p className="text-xl font-black font-mono tabular-nums text-[#4CC8A0]">{porUnidad === null ? '—' : eur(porUnidad)}</p>
+                <p className="text-[11px] text-slate-500">es lo que cuesta en cada plato</p>
+              </div>
+            </div>
+            {sinPrecio > 0 && (
+              <p className="text-sm text-amber-300 border border-amber-400/40 bg-amber-400/10 rounded-xl px-3 py-2">
+                {sinPrecio === 1 ? 'Hay 1 ingrediente' : `Hay ${sinPrecio} ingredientes`} sin precio: los platos que la llevan salen como "falta algún precio".
+              </p>
+            )}
+
+            <div>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider">Receta de la tanda</h3>
+                <label className="flex items-center gap-2 text-xs text-slate-400">
+                  Salen
+                  <input value={rinde} onChange={ev => setRinde(ev.target.value)} inputMode="decimal" placeholder="0" className={`${campo} w-20 text-right font-mono ${rindeNum > 0 || filas.length === 0 ? '' : 'border-amber-400'}`} />
+                  {detalle.unidad}
+                </label>
+              </div>
+              <LineasReceta ingredientes={ingredientes} lineas={lineas} setLineas={f => setLineas(l => f(l ?? []))} divisor={1} excluirId={productoId}
+                onCambioIngredientes={refrescar} vacio="Todavía no tiene ingredientes: escribe abajo qué lleva la tanda (en g, ml o ud) y cuánto sale." />
+            </div>
+
+            {detalle.usadaEn.length > 0 && (
+              <p className="text-xs text-slate-400">Se usa en: {detalle.usadaEn.join(' · ')}</p>
+            )}
+
+            {guardar.isError && <p className="text-red-400 text-sm">{(guardar.error as Error).message}</p>}
+            {!listo && <p className="text-amber-300 text-xs text-right">Falta cuánto sale de la tanda</p>}
+            <div className="flex justify-end gap-2 pb-6">
+              <button onClick={onClose} className="text-sm text-slate-400 px-4 py-2.5">Cerrar sin guardar</button>
+              <button onClick={() => guardar.mutate()} disabled={guardar.isPending || !listo} className="text-sm font-bold bg-[#4CC8A0] text-[#0f1a2e] rounded-xl px-5 py-2.5 disabled:opacity-50">
+                {guardar.isPending ? 'Guardando…' : 'Guardar receta'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ElaboracionesVista({ restaurantId }: { restaurantId: number }) {
+  const qc = useQueryClient()
+  const { data: lista = [], isLoading, error } = useQuery({ queryKey: ['elaboraciones'], queryFn: api.escandallos.elaboraciones })
+  const [abierta, setAbierta] = useState<number | null>(null)
+  const [nueva, setNueva] = useState<{ nombre: string; unidad: 'kg' | 'l' | 'ud'; produccion: 'cocina' | 'sala' } | null>(null)
+  const crear = useMutation({
+    mutationFn: () => api.escandallos.crearElaboracion({ ...nueva!, nombre: nueva!.nombre.trim() }),
+    onSuccess: r => { setNueva(null); qc.invalidateQueries({ queryKey: ['elaboraciones'] }); qc.invalidateQueries({ queryKey: ['escandallo-ingredientes'] }); setAbierta(r.id) },
+  })
+  const pill = (activo: boolean) => `px-3 py-1.5 rounded-full text-xs font-bold ${activo ? 'bg-[#4CC8A0] text-[#0f1a2e]' : 'bg-white/5 text-slate-300 hover:bg-white/10'}`
+
+  const fila = (e: Elaboracion) => {
+    const sinReceta = e.ingredientes === 0
+    return (
+      <tr key={e.id} onClick={() => setAbierta(e.id)} className="cursor-pointer hover:bg-white/5 border-t border-white/5">
+        <td className="pl-4 pr-2 py-2.5">
+          <p className="font-semibold text-white">⚗️ {e.nombre}</p>
+          <p className="text-[11px] text-slate-500">{e.categoria}{e.produccion ? ` · la hace ${e.produccion}` : ''}</p>
+        </td>
+        <td className="px-2 py-2.5 text-right text-slate-400 text-xs">
+          {sinReceta ? '—' : `${e.ingredientes} ingr. · salen ${e.rendimiento ? fmtCant(e.rendimiento / porUnidadBase(e.unidad)) : '?'} ${e.unidad}`}
+        </td>
+        <td className="px-2 py-2.5 text-right font-mono tabular-nums">
+          {sinReceta ? <span className="text-xs text-slate-500">sin receta · <span className="text-[#4B9EDF] font-semibold">crear</span></span>
+            : e.precioPorUnidad === null ? <span className="text-xs text-amber-300">falta algún precio</span>
+            : <span className="font-bold text-[#4CC8A0]">{eur(e.precioPorUnidad)} / {e.unidad}</span>}
+        </td>
+        <td className="px-2 py-2.5 text-right text-xs text-slate-400">{e.usadaEn ? `en ${e.usadaEn} ${e.usadaEn === 1 ? 'receta' : 'recetas'}` : 'sin usar'}</td>
+        <td className="pr-4 pl-1 py-2.5 text-slate-500">›</td>
+      </tr>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-slate-400">
+        Lo que se prepara en casa y entra en varios platos (salsas, fondos, premixes). Se escribe la receta de una tanda y cuánto sale;
+        su coste por kg pasa solo a cada plato que la lleva, y si sube un ingrediente se encarecen todos.
+      </p>
+      {nueva ? (
+        <div className={`${tarjeta} p-3 flex flex-wrap items-center gap-2`}>
+          <input value={nueva.nombre} onChange={ev => setNueva({ ...nueva, nombre: ev.target.value })} autoFocus placeholder="Nombre (ej. Salsa brava)" className={`${campo} flex-1 min-w-[180px]`} />
+          <span className="text-xs text-slate-400">se mide en</span>
+          {(['kg', 'l', 'ud'] as const).map(u => <button key={u} onClick={() => setNueva({ ...nueva, unidad: u })} className={pill(nueva.unidad === u)}>{u}</button>)}
+          <span className="text-xs text-slate-400 ml-2">la hace</span>
+          {(['cocina', 'sala'] as const).map(u => <button key={u} onClick={() => setNueva({ ...nueva, produccion: u })} className={pill(nueva.produccion === u)}>{u}</button>)}
+          <button onClick={() => crear.mutate()} disabled={!nueva.nombre.trim() || crear.isPending} className="ml-auto text-sm font-bold bg-[#4CC8A0] text-[#0f1a2e] rounded-xl px-4 py-2 disabled:opacity-50">Crear</button>
+          <button onClick={() => setNueva(null)} className="text-sm text-slate-400 px-2">Cancelar</button>
+          {crear.isError && <p className="w-full text-red-400 text-xs">{(crear.error as Error).message}</p>}
+        </div>
+      ) : (
+        <button onClick={() => setNueva({ nombre: '', unidad: 'kg', produccion: 'cocina' })} className="text-sm font-bold text-[#4B9EDF]">+ Nueva elaboración</button>
+      )}
+      <div className={`${tarjeta} overflow-x-auto`}>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-[10px] uppercase tracking-widest text-slate-400">
+              <th className="pl-4 pr-2 py-2.5 text-left font-medium">Elaboración</th>
+              <th className="px-2 py-2.5 text-right font-medium">Tanda</th>
+              <th className="px-2 py-2.5 text-right font-medium">Coste</th>
+              <th className="px-2 py-2.5 text-right font-medium">Se usa</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>{lista.map(fila)}</tbody>
+        </table>
+        {isLoading && <p className="px-4 py-6 text-sm text-slate-500">Cargando…</p>}
+        {error && <p className="px-4 py-6 text-sm text-red-400">{(error as Error).message}</p>}
+        {!isLoading && !error && lista.length === 0 && <p className="px-4 py-6 text-sm text-slate-500">Todavía no hay elaboraciones.</p>}
+      </div>
+      {abierta !== null && <DetalleElaboracion key={abierta} productoId={abierta} restaurantId={restaurantId} onClose={() => setAbierta(null)} />}
+    </div>
+  )
+}
+
 // ── Página: matriz de platos ───────────────────────────────────────────────────
 type Orden = 'peor' | 'margen' | 'nombre'
 const PESO_ESTADO: Record<EstadoEscandallo, number> = { rojo: 0, ambar: 1, incompleta: 2, verde: 3, sin_receta: 4 }
@@ -359,6 +571,7 @@ export default function EscandallosPage() {
   const [soloEstado, setSoloEstado] = useState<EstadoEscandallo | null>(null)
   const [orden, setOrden] = useState<Orden>('peor')
   const [porCategoria, setPorCategoria] = useState(true)
+  const [vista, setVista] = useState<'platos' | 'elaboraciones'>('platos')
   const [catSel, setCatSel] = useState<string | null>(null)
   const [abierto, setAbierto] = useState<number | null>(null)
   const [umbrales, setUmbrales] = useState<{ verde: string; ambar: string } | null>(null)
@@ -468,6 +681,13 @@ export default function EscandallosPage() {
         </div>
       </div>
 
+      <div className="flex gap-1.5">
+        <button onClick={() => setVista('platos')} className={pill(vista === 'platos')}>🍽 Platos</button>
+        <button onClick={() => setVista('elaboraciones')} className={pill(vista === 'elaboraciones')}>⚗️ Elaboraciones</button>
+      </div>
+
+      {vista === 'elaboraciones' && rid !== null && <ElaboracionesVista restaurantId={rid} />}
+      {vista === 'platos' && <>
       {/* Cifras de la sección elegida */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className={`${tarjeta} px-4 py-3`}>
@@ -557,6 +777,8 @@ export default function EscandallosPage() {
           </>
         )}
       </div>
+
+      </>}
 
       {abierto !== null && rid !== null && <DetallePlato key={abierto} menuItemId={abierto} restaurantId={rid} onClose={() => setAbierto(null)} />}
     </div>

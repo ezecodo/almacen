@@ -685,7 +685,7 @@ export interface InventarioProducto {
   menuItemId: number | null
 }
 
-export type PrecioOrigen = 'pedido' | 'chef' | 'referencia' | 'estimado'
+export type PrecioOrigen = 'pedido' | 'chef' | 'referencia' | 'estimado' | 'receta' // receta = elaboración, sale de sus ingredientes
 
 export type DatosCompraProducto = {
   proveedorId: number | null
@@ -1166,6 +1166,21 @@ export interface Ingrediente {
   unidad: string; precioCoste: number | null           // unidad y precio de compra
   unidadBase: string; contenido: number; mermaPct: number // cómo se mide en la receta
   costeUnitario: number | null                          // € por unidad base, merma incluida
+  elaboracion: boolean                                  // ⚗️ se hace en casa: el coste sale de su receta
+}
+// ⚗️ Elaboraciones (sub-recetas): salsas, fondos, premixes… con receta por tanda
+export interface Elaboracion {
+  id: number; nombre: string; unidad: string; unidadBase: string; contenido: number
+  categoria: string; produccion: 'cocina' | 'sala' | null
+  rendimiento: number | null; ingredientes: number
+  costeUnitario: number | null; precioPorUnidad: number | null // € por g/ml/ud y por kg/l/ud
+  usadaEn: number
+}
+export interface ElaboracionDetalle {
+  id: number; nombre: string; unidad: string; unidadBase: string; contenido: number; categoria: string
+  rendimiento: number | null
+  lineas: { productoId: number; cantidad: number; producto: Ingrediente }[]
+  usadaEn: string[]
 }
 export interface EscandalloDetalle {
   tasaIva: number; verde: number; ambar: number
@@ -1238,6 +1253,12 @@ export const api = {
     guardar: (menuItemId: number, body: { raciones: number; lineas: { productoId: number; cantidad: number }[] }) =>
       authFetch(`/admin/escandallos/${menuItemId}`, { method: 'PUT', json: body }).then(() => undefined),
     umbrales: (body: { verde: number; ambar: number }) => authFetch('/admin/escandallos/umbrales', { method: 'PUT', json: body }).then(() => undefined),
+    elaboraciones: () => authFetch('/admin/escandallos/elaboraciones').then(r => r.json() as Promise<Elaboracion[]>),
+    elaboracion: (id: number) => authFetch(`/admin/escandallos/elaboraciones/${id}`).then(r => r.json() as Promise<ElaboracionDetalle>),
+    crearElaboracion: (body: { nombre: string; unidad: 'kg' | 'l' | 'ud'; produccion: 'cocina' | 'sala' }) =>
+      authFetch('/admin/escandallos/elaboraciones', { method: 'POST', json: body }).then(r => r.json() as Promise<{ id: number }>),
+    guardarElaboracion: (id: number, body: { rendimiento: number; lineas: { productoId: number; cantidad: number }[] }) =>
+      authFetch(`/admin/escandallos/elaboraciones/${id}`, { method: 'PUT', json: body }).then(() => undefined),
     ingredientes: (restaurantId: number) => authFetch(`/admin/escandallos/ingredientes?restaurantId=${restaurantId}`).then(r => r.json() as Promise<Ingrediente[]>),
     crearIngrediente: (body: IngredienteBody) => authFetch('/admin/escandallos/ingredientes', { method: 'POST', json: body }).then(r => r.json() as Promise<Ingrediente>),
     editarIngrediente: (id: number, body: Partial<IngredienteBody>) => authFetch(`/admin/escandallos/ingredientes/${id}`, { method: 'PATCH', json: body }).then(r => r.json() as Promise<Ingrediente>),

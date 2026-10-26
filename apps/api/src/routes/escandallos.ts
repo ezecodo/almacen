@@ -2,32 +2,13 @@ import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../server'
 import { requireAdmin } from '../auth'
+import { alcanza, base, cargarCostes, Producto, refrescarElaboraciones } from '../costes'
 
 // Escandallos: coste de materia prima de cada plato a partir de su receta.
 // Los ingredientes son productos del catálogo de Inventario (global o del restaurante).
 // Todo el módulo exige sesión de admin: los costes son información sensible.
-
-type Producto = { unidad: string; precioCoste: number | null; unidadBase: string | null; contenido: number | null; mermaPct: number }
-
-// En qué se mide el producto dentro de una receta y cuántas de esas unidades trae la unidad de compra
-function base(p: Pick<Producto, 'unidad' | 'unidadBase' | 'contenido'>): { unidadBase: string; contenido: number } {
-  const porDefecto: Record<string, { unidadBase: string; contenido: number }> = {
-    kg: { unidadBase: 'g', contenido: 1000 },
-    l: { unidadBase: 'ml', contenido: 1000 },
-    botella: { unidadBase: 'ml', contenido: 750 },
-    caja: { unidadBase: 'ud', contenido: 1 },
-    ud: { unidadBase: 'ud', contenido: 1 },
-  }
-  const d = porDefecto[p.unidad] ?? porDefecto.ud
-  return { unidadBase: p.unidadBase ?? d.unidadBase, contenido: p.contenido && p.contenido > 0 ? p.contenido : d.contenido }
-}
-
-// € por unidad base ya aprovechable (la merma encarece lo que queda). null = sin precio de coste
-function costeUnitario(p: Producto): number | null {
-  if (p.precioCoste === null || p.precioCoste === undefined) return null
-  const aprovechable = 1 - Math.min(95, Math.max(0, p.mermaPct)) / 100
-  return p.precioCoste / base(p).contenido / aprovechable
-}
+// Elaboraciones (sub-recetas): salsas, fondos, premixes… productos del inventario con receta propia
+// por tanda; su coste sale de sus ingredientes (src/costes.ts) y se usan como un ingrediente más.
 
 const r2 = (n: number) => Math.round(n * 100) / 100
 const r4 = (n: number) => Math.round(n * 10000) / 10000
@@ -39,13 +20,13 @@ async function config() {
   return { tasaIva: c.tasaIva, verde: c.foodCostVerde, ambar: c.foodCostAmbar }
 }
 
-function serializarProducto<T extends Producto & { id: number; nombre: string; restaurantId: number | null }>(p: T) {
+function serializarProducto<T extends Producto & { id: number; nombre: string; restaurantId: number | null }>(p: T, costeUnitario: number | null, elaboracion: boolean) {
   const b = base(p)
-  const cu = costeUnitario(p)
   return {
     id: p.id, nombre: p.nombre, restaurantId: p.restaurantId, unidad: p.unidad, precioCoste: p.precioCoste,
     unidadBase: b.unidadBase, contenido: b.contenido, mermaPct: p.mermaPct,
-    costeUnitario: cu === null ? null : r4(cu),
+    costeUnitario: costeUnitario === null ? null : r4(costeUnitario),
+    elaboracion,
   }
 }
 
@@ -58,10 +39,24 @@ const ingredienteSchema = z.object({
   mermaPct:    z.number().min(0).max(95).default(0),
 })
 
+const lineasSchema = z.array(z.object({ productoId: z.number().int().positive(), cantidad: z.number().positive() })).max(100)
 const recetaSchema = z.object({
   raciones: z.number().positive().default(1),
-  lineas:   z.array(z.object({ productoId: z.number().int().positive(), cantidad: z.number().positive() })),
+  lineas:   lineasSchema,
 })
+const elaboracionSchema = z.object({
+  nombre:     z.string().trim().min(1).max(120),
+  unidad:     z.enum(['kg', 'l', 'ud']),
+  produccion: z.enum(['cocina', 'sala']).default('cocina'),
+})
+
+// Categoría global donde caen las elaboraciones nuevas: la de producción de cocina o de sala que
+// ya exista (Inventario → ⚗️), o una nueva "Elaboraciones" / "Premixes"
+async function categoriaProduccion(produccion: 'cocina' | 'sala') {
+  // Nunca las de la demo (prisma/escandallos-demo.ts): su --borrar se llevaría lo creado a mano
+  return (await prisma.inventarioCategoria.findFirst({ where: { restaurantId: null, personalProduccion: produccion, NOT: { nombre: { endsWith: '(demo)' } } }, orderBy: { orden: 'asc' } }))
+    ?? prisma.inventarioCategoria.create({ data: { nombre: produccion === 'cocina' ? 'Elaboraciones' : 'Premixes', personalProduccion: produccion, orden: 98 } })
+}
 
 export async function escandalloRoutes(app: FastifyInstance) {
   app.addHook('preHandler', requireAdmin)
@@ -76,10 +71,11 @@ export async function escandalloRoutes(app: FastifyInstance) {
       prisma.menuItem.findMany({
         where: { activo: true, precio: { gt: 0 }, OR: [{ restaurantId: null }, { restaurantId: rid }] },
         orderBy: [{ orden: 'asc' }, { nombre: 'asc' }],
-        include: { receta: { include: { lineas: { include: { producto: true } } } } },
+        include: { receta: { include: { lineas: true } } },
       }),
       prisma.menuCategoria.findMany({ where: { OR: [{ restaurantId: null }, { restaurantId: rid }] } }),
     ])
+    const costes = await cargarCostes()
     const catPorNombre = new Map(cats.map(c => [c.nombre, c]))
     const catPorId = new Map(cats.map(c => [c.id, c]))
     // Orden de la carta: una subcategoría va detrás de su categoría padre
@@ -98,7 +94,7 @@ export async function escandalloRoutes(app: FastifyInstance) {
       if (item.receta && lineas.length > 0) {
         coste = 0
         for (const l of lineas) {
-          const cu = costeUnitario(l.producto)
+          const cu = costes.coste(l.productoId)
           if (cu === null) sinPrecio++
           else coste += cu * l.cantidad
         }
@@ -139,7 +135,8 @@ export async function escandalloRoutes(app: FastifyInstance) {
       where: { activo: true, ...(rid ? { OR: [{ restaurantId: null }, { restaurantId: rid }] } : { restaurantId: null }) },
       orderBy: { nombre: 'asc' },
     })
-    return productos.map(serializarProducto)
+    const costes = await cargarCostes()
+    return productos.map(p => serializarProducto(p, costes.coste(p.id), costes.esElaboracion(p.id)))
   })
 
   // Alta rápida de ingrediente desde el editor de recetas → categoría global "Materia prima"
@@ -152,7 +149,8 @@ export async function escandalloRoutes(app: FastifyInstance) {
       (await prisma.inventarioCategoria.findFirst({ where: { nombre: 'Materia prima', restaurantId: null } })) ??
       (await prisma.inventarioCategoria.create({ data: { nombre: 'Materia prima', orden: 99 } }))
     const producto = await prisma.inventarioProducto.create({ data: { ...result.data, categoriaId: categoria.id } })
-    return reply.status(201).send(serializarProducto(producto))
+    const costes = await cargarCostes()
+    return reply.status(201).send(serializarProducto(producto, costes.coste(producto.id), false))
   })
 
   // Editar precio de coste / contenido / merma de un ingrediente
@@ -161,7 +159,104 @@ export async function escandalloRoutes(app: FastifyInstance) {
     const result = ingredienteSchema.partial().safeParse(req.body)
     if (!result.success) return reply.status(400).send({ error: result.error.flatten() })
     const producto = await prisma.inventarioProducto.update({ where: { id }, data: result.data })
-    return serializarProducto(producto)
+    await refrescarElaboraciones()
+    const costes = await cargarCostes()
+    return serializarProducto(producto, costes.coste(id), costes.esElaboracion(id))
+  })
+
+  // ── Elaboraciones (sub-recetas) ───────────────────────────────────────────────
+
+  // Las que tienen receta y los productos de las categorías de producción (⚗️ cocina / sala),
+  // con su coste por unidad de compra y en cuántas recetas se usan
+  app.get('/admin/escandallos/elaboraciones', async () => {
+    const productos = await prisma.inventarioProducto.findMany({
+      where: { activo: true, restaurantId: null, OR: [{ elaboracion: { isNot: null } }, { categoria: { personalProduccion: { not: null } } }] },
+      include: { categoria: { select: { nombre: true, personalProduccion: true } }, elaboracion: { include: { _count: { select: { lineas: true } } } }, _count: { select: { recetaLineas: true } } },
+      orderBy: [{ categoria: { orden: 'asc' } }, { nombre: 'asc' }],
+    })
+    const costes = await cargarCostes()
+    return productos.map(p => {
+      const cu = costes.coste(p.id)
+      const b = base(p)
+      return {
+        id: p.id, nombre: p.nombre, unidad: p.unidad, unidadBase: b.unidadBase, contenido: b.contenido,
+        categoria: p.categoria.nombre, produccion: p.categoria.personalProduccion,
+        rendimiento: p.elaboracion?.rendimiento ?? null,
+        ingredientes: p.elaboracion?._count.lineas ?? 0,
+        costeUnitario: cu === null ? null : r4(cu),
+        precioPorUnidad: cu === null ? null : r2(cu * b.contenido),
+        usadaEn: p._count.recetaLineas,
+      }
+    })
+  })
+
+  app.post('/admin/escandallos/elaboraciones', async (req, reply) => {
+    const r = elaboracionSchema.safeParse(req.body)
+    if (!r.success) return reply.status(400).send({ error: 'Nombre y unidad son obligatorios' })
+    const repetido = await prisma.inventarioProducto.findFirst({ where: { restaurantId: null, activo: true, nombre: { equals: r.data.nombre, mode: 'insensitive' } } })
+    if (repetido) return reply.status(409).send({ error: `Ya existe "${repetido.nombre}" en el inventario` })
+    const categoria = await categoriaProduccion(r.data.produccion)
+    const b = base({ unidad: r.data.unidad, unidadBase: null, contenido: null })
+    const producto = await prisma.inventarioProducto.create({
+      data: { nombre: r.data.nombre, unidad: r.data.unidad, unidadBase: b.unidadBase, contenido: b.contenido, categoriaId: categoria.id, precioOrigen: 'receta' },
+    })
+    return reply.status(201).send({ id: producto.id })
+  })
+
+  app.get('/admin/escandallos/elaboraciones/:productoId', async (req, reply) => {
+    const productoId = Number((req.params as { productoId: string }).productoId)
+    const p = await prisma.inventarioProducto.findUnique({
+      where: { id: productoId },
+      include: {
+        categoria: { select: { nombre: true } },
+        elaboracion: { include: { lineas: { include: { producto: true }, orderBy: { orden: 'asc' } } } },
+        recetaLineas: { include: { receta: { include: { menuItem: { select: { nombre: true } }, producto: { select: { nombre: true } } } } } },
+      },
+    })
+    if (!p) return reply.status(404).send({ error: 'Elaboración no encontrada' })
+    const costes = await cargarCostes()
+    const b = base(p)
+    return {
+      id: p.id, nombre: p.nombre, unidad: p.unidad, unidadBase: b.unidadBase, contenido: b.contenido, categoria: p.categoria.nombre,
+      rendimiento: p.elaboracion?.rendimiento ?? null,
+      lineas: (p.elaboracion?.lineas ?? []).map(l => ({ productoId: l.productoId, cantidad: l.cantidad, producto: serializarProducto(l.producto, costes.coste(l.productoId), costes.esElaboracion(l.productoId)) })),
+      usadaEn: p.recetaLineas.map(l => l.receta.menuItem?.nombre ?? `⚗️ ${l.receta.producto?.nombre ?? ''}`),
+    }
+  })
+
+  // Guardar la receta de la tanda. Sin líneas = deja de ser elaboración (vuelve a valer su precioCoste)
+  app.put('/admin/escandallos/elaboraciones/:productoId', async (req, reply) => {
+    const productoId = Number((req.params as { productoId: string }).productoId)
+    const r = z.object({ rendimiento: z.number().positive().max(1_000_000), lineas: lineasSchema }).safeParse(req.body)
+    if (!r.success) return reply.status(400).send({ error: 'Falta cuánto rinde la tanda' })
+    const producto = await prisma.inventarioProducto.findUnique({ where: { id: productoId } })
+    if (!producto) return reply.status(404).send({ error: 'Elaboración no encontrada' })
+
+    // Que ningún ingrediente la lleve dentro (directa o indirectamente)
+    const { porId } = await cargarCostes()
+    const circular = r.data.lineas.find(l => alcanza(porId, l.productoId, productoId))
+    if (circular) {
+      const nombre = porId.get(circular.productoId)?.nombre ?? 'un ingrediente'
+      return reply.status(409).send({ error: circular.productoId === productoId ? 'Una elaboración no puede llevarse a sí misma' : `"${nombre}" ya lleva ${producto.nombre} dentro` })
+    }
+
+    await prisma.$transaction(async tx => {
+      if (r.data.lineas.length === 0) {
+        await tx.receta.deleteMany({ where: { productoId } })
+        return
+      }
+      const receta = await tx.receta.upsert({
+        where: { productoId },
+        create: { productoId, rendimiento: r.data.rendimiento },
+        update: { rendimiento: r.data.rendimiento },
+      })
+      await tx.recetaLinea.deleteMany({ where: { recetaId: receta.id } })
+      await tx.recetaLinea.createMany({
+        data: r.data.lineas.map((l, orden) => ({ recetaId: receta.id, productoId: l.productoId, cantidad: l.cantidad, orden })),
+      })
+    })
+    await refrescarElaboraciones()
+    return reply.status(204).send()
   })
 
   // Detalle de un plato: su receta con el coste de cada línea
@@ -173,12 +268,13 @@ export async function escandalloRoutes(app: FastifyInstance) {
     })
     if (!item) return reply.status(404).send({ error: 'Plato no encontrado' })
     const cfg = await config()
+    const costes = await cargarCostes()
     return {
       ...cfg,
       id: item.id, nombre: item.nombre, categoria: item.categoria, precio: item.precio,
       precioSinIva: r2(item.precio / (1 + cfg.tasaIva / 100)),
       raciones: item.receta?.raciones ?? 1,
-      lineas: (item.receta?.lineas ?? []).map(l => ({ productoId: l.productoId, cantidad: l.cantidad, producto: serializarProducto(l.producto) })),
+      lineas: (item.receta?.lineas ?? []).map(l => ({ productoId: l.productoId, cantidad: l.cantidad, producto: serializarProducto(l.producto, costes.coste(l.productoId), costes.esElaboracion(l.productoId)) })),
     }
   })
 

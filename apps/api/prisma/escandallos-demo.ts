@@ -1,14 +1,19 @@
 // Escandallos de demostración para los platos globales y los de Sensi Tapas, para ver la pantalla
 // funcionando antes de tener los gramajes del chef. Raciones típicas de tapas y precios de mayorista
 // ESTIMADOS: cada ingrediente queda en la categoría "Materia prima (demo)" con precioOrigen 'estimado'.
+// Las salsas y bases son elaboraciones (receta por tanda) en "Elaboraciones (demo)" y los premixes
+// de cócteles en "Premixes (demo)": su coste sale de sus ingredientes.
 //
 //   npx tsx prisma/escandallos-demo.ts              → vista previa (no escribe nada)
-//   npx tsx prisma/escandallos-demo.ts --confirmar  → crea ingredientes y recetas (no pisa recetas existentes)
+//   npx tsx prisma/escandallos-demo.ts --confirmar  → crea ingredientes y recetas; rehace las recetas que solo
+//                                                     llevan cosas de la demo, nunca las que tienen algo propio
 //   npx tsx prisma/escandallos-demo.ts --borrar     → quita todo lo que creó este script
 import { PrismaClient } from '@prisma/client'
 
 const prisma = new PrismaClient()
 const CATEGORIA = 'Materia prima (demo)'
+const CAT_ELAB = { cocina: 'Elaboraciones (demo)', sala: 'Premixes (demo)' } as const
+const CATEGORIAS_DEMO = [CATEGORIA, CAT_ELAB.cocina, CAT_ELAB.sala]
 const RESTAURANTE = 'Sensi Tapas'
 
 type Ing = { nombre: string; unidad: 'kg' | 'l' | 'ud' | 'botella'; precio: number; contenido?: number; merma?: number }
@@ -33,17 +38,21 @@ const ING = {
   verduraFondo: g('Verdura para fondo', 1.6, 15), solomillo: g('Solomillo de ternera', 26, 10),
   pollo: g('Contramuslo de pollo deshuesado', 6.5, 5), butifarra: g('Butifarra fresca', 8),
   mongetes: g('Mongetes cocidas', 6), apionabo: g('Apionabo', 2.5, 20), remolacha: g('Remolacha', 2, 15),
-  burrata: ud('Burrata 125 g', 2.6), pesto: g('Pesto', 14), rucula: g('Rúcula', 9, 10),
+  burrata: ud('Burrata 125 g', 2.6), rucula: g('Rúcula', 9, 10),
   pulpo: g('Pata de pulpo cocida', 32), pimenton: g('Pimentón de la Vera', 15),
   anchoa: g('Anchoa del Cantábrico', 85), gamba: g('Gamba pelada', 14), ajo: g('Ajo', 4, 15), guindilla: g('Guindilla', 20),
   atun: g('Atún rojo (lomo)', 32, 15), aguacate: g('Aguacate', 4, 30), soja: ml('Salsa de soja', 6),
   sesamo: g('Sésamo', 8), cebolleta: g('Cebolleta', 2.5, 15), hierbas: g('Hierbas frescas', 25),
   limon: g('Limón', 1.8, 40), lima: g('Lima', 3.5, 40),
-  salsaBrava: g('Salsa brava', 6), alioli: g('Alioli', 5), padron: g('Pimiento de Padrón', 7, 5),
-  placaCanelon: ud('Placa de canelón', 0.12), carneAsado: g('Carne de rustido', 9), bechamel: g('Bechamel', 3),
+  padron: g('Pimiento de Padrón', 7, 5),
+  placaCanelon: ud('Placa de canelón', 0.12),
   quesoRallado: g('Queso rallado', 12), arroz: g('Arroz bomba', 2.2), capIPota: g('Cap i pota', 8),
-  sofrito: g('Sofrito', 5), caldo: ml('Caldo / fumet', 1.5), ravioli: g('Ravioli fresco', 14),
+  ravioli: g('Ravioli fresco', 14),
   salsaTrufa: g('Salsa de trufa', 18), parmesano: g('Parmesano', 22),
+  // para las elaboraciones
+  tomateTriturado: g('Tomate triturado', 1.4), aceiteSuave: ml('Aceite de oliva suave', 5), cebolla: g('Cebolla', 1.2, 10),
+  albahaca: g('Albahaca fresca', 20, 20), pinones: g('Piñones', 45), huesos: g('Huesos y espinas para fondo', 2),
+  carneRustido: g('Carne de cerdo y ternera (rustido)', 8), vinoRancio: ml('Vino rancio', 6), zumoLima: ml('Zumo de lima', 6),
   // postres
   quesoCrema: g('Queso crema', 8), nata: ml('Nata para montar', 4), huevo: ud('Huevo', 0.25),
   galleta: g('Galleta', 4), chocolate: g('Chocolate negro 70 %', 12), harina: g('Harina', 0.8),
@@ -79,8 +88,25 @@ const ING = {
   setmanes: bot('3 Setmanes', 3.8, 750, 3), castellDor: bot("Castell d'Or", 4, 750, 3), valdelaciervaCopa: bot('Valdelacierva', 5.5, 750, 3),
   casa10000r: bot('10.000 Rosado', 3.8, 750, 3),
 } satisfies Record<string, Ing>
-type K = keyof typeof ING
+type KI = keyof typeof ING
+
+// Elaboraciones: receta de una tanda y cuánto sale (rinde, en g / ml / ud). Pueden llevar otras.
+type Elab = { nombre: string; unidad: 'kg' | 'l'; rinde: number; produccion: 'cocina' | 'sala'; lineas: [KI | KE, number][] }
+type KE = 'salsaBrava' | 'alioli' | 'bechamel' | 'sofrito' | 'pesto' | 'caldo' | 'carneAsado' | 'premixMango' | 'premixFrutosRojos'
+const ELAB: Record<KE, Elab> = {
+  caldo: { nombre: 'Caldo / fumet', unidad: 'l', rinde: 5000, produccion: 'cocina', lineas: [['huesos', 2000], ['verduraFondo', 800], ['sal', 20]] },
+  salsaBrava: { nombre: 'Salsa brava', unidad: 'kg', rinde: 2000, produccion: 'cocina', lineas: [['tomateTriturado', 1500], ['aceiteSuave', 200], ['pimenton', 30], ['guindilla', 10], ['cebolla', 300], ['harina', 40], ['caldo', 500], ['sal', 15]] },
+  alioli: { nombre: 'Alioli', unidad: 'kg', rinde: 1000, produccion: 'cocina', lineas: [['aceiteFritura', 800], ['ajo', 40], ['huevo', 2], ['limon', 30], ['sal', 8]] },
+  bechamel: { nombre: 'Bechamel', unidad: 'kg', rinde: 2000, produccion: 'cocina', lineas: [['leche', 1800], ['mantequilla', 120], ['harina', 120], ['sal', 10]] },
+  sofrito: { nombre: 'Sofrito', unidad: 'kg', rinde: 1000, produccion: 'cocina', lineas: [['cebolla', 1500], ['tomate', 1000], ['aove', 200], ['ajo', 30], ['sal', 10]] },
+  pesto: { nombre: 'Pesto', unidad: 'kg', rinde: 1000, produccion: 'cocina', lineas: [['albahaca', 300], ['parmesano', 150], ['pinones', 100], ['aove', 450], ['ajo', 15]] },
+  carneAsado: { nombre: 'Carne de rustido', unidad: 'kg', rinde: 1000, produccion: 'cocina', lineas: [['carneRustido', 1500], ['verduraFondo', 400], ['vinoRancio', 150], ['aove', 50]] },
+  premixMango: { nombre: 'Premix mojito de mango', unidad: 'l', rinde: 1000, produccion: 'sala', lineas: [['pureMango', 500], ['zumoLima', 250], ['sirope', 200], ['hierbabuena', 30]] },
+  premixFrutosRojos: { nombre: 'Premix margarita frutos rojos', unidad: 'l', rinde: 1000, produccion: 'sala', lineas: [['frutosRojos', 400], ['zumoLima', 300], ['sirope', 200]] },
+}
+type K = KI | KE
 type Linea = [K, number] // cantidad en g / ml / ud
+const esElab = (k: K): k is KE => k in ELAB
 
 const combinado = (botella: K, mezcla: K): Linea[] => [[botella, 50], [mezcla, 1], ['hielo', 150], ['limon', 10]]
 const solo = (botella: K, dosis = 50): Linea[] => [[botella, dosis], ['hielo', 100]]
@@ -138,10 +164,10 @@ const RECETAS: Record<string, Linea[]> = {
   'APEROL SPRITZ': [['aperol', 60], ['cava', 90], ['soda', 1], ['hielo', 100]],
   'NEGRONI': [['tanqueray', 30], ['campari', 30], ['cinzanoRosso', 30], ['hielo', 100]],
   'ESPRESSO MARTINI': [['absolut', 40], ['licorCafe', 20], ['espresso', 1], ['sirope', 10], ['hielo', 100]],
-  'MANGO MOJITO': [['bacardi', 50], ['pureMango', 40], ['lima', 40], ['hierbabuena', 8], ['azucar', 15], ['soda', 1], ['hielo', 150]],
-  'SIN MANGO MOJITO': [['pureMango', 50], ['lima', 40], ['hierbabuena', 8], ['azucar', 15], ['soda', 1], ['hielo', 150]],
+  'MANGO MOJITO': [['bacardi', 50], ['premixMango', 90], ['hierbabuena', 3], ['soda', 1], ['hielo', 150]],
+  'SIN MANGO MOJITO': [['premixMango', 120], ['hierbabuena', 3], ['soda', 1], ['hielo', 150]],
   'GIN ORANGE MULE': [['tanqueray', 50], ['zumoNaranja', 30], ['gingerBeer', 1], ['lima', 15], ['hielo', 150]],
-  'ROCKSBERRY MARGARITA': [['cuervo', 50], ['cointreau', 20], ['frutosRojos', 40], ['lima', 30], ['sirope', 10], ['hielo', 100]],
+  'ROCKSBERRY MARGARITA': [['cuervo', 50], ['cointreau', 20], ['premixFrutosRojos', 80], ['hielo', 100]],
   'LIMO TROPICAL': [['limon', 60], ['zumoTropical', 100], ['sirope', 20], ['soda', 1], ['hielo', 100]],
   'LIMO JENGIBRE': [['limon', 60], ['gingerBeer', 1], ['sirope', 15], ['hielo', 100]],
   // combinados (el precio de carta es el del combinado)
@@ -172,9 +198,9 @@ const factorBotella = (pvp: number) => pvp < 25 ? 0.25 : pvp < 35 ? 0.27 : pvp <
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, ' ').trim()
 
 async function borrar() {
-  const cat = await prisma.inventarioCategoria.findFirst({ where: { nombre: CATEGORIA, restaurantId: null } })
-  if (!cat) return console.log('No hay nada de la demo.')
-  const ids = (await prisma.inventarioProducto.findMany({ where: { categoriaId: cat.id }, select: { id: true } })).map(p => p.id)
+  const cats = await prisma.inventarioCategoria.findMany({ where: { nombre: { in: CATEGORIAS_DEMO }, restaurantId: null } })
+  if (!cats.length) return console.log('No hay nada de la demo.')
+  const ids = (await prisma.inventarioProducto.findMany({ where: { categoriaId: { in: cats.map(c => c.id) } }, select: { id: true } })).map(p => p.id)
   const recetas = await prisma.receta.findMany({ include: { lineas: true } })
   const demo = recetas.filter(r => r.lineas.length > 0 && r.lineas.every(l => ids.includes(l.productoId)))
   await prisma.receta.deleteMany({ where: { id: { in: demo.map(r => r.id) } } })
@@ -184,7 +210,7 @@ async function borrar() {
   if (libres.length < ids.length) {
     console.log(`⚠ ${ids.length - libres.length} ingredientes de la demo siguen en recetas tocadas a mano: se dejan.`)
   } else {
-    await prisma.inventarioCategoria.delete({ where: { id: cat.id } })
+    await prisma.inventarioCategoria.deleteMany({ where: { id: { in: cats.map(c => c.id) } } })
   }
   console.log(`Borradas ${demo.length} recetas y ${libres.length} ingredientes de la demo.`)
 }
@@ -197,66 +223,106 @@ async function main() {
   if (!sensi) throw new Error(`No hay ningún restaurante llamado "${RESTAURANTE}"`)
   const tasaIva = (await prisma.empresaConfig.findFirst())?.tasaIva ?? 10
 
+  const cats = await prisma.inventarioCategoria.findMany({ where: { nombre: { in: CATEGORIAS_DEMO }, restaurantId: null } })
+  const catsDemo = new Set(cats.map(c => c.id))
   const items = await prisma.menuItem.findMany({
     where: { activo: true, precio: { gt: 0 }, OR: [{ restaurantId: null }, { restaurantId: sensi.id }] },
-    include: { receta: { select: { id: true } } },
+    include: { receta: { include: { lineas: { include: { producto: { select: { categoriaId: true } } } } } } },
     orderBy: [{ categoria: 'asc' }, { orden: 'asc' }],
   })
+  // Una receta que solo lleva cosas de la demo se puede rehacer; si tiene algo propio, no se toca
+  const soloDemo = (r: (typeof items)[number]['receta']) => !!r && r.lineas.every(l => catsDemo.has(l.producto.categoriaId))
 
-  // Qué receta lleva cada plato
-  type Plan = { item: (typeof items)[number]; lineas: { ing: Ing; cantidad: number }[] }
+  // Qué receta lleva cada plato (un ingrediente es una clave de ING / ELAB, o una botella suelta)
+  type Uso = { k: K } | { botella: Ing }
+  type Plan = { item: (typeof items)[number]; lineas: (Uso & { cantidad: number })[] }
   const planes: Plan[] = []
   const sinReceta: string[] = []
   for (const item of items) {
     const r = RECETAS[norm(item.nombre)]
-    if (r) planes.push({ item, lineas: r.map(([k, cantidad]) => ({ ing: ING[k], cantidad })) })
+    if (r) planes.push({ item, lineas: r.map(([k, cantidad]) => ({ k, cantidad })) })
     else if (ES_BOTELLA.test(item.categoria)) {
       const precio = Math.round(item.precio * factorBotella(item.precio) * 100) / 100
-      planes.push({ item, lineas: [{ ing: bot(`${item.nombre} (botella)`, precio, 750), cantidad: 750 }] })
+      planes.push({ item, lineas: [{ botella: bot(`${item.nombre} (botella)`, precio, 750), cantidad: 750 }] })
     } else sinReceta.push(`${item.nombre} (${item.categoria})`)
   }
 
-  const costeUd = (i: Ing) => i.precio / (i.unidad === 'ud' ? 1 : i.contenido ?? 1000) / (1 - (i.merma ?? 0) / 100)
-  let yaTenian = 0
+  // € por g / ml / ud
+  const costeIng = (i: Ing) => i.precio / (i.unidad === 'ud' ? 1 : i.contenido ?? 1000) / (1 - (i.merma ?? 0) / 100)
+  const costeK = (k: K): number => esElab(k) ? ELAB[k].lineas.reduce((s, [x, c]) => s + costeK(x) * c, 0) / ELAB[k].rinde : costeIng(ING[k])
+  const costeUso = (u: Uso) => 'k' in u ? costeK(u.k) : costeIng(u.botella)
+
+  console.log('Elaboraciones:')
+  for (const e of Object.keys(ELAB) as KE[]) console.log(`  ⚗️ ${ELAB[e].nombre}: ${(costeK(e) * 1000).toFixed(2)} € / ${ELAB[e].unidad} (la hace ${ELAB[e].produccion})`)
+  console.log('')
+  let nuevas = 0, rehechas = 0, propias = 0
   for (const { item, lineas } of planes) {
-    const coste = lineas.reduce((s, l) => s + costeUd(l.ing) * l.cantidad, 0)
+    const coste = lineas.reduce((s, l) => s + costeUso(l) * l.cantidad, 0)
     const fc = (coste / (item.precio / (1 + tasaIva / 100))) * 100
-    const marca = item.receta ? '  (ya tiene receta: no se toca)' : ''
-    if (item.receta) yaTenian++
+    const marca = !item.receta ? '' : soloDemo(item.receta) ? '  (se rehace)' : '  (tiene receta propia: no se toca)'
+    if (!item.receta) nuevas++; else if (soloDemo(item.receta)) rehechas++; else propias++
     console.log(`${fc.toFixed(1).padStart(5)} %  ${coste.toFixed(2).padStart(6)} € / ${item.precio.toFixed(2).padStart(6)} €  ${item.nombre}${marca}`)
   }
   if (sinReceta.length) console.log(`\nSin receta en la demo (${sinReceta.length}): ${sinReceta.join(' · ')}`)
-  console.log(`\n${planes.length - yaTenian} recetas nuevas para ${items.length} platos (${RESTAURANTE} + globales).`)
+  console.log(`\n${nuevas} recetas nuevas y ${rehechas} rehechas para ${items.length} platos (${RESTAURANTE} + globales); ${propias} con receta propia.`)
   if (!confirmar) return console.log('Vista previa. Para crearlas: --confirmar')
 
-  const cat = (await prisma.inventarioCategoria.findFirst({ where: { nombre: CATEGORIA, restaurantId: null } }))
-    ?? await prisma.inventarioCategoria.create({ data: { nombre: CATEGORIA, orden: 100 } })
+  const categoria = async (nombre: string, personalProduccion: 'cocina' | 'sala' | null) =>
+    (await prisma.inventarioCategoria.findFirst({ where: { nombre, restaurantId: null } }))
+      ?? prisma.inventarioCategoria.create({ data: { nombre, orden: 100, personalProduccion } })
+  const cat = await categoria(CATEGORIA, null)
+  const catElab = { cocina: await categoria(CAT_ELAB.cocina, 'cocina'), sala: await categoria(CAT_ELAB.sala, 'sala') }
+  const idsDemo = [cat.id, catElab.cocina.id, catElab.sala.id]
+
   const productos = new Map<string, number>()
-  const producto = async (i: Ing) => {
-    const hecho = productos.get(i.nombre)
+  const guardarProducto = async (nombre: string, categoriaId: number, datos: { unidad: string; precioCoste: number; precioOrigen: string; mermaPct: number; unidadBase: string; contenido: number }) => {
+    const hecho = productos.get(nombre)
     if (hecho) return hecho
-    const datos = {
-      unidad: i.unidad, precioCoste: i.precio, precioOrigen: 'estimado', mermaPct: i.merma ?? 0,
-      unidadBase: i.unidad === 'kg' ? 'g' : i.unidad === 'ud' ? 'ud' : 'ml',
-      contenido: i.unidad === 'ud' ? 1 : i.contenido ?? 1000,
-    }
-    const existe = await prisma.inventarioProducto.findFirst({ where: { nombre: i.nombre, categoriaId: cat.id } })
+    const existe = await prisma.inventarioProducto.findFirst({ where: { nombre, categoriaId } })
     const p = existe
       ? await prisma.inventarioProducto.update({ where: { id: existe.id }, data: datos })
-      : await prisma.inventarioProducto.create({ data: { nombre: i.nombre, categoriaId: cat.id, ...datos } })
-    productos.set(i.nombre, p.id)
+      : await prisma.inventarioProducto.create({ data: { nombre, categoriaId, ...datos } })
+    productos.set(nombre, p.id)
     return p.id
   }
-
-  let creadas = 0
-  for (const { item, lineas } of planes) {
-    if (item.receta) continue
-    const conId = []
-    for (const [orden, l] of lineas.entries()) conId.push({ productoId: await producto(l.ing), cantidad: l.cantidad, orden })
-    await prisma.receta.create({ data: { menuItemId: item.id, raciones: 1, lineas: { create: conId } } })
-    creadas++
+  const deIng = (i: Ing) => guardarProducto(i.nombre, cat.id, {
+    unidad: i.unidad, precioCoste: i.precio, precioOrigen: 'estimado', mermaPct: i.merma ?? 0,
+    unidadBase: i.unidad === 'kg' ? 'g' : i.unidad === 'ud' ? 'ud' : 'ml',
+    contenido: i.unidad === 'ud' ? 1 : i.contenido ?? 1000,
+  })
+  const deK = async (k: K): Promise<number> => {
+    if (!esElab(k)) return deIng(ING[k])
+    const e = ELAB[k]
+    if (productos.has(e.nombre)) return productos.get(e.nombre)!
+    const lineas = []
+    for (const [orden, [x, cantidad]] of e.lineas.entries()) lineas.push({ productoId: await deK(x), cantidad, orden })
+    const id = await guardarProducto(e.nombre, catElab[e.produccion].id, {
+      unidad: e.unidad, precioCoste: Math.round(costeK(k) * 1000 * 10000) / 10000, precioOrigen: 'receta', mermaPct: 0,
+      unidadBase: e.unidad === 'kg' ? 'g' : 'ml', contenido: 1000,
+    })
+    const receta = await prisma.receta.upsert({ where: { productoId: id }, create: { productoId: id, rendimiento: e.rinde }, update: { rendimiento: e.rinde } })
+    await prisma.recetaLinea.deleteMany({ where: { recetaId: receta.id } })
+    await prisma.recetaLinea.createMany({ data: lineas.map(l => ({ ...l, recetaId: receta.id })) })
+    return id
   }
-  console.log(`✓ ${creadas} recetas creadas, ${productos.size} ingredientes en "${CATEGORIA}".`)
+
+  let hechas = 0
+  for (const { item, lineas } of planes) {
+    if (item.receta && !soloDemo(item.receta)) continue
+    const conId = []
+    for (const [orden, l] of lineas.entries()) conId.push({ productoId: 'k' in l ? await deK(l.k) : await deIng(l.botella), cantidad: l.cantidad, orden })
+    if (item.receta) await prisma.receta.delete({ where: { id: item.receta.id } })
+    await prisma.receta.create({ data: { menuItemId: item.id, raciones: 1, lineas: { create: conId } } })
+    hechas++
+  }
+
+  // Lo que quedó de una versión anterior de la demo y ya no usa ninguna receta (ej. la brava comprada)
+  const huerfanos = await prisma.inventarioProducto.findMany({
+    where: { categoriaId: { in: idsDemo }, recetaLineas: { none: {} }, elaboracion: null, id: { notIn: [...productos.values()] } },
+    select: { id: true },
+  })
+  await prisma.inventarioProducto.deleteMany({ where: { id: { in: huerfanos.map(h => h.id) } } })
+  console.log(`✓ ${hechas} recetas de platos, ${Object.keys(ELAB).length} elaboraciones y ${productos.size} productos de la demo${huerfanos.length ? ` (${huerfanos.length} sobrantes quitados)` : ''}.`)
 }
 
 main().catch(e => { console.error(e); process.exit(1) }).finally(() => prisma.$disconnect())

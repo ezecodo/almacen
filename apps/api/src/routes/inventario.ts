@@ -1,9 +1,11 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../server'
+import { refrescarElaboraciones } from '../costes'
 
 // ── Compras: proveedor y formato de compra de un producto ──────────────────────
 
-export const ORIGENES_PRECIO = ['pedido', 'chef', 'referencia', 'estimado'] as const
+// 'receta' = elaboración: el precio sale de sus ingredientes (src/costes.ts), no se escribe a mano
+export const ORIGENES_PRECIO = ['pedido', 'chef', 'referencia', 'estimado', 'receta'] as const
 
 type DatosCompra = {
   proveedorId?: number | null
@@ -180,6 +182,8 @@ export async function inventarioRoutes(app: FastifyInstance) {
         ...(precioVenta !== undefined && { precioVenta }),
       },
     })
+    // Lo que lleve este producto dentro cambia de coste
+    if (precioCoste !== undefined || unidad !== undefined) await refrescarElaboraciones()
 
     return producto
   })

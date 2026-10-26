@@ -35,6 +35,7 @@ const ORIGENES: { valor: PrecioOrigen; label: string; color: string }[] = [
   { valor: 'chef',       label: 'Lo dijo cocina / sala', color: 'text-emerald-300' },
   { valor: 'referencia', label: 'Referencia (Makro…)', color: 'text-amber-300' },
   { valor: 'estimado',   label: 'Estimado', color: 'text-amber-400' },
+  { valor: 'receta',     label: '⚗️ De su receta (Escandallos)', color: 'text-emerald-400' },
 ]
 
 function fmtEur(n: number) {
@@ -104,6 +105,7 @@ function ProductoRow({
           PC {producto.precioCoste.toFixed(2)}€
           {producto.formatoCompra && ` · ${producto.formatoCompra.toLowerCase()} ${fmtEur(producto.precioCoste * producto.unidadesPorFormato)}`}
           {(producto.precioOrigen === 'estimado' || producto.precioOrigen === 'referencia') && ' ~'}
+          {producto.precioOrigen === 'receta' && ' ⚗️'}
         </span>
       )}
       {producto.stockMinimo > 0 && (
@@ -364,7 +366,7 @@ function ProductoForm({
           <div>
             <label className="block text-xs text-gray-400 mb-1">¿De dónde sale?</label>
             <select value={origen || 'estimado'} onChange={e => setOrigen(e.target.value as PrecioOrigen)} className={inputCls}>
-              {ORIGENES.map(o => <option key={o.valor} value={o.valor}>{o.label}</option>)}
+              {ORIGENES.filter(o => o.valor !== 'receta' || origen === 'receta').map(o => <option key={o.valor} value={o.valor}>{o.label}</option>)}
             </select>
           </div>
         )}

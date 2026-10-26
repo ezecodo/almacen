@@ -5,6 +5,7 @@ import fs from 'fs/promises'
 import { prisma } from '../server'
 import { broadcast } from '../sse'
 import { requireEncargado } from '../auth'
+import { refrescarElaboraciones } from '../costes'
 
 // Pedidos a proveedores. El dueño los arma en /admin/pedidos, por restaurante y proveedor, con las
 // cantidades en formatos de compra (3 cajas de 24). La app no le escribe al proveedor: "Copiar pedido"
@@ -359,6 +360,7 @@ export async function pedidoRoutes(app: FastifyInstance) {
         data: { precioCoste: Math.round((x.linea.precioFormato! / x.linea.unidadesPorFormato) * 10000) / 10000, precioOrigen: 'pedido' },
       })),
     ])
+    if (precios.length) await refrescarElaboraciones() // las salsas y premixes que los llevan
     const final = await prisma.pedido.findUniqueOrThrow({ where: { id }, include: incluir })
     broadcast(pedido.restaurantId, 'pedidos')
     return req.user.tipo === 'admin' ? final : sinPrecios(final)

@@ -384,12 +384,17 @@ model AccesoRapido {
 
 // Escandallo de un plato: qué ingredientes (productos del catálogo de Inventario) lleva y cuánto.
 // El coste se calcula al vuelo con el precioCoste vigente de cada producto — no se guarda.
+// Receta de un plato de la carta (menuItemId) o de una elaboración (productoId: salsa, fondo,
+// premix…, un producto del inventario que se hace en casa). Una de las dos, nunca ambas.
 model Receta {
-  id         Int           @id @default(autoincrement())
-  menuItemId Int           @unique
-  menuItem   MenuItem      @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
-  raciones   Float         @default(1) // raciones que salen de las cantidades indicadas
-  lineas     RecetaLinea[]
+  id          Int                 @id @default(autoincrement())
+  menuItemId  Int?                @unique
+  menuItem    MenuItem?           @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  productoId  Int?                @unique
+  producto    InventarioProducto? @relation("Elaboracion", fields: [productoId], references: [id], onDelete: Cascade)
+  raciones    Float               @default(1) // plato: raciones que salen de las cantidades indicadas
+  rendimiento Float?              // elaboración: lo que sale de la tanda, en la unidad base del producto (g / ml / ud)
+  lineas      RecetaLinea[]
   updatedAt  DateTime      @updatedAt
 }
 
@@ -559,6 +564,7 @@ model InventarioProducto {
   contenido      Float?                 // unidades base por unidad de compra (botella de 700 ml → 700)
   mermaPct       Float                  @default(0) // % que se pierde al limpiar/cocinar (0-95)
   recetaLineas   RecetaLinea[]
+  elaboracion    Receta?                @relation("Elaboracion") // se hace en casa con esta receta
   // Compras: a quién se le pide y en qué formato llega (caja de 24 latas, barril…).
   // precioCoste sigue siendo por `unidad` (la lata); el precio del formato se calcula × unidadesPorFormato.
   proveedorId        Int?
