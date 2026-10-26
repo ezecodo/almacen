@@ -1,6 +1,6 @@
 import { Fragment, useId, useState, useEffect, useRef, createContext, useContext } from 'react'
 
-const ThemeCtx = createContext<boolean>(true) // true = dark
+export const ThemeCtx = createContext<boolean>(true) // true = dark
 // Puesto TPV (/tpv, tablet compartida): el PIN vale para una sola acción. Cobrar llama a esta
 // función, que devuelve la tablet al PIN; fuera del TPV es null y no hace nada.
 const TpvCtx = createContext<(() => void) | null>(null)
@@ -43,13 +43,13 @@ const ELEM_STYLES: Record<string, { bg: string; border: string; label: string }>
   entrada: { bg: '#0f1c0d', border: '#4d7c0f', label: 'ENTRADA' },
 }
 
-function mesaWidth(mesa: Mesa): number {
+export function mesaWidth(mesa: Mesa): number {
   if (mesa.tipo === 'barra' || isElemDeco(mesa.tipo)) return mesa.ancho ?? 240
   if (mesa.tipo === 'silla_alta')  return mesa.ancho ?? SILLA_ALTA_SIZE
   if (mesa.tipo === 'rectangular') return mesa.ancho ?? RECT_W
   return mesa.ancho ?? SQUARE_SIZE
 }
-function mesaHeight(mesa: Mesa): number {
+export function mesaHeight(mesa: Mesa): number {
   if (mesa.tipo === 'barra' || isElemDeco(mesa.tipo)) return mesa.alto ?? 80
   if (mesa.tipo === 'silla_alta')  return mesa.ancho ?? SILLA_ALTA_SIZE  // siempre cuadrada
   if (mesa.tipo === 'rectangular') return mesa.alto ?? RECT_H
@@ -158,7 +158,7 @@ function IconoWalkin({ size = 11 }: { size?: number }) {
 // ── Mesa visual ───────────────────────────────────────────────────────────────
 // pendienteCobro: la mesa tiene además una cuenta impresa sin cobrar (los de antes) mientras ya se
 // sentaron otros → un segundo marco rojo por dentro, más chico, con su aureola.
-function MesaBtn({ mesa, comanda, pendienteCobro = false, onClick }: { mesa: Mesa; comanda?: Comanda; pendienteCobro?: boolean; onClick: () => void }) {
+export function MesaBtn({ mesa, comanda, pendienteCobro = false, onClick }: { mesa: Mesa; comanda?: Comanda; pendienteCobro?: boolean; onClick: () => void }) {
   const isDark = useContext(ThemeCtx)
   const w = mesaWidth(mesa)
   const h = mesaHeight(mesa)

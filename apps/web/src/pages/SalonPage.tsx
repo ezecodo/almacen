@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, FloorPlan, Mesa, Restaurante } from '../api'
+import VistaTelefono from '../components/VistaTelefono'
 
 // ── Constantes visuales ─────────────────────────────────────────────────────
 const CELL           = 40   // px por celda del grid
@@ -641,6 +642,9 @@ function SalonCanvas({ plan }: { plan: FloorPlan }) {
   const [saveError, setSaveError] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [guides, setGuides] = useState<{ x?: number; y?: number }[]>([])
+  // Vista del teléfono al lado del lienzo (se recuerda si se escondió)
+  const [verTelefono, setVerTelefono] = useState(() => { try { return localStorage.getItem('salon_ver_telefono') !== '0' } catch { return true } })
+  const cambiarVerTelefono = (v: boolean) => { setVerTelefono(v); try { localStorage.setItem('salon_ver_telefono', v ? '1' : '0') } catch { /* sin almacenamiento */ } }
 
   const didDrag = useRef(false)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -955,6 +959,12 @@ function SalonCanvas({ plan }: { plan: FloorPlan }) {
         </button>
 
         <div className="ml-auto flex items-center gap-2">
+          {!verTelefono && (
+            <button onClick={() => cambiarVerTelefono(true)}
+              className="px-3 py-1.5 rounded-xl bg-gray-700 text-gray-200 text-xs font-medium hover:bg-gray-600 transition-colors">
+              📱 Ver en el teléfono
+            </button>
+          )}
           {selectedIds.size > 1 && (
             <span className="text-cyan-400 text-xs font-medium bg-cyan-900/30 border border-cyan-700 px-2 py-0.5 rounded-lg">
               {selectedIds.size} seleccionadas · arrastra para mover grupo
@@ -978,6 +988,7 @@ function SalonCanvas({ plan }: { plan: FloorPlan }) {
         </div>
       </div>
 
+      <div className="flex-1 flex min-h-0">
       {/* Canvas */}
       <div
         ref={containerRef}
@@ -1051,6 +1062,8 @@ function SalonCanvas({ plan }: { plan: FloorPlan }) {
             <p className="text-gray-600 text-sm">Añade mesas desde la barra superior</p>
           </div>
         )}
+      </div>
+      {verTelefono && <VistaTelefono mesas={mesas} nombre={plan.nombre} onCerrar={() => cambiarVerTelefono(false)} />}
       </div>
 
       {/* Leyenda */}
