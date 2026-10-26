@@ -39,7 +39,7 @@ const batchSchema = z.array(z.object({
 // La 2 del mapa son la 2 y la 3 juntas: la 3 es otra fila (parteDeId = la 2) que solo aparece
 // cuando se separan. Separadas, las dos mitades se dibujan partiendo el sitio de la mesa entera por
 // su lado largo, así no hay que dibujarlas aparte en el admin. Mismas medidas que el mapa de la sala.
-const SQUARE_SIZE = 80, RECT_W = 160, RECT_H = 80, HUECO = 10 // el hueco de la rejilla del editor: una mesa "Doble" se parte en dos del tamaño base
+const SQUARE_SIZE = 80, RECT_W = 160, RECT_H = 80, HUECO = 10, MIN_MITAD = 60 // el hueco de la rejilla del editor: una mesa "Doble" se parte en dos del tamaño base
 const TIPOS_SEPARABLES = ['round', 'square', 'rectangular']
 
 type MesaConMitad = Mesa & { mitad: Mesa | null }
@@ -52,6 +52,9 @@ function partir(entera: Mesa, mitad: Mesa, lado?: number): [MesaVista, MesaVista
   const w = rect ? entera.ancho ?? RECT_W : entera.ancho ?? SQUARE_SIZE
   const h = rect ? entera.alto ?? RECT_H : entera.ancho ?? SQUARE_SIZE
   const deLado = w > h // cuadrada: una encima de la otra
+  // Media mesa redonda o cuadrada queda diminuta (una redonda de 80 → dos de 35, sin sitio para el
+  // número): entonces cada mitad toma un tamaño mínimo y salen del sitio de la entera
+  if (!lado && Math.min(deLado ? (w - HUECO) / 2 : w, deLado ? h : (h - HUECO) / 2) < MIN_MITAD) lado = MIN_MITAD
   const mw = lado ?? (deLado ? (w - HUECO) / 2 : w)
   const mh = lado ?? (deLado ? h : (h - HUECO) / 2)
   const desp = lado ? (lado + HUECO) / 2 : ((deLado ? w : h) + HUECO) / 4
@@ -103,7 +106,9 @@ function mesasVisibles(mesas: MesaConMitad[]): MesaVista[] {
   for (const { mitad, ...m } of mesas) {
     if (m.parteDeId) continue // sale con su mesa entera
     if (!mitad) { r.push(m); continue }
-    if (m.separada) r.push(...partir(m, mitad, ladoDe(mesas, mitad.capacidad, m.tipo === 'round' ? 'round' : 'square')))
+    // Redonda sin redondas de esos pax en el salón: del tamaño de las cuadradas de esos pax
+    const lado = (m.tipo === 'round' ? ladoDe(mesas, mitad.capacidad, 'round') : undefined) ?? ladoDe(mesas, mitad.capacidad, 'square')
+    if (m.separada) r.push(...partir(m, mitad, lado))
     else r.push({ ...m, separable: true, pareja: mitad.numero, paxPareja: mitad.capacidad, idPareja: mitad.id })
   }
   return r.sort((a, b) => a.numero - b.numero)
