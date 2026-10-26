@@ -676,6 +676,27 @@ export interface InventarioProducto {
   activo: boolean
   categoriaId: number
   restaurantId: number | null
+  // Compras
+  proveedorId: number | null
+  proveedor?: { id: number; nombre: string } | null
+  formatoCompra: string | null      // 'Caja', 'Barril'… null = suelto
+  unidadesPorFormato: number        // cuántas `unidad` trae el formato
+  precioOrigen: PrecioOrigen | null // de dónde sale precioCoste
+  menuItemId: number | null
+}
+
+export type PrecioOrigen = 'pedido' | 'chef' | 'referencia' | 'estimado'
+
+export type DatosCompraProducto = {
+  proveedorId: number | null
+  formatoCompra: string | null
+  unidadesPorFormato: number
+  precioOrigen: PrecioOrigen | null
+}
+
+export interface DesdeCartaResultado {
+  grupos: { categoria: string; crear: { id: number; nombre: string }[]; yaEstan: string[] }[]
+  creados: number
 }
 
 export interface InventarioConteoResumen {
@@ -990,7 +1011,9 @@ export interface Proveedor {
   id:      number
   nombre:  string
   activo:  boolean
-  _count?: { facturas: number }
+  telefono?: string | null
+  email?:    string | null
+  _count?: { facturas: number; productos?: number }
 }
 
 export interface Factura {
@@ -1587,10 +1610,12 @@ export const api = {
     updateCategoria: (id: number, body: { nombre?: string; orden?: number; personalProduccion?: 'sala' | 'cocina' | null }) =>
       patch<InventarioCategoria>(`/inventario/categorias/${id}`, body),
     deleteCategoria: (id: number) => del(`/inventario/categorias/${id}`),
-    createProducto: (body: { nombre: string; categoriaId: number; unidad: string; stockMinimo: number; restaurantId?: number }) =>
+    createProducto: (body: { nombre: string; categoriaId: number; unidad: string; stockMinimo: number; restaurantId?: number; precioCoste?: number | null; precioVenta?: number | null } & Partial<DatosCompraProducto>) =>
       post<InventarioProducto>('/inventario/productos', body),
-    updateProducto: (id: number, body: Partial<{ nombre: string; unidad: string; stockMinimo: number; precioCoste: number | null; precioVenta: number | null; activo: boolean; orden: number }>) =>
+    updateProducto: (id: number, body: Partial<{ nombre: string; unidad: string; stockMinimo: number; precioCoste: number | null; precioVenta: number | null; activo: boolean; orden: number } & DatosCompraProducto>) =>
       patch<InventarioProducto>(`/inventario/productos/${id}`, body),
+    desdeCarta: (menuCategoriaId: number, confirmar: boolean, soloIds?: number[]) =>
+      post<DesdeCartaResultado>('/inventario/desde-carta', { menuCategoriaId, confirmar, soloIds }),
     deleteProducto: (id: number) => del(`/inventario/productos/${id}`),
     getConteos: (restaurantId: number) =>
       get<InventarioConteoResumen[]>(`/inventario/conteos?restaurantId=${restaurantId}`),

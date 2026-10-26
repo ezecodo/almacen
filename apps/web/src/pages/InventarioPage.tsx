@@ -8,6 +8,9 @@ import {
   InventarioConteoDetalleItem,
   InventarioCostesRow,
   InventarioProduccion,
+  DatosCompraProducto,
+  PrecioOrigen,
+  DesdeCartaResultado,
 } from '../api'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -23,6 +26,24 @@ function fmtFecha(iso: string) {
 }
 
 const UNIDADES = ['ud', 'botella', 'caja', 'l', 'kg'] as const
+
+// Cómo llega del proveedor (null = suelto, una unidad)
+const FORMATOS = ['Caja', 'Pack', 'Barril', 'Garrafa', 'Bolsa', 'Saco'] as const
+
+const ORIGENES: { valor: PrecioOrigen; label: string; color: string }[] = [
+  { valor: 'pedido',     label: 'De un pedido', color: 'text-emerald-400' },
+  { valor: 'chef',       label: 'Lo dijo cocina / sala', color: 'text-emerald-300' },
+  { valor: 'referencia', label: 'Referencia (Makro…)', color: 'text-amber-300' },
+  { valor: 'estimado',   label: 'Estimado', color: 'text-amber-400' },
+]
+
+function fmtEur(n: number) {
+  return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
+}
+
+function fmtCant(n: number) {
+  return n.toLocaleString('es-ES', { maximumFractionDigits: 2 })
+}
 
 function stepForUnidad(unidad: string) {
   return unidad === 'l' || unidad === 'kg' ? 0.5 : 1
@@ -60,8 +81,15 @@ function ProductoRow({
           </span>
         )}
       </div>
+      {producto.proveedor && (
+        <span className="text-xs text-gray-400 truncate max-w-[140px]" title="Proveedor">
+          🚚 {producto.proveedor.nombre}
+        </span>
+      )}
       <span className="text-xs bg-gray-700 text-gray-300 px-2 py-0.5 rounded font-mono">
-        {producto.unidad}
+        {producto.formatoCompra
+          ? `${producto.formatoCompra} × ${fmtCant(producto.unidadesPorFormato)} ${producto.unidad}`
+          : producto.unidad}
       </span>
       {producto.precioVenta != null && (
         <span className="text-xs text-cyan-400 font-medium">
@@ -69,8 +97,13 @@ function ProductoRow({
         </span>
       )}
       {producto.precioCoste != null && (
-        <span className="text-xs text-emerald-400 font-medium">
+        <span
+          className={`text-xs font-medium ${producto.precioOrigen === 'referencia' || producto.precioOrigen === 'estimado' || !producto.precioOrigen ? 'text-amber-400' : 'text-emerald-400'}`}
+          title={ORIGENES.find(o => o.valor === producto.precioOrigen)?.label ?? 'Sin origen'}
+        >
           PC {producto.precioCoste.toFixed(2)}€
+          {producto.formatoCompra && ` · ${producto.formatoCompra.toLowerCase()} ${fmtEur(producto.precioCoste * producto.unidadesPorFormato)}`}
+          {(producto.precioOrigen === 'estimado' || producto.precioOrigen === 'referencia') && ' ~'}
         </span>
       )}
       {producto.stockMinimo > 0 && (
@@ -118,14 +151,35 @@ function ProductoForm({
     precioCoste: number | null
     categoriaId: number
     restaurantId?: number
-  }) => void
+  } & DatosCompraProducto) => void
   onCancel: () => void
 }) {
+  const qc = useQueryClient()
+  const { data: proveedores = [] } = useQuery({
+    queryKey: ['facturas', 'proveedores'],
+    queryFn: () => api.facturas.proveedores(),
+  })
+  const [proveedorId, setProveedorId] = useState<number | null>(initial?.proveedorId ?? null)
+  const [nuevoProveedor, setNuevoProveedor] = useState<string | null>(null)
+  const crearProveedor = useMutation({
+    mutationFn: (nombre: string) => api.facturas.crearProveedor(nombre),
+    onSuccess: p => {
+      setProveedorId(p.id)
+      setNuevoProveedor(null)
+      qc.invalidateQueries({ queryKey: ['facturas', 'proveedores'] })
+    },
+  })
+  const [formato, setFormato] = useState<string>(initial?.formatoCompra ?? '')
+  const [porFormato, setPorFormato] = useState(String(initial?.unidadesPorFormato ?? 1))
+  const [origen, setOrigen] = useState<PrecioOrigen | ''>(initial?.precioOrigen ?? '')
   const [nombre, setNombre] = useState(initial?.nombre ?? '')
   const [unidad, setUnidad] = useState<string>(initial?.unidad ?? 'ud')
   const [stockMinimo, setStockMinimo] = useState(String(initial?.stockMinimo ?? 0))
   const [pVenta, setPVenta] = useState(initial?.precioVenta != null ? String(initial.precioVenta) : '')
-  const [pCoste, setPCoste] = useState(initial?.precioCoste != null ? String(initial.precioCoste) : '')
+  // Con formato, el precio se escribe por formato (la caja) y se guarda por unidad (la lata)
+  const [pCoste, setPCoste] = useState(initial?.precioCoste != null
+    ? String(+(initial.precioCoste * (initial.formatoCompra ? initial.unidadesPorFormato : 1)).toFixed(4))
+    : '')
   // Selector de destino: solo al crear desde contexto global (null = global, number = restaurante específico)
   const [destino, setDestino] = useState<number | 'global'>('global')
 
@@ -137,16 +191,25 @@ function ProductoForm({
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!nombre.trim()) return
+    const precio = pCoste.trim() !== '' ? parseFloat(pCoste) : null
     onSave({
       nombre: nombre.trim(),
       unidad,
       stockMinimo: parseFloat(stockMinimo) || 0,
       precioVenta: pVenta.trim() !== '' ? parseFloat(pVenta) : null,
-      precioCoste: pCoste.trim() !== '' ? parseFloat(pCoste) : null,
+      precioCoste: precio !== null ? precio / unidadesFormato : null,
       categoriaId,
       ...(ridEfectivo !== null ? { restaurantId: ridEfectivo } : {}),
+      proveedorId,
+      formatoCompra: formato || null,
+      unidadesPorFormato: unidadesFormato,
+      precioOrigen: precio !== null ? (origen || 'estimado') : null,
     })
   }
+
+  const unidadesFormato = formato ? Math.max(parseFloat(porFormato) || 1, 0.001) : 1
+  const precioNum = pCoste.trim() !== '' ? parseFloat(pCoste) : null
+  const inputCls = 'bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600 focus:outline-none focus:border-cyan-500'
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-wrap gap-2 items-end py-2 px-3 bg-gray-800 rounded-lg">
@@ -222,19 +285,94 @@ function ProductoForm({
           className="w-full bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600 focus:outline-none focus:border-cyan-500"
         />
       </div>
-      <div className="w-28">
-        <label className="block text-xs text-emerald-400 mb-1">P. Coste <span className="text-gray-600">(€)</span></label>
-        <input
-          type="number"
-          min={0}
-          step={0.01}
-          value={pCoste}
-          onChange={e => setPCoste(e.target.value)}
-          placeholder="—"
-          className="w-full bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600 focus:outline-none focus:border-emerald-500"
-        />
+      {/* Compras: proveedor, formato y precio de compra */}
+      <div className="w-full flex flex-wrap gap-2 items-end pt-2 border-t border-gray-700">
+        <div className="min-w-[160px]">
+          <label className="block text-xs text-gray-400 mb-1">Proveedor</label>
+          {nuevoProveedor !== null ? (
+            <div className="flex gap-1">
+              <input
+                autoFocus
+                value={nuevoProveedor}
+                onChange={e => setNuevoProveedor(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') { e.preventDefault(); if (nuevoProveedor.trim()) crearProveedor.mutate(nuevoProveedor.trim()) }
+                  if (e.key === 'Escape') setNuevoProveedor(null)
+                }}
+                placeholder="Nombre del proveedor"
+                className={`${inputCls} w-40`}
+              />
+              <button type="button" disabled={!nuevoProveedor.trim() || crearProveedor.isPending}
+                onClick={() => crearProveedor.mutate(nuevoProveedor.trim())}
+                className="bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white text-xs px-2 rounded">
+                Crear
+              </button>
+              <button type="button" onClick={() => setNuevoProveedor(null)} className="text-gray-400 text-xs px-1">✕</button>
+            </div>
+          ) : (
+            <select
+              value={proveedorId ?? ''}
+              onChange={e => {
+                if (e.target.value === 'nuevo') setNuevoProveedor('')
+                else setProveedorId(e.target.value ? Number(e.target.value) : null)
+              }}
+              className={`${inputCls} w-full`}
+            >
+              <option value="">— Sin proveedor —</option>
+              {proveedores.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+              <option value="nuevo">+ Nuevo proveedor…</option>
+            </select>
+          )}
+          {crearProveedor.error && <p className="text-xs text-red-400 mt-1">{(crearProveedor.error as Error).message}</p>}
+        </div>
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Llega en</label>
+          <select value={formato} onChange={e => setFormato(e.target.value)} className={inputCls}>
+            <option value="">Suelto</option>
+            {FORMATOS.map(f => <option key={f} value={f}>{f}</option>)}
+            {formato && !(FORMATOS as readonly string[]).includes(formato) && <option value={formato}>{formato}</option>}
+          </select>
+        </div>
+        {formato && (
+          <div className="w-28">
+            <label className="block text-xs text-gray-400 mb-1">Trae ({unidad})</label>
+            <input
+              type="number"
+              min={0}
+              step="any"
+              value={porFormato}
+              onChange={e => setPorFormato(e.target.value)}
+              className={`${inputCls} w-full`}
+            />
+          </div>
+        )}
+        <div className="w-32">
+          <label className="block text-xs text-emerald-400 mb-1">
+            P. Coste <span className="text-gray-500">(€ {formato ? `la ${formato.toLowerCase()}` : `/${unidad}`})</span>
+          </label>
+          <input
+            type="number"
+            min={0}
+            step={0.01}
+            value={pCoste}
+            onChange={e => setPCoste(e.target.value)}
+            placeholder="—"
+            className={`${inputCls} w-full focus:border-emerald-500`}
+          />
+        </div>
+        {precioNum !== null && (
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">¿De dónde sale?</label>
+            <select value={origen || 'estimado'} onChange={e => setOrigen(e.target.value as PrecioOrigen)} className={inputCls}>
+              {ORIGENES.map(o => <option key={o.valor} value={o.valor}>{o.label}</option>)}
+            </select>
+          </div>
+        )}
+        {formato && precioNum !== null && unidadesFormato > 0 && (
+          <p className="text-xs text-gray-400 pb-2">= {fmtEur(precioNum / unidadesFormato)} / {unidad}</p>
+        )}
       </div>
-      <div className="flex gap-2">
+      <div className="flex gap-2 w-full justify-end">
         <button
           type="submit"
           className="bg-cyan-600 hover:bg-cyan-500 text-white text-sm px-3 py-1.5 rounded font-medium"
@@ -459,6 +597,134 @@ function CategoriaBlock({
   )
 }
 
+// ─── Catálogo: Traer de la carta ─────────────────────────────────────────────
+// Elige una categoría del menú → muestra qué productos crearía → confirma.
+
+function DesdeCartaModal({
+  restaurantId,
+  onClose,
+  onHecho,
+}: {
+  restaurantId: number | null
+  onClose: () => void
+  onHecho: () => void
+}) {
+  const { data: cats = [], isLoading } = useQuery({
+    queryKey: ['menu-categorias-admin', restaurantId],
+    queryFn: () => api.menuCategorias.list(restaurantId),
+  })
+  const [elegida, setElegida] = useState<number | null>(null)
+  const [vista, setVista] = useState<DesdeCartaResultado | null>(null)
+  const [hecho, setHecho] = useState<number | null>(null)
+  const [quitados, setQuitados] = useState<Set<number>>(new Set())
+
+  const previa = useMutation({
+    mutationFn: (id: number) => api.inventario.desdeCarta(id, false),
+    onSuccess: r => { setVista(r); setQuitados(new Set()) },
+  })
+  const marcados = vista?.grupos.flatMap(g => g.crear.map(c => c.id)).filter(id => !quitados.has(id)) ?? []
+  const confirmar = useMutation({
+    mutationFn: (id: number) => api.inventario.desdeCarta(id, true, marcados),
+    onSuccess: r => { setHecho(r.creados); onHecho() },
+  })
+
+  const principales = cats.filter(c => c.parentId === null)
+  const subDe = (id: number) => cats.filter(c => c.parentId === id)
+  const totalCrear = marcados.length
+  const alternar = (id: number) => setQuitados(prev => {
+    const n = new Set(prev)
+    if (n.has(id)) n.delete(id)
+    else n.add(id)
+    return n
+  })
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-lg max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
+          <h3 className="font-semibold text-white">Traer productos de la carta</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-white">✕</button>
+        </div>
+
+        <div className="overflow-y-auto p-4 space-y-3">
+          {hecho !== null ? (
+            <div className="text-center py-6">
+              <p className="text-3xl mb-2">✓</p>
+              <p className="text-white font-medium">{hecho === 0 ? 'No había nada nuevo que crear' : `${hecho} producto${hecho !== 1 ? 's' : ''} creado${hecho !== 1 ? 's' : ''}`}</p>
+              <p className="text-xs text-gray-400 mt-2">Ahora completa en cada uno el proveedor, cómo llega y el precio.</p>
+            </div>
+          ) : vista && elegida !== null ? (
+            <>
+              <button onClick={() => { setVista(null); setElegida(null) }} className="text-xs text-cyan-400">← Elegir otra</button>
+              {vista.grupos.length === 0 && <p className="text-sm text-gray-400">Esa categoría no tiene platos activos.</p>}
+              {vista.grupos.map(g => (
+                <div key={g.categoria} className="bg-gray-800 rounded-lg p-3">
+                  <p className="text-sm font-semibold text-white mb-1">{g.categoria}</p>
+                  <div className="space-y-0.5">
+                    {g.crear.map(c => (
+                      <label key={c.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                        <input type="checkbox" checked={!quitados.has(c.id)} onChange={() => alternar(c.id)} className="accent-cyan-500" />
+                        <span className={quitados.has(c.id) ? 'text-gray-500 line-through' : 'text-gray-200'}>{c.nombre}</span>
+                      </label>
+                    ))}
+                  </div>
+                  {g.yaEstan.length > 0 && (
+                    <p className="text-xs text-gray-500 mt-1">Ya están ({g.yaEstan.length}): {g.yaEstan.join(', ')}</p>
+                  )}
+                </div>
+              ))}
+              <p className="text-xs text-amber-300/80">
+                Desmarca lo que no se compra tal cual: porciones del mismo producto (CAÑA y PINTA salen del mismo barril), suplementos…
+              </p>
+              <p className="text-xs text-gray-400">
+                Se crean en categorías de inventario con el mismo nombre, enlazados a su plato. Los vinos y destilados entran por botella; el resto por unidad.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-xs text-gray-400">Elige una categoría del menú. Se traen también sus subcategorías.</p>
+              {isLoading && <p className="text-sm text-gray-400">Cargando carta…</p>}
+              {principales.map(c => {
+                const subs = subDe(c.id)
+                return (
+                  <button
+                    key={c.id}
+                    onClick={() => { setElegida(c.id); previa.mutate(c.id) }}
+                    disabled={previa.isPending}
+                    className="w-full text-left bg-gray-800 hover:bg-gray-700 rounded-lg px-3 py-2"
+                  >
+                    <span className="text-sm text-white">{c.icono} {c.nombre}</span>
+                    <span className="text-xs text-gray-500 ml-2">{c.grupo}</span>
+                    {subs.length > 0 && <p className="text-xs text-gray-400 mt-0.5">{subs.map(x => x.nombre).join(' · ')}</p>}
+                  </button>
+                )
+              })}
+            </>
+          )}
+          {(previa.error || confirmar.error) && (
+            <p className="text-sm text-red-400">{((previa.error || confirmar.error) as Error).message}</p>
+          )}
+        </div>
+
+        <div className="px-4 py-3 border-t border-gray-700 flex justify-end gap-2">
+          {hecho === null && vista && elegida !== null && totalCrear > 0 && (
+            <button
+              onClick={() => confirmar.mutate(elegida)}
+              disabled={confirmar.isPending}
+              className="bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white text-sm px-4 py-2 rounded-lg font-medium"
+            >
+              {confirmar.isPending ? 'Creando…' : `Crear ${totalCrear} producto${totalCrear !== 1 ? 's' : ''}`}
+            </button>
+          )}
+          <button onClick={onClose} className="bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm px-4 py-2 rounded-lg">
+            {hecho !== null ? 'Cerrar' : 'Cancelar'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Tab: Catálogo ────────────────────────────────────────────────────────────
 
 function CatalogoTab({ restaurantes }: { restaurantes: Restaurante[] }) {
@@ -467,6 +733,7 @@ function CatalogoTab({ restaurantes }: { restaurantes: Restaurante[] }) {
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [showNewCat, setShowNewCat] = useState(false)
   const [newCatName, setNewCatName] = useState('')
+  const [desdeCarta, setDesdeCarta] = useState(false)
 
   const { data: categorias, isLoading } = useQuery({
     queryKey: ['inv-categorias', selectedId],
@@ -536,15 +803,31 @@ function CatalogoTab({ restaurantes }: { restaurantes: Restaurante[] }) {
             ? 'Categorías globales'
             : `Catálogo — ${restaurantes.find(r => r.id === selectedId)?.nombre}`}
         </h2>
-        {!showNewCat && (
+        <div className="flex gap-2">
           <button
-            onClick={() => setShowNewCat(true)}
-            className="bg-cyan-600 hover:bg-cyan-500 text-white text-sm px-4 py-2 rounded-lg font-medium"
+            onClick={() => setDesdeCarta(true)}
+            className="bg-gray-800 hover:bg-gray-700 border border-gray-600 text-gray-200 text-sm px-4 py-2 rounded-lg font-medium"
           >
-            + Nueva categoría
+            ⬇ Traer de la carta
           </button>
-        )}
+          {!showNewCat && (
+            <button
+              onClick={() => setShowNewCat(true)}
+              className="bg-cyan-600 hover:bg-cyan-500 text-white text-sm px-4 py-2 rounded-lg font-medium"
+            >
+              + Nueva categoría
+            </button>
+          )}
+        </div>
       </div>
+
+      {desdeCarta && (
+        <DesdeCartaModal
+          restaurantId={selectedId}
+          onClose={() => setDesdeCarta(false)}
+          onHecho={() => qc.invalidateQueries({ queryKey: ['inv-categorias'] })}
+        />
+      )}
 
       {/* New category form */}
       {showNewCat && (

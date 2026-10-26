@@ -1,6 +1,38 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../server'
 
+// ── Compras: proveedor y formato de compra de un producto ──────────────────────
+
+export const ORIGENES_PRECIO = ['pedido', 'chef', 'referencia', 'estimado'] as const
+
+type DatosCompra = {
+  proveedorId?: number | null
+  formatoCompra?: string | null
+  unidadesPorFormato?: number
+  precioOrigen?: string | null
+}
+
+// Solo los campos que vinieron en el body (así un PATCH parcial no los pisa)
+function datosCompra(body: DatosCompra): { data: DatosCompra } | { error: string } {
+  const data: DatosCompra = {}
+  if (body.proveedorId !== undefined) data.proveedorId = body.proveedorId || null
+  if (body.formatoCompra !== undefined) data.formatoCompra = body.formatoCompra?.trim().slice(0, 40) || null
+  if (body.unidadesPorFormato !== undefined) {
+    const n = Number(body.unidadesPorFormato)
+    if (!Number.isFinite(n) || n <= 0 || n > 100000) return { error: 'Unidades por formato inválidas' }
+    data.unidadesPorFormato = n
+  }
+  if (body.precioOrigen !== undefined) {
+    if (body.precioOrigen !== null && !ORIGENES_PRECIO.includes(body.precioOrigen as typeof ORIGENES_PRECIO[number])) {
+      return { error: 'Origen del precio inválido' }
+    }
+    data.precioOrigen = body.precioOrigen
+  }
+  // Suelto = una unidad por "formato"
+  if (data.formatoCompra === null) data.unidadesPorFormato = 1
+  return { data }
+}
+
 export async function inventarioRoutes(app: FastifyInstance) {
 
   // ── Categorías ───────────────────────────────────────────────────────────────
@@ -26,6 +58,7 @@ export async function inventarioRoutes(app: FastifyInstance) {
         productos: {
           where: productosWhere,
           orderBy: { orden: 'asc' },
+          include: { proveedor: { select: { id: true, nombre: true } } },
         },
       },
     })
@@ -87,17 +120,21 @@ export async function inventarioRoutes(app: FastifyInstance) {
 
   // POST /inventario/productos
   app.post('/inventario/productos', async (req, reply) => {
-    const { nombre, categoriaId, unidad, stockMinimo, restaurantId } = req.body as {
+    const { nombre, categoriaId, unidad, stockMinimo, restaurantId, precioCoste, precioVenta } = req.body as {
       nombre: string
       categoriaId: number
       unidad: string
       stockMinimo: number
       restaurantId?: number
-    }
+      precioCoste?: number | null
+      precioVenta?: number | null
+    } & DatosCompra
 
     if (!nombre || !categoriaId) {
       return reply.status(400).send({ error: 'nombre y categoriaId son requeridos' })
     }
+    const compra = datosCompra(req.body as DatosCompra)
+    if ('error' in compra) return reply.status(400).send({ error: compra.error })
 
     const producto = await prisma.inventarioProducto.create({
       data: {
@@ -106,6 +143,9 @@ export async function inventarioRoutes(app: FastifyInstance) {
         unidad: unidad ?? 'ud',
         stockMinimo: stockMinimo ?? 0,
         restaurantId: restaurantId ?? null,
+        precioCoste: precioCoste ?? null,
+        precioVenta: precioVenta ?? null,
+        ...compra.data,
       },
     })
 
@@ -124,10 +164,13 @@ export async function inventarioRoutes(app: FastifyInstance) {
       precioCoste?: number | null
       precioVenta?: number | null
     }
+    const compra = datosCompra(req.body as DatosCompra)
+    if ('error' in compra) return reply.status(400).send({ error: compra.error })
 
     const producto = await prisma.inventarioProducto.update({
       where: { id },
       data: {
+        ...compra.data,
         ...(nombre !== undefined && { nombre }),
         ...(unidad !== undefined && { unidad }),
         ...(stockMinimo !== undefined && { stockMinimo }),
@@ -401,5 +444,77 @@ export async function inventarioRoutes(app: FastifyInstance) {
     const sinPrecio  = rows.filter(r => r.precioCoste === null && r.consumido > 0).length
 
     return { rows, totalCoste, sinPrecio, baseFecha: base.fecha, finalFecha: final.fecha }
+  })
+
+  // ── Traer de la carta ──────────────────────────────────────────────────────────
+  // Crea productos de inventario a partir de una categoría del menú (y sus subcategorías):
+  // una categoría de inventario por cada una que tenga platos, un producto por plato,
+  // enlazado al plato. Lo que ya existe (mismo plato o mismo nombre) se salta.
+  // Sin `confirmar` solo devuelve qué haría. `soloIds` = platos marcados en la vista previa
+  // (la carta vende porciones: CAÑA y PINTA salen del mismo barril, y no todo es un producto).
+  app.post('/inventario/desde-carta', async (req, reply) => {
+    const { menuCategoriaId, confirmar, soloIds } = req.body as { menuCategoriaId?: number; confirmar?: boolean; soloIds?: number[] }
+    const cat = menuCategoriaId
+      ? await prisma.menuCategoria.findUnique({ where: { id: Number(menuCategoriaId) } })
+      : null
+    if (!cat) return reply.status(404).send({ error: 'Categoría del menú no encontrada' })
+
+    const subcats = await prisma.menuCategoria.findMany({ where: { parentId: cat.id }, orderBy: { orden: 'asc' } })
+    const esBotella = (nombre: string) => /vino|cava|champ|botella|espum/i.test(nombre)
+
+    const grupos: { categoria: string; crear: { id: number; nombre: string }[]; yaEstan: string[] }[] = []
+    let creados = 0
+
+    for (const c of [cat, ...subcats]) {
+      const items = await prisma.menuItem.findMany({
+        where: { categoria: c.nombre, activo: true, autoPorPax: false },
+        orderBy: [{ orden: 'asc' }, { nombre: 'asc' }],
+      })
+      if (items.length === 0) continue
+
+      const existentes = await prisma.inventarioProducto.findMany({
+        where: {
+          activo: true,
+          OR: [
+            { menuItemId: { in: items.map(i => i.id) } },
+            ...items.map(i => ({ nombre: { equals: i.nombre, mode: 'insensitive' as const }, restaurantId: i.restaurantId })),
+          ],
+        },
+      })
+      const yaEsta = (i: typeof items[number]) => existentes.find(p =>
+        p.menuItemId === i.id || (p.restaurantId === i.restaurantId && p.nombre.toLowerCase() === i.nombre.toLowerCase()))
+
+      const sinCrear = items.filter(i => !yaEsta(i))
+      grupos.push({ categoria: c.nombre, crear: sinCrear.map(i => ({ id: i.id, nombre: i.nombre })), yaEstan: items.filter(i => yaEsta(i)).map(i => i.nombre) })
+      const nuevos = soloIds ? sinCrear.filter(i => soloIds.includes(i.id)) : sinCrear
+      if (!confirmar) continue
+
+      // Enlazar al plato los que ya existían con el mismo nombre
+      for (const i of items) {
+        const p = yaEsta(i)
+        if (p && p.menuItemId === null) await prisma.inventarioProducto.update({ where: { id: p.id }, data: { menuItemId: i.id } })
+      }
+      if (nuevos.length === 0) continue
+
+      const invCat = await prisma.inventarioCategoria.findFirst({
+        where: { restaurantId: null, nombre: { equals: c.nombre, mode: 'insensitive' } },
+      }) ?? await prisma.inventarioCategoria.create({
+        data: { nombre: c.nombre, orden: await prisma.inventarioCategoria.count() },
+      })
+      const botella = esBotella(c.nombre) || esBotella(cat.nombre)
+      const res = await prisma.inventarioProducto.createMany({
+        data: nuevos.map((i, n) => ({
+          nombre: i.nombre,
+          categoriaId: invCat.id,
+          restaurantId: i.restaurantId,
+          unidad: botella || i.combinable ? 'botella' : 'ud',
+          menuItemId: i.id,
+          orden: n,
+        })),
+      })
+      creados += res.count
+    }
+
+    return { grupos, creados }
   })
 }

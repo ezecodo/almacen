@@ -585,6 +585,19 @@ InventarioConteoItem conteoId + productoId + cantidad  @@unique([conteoId, produ
 InventarioProduccion restaurantId, productoId, cantidad, unidad, creadoPor?, notas?, fecha
 ```
 
+### Compras: proveedor y formato de compra (2026-10-26, paso 1 de pedidos)
+
+Primer paso del circuito **pedido del dueño → el encargado recibe con el albarán y coteja** (las facturas van a la oficina de administración, al local solo llega el albarán). Arranca solo con bebidas. Campos nuevos en `InventarioProducto`:
+- `proveedorId` (catálogo `Proveedor` de Facturas, que suma `telefono`/`email`; un proveedor con productos no se borra, se desactiva).
+- `formatoCompra` (`Caja`, `Pack`, `Barril`…; null = suelto) + `unidadesPorFormato` (caja de 24 → 24).
+- `precioCoste` sigue siendo **por `unidad`** (la lata), así escandallos y Costes no cambian; el formulario lo pide por formato ("57 € la caja") y lo divide.
+- `precioOrigen`: `pedido` | `chef` | `referencia` | `estimado` (los dos últimos salen en ámbar con "~").
+- `menuItemId`: plato de la carta del que se trajo.
+
+**⬇ Traer de la carta** (`POST /inventario/desde-carta { menuCategoriaId, confirmar?, soloIds? }`): crea una categoría de inventario global por la categoría elegida y cada subcategoría con platos, y un producto por plato (vinos y destilados por botella, el resto por unidad), enlazado. Se salta lo que ya existe (mismo plato, o mismo nombre en el mismo scope). La vista previa lleva casillas: la carta vende porciones (CAÑA y PINTA salen del mismo barril), así que se desmarca lo que no se compra tal cual. Ojo: no reconoce nombres parecidos ("Finca Rodman" vs "FINCA RODMA SELECCIÓN").
+
+**Siguen**: paso 2, pedidos en `/admin/pedidos` con cantidad sugerida (último conteo vs mínimo, en formatos) y "Copiar pedido"; paso 3, recepción en 💼 con foto del albarán, y el precio del pedido actualiza `precioCoste` (`precioOrigen: 'pedido'`).
+
 ### Filtrado de productos por scope
 
 `GET /inventario/categorias?restaurantId=X` filtra los productos incluidos por scope:

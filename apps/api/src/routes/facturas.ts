@@ -28,7 +28,11 @@ const crearSchema = z.object({
 
 const estadoSchema = z.object({ estado: z.enum(['pendiente', 'revisada']) })
 
-const proveedorSchema = z.object({ nombre: z.string().trim().min(1).max(120) })
+const proveedorSchema = z.object({
+  nombre:   z.string().trim().min(1).max(120),
+  telefono: z.string().trim().max(40).nullable().optional(),
+  email:    z.string().trim().max(120).nullable().optional(),
+})
 
 const buscarProveedor = (nombre: string) =>
   prisma.proveedor.findFirst({ where: { nombre: { equals: nombre, mode: 'insensitive' } } })
@@ -143,7 +147,7 @@ export async function facturaRoutes(app: FastifyInstance) {
     return prisma.proveedor.findMany({
       where: { activo: true },
       orderBy: { nombre: 'asc' },
-      include: { _count: { select: { facturas: true } } },
+      include: { _count: { select: { facturas: true, productos: true } } },
     })
   })
 
@@ -152,13 +156,14 @@ export async function facturaRoutes(app: FastifyInstance) {
   app.post('/facturas/proveedores', { preHandler: requireAdmin }, async (req, reply) => {
     const result = proveedorSchema.safeParse(req.body)
     if (!result.success) return reply.status(400).send({ error: 'Nombre de proveedor inválido' })
-    const { nombre } = result.data
+    const { nombre, telefono, email } = result.data
+    const contacto = { telefono: telefono || null, email: email || null }
 
     const existente = await buscarProveedor(nombre)
     if (existente?.activo) return reply.status(409).send({ error: `"${existente.nombre}" ya está en el catálogo` })
     const proveedor = existente
-      ? await prisma.proveedor.update({ where: { id: existente.id }, data: { activo: true, nombre } })
-      : await prisma.proveedor.create({ data: { nombre } })
+      ? await prisma.proveedor.update({ where: { id: existente.id }, data: { activo: true, nombre, ...contacto } })
+      : await prisma.proveedor.create({ data: { nombre, ...contacto } })
 
     await prisma.factura.updateMany({
       where: { proveedorId: null, proveedor: { equals: nombre, mode: 'insensitive' } },
@@ -172,7 +177,7 @@ export async function facturaRoutes(app: FastifyInstance) {
     const id = Number((req.params as { id: string }).id)
     const result = proveedorSchema.safeParse(req.body)
     if (!result.success) return reply.status(400).send({ error: 'Nombre de proveedor inválido' })
-    const { nombre } = result.data
+    const { nombre, telefono, email } = result.data
 
     const otro = await buscarProveedor(nombre)
     if (otro && otro.id !== id) return reply.status(409).send({ error: `Ya existe un proveedor "${otro.nombre}"` })
@@ -180,16 +185,24 @@ export async function facturaRoutes(app: FastifyInstance) {
     if (!actual) return reply.status(404).send({ error: 'Proveedor no encontrado' })
 
     const [proveedor] = await prisma.$transaction([
-      prisma.proveedor.update({ where: { id }, data: { nombre } }),
+      prisma.proveedor.update({
+        where: { id },
+        data: {
+          nombre,
+          ...(telefono !== undefined && { telefono: telefono || null }),
+          ...(email !== undefined && { email: email || null }),
+        },
+      }),
       prisma.factura.updateMany({ where: { proveedorId: id }, data: { proveedor: nombre } }),
     ])
     return proveedor
   })
 
-  // Quitar del catálogo: si tiene facturas se desactiva (las facturas conservan el vínculo)
+  // Quitar del catálogo: si tiene facturas o productos se desactiva (conservan el vínculo)
   app.delete('/facturas/proveedores/:id', { preHandler: requireAdmin }, async (req, reply) => {
     const id = Number((req.params as { id: string }).id)
     const usadas = await prisma.factura.count({ where: { proveedorId: id } })
+      + await prisma.inventarioProducto.count({ where: { proveedorId: id } })
     if (usadas > 0) await prisma.proveedor.update({ where: { id }, data: { activo: false } })
     else await prisma.proveedor.deleteMany({ where: { id } })
     return reply.status(204).send()

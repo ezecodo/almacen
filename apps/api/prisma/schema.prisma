@@ -311,6 +311,7 @@ model MenuItem {
   maridajesComoPlato Maridaje[] @relation("MaridajePlato")
   maridajesComoVino  Maridaje[] @relation("MaridajeVino")
   perfilVino         PerfilVino?
+  productosInventario InventarioProducto[] // productos de inventario traídos de este plato ("Traer de la carta")
   createdAt    DateTime   @default(now())
 }
 
@@ -557,6 +558,15 @@ model InventarioProducto {
   contenido      Float?                 // unidades base por unidad de compra (botella de 700 ml → 700)
   mermaPct       Float                  @default(0) // % que se pierde al limpiar/cocinar (0-95)
   recetaLineas   RecetaLinea[]
+  // Compras: a quién se le pide y en qué formato llega (caja de 24 latas, barril…).
+  // precioCoste sigue siendo por `unidad` (la lata); el precio del formato se calcula × unidadesPorFormato.
+  proveedorId        Int?
+  proveedor          Proveedor? @relation(fields: [proveedorId], references: [id])
+  formatoCompra      String?                // 'Caja' | 'Pack' | 'Barril'… null = se pide suelto
+  unidadesPorFormato Float      @default(1) // cuántas `unidad` trae el formato (caja de 24 → 24)
+  precioOrigen       String?                // de dónde sale precioCoste: 'pedido' | 'chef' | 'referencia' | 'estimado'
+  menuItemId         Int?                   // plato de la carta del que se trajo (se vende tal cual: botella, lata…)
+  menuItem           MenuItem?  @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
   orden          Int                    @default(0)
   activo         Boolean                @default(true)
   categoriaId    Int
@@ -838,6 +848,9 @@ model Proveedor {
   nombre    String    @unique
   activo    Boolean   @default(true) // false = quitado del catálogo pero con facturas históricas
   facturas  Factura[]
+  telefono  String?
+  email     String?
+  productos InventarioProducto[]
   createdAt DateTime  @default(now())
 }
 
