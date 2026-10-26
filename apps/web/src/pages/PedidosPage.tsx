@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, EstadoPedido, Pedido, Proveedor, SugerenciaPedido } from '../api'
+import { api, EstadoPedido, Pedido, PedidoLinea, Proveedor, SugerenciaPedido } from '../api'
+import AlbaranFotos from '../components/AlbaranFotos'
+import { useAdminEvents } from '../hooks/useAdminEvents'
 
 // /admin/pedidos — el dueño pide a los proveedores, un pedido por restaurante y proveedor.
 // Lista los productos del proveedor (Inventario → Catálogo) con lo que quedaba en el último conteo del
@@ -36,6 +38,8 @@ const descFormato = (formato: string | null, upf: number, unidad: string) =>
   formato ? `${formato} de ${cant(upf)} ${plural(unidad, upf)}` : `suelto, por ${unidad}`
 
 const totalPedido = (p: Pedido) => p.lineas.reduce((s, l) => s + (l.precioFormato ?? 0) * l.cantidad, 0)
+const totalRecibido = (p: Pedido) => p.lineas.reduce((s, l) => s + (l.precioFormato ?? 0) * (l.cantidadRecibida ?? 0), 0)
+const INCIDENCIAS: Record<NonNullable<PedidoLinea['incidencia']>, string> = { falta: 'faltó', roto: 'llegó roto', otro: 'otro problema' }
 
 function textoPedido(p: Pedido) {
   const lineas = p.lineas.map(l => {
@@ -299,7 +303,7 @@ function DetallePedido({ id, onVolver, onEditar }: { id: number; onVolver: () =>
                 {recibido && (
                   <p className={`text-xs font-semibold ${diferente || l.incidencia ? 'text-amber-600' : 'text-emerald-600'}`}>
                     {diferente || l.incidencia
-                      ? `⚠ llegó ${enFormato(l.cantidadRecibida ?? 0, l.formato, l.unidad)}${l.incidencia ? ` · ${l.incidencia}` : ''}${l.notaRecepcion ? ` · ${l.notaRecepcion}` : ''}`
+                      ? `⚠ llegó ${enFormato(l.cantidadRecibida ?? 0, l.formato, l.unidad)}${l.incidencia ? ` · ${INCIDENCIAS[l.incidencia]}` : ''}${l.notaRecepcion ? ` · ${l.notaRecepcion}` : ''}`
                       : '✓ llegó bien'}
                   </p>
                 )}
@@ -312,8 +316,24 @@ function DetallePedido({ id, onVolver, onEditar }: { id: number; onVolver: () =>
           <span className="text-sm text-gray-500">Total pedido</span>
           <span className="font-black text-gray-800">{eur(totalPedido(p))}</span>
         </div>
+        {p.estado === 'recibido_diferencias' && (
+          <div className="flex justify-between px-4 py-3 bg-amber-50">
+            <span className="text-sm text-amber-700">Lo que llegó (la factura debería decir esto)</span>
+            <span className="font-black text-amber-800">{eur(totalRecibido(p))}</span>
+          </div>
+        )}
       </div>
       {p.nota && <p className="text-sm text-gray-600 bg-amber-50 rounded-xl px-4 py-3">📝 {p.nota}</p>}
+      {p.notaRecepcion && <p className="text-sm text-gray-600 bg-gray-50 rounded-xl px-4 py-3">📦 Al recibir: {p.notaRecepcion}</p>}
+      {p.albaranFotos > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Albarán</p>
+          <div className="max-w-md"><AlbaranFotos pedidoId={p.id} fotos={p.albaranFotos} /></div>
+        </div>
+      )}
+      {p.estado === 'enviado' && (
+        <p className="text-xs text-gray-400">Lo recibe el encargado del local desde el panel 💼 → 📦 Pedidos, con la foto del albarán.</p>
+      )}
 
       <div className="flex flex-wrap gap-2">
         <button onClick={copiar} className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-white text-sm font-bold">
@@ -382,6 +402,7 @@ type Vista =
   | { tipo: 'detalle'; id: number }
 
 export default function PedidosPage() {
+  useAdminEvents() // lo que el encargado recibe en el local aparece solo
   const [vista, setVista] = useState<Vista>({ tipo: 'lista' })
   const [restaurantId, setRestaurantId] = useState<number | undefined>(undefined)
   const [nuevoProv, setNuevoProv] = useState<number | ''>('')

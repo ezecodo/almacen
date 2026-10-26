@@ -39,6 +39,7 @@ export function useRestaurantEvents(restaurantId: number | null) {
         if (type === 'accesos-rapidos') queryClient.invalidateQueries({ queryKey: ['accesos-rapidos', restaurantId] })
         if (type === 'salon') queryClient.invalidateQueries({ queryKey: ['salon-planes', restaurantId] }) // mesa separada o juntada
         if (type === 'gastos') queryClient.invalidateQueries({ queryKey: ['gastos', restaurantId] })
+        if (type === 'pedidos') queryClient.invalidateQueries({ queryKey: ['pedidos-recepcion', restaurantId] })
       } catch {}
     }
 

@@ -32,8 +32,8 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         runtimeCaching: [
           {
-            // events (SSE) y facturas (documentos privados) no pasan por la caché
-            urlPattern: /^\/api\/(?!events|facturas).*/i,
+            // events (SSE), facturas y fotos de albaranes (documentos privados) no pasan por la caché
+            urlPattern: /^\/api\/(?!events|facturas|pedidos\/\d+\/albaran).*/i,
             handler: 'NetworkFirst',
             options: {
               cacheName: 'api-cache',

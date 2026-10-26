@@ -1,12 +1,25 @@
-import { FastifyInstance } from 'fastify'
+import { FastifyInstance, FastifyRequest } from 'fastify'
 import { z } from 'zod'
+import path from 'path'
+import fs from 'fs/promises'
 import { prisma } from '../server'
 import { broadcast } from '../sse'
+import { requireEncargado } from '../auth'
 
 // Pedidos a proveedores. El dueño los arma en /admin/pedidos, por restaurante y proveedor, con las
 // cantidades en formatos de compra (3 cajas de 24). La app no le escribe al proveedor: "Copiar pedido"
 // deja el texto para WhatsApp o mail. Después el encargado lo recibe con el albarán (paso 3).
 // Estados: borrador → enviado → recibido | recibido_diferencias; cancelado desde borrador o enviado.
+// Recepción (paso 3): el encargado, en el panel 💼, marca línea por línea qué llegó y fotografía el
+// albarán; el precio de cada línea recibida pasa a ser el precioCoste del producto (precioOrigen 'pedido').
+
+// Fotos del albarán en disco, fuera de lo que sirve Nginx (mismo esquema que las facturas)
+const ALBARANES_DIR = process.env.ALBARANES_DIR || path.join(__dirname, '..', '..', 'uploads', 'albaranes')
+const MAX_FOTOS = 10
+const MAX_BYTES_FOTO = 5 * 1024 * 1024
+const archivoFoto = (id: number, n: number) => path.join(ALBARANES_DIR, String(id), `${n}.jpg`)
+// El encargado corrige una recepción equivocada hasta 2 días después; administración, siempre
+const CORREGIR_RECEPCION_MS = 2 * 24 * 60 * 60 * 1000
 
 const lineaSchema = z.object({
   productoId: z.number().int().positive(),
@@ -21,6 +34,15 @@ const pedidoSchema = z.object({
   enviar: z.boolean().default(false),
 })
 const editarSchema = pedidoSchema.pick({ nota: true, lineas: true })
+const recibirSchema = z.object({
+  nota: z.string().trim().max(500).default(''),
+  lineas: z.array(z.object({
+    id: z.number().int().positive(),
+    cantidadRecibida: z.number().min(0).max(100000),
+    incidencia: z.enum(['falta', 'roto', 'otro']).nullable().default(null),
+    nota: z.string().trim().max(200).nullable().default(null),
+  })).max(300),
+})
 const idParams = z.object({ id: z.coerce.number().int().positive() })
 
 const incluir = {
@@ -54,7 +76,20 @@ async function armarLineas(proveedorId: number, lineas: z.infer<typeof lineaSche
   })
 }
 
+// Un encargado solo toca los pedidos del local donde entró; administración, todos
+function delLocal(req: FastifyRequest, restaurantId: number) {
+  return req.user.tipo === 'admin' || req.user.restaurantId === restaurantId
+}
+
+// En sala no se ven precios de coste (el encargado coteja cantidades, no importes)
+function sinPrecios<T extends { lineas: { precioFormato: number | null }[] }>(pedido: T): T {
+  return { ...pedido, lineas: pedido.lineas.map(l => ({ ...l, precioFormato: null })) }
+}
+
 export async function pedidoRoutes(app: FastifyInstance) {
+
+  // Cada foto del albarán llega como JPEG crudo en el body (una request por foto)
+  app.addContentTypeParser('image/jpeg', { parseAs: 'buffer', bodyLimit: MAX_BYTES_FOTO }, (_req, body, done) => done(null, body))
 
   // GET /pedidos?restaurantId=&estado=&proveedorId=
   app.get('/pedidos', async (req) => {
@@ -205,5 +240,127 @@ export async function pedidoRoutes(app: FastifyInstance) {
     await prisma.pedido.delete({ where: { id } })
     broadcast(actual.restaurantId, 'pedidos')
     return reply.status(204).send()
+  })
+
+  // ── Recepción (encargado, panel 💼 de /sala) ──────────────────────────────────
+
+  // Lo que está en camino a este local y lo recibido en la última semana
+  app.get('/pedidos/recepcion', { preHandler: requireEncargado }, async (req, reply) => {
+    const q = z.object({ restaurantId: z.coerce.number().int().positive().optional() }).parse(req.query)
+    const restaurantId = req.user.tipo === 'admin' ? q.restaurantId : req.user.restaurantId
+    if (!restaurantId) return reply.status(400).send({ error: 'restaurantId requerido' })
+    const semana = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+    const pedidos = await prisma.pedido.findMany({
+      where: {
+        restaurantId,
+        OR: [{ estado: 'enviado' }, { estado: { startsWith: 'recibido' }, recibidoAt: { gte: semana } }],
+      },
+      orderBy: [{ enviadoAt: 'asc' }, { id: 'asc' }],
+      include: incluir,
+    })
+    return req.user.tipo === 'admin' ? pedidos : pedidos.map(sinPrecios)
+  })
+
+  // Añadir una foto del albarán (mientras el pedido esté en camino o se pueda corregir su recepción)
+  app.post('/pedidos/:id/albaran', { preHandler: requireEncargado }, async (req, reply) => {
+    const { id } = idParams.parse(req.params)
+    const body = req.body
+    if (!Buffer.isBuffer(body) || body.length < 4 || body[0] !== 0xff || body[1] !== 0xd8 || body[2] !== 0xff) {
+      return reply.status(400).send({ error: 'La foto debe ser una imagen JPEG' })
+    }
+    const pedido = await prisma.pedido.findUnique({ where: { id } })
+    if (!pedido || !delLocal(req, pedido.restaurantId)) return reply.status(404).send({ error: 'Pedido no encontrado' })
+    if (pedido.estado !== 'enviado' && !pedido.estado.startsWith('recibido')) {
+      return reply.status(409).send({ error: 'El pedido no está en camino' })
+    }
+    if (pedido.albaranFotos >= MAX_FOTOS) return reply.status(400).send({ error: `Máximo ${MAX_FOTOS} fotos por albarán` })
+    const n = pedido.albaranFotos + 1
+    await fs.mkdir(path.dirname(archivoFoto(id, n)), { recursive: true })
+    await fs.writeFile(archivoFoto(id, n), body)
+    const actualizado = await prisma.pedido.update({ where: { id }, data: { albaranFotos: n } })
+    broadcast(pedido.restaurantId, 'pedidos')
+    return reply.status(201).send({ albaranFotos: actualizado.albaranFotos })
+  })
+
+  app.get('/pedidos/:id/albaran/:n', { preHandler: requireEncargado }, async (req, reply) => {
+    const { id, n } = z.object({ id: z.coerce.number().int().positive(), n: z.coerce.number().int().positive() }).parse(req.params)
+    const pedido = await prisma.pedido.findUnique({ where: { id } })
+    if (!pedido || !delLocal(req, pedido.restaurantId) || n > pedido.albaranFotos) {
+      return reply.status(404).send({ error: 'Foto no encontrada' })
+    }
+    try {
+      const jpg = await fs.readFile(archivoFoto(id, n))
+      return reply.header('Cache-Control', 'private, no-store').type('image/jpeg').send(jpg)
+    } catch {
+      return reply.status(404).send({ error: 'Archivo de la foto no encontrado en el servidor' })
+    }
+  })
+
+  // Quitar una foto (salió movida): las siguientes se corren un lugar
+  app.delete('/pedidos/:id/albaran/:n', { preHandler: requireEncargado }, async (req, reply) => {
+    const { id, n } = z.object({ id: z.coerce.number().int().positive(), n: z.coerce.number().int().positive() }).parse(req.params)
+    const pedido = await prisma.pedido.findUnique({ where: { id } })
+    if (!pedido || !delLocal(req, pedido.restaurantId) || n > pedido.albaranFotos) {
+      return reply.status(404).send({ error: 'Foto no encontrada' })
+    }
+    await fs.rm(archivoFoto(id, n), { force: true })
+    for (let i = n + 1; i <= pedido.albaranFotos; i++) {
+      await fs.rename(archivoFoto(id, i), archivoFoto(id, i - 1)).catch(() => undefined)
+    }
+    const actualizado = await prisma.pedido.update({ where: { id }, data: { albaranFotos: pedido.albaranFotos - 1 } })
+    broadcast(pedido.restaurantId, 'pedidos')
+    return { albaranFotos: actualizado.albaranFotos }
+  })
+
+  // Cerrar la recepción: lo que llegó de cada línea. También corrige una recepción ya hecha.
+  app.patch('/pedidos/:id/recibir', { preHandler: requireEncargado }, async (req, reply) => {
+    const { id } = idParams.parse(req.params)
+    const r = recibirSchema.safeParse(req.body)
+    if (!r.success) return reply.status(400).send({ error: 'Recepción inválida' })
+    const pedido = await prisma.pedido.findUnique({ where: { id }, include: { lineas: true } })
+    if (!pedido || !delLocal(req, pedido.restaurantId)) return reply.status(404).send({ error: 'Pedido no encontrado' })
+    const corrigiendo = pedido.estado.startsWith('recibido')
+    if (pedido.estado !== 'enviado' && !corrigiendo) {
+      return reply.status(409).send({ error: pedido.estado === 'borrador' ? 'El pedido todavía no se envió al proveedor' : 'El pedido está cancelado' })
+    }
+    if (corrigiendo && req.user.tipo !== 'admin' && Date.now() - (pedido.recibidoAt?.getTime() ?? 0) > CORREGIR_RECEPCION_MS) {
+      return reply.status(409).send({ error: 'Pasaron más de 2 días: la corrige administración' })
+    }
+
+    // Las líneas que no vinieron en la petición se dan por recibidas tal cual
+    const porId = new Map(r.data.lineas.map(l => [l.id, l]))
+    const lineas = pedido.lineas.map(l => {
+      const x = porId.get(l.id)
+      const cantidadRecibida = x ? x.cantidadRecibida : l.cantidad
+      const incidencia = x?.incidencia ?? (cantidadRecibida < l.cantidad ? 'falta' : null)
+      return { linea: l, cantidadRecibida, incidencia, nota: x?.nota || null }
+    })
+    const conDiferencias = lineas.some(x => x.cantidadRecibida !== x.linea.cantidad || x.incidencia !== null)
+
+    // Lo que llegó fija el coste del producto: precio del pedido ÷ unidades del formato
+    const precios = lineas.filter(x => x.linea.productoId !== null && x.linea.precioFormato !== null && x.cantidadRecibida > 0)
+
+    await prisma.$transaction([
+      prisma.pedido.update({
+        where: { id },
+        data: {
+          estado: conDiferencias ? 'recibido_diferencias' : 'recibido',
+          recibidoAt: corrigiendo ? pedido.recibidoAt : new Date(),
+          recibidoPor: req.user.nombre,
+          notaRecepcion: r.data.nota || null,
+        },
+      }),
+      ...lineas.map(x => prisma.pedidoLinea.update({
+        where: { id: x.linea.id },
+        data: { cantidadRecibida: x.cantidadRecibida, incidencia: x.incidencia, notaRecepcion: x.nota },
+      })),
+      ...precios.map(x => prisma.inventarioProducto.update({
+        where: { id: x.linea.productoId! },
+        data: { precioCoste: Math.round((x.linea.precioFormato! / x.linea.unidadesPorFormato) * 10000) / 10000, precioOrigen: 'pedido' },
+      })),
+    ])
+    const final = await prisma.pedido.findUniqueOrThrow({ where: { id }, include: incluir })
+    broadcast(pedido.restaurantId, 'pedidos')
+    return req.user.tipo === 'admin' ? final : sinPrecios(final)
   })
 }

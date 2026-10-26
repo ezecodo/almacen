@@ -942,6 +942,8 @@ model Pedido {
   enviadoAt    DateTime?
   recibidoAt   DateTime?
   recibidoPor  String?
+  notaRecepcion String?
+  albaranFotos Int           @default(0) // fotos del albarán en uploads/albaranes/<id>/<n>.jpg
   lineas       PedidoLinea[]
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt

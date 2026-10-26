@@ -727,6 +727,8 @@ export interface Pedido {
   enviadoAt: string | null
   recibidoAt: string | null
   recibidoPor: string | null
+  notaRecepcion: string | null
+  albaranFotos: number
   createdAt: string
   proveedor: { id: number; nombre: string; telefono: string | null; email: string | null }
   restaurant: { id: number; nombre: string }
@@ -750,6 +752,7 @@ export interface SugerenciaPedido {
 }
 
 export type LineaPedidoBody = { productoId: number; cantidad: number; precioFormato: number | null }
+export type RecepcionLineaBody = { id: number; cantidadRecibida: number; incidencia: PedidoLinea['incidencia']; nota: string | null }
 
 export interface InventarioConteoResumen {
   id: number
@@ -1523,6 +1526,16 @@ export const api = {
     editar: (id: number, body: { nota: string; lineas: LineaPedidoBody[] }) => put<Pedido>(`/pedidos/${id}`, body),
     estado: (id: number, estado: 'borrador' | 'enviado' | 'cancelado') => patch<Pedido>(`/pedidos/${id}/estado`, { estado }),
     borrar: (id: number) => del(`/pedidos/${id}`),
+    // Recepción con el albarán (encargado en 💼; en sala llegan sin precios)
+    recepcion: (restaurantId?: number) =>
+      authFetch(`/pedidos/recepcion${restaurantId ? `?restaurantId=${restaurantId}` : ''}`).then(r => r.json() as Promise<Pedido[]>),
+    recibir: (id: number, body: { nota: string; lineas: RecepcionLineaBody[] }) =>
+      authFetch(`/pedidos/${id}/recibir`, { method: 'PATCH', json: body }).then(r => r.json() as Promise<Pedido>),
+    subirFoto: (id: number, jpeg: Blob) =>
+      authFetch(`/pedidos/${id}/albaran`, { method: 'POST', body: jpeg, contentType: 'image/jpeg' }).then(r => r.json() as Promise<{ albaranFotos: number }>),
+    foto: (id: number, n: number) => authFetch(`/pedidos/${id}/albaran/${n}`).then(r => r.blob()),
+    quitarFoto: (id: number, n: number) =>
+      authFetch(`/pedidos/${id}/albaran/${n}`, { method: 'DELETE' }).then(r => r.json() as Promise<{ albaranFotos: number }>),
   },
   gastos: {
     habituales: (restaurantId: number) => get<GastoHabitual[]>(`/gastos/habituales?restaurantId=${restaurantId}`),

@@ -25,6 +25,7 @@ export function useAdminEvents() {
         if (type === 'facturas') {
           queryClient.invalidateQueries({ queryKey: ['facturas'] })
         }
+        if (type === 'pedidos') queryClient.invalidateQueries({ queryKey: ['pedidos'] }) // recibido en el local
         if (type === 'reservas-pool') {
           queryClient.invalidateQueries({ queryKey: ['reservas-pool'] })
           queryClient.invalidateQueries({ queryKey: ['reservas'] })

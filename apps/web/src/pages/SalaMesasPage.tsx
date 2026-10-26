@@ -16,6 +16,7 @@ import { useSalaEnModoLocal } from '../lib/instalacion'
 import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
 import { usePoolEvents } from '../hooks/usePoolEvents'
 import FacturasSala from '../components/FacturasSala'
+import PedidosSala from '../components/PedidosSala'
 import GastosSala from '../components/GastosSala'
 import PropinasSala, { QK_PROPINAS_ENC } from '../components/PropinasSala'
 import MaridajeSheet from '../components/MaridajeSheet'
@@ -5931,6 +5932,13 @@ function EncargadoPanel({
     queryFn: () => api.agotados.list(restaurant.id),
     enabled: !soloConsulta,
   })
+  // Pedidos a proveedores que vienen en camino (misma consulta que la pestaña 📦)
+  const { data: pedidosRecepcion = [] } = useQuery({
+    queryKey: ['pedidos-recepcion', restaurant.id],
+    queryFn: () => api.pedidos.recepcion(),
+    enabled: !soloConsulta,
+    refetchInterval: 60_000,
+  })
   const [armadoCierre, setArmadoCierre] = useState(false)
   const [resumenCierre, setResumenCierre] = useState<Turno | null>(null)
   const [cobroDe, setCobroDe] = useState<Comanda | null>(null)
@@ -6106,6 +6114,7 @@ function EncargadoPanel({
     { key: 'mermas' as const, icon: '🗑', label: 'Mermas', badge: 0 },
     { key: 'reservas' as const, icon: '📅', label: 'Reservas', badge: pool.length },
     { key: 'reviews' as const, icon: '⭐', label: 'Reviews', badge: 0 },
+    { key: 'pedidos' as const, icon: '📦', label: 'Pedidos', badge: pedidosRecepcion.filter(p => p.estado === 'enviado').length },
     { key: 'facturas' as const, icon: '🧾', label: 'Facturas', badge: 0 },
     { key: 'propinas' as const, icon: '💰', label: 'Propinas', badge: sinRepartir },
   ]
@@ -6423,6 +6432,7 @@ function EncargadoPanel({
 
           {/* ── Facturas de proveedor ── */}
           {tab === 'gastos' && <GastosSala restaurantId={rid} />}
+          {tab === 'pedidos' && <PedidosSala restaurantId={rid} />}
           {tab === 'facturas' && <FacturasSala restaurantId={rid} empleadoId={camarero.id} />}
           {tab === 'propinas' && <PropinasSala key={propinasTurnoId ?? 0} turnoInicialId={propinasTurnoId} onEnfoque={setRepartiendo} />}
 
@@ -6825,7 +6835,7 @@ function EncargadoPanel({
   )
 }
 
-type TabEncargado = 'cobros' | 'turno' | 'agotados' | 'checklists' | 'mermas' | 'reviews' | 'reservas' | 'facturas' | 'gastos' | 'propinas'
+type TabEncargado = 'cobros' | 'turno' | 'agotados' | 'checklists' | 'mermas' | 'reviews' | 'reservas' | 'pedidos' | 'facturas' | 'gastos' | 'propinas'
 
 // ── Panel del encargado en el puesto TPV ─────────────────────────────────────
 // Lo primero que ve un encargado en la tablet (el camarero va al mapa): todas las mesas en
@@ -6837,7 +6847,8 @@ const ACCESOS_ENCARGADO: { tab: TabEncargado; icono: string; nombre: string }[] 
   { tab: 'gastos', icono: '🥖', nombre: 'Gastos' }, { tab: 'agotados', icono: '🚫', nombre: 'Agotados' },
   { tab: 'mermas', icono: '🗑', nombre: 'Mermas' }, { tab: 'reservas', icono: '📅', nombre: 'Reservas' },
   { tab: 'reviews', icono: '⭐', nombre: 'Reviews' }, { tab: 'checklists', icono: '✅', nombre: 'Checklists' },
-  { tab: 'facturas', icono: '🧾', nombre: 'Facturas' }, { tab: 'propinas', icono: '💰', nombre: 'Propinas' },
+  { tab: 'pedidos', icono: '📦', nombre: 'Pedidos' }, { tab: 'facturas', icono: '🧾', nombre: 'Facturas' },
+  { tab: 'propinas', icono: '💰', nombre: 'Propinas' },
 ]
 function PanelEncargadoTpv({ restaurantId, comandas, turnoActivo, onAbrirMesa, onCobrar, onAcceso }: {
   restaurantId: number

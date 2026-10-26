@@ -88,6 +88,9 @@ export const RUTAS_SALA = new Set([
   // facturas de proveedor (cada ruta comprueba además que sea encargado)
   'GET /api/facturas', 'POST /api/facturas', 'GET /api/facturas/proveedores', 'GET /api/facturas/:id/paginas/:n',
   'POST /api/facturas/:id/paginas', 'PATCH /api/facturas/:id/enviar', 'DELETE /api/facturas/:id',
+  // recepción de pedidos a proveedores con el albarán (encargado)
+  'GET /api/pedidos/recepcion', 'PATCH /api/pedidos/:id/recibir',
+  'POST /api/pedidos/:id/albaran', 'GET /api/pedidos/:id/albaran/:n', 'DELETE /api/pedidos/:id/albaran/:n',
   // en qué red está el dispositivo
   'GET /api/red/estado',
   // propinas propias, almacén y validación de retiros
@@ -110,6 +113,8 @@ export const SOLO_ENCARGADO = new Set([
   'PATCH /api/reservas/:id',          // no vino / cancelada / volver a por llegar
   'PUT /api/comandas/:id/reserva',    // quién está sentado en la mesa ("No era esta reserva")
   'PATCH /api/comandas/:id/rectificar-pago', 'PATCH /api/comandas/:id/deshacer-cobro', // corregir una mesa ya cobrada
+  'GET /api/pedidos/recepcion', 'PATCH /api/pedidos/:id/recibir', // recibir un pedido con el albarán
+  'POST /api/pedidos/:id/albaran', 'GET /api/pedidos/:id/albaran/:n', 'DELETE /api/pedidos/:id/albaran/:n',
 ])
 
 // ── Dónde está el dispositivo ────────────────────────────────────────────────────────────────
