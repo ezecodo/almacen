@@ -44,9 +44,16 @@ const ING = {
   quesoRallado: g('Queso rallado', 12), arroz: g('Arroz bomba', 2.2), capIPota: g('Cap i pota', 8),
   sofrito: g('Sofrito', 5), caldo: ml('Caldo / fumet', 1.5), ravioli: g('Ravioli fresco', 14),
   salsaTrufa: g('Salsa de trufa', 18), parmesano: g('Parmesano', 22),
+  // postres
+  quesoCrema: g('Queso crema', 8), nata: ml('Nata para montar', 4), huevo: ud('Huevo', 0.25),
+  galleta: g('Galleta', 4), chocolate: g('Chocolate negro 70 %', 12), harina: g('Harina', 0.8),
+  heladoVainilla: g('Helado de vainilla', 6), lecheCoco: ml('Leche de coco', 3.5),
   // bebida
   cervezaBarril: ml('Cerveza de barril', 2.6, 5), sinAlcohol: ud('Cerveza sin alcohol 33 cl', 0.65),
-  ipa: ud('IPA Complot 33 cl', 1.7), refresco: ud('Refresco 20 cl', 0.5), tonica: ud('Tónica premium 20 cl', 0.9),
+  ipa: ud('IPA Complot 33 cl', 1.7), refresco: ud('Refresco 20 cl', 0.5),
+  cocaCola: ud('Coca-Cola 33 cl', 0.6), cocaZero: ud('Coca-Cola Zero 33 cl', 0.6),
+  fantaNaranja: ud('Fanta naranja 33 cl', 0.55), fantaLimon: ud('Fanta limón 33 cl', 0.55),
+  agua: ud('Agua 50 cl', 0.3), aguaGas: ud('Agua con gas 50 cl', 0.45), tonica: ud('Tónica premium 20 cl', 0.9),
   soda: ud('Soda 20 cl', 0.4), gingerBeer: ud('Ginger beer 20 cl', 0.95), hielo: g('Hielo', 0.35),
   pureMango: ml('Puré de mango', 8), frutosRojos: g('Frutos rojos congelados', 7), hierbabuena: g('Hierbabuena', 12, 20),
   azucar: g('Azúcar moreno', 1.6), sirope: ml('Sirope de azúcar', 3), zumoNaranja: ml('Zumo de naranja', 2.5),
@@ -106,7 +113,15 @@ const RECETAS: Record<string, Linea[]> = {
   'CANELON': [['placaCanelon', 3], ['carneAsado', 130], ['bechamel', 120], ['quesoRallado', 20]],
   'ARROZ CAP I POTA': [['arroz', 90], ['capIPota', 150], ['sofrito', 40], ['caldo', 300], ['aove', 10]],
   'RAVIOLES': [['ravioli', 200], ['salsaTrufa', 50], ['parmesano', 15]],
+  // postres
+  'CHEESECAKE': [['quesoCrema', 90], ['nata', 30], ['azucar', 20], ['huevo', 0.5], ['galleta', 25], ['mantequilla', 10]],
+  'SELEC. QUESOS': [['manchego', 30], ['quesoAzul', 25], ['quesoCabra', 25], ['membrillo', 25], ['nueces', 10]],
+  'DELICIA VEGETAL': [['chocolate', 40], ['lecheCoco', 80], ['azucar', 15], ['frutosRojos', 30]],
+  'BROWNIE': [['chocolate', 35], ['mantequilla', 25], ['azucar', 25], ['huevo', 0.5], ['harina', 15], ['nueces', 10], ['heladoVainilla', 60]],
   // cerveza y refrescos
+  'COCA COLA': [['cocaCola', 1], ['hielo', 100], ['limon', 10]], 'COCA ZERO': [['cocaZero', 1], ['hielo', 100], ['limon', 10]],
+  'FANTA NARA': [['fantaNaranja', 1], ['hielo', 100]], 'FANTA LIMO': [['fantaLimon', 1], ['hielo', 100]],
+  'TONICA': [['tonica', 1], ['hielo', 100], ['limon', 10]], 'AGUA': [['agua', 1]], 'AGUA CON GAS': [['aguaGas', 1]],
   'CANA': [['cervezaBarril', 200]],
   'PINTA': [['cervezaBarril', 500]],
   'SIN ALCOHOL': [['sinAlcohol', 1]],
