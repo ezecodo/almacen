@@ -76,11 +76,11 @@ function partir<M extends MesaPlano>(entera: M, mitad: M, lado?: number, deLadoP
       separada: true, pareja,
     }
   }
-  // La mesa entera se queda con la mitad de arriba o de la izquierda (ya girada): así el mapa sigue
-  // en orden (1, 2, 3, 4) aunque la mesa esté rotada
+  // El número menor se queda con la mitad de arriba o de la izquierda (ya girada): así el mapa sigue
+  // en orden (1, 2, 3, 4) aunque la mesa esté rotada o la otra mitad tenga el número menor (12 y 11)
   const ox = deLado ? -desp * Math.cos(rad) : desp * Math.sin(rad)
   const oy = deLado ? -desp * Math.sin(rad) : -desp * Math.cos(rad)
-  const primera = (Math.abs(ox) > Math.abs(oy) ? ox : oy) <= 0 ? -1 : 1
+  const primera = ((Math.abs(ox) > Math.abs(oy) ? ox : oy) <= 0 ? -1 : 1) * (mitad.numero < entera.numero ? -1 : 1)
   return [
     forma(entera, primera, Math.max(1, entera.capacidad - mitad.capacidad), mitad.numero),
     forma(mitad, -primera, mitad.capacidad, entera.numero),
