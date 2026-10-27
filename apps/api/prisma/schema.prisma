@@ -162,6 +162,11 @@ model Turno {
   totalInvitaciones Float?  // valor de items marcados como invitación de la casa (no suman a ventas)
   totalGastos     Float?     // gastos pagados en efectivo durante el turno (salieron de la caja)
   totalRectificado Float?    // suma de las diferencias de las rectificativas del turno (negativo = se devolvió dinero)
+  // Margen teórico (escandallos, src/margen.ts): coste de lo vendido e invitado, de las mermas,
+  // y cuánto de lo vendido (con IVA) tenía escandallo. Solo admin y Pulso
+  costeVendido        Float?
+  costeMermas         Float?
+  ventasConEscandallo Float?
   numComandas     Int?
   propina         PropinaDia?
   createdAt       DateTime   @default(now())
@@ -180,6 +185,7 @@ model Merma {
   precio         Float      @default(0)
   itemNivel      Int?
   itemRonda      Int        @default(1)
+  menuItemId     Int?       // plato de la carta (copiado de la línea de la comanda): su coste cuenta como pérdida
   camareroNombre String?
   motivo         String     // 'no_servido' | 'queja_cliente' | 'otro'
   descripcion    String?
@@ -530,6 +536,7 @@ model ComandaItem {
   invitacion   Boolean @default(false)   // 🎁 invitación de la casa: visible en cuenta a 0 €, no suma a ventas
   invitadoPor  String?                   // quién la marcó
   invitacionMotivo String?               // por qué se invitó (opcional) (accountability)
+  menuItemId   Int?                      // plato de la carta del que salió (coste por su escandallo); null = escrito a mano, combinado o comanda vieja
 }
 
 model Producto {

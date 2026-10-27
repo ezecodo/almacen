@@ -7,6 +7,7 @@ import { boxSinSincronizar } from './red'
 import { efectivoGastado } from './gastos'
 import { repartoPago, totalCobrable } from '../pago'
 import { juntarMesasLibres } from './salon'
+import { margenDe, resumenMargen, tasaIva } from '../margen'
 
 export async function turnoRoutes(app: FastifyInstance) {
 
@@ -44,6 +45,7 @@ export async function turnoRoutes(app: FastifyInstance) {
       },
     })
 
+    const iva = await tasaIva()
     const stats = await Promise.all(restaurantes.map(async (r) => {
       const turno = r.turnos[0] ?? null
       if (!turno) {
@@ -57,6 +59,7 @@ export async function turnoRoutes(app: FastifyInstance) {
           totalTarjeta: 0,
           totalVentas: 0,
           numComandas: 0,
+          margen: null,
         }
       }
 
@@ -72,6 +75,9 @@ export async function turnoRoutes(app: FastifyInstance) {
       const repartos = comandas.map(c => repartoPago(c, totalCobrable(c.items)))
       const totalEfectivo = repartos.reduce((s, r) => s + r.efectivo, 0)
       const totalTarjeta  = repartos.reduce((s, r) => s + r.tarjeta, 0)
+      // Margen teórico por los escandallos (esta ruta solo la ven admin y Pulso)
+      const mermas = await prisma.merma.findMany({ where: { restaurantId: r.id, createdAt: { gte: turno.aperturaAt } }, select: { menuItemId: true, cantidad: true, motivo: true } })
+      const margen = resumenMargen(totalEfectivo + totalTarjeta, await margenDe(comandas, mermas), iva)
 
       return {
         restaurantId: r.id,
@@ -83,6 +89,7 @@ export async function turnoRoutes(app: FastifyInstance) {
         totalTarjeta,
         totalVentas: totalEfectivo + totalTarjeta,
         numComandas: comandas.length,
+        margen,
       }
     }))
 
@@ -168,6 +175,8 @@ export async function turnoRoutes(app: FastifyInstance) {
     // Rectificativas del turno (mesas cobradas otra vez por otro importe): negativo = se devolvió dinero
     const rectificado = await prisma.rectificativa.aggregate({ where: { turnoId: id }, _sum: { diferencia: true } })
     const totalRectificado = rectificado._sum.diferencia ?? 0
+    // Margen teórico por los escandallos: se guarda con el turno (lo ven admin y Pulso, no la sala)
+    const { costeVendido, costeMermas, ventasConEscandallo } = await margenDe(comandas, mermas)
     const updated = await prisma.turno.update({
       where: { id },
       data: {
@@ -181,6 +190,9 @@ export async function turnoRoutes(app: FastifyInstance) {
         totalInvitaciones,
         totalGastos,
         totalRectificado,
+        costeVendido,
+        costeMermas,
+        ventasConEscandallo,
         numComandas:  comandas.length,
       },
     })
@@ -198,6 +210,7 @@ export async function turnoRoutes(app: FastifyInstance) {
 
     broadcast(updated.restaurantId, 'update')
     broadcast(updated.restaurantId, 'agotados')
+    // Los costes no le llegan al encargado que cierra: los quita el filtro de server.ts
     return { ...updated, reservasNoVinieron: noVinieron.count }
   })
 
@@ -206,7 +219,8 @@ export async function turnoRoutes(app: FastifyInstance) {
     const { restaurantId } = req.query as { restaurantId?: string }
     if (!restaurantId) return reply.status(400).send({ error: 'restaurantId requerido' })
 
-    return prisma.turno.findMany({
+    const iva = await tasaIva()
+    const turnos = await prisma.turno.findMany({
       where: { restaurantId: Number(restaurantId) },
       include: {
         propina: {
@@ -216,6 +230,12 @@ export async function turnoRoutes(app: FastifyInstance) {
       orderBy: { aperturaAt: 'desc' },
       take: 30,
     })
+    // Margen de los turnos cerrados desde que existe (los anteriores no tienen coste guardado)
+    return turnos.map(t => ({
+      ...t,
+      margen: t.costeVendido === null || t.costeMermas === null || t.ventasConEscandallo === null ? null
+        : resumenMargen(t.totalVentas ?? 0, { costeVendido: t.costeVendido, costeMermas: t.costeMermas, ventasConEscandallo: t.ventasConEscandallo }, iva),
+    }))
   })
 
   // Comandas cobradas durante un turno

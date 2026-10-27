@@ -355,7 +355,7 @@ function ComandaPanel({
 
   const addItem = useMutation({
     mutationFn: ({ item, cantidad }: { item: MenuItem; cantidad: number }) =>
-      api.comandas.addItem(comanda.id, { nombre: item.nombre, precio: item.precio, cantidad }),
+      api.comandas.addItem(comanda.id, { nombre: item.nombre, precio: item.precio, menuItemId: item.id, cantidad }),
     onSuccess: (_, { item }) => {
       setAddedId(item.id)
       setTimeout(() => setAddedId(null), 1000)

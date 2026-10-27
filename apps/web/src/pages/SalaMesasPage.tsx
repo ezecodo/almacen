@@ -409,7 +409,7 @@ function VerCuentaModal({ comanda, menu, getTipo, onMerma, onClose, onFacturar }
     : []
   const anadir = useMutation({
     mutationFn: (item: MenuItem) =>
-      api.comandas.addItem(comanda.id, { nombre: item.nombre, precio: item.precio, cantidad: 1, tipo: getTipo(item), directo: true }),
+      api.comandas.addItem(comanda.id, { nombre: item.nombre, precio: item.precio, menuItemId: item.id, cantidad: 1, tipo: getTipo(item), directo: true }),
     onSuccess: (_, item) => {
       queryClient.invalidateQueries({ queryKey: ['comanda-sala', comanda.id] })
       queryClient.invalidateQueries({ queryKey: ['comandas-sala'] })
@@ -658,7 +658,7 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
   const addItem = useMutation({
     mutationFn: (item: MenuItem) => {
       const tipo: 'cocina' | 'barra' = esGrupoBarra(catMeta[item.categoria] ?? '') ? 'barra' : 'cocina'
-      return api.comandas.addItem(comanda.id, { nombre: item.nombre, precio: item.precio, cantidad: 1, tipo })
+      return api.comandas.addItem(comanda.id, { nombre: item.nombre, precio: item.precio, menuItemId: item.id, cantidad: 1, tipo })
     },
     onSuccess: () => {
       setSearch('')
@@ -1531,7 +1531,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
 
   const addItem = useMutation({
     mutationFn: ({ item, cantidad, nota: notaItem }: { item: MenuItem; cantidad: number; nota?: string }) =>
-      api.comandas.addItem(comanda.id, { nombre: item.nombre, precio: item.precio, cantidad, tipo: getTipo(item), ...(notaItem ? { nota: notaItem } : {}), ...(modoSinCocina ? { directo: true } : {}) }),
+      api.comandas.addItem(comanda.id, { nombre: item.nombre, precio: item.precio, menuItemId: item.id, cantidad, tipo: getTipo(item), ...(notaItem ? { nota: notaItem } : {}), ...(modoSinCocina ? { directo: true } : {}) }),
     onSuccess: (_, { item, cantidad }) => {
       avisarAnadido(`${cantidad}× ${item.nombre}`)
       setDotsAnim(true)
@@ -1547,7 +1547,8 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
       const precio = mixer
         ? (item.precioCombinado ?? item.precio) + (mixer.suplementoMixer || 0)
         : item.precio
-      return api.comandas.addItem(comanda.id, { nombre, precio, cantidad: 1, tipo: getTipo(item), ...(modoSinCocina ? { directo: true } : {}) })
+      // Solo el destilado sin mezclar va con su ficha; el combinado (dos platos en una línea) todavía no
+      return api.comandas.addItem(comanda.id, { nombre, precio, ...(mixer ? {} : { menuItemId: item.id }), cantidad: 1, tipo: getTipo(item), ...(modoSinCocina ? { directo: true } : {}) })
     },
     onSuccess: (_, { item, mixer }) => {
       avisarAnadido(mixer ? `1× ${item.nombre} + ${mixer.nombre}` : `1× ${item.nombre}`)
@@ -1678,7 +1679,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
   })
   const repeatItem = useMutation({
     mutationFn: (item: ComandaItem) =>
-      api.comandas.addItem(comanda.id, { nombre: item.nombre, precio: item.precio, cantidad: 1, tipo: item.tipo }),
+      api.comandas.addItem(comanda.id, { nombre: item.nombre, precio: item.precio, menuItemId: item.menuItemId, cantidad: 1, tipo: item.tipo }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['comanda-sala', comanda.id] }),
   })
   const saveNota = useMutation({

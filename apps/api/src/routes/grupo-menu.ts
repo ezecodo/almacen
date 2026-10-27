@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../server'
+import { platosPorNombre } from '../margen'
 import { broadcast } from '../sse'
 
 // Tipo de cada nivel del menú de grupo (nuevo formato multi-plato)
@@ -26,6 +27,10 @@ const templateSchema = z.object({
   paxPorRacion: z.number().int().positive().default(3), // 1 ración de cada plato cada X pax
   niveles:      z.array(nivelSchema).min(1),
 })
+
+// Todos los nombres de plato de una plantilla (cursos nuevos y el formato viejo con variantes)
+const nombresDePlatos = (niveles: z.infer<typeof nivelSchema>[]) =>
+  niveles.flatMap(nv => [...(nv.platos ?? []), nv.plato, nv.vegetariano, nv.sinCerdo, nv.sinGluten]).filter((n): n is string => !!n)
 
 export async function grupoMenuRoutes(app: FastifyInstance) {
 
@@ -112,6 +117,8 @@ export async function grupoMenuRoutes(app: FastifyInstance) {
     })
 
     const niveles = template.niveles as z.infer<typeof nivelSchema>[]
+    // Plato de la carta de cada nombre (coste por su escandallo en el margen del turno)
+    const platos = await platosPorNombre(template.restaurantId, [...(platosSeleccionados ?? []).map(p => p.nombre), ...nombresDePlatos(niveles)])
 
     // Añadir item de facturación (tipo barra, precio × pax)
     // autoGenerado: se cobra pero queda fuera de los flujos de envío/ordenar (como el pan ×pax)
@@ -139,6 +146,7 @@ export async function grupoMenuRoutes(app: FastifyInstance) {
             comandaId: comanda.id,
             nombre:    p.nombre,
             precio:    0,
+            menuItemId: platos.get(p.nombre) ?? null,
             cantidad:  p.cantidad,
             tipo:      'cocina',
             nivel:     p.nivel,
@@ -155,7 +163,7 @@ export async function grupoMenuRoutes(app: FastifyInstance) {
         if (nv.platos && nv.platos.length > 0) {
           for (const nombre of nv.platos) {
             await prisma.comandaItem.create({
-              data: { comandaId: comanda.id, nombre, precio: 0, cantidad: 1, tipo: 'cocina', nivel: nv.nivel, ronda: 1, nota: '' },
+              data: { comandaId: comanda.id, nombre, precio: 0, menuItemId: platos.get(nombre) ?? null, cantidad: 1, tipo: 'cocina', nivel: nv.nivel, ronda: 1, nota: '' },
             })
           }
           continue
@@ -169,7 +177,7 @@ export async function grupoMenuRoutes(app: FastifyInstance) {
         add(nv.sinGluten   ?? nv.plato, sinGluten)
         for (const [nombre, cantidad] of counts.entries()) {
           await prisma.comandaItem.create({
-            data: { comandaId: comanda.id, nombre, precio: 0, cantidad, tipo: 'cocina', nivel: nv.nivel, ronda: 1, nota: '' },
+            data: { comandaId: comanda.id, nombre, precio: 0, menuItemId: platos.get(nombre) ?? null, cantidad, tipo: 'cocina', nivel: nv.nivel, ronda: 1, nota: '' },
           })
         }
       }
@@ -326,12 +334,13 @@ export async function grupoMenuRoutes(app: FastifyInstance) {
     })
 
     const niveles = template.niveles as z.infer<typeof nivelSchema>[]
+    const platos = await platosPorNombre(agendado.restaurantId, nombresDePlatos(niveles))
     for (const nv of niveles) {
       if (nv.esPostre && !incluyePostre) continue
       if (nv.platos && nv.platos.length > 0) {
         for (const nombre of nv.platos) {
           await prisma.comandaItem.create({
-            data: { comandaId: comanda.id, nombre, precio: 0, cantidad: 1, tipo: 'cocina', nivel: nv.nivel, ronda: 1, nota: '' },
+            data: { comandaId: comanda.id, nombre, precio: 0, menuItemId: platos.get(nombre) ?? null, cantidad: 1, tipo: 'cocina', nivel: nv.nivel, ronda: 1, nota: '' },
           })
         }
         continue
@@ -348,7 +357,7 @@ export async function grupoMenuRoutes(app: FastifyInstance) {
       add(nv.sinGluten   ?? nv.plato,  sinGluten)
       for (const [nombre, cantidad] of counts.entries()) {
         await prisma.comandaItem.create({
-          data: { comandaId: comanda.id, nombre, precio: 0, cantidad, tipo: 'cocina', nivel: nv.nivel, ronda: 1, nota: '' },
+          data: { comandaId: comanda.id, nombre, precio: 0, menuItemId: platos.get(nombre) ?? null, cantidad, tipo: 'cocina', nivel: nv.nivel, ronda: 1, nota: '' },
         })
       }
     }

@@ -78,6 +78,18 @@ export interface Turno {
   reservasNoVinieron?: number // solo en la respuesta del cierre: las que seguían por llegar pasaron a No vino
   numComandas?:    number
   propina?:        PropinaDia | null
+  margen?:         MargenTurno | null // solo admin (GET /turnos), de los turnos cerrados con coste guardado
+}
+
+// Margen teórico por los escandallos (apps/api/src/margen.ts): margen = ventas sin IVA − coste de lo
+// vendido − mermas; foodCost sobre lo vendido con escandallo; cobertura = % de lo vendido con escandallo
+export interface MargenTurno {
+  costeVendido:        number
+  costeMermas:         number
+  ventasConEscandallo: number
+  margen:              number
+  foodCost:            number | null
+  cobertura:           number | null
 }
 
 export interface Empleado {
@@ -345,6 +357,7 @@ export interface ComandaItem {
   invitacion:   boolean         // 🎁 invitación de la casa: en cuenta a 0 €, no suma a ventas
   invitadoPor:  string | null   // quién la marcó
   invitacionMotivo: string | null // por qué se invitó (opcional)
+  menuItemId?:  number | null   // plato de la carta del que salió (coste por su escandallo)
 }
 
 // Valor cobrable de un item — las invitaciones de la casa van a 0 €
@@ -1468,7 +1481,7 @@ export const api = {
     liberarSiVacia: (id: number) => del(`/comandas/${id}/vacia`),
     // Quién está sentado (encargado): una reserva de hoy o null = walk-in. Corrige un "Sentar" equivocado.
     cambiarReserva: (id: number, reservaId: number | null) => put<Reserva>(`/comandas/${id}/reserva`, { reservaId }),
-    addItem:   (id: number, item: { nombre: string; precio: number; cantidad: number; nota?: string; tipo?: 'cocina' | 'barra'; directo?: boolean }) =>
+    addItem:   (id: number, item: { nombre: string; precio: number; cantidad: number; nota?: string; tipo?: 'cocina' | 'barra'; directo?: boolean; menuItemId?: number | null }) =>
       post<ComandaItem>(`/comandas/${id}/items`, item),
     updateItem:(id: number, itemId: number, data: { cantidad?: number; nota?: string; invitacion?: boolean; invitadoPor?: string; invitacionMotivo?: string }) =>
       patch<ComandaItem>(`/comandas/${id}/items/${itemId}`, data),
@@ -1624,7 +1637,7 @@ export const api = {
   turnos: {
     getActivo:  (restaurantId: number) => get<Turno | null>(`/turnos/activo?restaurantId=${restaurantId}`),
     getActivos: () => get<(Turno & { restaurant: Restaurante })[]>('/turnos/activos'),
-    getStats:   () => get<{ restaurantId: number; nombre: string; activo: boolean; aperturaAt: string | null; turnoId: number | null; totalEfectivo: number; totalTarjeta: number; totalVentas: number; numComandas: number }[]>('/turnos/activos/stats'),
+    getStats:   () => get<{ restaurantId: number; nombre: string; activo: boolean; aperturaAt: string | null; turnoId: number | null; totalEfectivo: number; totalTarjeta: number; totalVentas: number; numComandas: number; margen?: MargenTurno | null }[]>('/turnos/activos/stats'),
     abrir:     (restaurantId: number, encargadoNombre?: string) =>
       post<Turno>('/turnos', { restaurantId, encargadoNombre }),
     // forzar: cerrar aunque la Oído Box tenga mesas sin sincronizar (ver esAvisoBox)

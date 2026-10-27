@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { api } from '../api'
+import { api, type MargenTurno } from '../api'
 import CheckOverlay from '../components/CheckOverlay'
 import { useAdminEvents } from '../hooks/useAdminEvents'
 
@@ -54,6 +54,13 @@ function randomIncremento() {
   return pax * TICKET_MEDIO_PAX * ruido
 }
 
+// Margen teórico por los escandallos: lo que debería haber costado lo vendido según la receta
+function textoMargen(m: MargenTurno | null | undefined) {
+  if (!m || m.cobertura === null) return null
+  if (m.foodCost === null) return 'Margen: sin escandallos en lo vendido'
+  return `Margen ${fmtNumero(m.margen)} € · food cost ${m.foodCost.toLocaleString('es-ES')} % · ${m.cobertura} % con escandallo`
+}
+
 const COLORS = ['from-cyan-500 to-emerald-500', 'from-indigo-500 to-purple-500', 'from-amber-500 to-orange-500', 'from-pink-500 to-rose-500', 'from-teal-500 to-cyan-500']
 
 function fmtHora(iso: string) {
@@ -99,13 +106,14 @@ function useSimulacion(ids: number[], activa: boolean) {
 }
 
 function RestauranteCard({
-  nombre, color, monto, activo, detalle,
+  nombre, color, monto, activo, detalle, margen,
 }: {
   nombre: string
   color: string
   monto: number
   activo: boolean
   detalle: string
+  margen: string | null
 }) {
   const [flash, setFlash] = useState(false)
   const [ultimoIncremento, setUltimoIncremento] = useState<{ valor: number; key: number } | null>(null)
@@ -137,6 +145,7 @@ function RestauranteCard({
         </p>
       </div>
       <p className={`hidden sm:block text-xs mt-1 ${activo ? 'text-white/70' : 'text-white/40'}`}>{detalle}</p>
+      {margen && <p className="text-[10px] sm:text-xs mt-0.5 sm:mt-1 font-semibold text-white/85 truncate">{margen}</p>}
 
       {ultimoIncremento && (
         <p
@@ -173,12 +182,15 @@ export default function PulsoPage() {
   const montosDemo = useSimulacion(stats.map(s => s.restaurantId), demo)
 
   const cards = stats.map(s => {
-    if (demo) return { id: s.restaurantId, nombre: s.nombre, monto: montosDemo[s.restaurantId] ?? 0, activo: true, detalle: 'Facturación de hoy' }
+    if (demo) return { id: s.restaurantId, nombre: s.nombre, monto: montosDemo[s.restaurantId] ?? 0, activo: true, detalle: 'Facturación de hoy', margen: null }
     const detalle = s.activo && s.aperturaAt
       ? `Turno desde las ${fmtHora(s.aperturaAt)} · ${s.numComandas} ${s.numComandas === 1 ? 'mesa cobrada' : 'mesas cobradas'}`
       : 'Sin turno abierto'
-    return { id: s.restaurantId, nombre: s.nombre, monto: s.totalVentas, activo: s.activo, detalle }
+    return { id: s.restaurantId, nombre: s.nombre, monto: s.totalVentas, activo: s.activo, detalle, margen: textoMargen(s.margen) }
   })
+  // Margen del grupo: suma de los locales con turno abierto (sin demo)
+  const margenes = demo ? [] : stats.map(s => s.margen).filter((m): m is MargenTurno => !!m && m.cobertura !== null)
+  const margenGrupo = margenes.length ? margenes.reduce((a, m) => a + m.margen, 0) : null
 
   const total = cards.reduce((a, c) => a + c.monto, 0)
   const totalRef = useRef(total)
@@ -279,6 +291,7 @@ export default function PulsoPage() {
               monto={c.monto}
               activo={c.activo}
               detalle={c.detalle}
+              margen={c.margen}
             />
           ))}
         </div>
@@ -288,6 +301,11 @@ export default function PulsoPage() {
           <p className="text-3xl sm:text-6xl font-black mt-1 sm:mt-2 text-[#4CC8A0]">
             <RollingNumber value={totalDisplay} /> €
           </p>
+          {margenGrupo !== null && (
+            <p className="text-xs sm:text-sm text-white/70 mt-1 sm:mt-2">
+              Margen teórico <span className="font-bold text-white">{fmtNumero(margenGrupo)} €</span> · según los escandallos
+            </p>
+          )}
         </div>
       </div>
     </div>

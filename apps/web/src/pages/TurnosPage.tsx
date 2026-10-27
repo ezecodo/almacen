@@ -434,6 +434,11 @@ function TurnoCerradoCard({ turno, restaurantNombre, onDelete }: {
             <div className="text-right">
               <p className="text-gray-900 font-black text-lg">{fmt(turno.totalVentas ?? 0)} €</p>
               <p className="text-gray-400 text-xs">{fmt(turno.totalEfectivo ?? 0)} ef · {fmt(turno.totalTarjeta ?? 0)} tj</p>
+              {turno.margen && turno.margen.foodCost !== null && (
+                <p className="text-emerald-600 text-xs font-semibold" title={`Según los escandallos: ${turno.margen.cobertura} % de lo vendido tenía escandallo`}>
+                  margen {fmt(turno.margen.margen)} € · fc {turno.margen.foodCost} % · {turno.margen.cobertura} % con escandallo
+                </p>
+              )}
             </div>
             <span className="text-gray-400 text-sm">›</span>
           </div>

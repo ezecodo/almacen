@@ -31,6 +31,8 @@ const itemSchema = z.object({
   // directo (encargado): el item entra ya "servido" — se cobra pero NO pasa por el flujo
   // de envío a cocina/barra (no imprime, no marcha pasa, no cambia el estado de la comanda)
   directo:  z.boolean().default(false),
+  // plato de la carta del que sale (coste por su escandallo); sin él, escrito a mano o combinado
+  menuItemId: z.number().int().positive().nullable().optional(),
 })
 
 type ComandaConMesa = Prisma.ComandaGetPayload<{
@@ -209,6 +211,7 @@ export async function comandaRoutes(app: FastifyInstance) {
           create: autoItems.map(item => ({
             nombre:        item.nombre,
             precio:        item.precio,
+            menuItemId:    item.id,
             cantidad:      pax,
             tipo:          'barra' as const,
             nota:          '',
@@ -349,7 +352,7 @@ export async function comandaRoutes(app: FastifyInstance) {
       } else {
         const [item] = await prisma.$transaction([
           prisma.comandaItem.create({
-            data: { comandaId, nombre: existing!.nombre, precio: existing!.precio, tipo: 'barra', cantidad: delta, nota: '' },
+            data: { comandaId, nombre: existing!.nombre, precio: existing!.precio, menuItemId: existing!.menuItemId, tipo: 'barra', cantidad: delta, nota: '' },
           }),
           prisma.comanda.update({ where: { id: comandaId }, data: { estado: 'abierta' } }),
         ])
@@ -374,7 +377,7 @@ export async function comandaRoutes(app: FastifyInstance) {
       } else {
         const [item] = await prisma.$transaction([
           prisma.comandaItem.create({
-            data: { comandaId, nombre: existing!.nombre, precio: existing!.precio, tipo: existing!.tipo, cantidad: delta, nota: '' },
+            data: { comandaId, nombre: existing!.nombre, precio: existing!.precio, menuItemId: existing!.menuItemId, tipo: existing!.tipo, cantidad: delta, nota: '' },
           }),
           prisma.comanda.update({ where: { id: comandaId }, data: { estado: 'abierta' } }),
         ])
@@ -842,6 +845,7 @@ export async function comandaRoutes(app: FastifyInstance) {
           comandaId: effectiveTargetId,
           nombre:    item.nombre,
           precio:    item.precio,
+          menuItemId: item.menuItemId,
           tipo:      item.tipo,
           cantidad:  item.cantidad,
           nota:      item.nota,

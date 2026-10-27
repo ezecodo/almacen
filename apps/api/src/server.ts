@@ -42,14 +42,16 @@ const app = Fastify({ logger: true })
 export const prisma = new PrismaClient()
 
 // Copia de un resultado sin secretos, a cualquier profundidad: el secreto del latido de la Pi
-// (`piSecreto`) no sale nunca, y el `pin` de un empleado solo hacia administración.
-function sinSecretos(valor: unknown, esAdmin: boolean): unknown {
-  if (Array.isArray(valor)) return valor.map(v => sinSecretos(v, esAdmin))
+// (`piSecreto`) no sale nunca, el `pin` de un empleado solo hacia administración y los costes del
+// margen (lo que guarda un turno al cerrar) solo hacia administración y Pulso.
+const COSTES = new Set(['costeVendido', 'costeMermas', 'ventasConEscandallo'])
+function sinSecretos(valor: unknown, esAdmin: boolean, veCostes: boolean): unknown {
+  if (Array.isArray(valor)) return valor.map(v => sinSecretos(v, esAdmin, veCostes))
   if (valor === null || typeof valor !== 'object' || valor instanceof Date) return valor
   const limpio: Record<string, unknown> = {}
   for (const [clave, v] of Object.entries(valor)) {
-    if (clave === 'piSecreto' || (clave === 'pin' && !esAdmin)) continue
-    limpio[clave] = sinSecretos(v, esAdmin)
+    if (clave === 'piSecreto' || (clave === 'pin' && !esAdmin) || (COSTES.has(clave) && !veCostes)) continue
+    limpio[clave] = sinSecretos(v, esAdmin, veCostes)
   }
   return limpio
 }
@@ -146,13 +148,15 @@ async function start() {
   app.addHook('preSerialization', async (req, _reply, payload) => {
     if (payload === null || typeof payload !== 'object') return payload
     let esAdmin = false
+    let veCostes = false
     if (req.headers.authorization) {
       try {
         await req.jwtVerify()
         esAdmin = req.user.tipo === 'admin'
+        veCostes = esAdmin || req.user.tipo === 'pulso'
       } catch { /* sin sesión válida: se filtra */ }
     }
-    return sinSecretos(payload, esAdmin)
+    return sinSecretos(payload, esAdmin, veCostes)
   })
 
   await app.register(retiroRoutes, { prefix: '/api' })

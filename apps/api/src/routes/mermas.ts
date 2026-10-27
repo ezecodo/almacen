@@ -23,7 +23,11 @@ export async function mermaRoutes(app: FastifyInstance) {
   app.post('/mermas', async (req, reply) => {
     const result = mermaSchema.safeParse(req.body)
     if (!result.success) return reply.status(400).send({ error: result.error.flatten() })
-    const merma = await prisma.merma.create({ data: result.data })
+    // El plato de la carta lo trae la línea de la comanda (para su coste en el margen del turno)
+    const linea = result.data.comandaId
+      ? await prisma.comandaItem.findFirst({ where: { comandaId: result.data.comandaId, nombre: result.data.itemNombre, menuItemId: { not: null } }, select: { menuItemId: true } })
+      : null
+    const merma = await prisma.merma.create({ data: { ...result.data, menuItemId: linea?.menuItemId ?? null } })
     broadcast(merma.restaurantId, 'update')
     return reply.status(201).send(merma)
   })
@@ -54,6 +58,7 @@ export async function mermaRoutes(app: FastifyInstance) {
                 comandaId: merma.comandaId,
                 nombre:    merma.itemNombre,
                 precio:    merma.precio,
+                menuItemId: merma.menuItemId,
                 cantidad:  merma.cantidad,
                 nota:      '',
                 nivel:     merma.itemNivel ?? 1,
