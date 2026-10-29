@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Comanda, ComandaItem } from '../api'
 import {
   alPasarEnPractica, cambiarLeccion, CLAVE_EVENTOS, dbPractica, entrarPractica, guardarLeccion, leccionEnCurso,
-  practicaActiva, salirPractica, type DbPractica, type EventoPractica,
+  practicaActiva, salirPractica, type DbPractica, type EventoPractica, type Gesto,
 } from '../lib/practica'
 
 // Asistente para aprender a usar la sala: lecciones cortas que se hacen en la sala de verdad en modo
@@ -19,8 +19,8 @@ interface Contexto {
 }
 
 interface Paso {
-  texto: string
-  guia?: string // botón que se ilumina
+  texto: string | ((db: DbPractica) => string) // con función, puede nombrar algo de la práctica (el plato del alto)
+  guia?: string | string[] // botón que se ilumina; con varios, el primero que esté en pantalla (ej. la copa, o si aún no se ve, la pestaña donde está)
   hecho: (c: Contexto) => boolean
 }
 
@@ -36,6 +36,9 @@ export interface Leccion {
 const activa = (c: Comanda) => c.estado === 'abierta' || c.estado === 'enviada'
 const yaComandado = (c: Comanda) => c.items.some(i => i.ronda >= 1 && !i.autoGenerado)
 const hubo = (c: Contexto, tipo: EventoPractica['tipo']) => c.eventos.some(e => e.tipo === tipo)
+const deslizo = (c: Contexto, nombre: Gesto) => c.eventos.some(e => e.tipo === 'gesto' && e.nombre === nombre)
+// Locales con un solo salón: el paso de cambiar de salón no aplica
+const unSoloSalon = () => document.querySelector('[data-salones="1"]') !== null
 
 export const LECCIONES: Leccion[] = [
   {
@@ -85,7 +88,41 @@ export const LECCIONES: Leccion[] = [
         hecho: c => hubo(c, 'itemEditado') || hubo(c, 'itemBorrado'),
       },
     ],
-    final: 'Ya sabes pedir. Ojo: todavía no se mandó nada a cocina. Eso es el «Oído», la siguiente lección.',
+    final: 'Ya sabes pedir. Ojo: todavía no se mandó nada a cocina. Eso es el «Oído», un poco más adelante.',
+  },
+  {
+    id: 'deslizar',
+    icono: '👆',
+    titulo: 'Deslizar para ir más rápido',
+    resumen: 'Moverse por el mapa y la carta sin buscar botones',
+    pasos: [
+      {
+        texto: 'En el mapa, desliza el dedo de lado (sobre un hueco, no sobre una mesa): cambias de salón. Desliza al otro lado para volver.',
+        hecho: c => deslizo(c, 'salon') || unSoloSalon(),
+      },
+      {
+        texto: 'Abre una mesa, entra en COMIDA y en una categoría. Ahora desliza hacia la IZQUIERDA: pasas a la siguiente categoría sin volver atrás.',
+        hecho: c => deslizo(c, 'categoria-siguiente'),
+      },
+      {
+        texto: 'Desliza hacia la DERECHA: vuelves un nivel, a las categorías.',
+        hecho: c => deslizo(c, 'categoria-atras'),
+      },
+      {
+        texto: 'Desliza otra vez de lado: vuelves a COMIDA / BEBIDAS.',
+        hecho: c => deslizo(c, 'grupos-atras'),
+      },
+      {
+        texto: 'Pide algo y toca «COMANDA» para verlo. Desde ahí, desliza de lado: vuelves a la carta sin buscar el botón.',
+        guia: 'pestana-comanda',
+        hecho: c => deslizo(c, 'pedido-carta'),
+      },
+      {
+        texto: 'Ya en COMIDA / BEBIDAS, desliza una vez más: sales al mapa. Como hay algo sin comandar, te pregunta si lo descartas o lo comandas.',
+        hecho: c => deslizo(c, 'salir-mapa'),
+      },
+    ],
+    final: 'Resumen: a la izquierda avanzas (siguiente salón, siguiente categoría), a la derecha vuelves. Desde COMANDA, deslizar te lleva a la carta, y desde el primer nivel de la carta, al mapa. En el orden de salida, deslizar de lado lo cierra.',
   },
   {
     id: 'oido',
@@ -148,17 +185,70 @@ export const LECCIONES: Leccion[] = [
         hecho: c => c.visible('entregar-cuenta') || hubo(c, 'facturar'),
       },
       {
-        texto: 'Revisa que esté todo y toca «Entregar cuenta». La mesa se pone roja: cuenta impresa.',
+        texto: 'Revisa que esté todo y toca «Entregar cuenta». La mesa se pone roja: cuenta entregada, falta que el encargado la cobre.',
         guia: 'entregar-cuenta',
         hecho: c => hubo(c, 'facturar'),
       },
       {
-        texto: 'Cuando la mesa ya pagó, entra y toca «Mesa libre».',
+        texto: 'Los de esta mesa se van y ya se sientan otros, pero el encargado todavía no la cobró. Entra en la mesa roja y toca «Mesa libre».',
         guia: 'mesa-libre',
         hecho: c => hubo(c, 'liberar'),
       },
+      {
+        texto: 'La cuenta de los de antes no se pierde: pasa a los cobros del encargado. Ahora abre la mesa para los nuevos: elige cuántos son y toca «Abrir mesa».',
+        guia: 'abrir-mesa',
+        // En la misma mesa que se acaba de dejar libre con la cuenta sin cobrar
+        hecho: c => c.eventos.some(e => e.tipo === 'abrir'
+          && c.db.comandas.some(x => x.estado === 'liberada' && x.mesaId === c.comanda(e)?.mesaId)),
+      },
     ],
-    final: 'La mesa queda libre y la app ya ofrece abrirla para los siguientes (si no hay nadie, «Cancelar»). El cobro lo cierra el encargado.',
+    final: 'Al tocar esa mesa se abre la de los nuevos. El marco rojo de dentro avisa de que los de antes siguen sin cobrar, hasta que el encargado lo cierre.',
+  },
+  {
+    id: 'altos',
+    icono: '🚫',
+    titulo: 'Platos agotados (ALTO)',
+    resumen: 'Cuando se acaba un plato en pleno servicio',
+    pasos: [
+      {
+        texto: db => `Se acabó ${db.alto ? `«${db.alto.nombre}»` : 'un plato'} y el encargado lo marcó como ALTO. Mira la franja roja de abajo del mapa y tócala: ahí está todo lo que se acabó.`,
+        guia: 'franja-altos',
+        hecho: c => c.visible('lista-altos') || c.visible('plato-agotado'),
+      },
+      {
+        texto: db => `Abre una mesa y busca ${db.alto ? `«${db.alto.nombre}» (está en ${db.alto.categoria})` : 'ese plato'} en la carta: sale tachado y no se puede pedir.`,
+        guia: 'plato-agotado',
+        hecho: c => c.visible('plato-agotado'),
+      },
+    ],
+    final: 'Mientras dure el alto, ese plato no se puede pedir desde ningún teléfono, y si alguien ya lo tenía sin comandar, la mesa avisa para quitarlo antes del Oído. Cuando cocina lo repone, el encargado lo quita (y al cerrar el turno vuelve toda la carta).',
+  },
+  {
+    id: 'vinos',
+    icono: '🍷',
+    titulo: 'El asistente de vinos',
+    resumen: 'Recomendar una botella que vaya con lo que comen',
+    pasos: [
+      {
+        texto: 'Abre una mesa y pide un par de platos de comida: el asistente recomienda según lo que comen.',
+        hecho: c => c.db.comandas.some(x => activa(x) && x.items.some(i => i.tipo === 'cocina' && !i.autoGenerado)),
+      },
+      {
+        texto: 'Entra en la mesa, ve a COMANDA y toca la copa granate. Late mientras la mesa no tiene botella, para que no se te olvide ofrecer vino.',
+        guia: ['boton-vino', 'pestana-comanda'],
+        hecho: c => c.visible('asistente-vinos'),
+      },
+      {
+        texto: 'Elige el color que quieren (tinto, blanco…). Si el cliente pide algo concreto («con cuerpo», «seco»…), márcalo también.',
+        hecho: c => c.visible('vino-sugerido') || c.visible('vinos-sin-calcular'),
+      },
+      {
+        texto: 'Primero salen los más caros que encajan; con ⭐ el que mejor va. Con «🔊 English» se lo lees al cliente. Toca «+ Añadir a la mesa» en uno.',
+        guia: 'vino-anadir',
+        hecho: c => c.visible('vinos-sin-calcular') || c.eventos.some(e => e.tipo === 'item' && c.item(e)?.tipo === 'barra'),
+      },
+    ],
+    final: 'La botella entra en barra y sale con el próximo Oído. Las recomendaciones salen de cruzar lo que comen con la carta de vinos: siempre son vinos que hay.',
   },
 ]
 
@@ -269,6 +359,9 @@ export function GuiaPractica({ onVerLecciones }: { onVerLecciones: () => void })
   const siguiente = indice >= 0 ? LECCIONES[indice + 1] : undefined
   const terminada = !!leccion && !!estado && estado.paso >= leccion.pasos.length
   const paso = leccion && estado && !terminada ? leccion.pasos[estado.paso] : undefined
+  // El texto puede depender de la práctica (el plato del alto lo elige el simulador al cargar el mapa)
+  const textoDe = (p?: Paso) => typeof p?.texto === 'function' ? p.texto(dbPractica()) : p?.texto ?? ''
+  const [texto, setTexto] = useState(() => textoDe(paso))
 
   // Revisa si el paso en curso (y los siguientes) ya se hicieron
   const revisar = useRef<() => void>(() => {})
@@ -310,12 +403,15 @@ export function GuiaPractica({ onVerLecciones }: { onVerLecciones: () => void })
   // Algunos pasos se cumplen al aparecer algo en pantalla, y el marco sigue al botón si se mueve
   useEffect(() => {
     const medir = () => {
-      const el = paso?.guia ? existe(paso.guia) : null
+      const guias = paso?.guia ? [paso.guia].flat() : []
+      const el = guias.map(existe).find(Boolean) ?? null
       const r = el?.getBoundingClientRect() ?? null
       setMarco(m => (!r && !m) || (r && m && r.x === m.x && r.y === m.y && r.width === m.width && r.height === m.height) ? m : r)
     }
+    const escribir = () => { const t = textoDe(paso); setTexto(v => v === t ? v : t) }
     medir() // al cambiar de paso, sin esperar: el marco del paso anterior no se queda colgado
-    const t = setInterval(() => { revisar.current(); medir() }, 300)
+    escribir()
+    const t = setInterval(() => { revisar.current(); medir(); escribir() }, 300)
     return () => clearInterval(t)
   }, [paso])
 
@@ -375,7 +471,7 @@ export function GuiaPractica({ onVerLecciones }: { onVerLecciones: () => void })
             </div>
           ) : (
             <div className="px-4 pt-2 pb-3">
-              <p className="text-base font-bold leading-snug">{paso?.texto}</p>
+              <p className="text-base font-bold leading-snug">{texto}</p>
               <div className="flex gap-1.5 mt-3">
                 {leccion.pasos.map((_, n) => (
                   <span key={n} className={`h-1.5 rounded-full transition-all ${n < estado.paso ? 'w-4 bg-[#4CC8A0]' : n === estado.paso ? 'w-8 bg-amber-400' : 'w-4 bg-white/20'}`} />

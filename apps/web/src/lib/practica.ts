@@ -1,4 +1,4 @@
-import type { Comanda, ComandaItem, FloorPlan, Mesa, MenuItem, Turno } from '../api'
+import type { Comanda, ComandaItem, FloorPlan, ItemAgotado, Mesa, MenuCategoria, MenuItem, Turno } from '../api'
 
 // Modo práctica (asistente para aprender la app): el camarero usa la sala de verdad, pero las mesas y
 // comandas las lleva este simulador dentro del teléfono. Toda llamada de la app pasa por pedir()
@@ -18,12 +18,18 @@ export interface DbPractica {
   sigId: number
   comandas: Comanda[]
   turnoDesde: string
+  // Lección de los altos: el plato que "marcó el encargado" (uno de comida de la carta, elegido al empezar)
+  alto?: { menuItemId: number; nombre: string; categoria: string; desde: string }
 }
 
 // Lo que va pasando en la práctica: el motor de lecciones lo mira para saber si se hizo cada paso
 export type EventoPractica =
   | { tipo: 'abrir' | 'enviar' | 'paraCocina' | 'pax' | 'facturar' | 'liberar' | 'cerrar' | 'vacia' | 'moverMesa'; comandaId: number }
   | { tipo: 'item' | 'itemEditado' | 'itemBorrado'; comandaId: number; itemId: number }
+  | { tipo: 'gesto'; comandaId: 0; nombre: Gesto } // un deslizar de la sala (no pasa por el simulador)
+
+// Los deslizar que enseña el asistente. La sala llama a gesto() en cada uno; fuera de la práctica no hace nada.
+export type Gesto = 'salon' | 'pedido-carta' | 'categoria-siguiente' | 'categoria-atras' | 'grupos-atras' | 'salir-mapa' | 'ordenar-cerrar'
 
 export function practicaActiva(): boolean {
   try { return !!sessionStorage.getItem(CLAVE) } catch { return false }
@@ -90,6 +96,9 @@ export function alPasarEnPractica(fn: (e: EventoPractica) => void) {
   oyentes.add(fn)
   return () => { oyentes.delete(fn) }
 }
+export function gesto(nombre: Gesto) {
+  if (practicaActiva()) avisar({ tipo: 'gesto', comandaId: 0, nombre })
+}
 function avisar(e: EventoPractica) {
   // Después de contestar: la pantalla ya tiene la respuesta cuando la guía avanza
   setTimeout(() => oyentes.forEach(fn => fn(e)), 0)
@@ -115,6 +124,19 @@ async function mesaDe(rid: number, mesaId: number): Promise<Mesa | null> {
 async function automaticosPorPax(rid: number): Promise<MenuItem[]> {
   const menu = await fetch(`/api/menu?restaurantId=${rid}`, { headers: cabeceras() }).then(r => r.ok ? r.json() as Promise<MenuItem[]> : [])
   return menu.filter(m => m.restaurantId === rid && m.autoPorPax && m.activo)
+}
+
+// Lección de los altos: un plato de comida que se ve en la carta, siempre el mismo durante la práctica
+const LECCION_ALTOS = 'altos'
+async function elegirAlto(rid: number): Promise<DbPractica['alto']> {
+  const [menu, cats] = await Promise.all([
+    fetch(`/api/menu?restaurantId=${rid}`, { headers: cabeceras() }).then(r => r.ok ? r.json() as Promise<MenuItem[]> : []),
+    fetch(`/api/menu/categorias?restaurantId=${rid}`, { headers: cabeceras() }).then(r => r.ok ? r.json() as Promise<MenuCategoria[]> : []),
+  ])
+  const grupo = new Map(cats.map(c => [c.nombre, c.grupo]))
+  const plato = menu.find(m => m.activo && !m.ocultoEnCarta && !m.autoPorPax && !m.combinable && !m.esMixer
+    && grupo.has(m.categoria) && !/vino|bebida/i.test(grupo.get(m.categoria) ?? ''))
+  return plato ? { menuItemId: plato.id, nombre: plato.nombre, categoria: plato.categoria, desde: new Date().toISOString() } : undefined
 }
 
 // La sesión del camarero, para las lecturas que la piden
@@ -175,7 +197,18 @@ export async function simular(url: string, init?: RequestInit): Promise<Response
       return json(turno)
     }
     if (ruta === '/red/estado') return json({ restaurantId: null, restringido: false, enLocal: true })
-    if (ruta === '/reservas' || ruta === '/reservas/pool' || ruta === '/agotados') return json([])
+    if (ruta === '/agotados') {
+      if (leccionEnCurso()?.leccion !== LECCION_ALTOS) return json([])
+      if (!db.alto) {
+        db.alto = await elegirAlto(Number(q.get('restaurantId')))
+        guardarDb(db)
+      }
+      const alto: ItemAgotado[] = db.alto
+        ? [{ menuItemId: db.alto.menuItemId, marcadoPor: 'el encargado (práctica)', createdAt: db.alto.desde, menuItem: { nombre: db.alto.nombre } }]
+        : []
+      return json(alto)
+    }
+    if (ruta === '/reservas' || ruta === '/reservas/pool') return json([])
     if (ruta === '/mermas') return json({ mermas: [], total: 0, page: 1, limit: 50, pages: 1 })
     return null // el resto se lee del servidor de verdad
   }

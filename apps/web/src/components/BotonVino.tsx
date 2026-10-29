@@ -20,7 +20,7 @@ export default function BotonVino({ onClick, invita = false, titulo = '¿Qué vi
   titulo?: string
 }) {
   return (
-    <button onClick={e => { e.stopPropagation(); onClick() }} title={titulo} aria-label={titulo}
+    <button data-guia="boton-vino" onClick={e => { e.stopPropagation(); onClick() }} title={titulo} aria-label={titulo}
       className={`relative ${chico ? 'w-9 h-9' : 'w-11 h-11'} shrink-0 rounded-full flex items-center justify-center active:scale-90 transition-transform`}
       style={{ background: 'linear-gradient(135deg, #9B2C4E, #5E1230)', boxShadow: '0 4px 14px rgba(155,44,78,.45)' }}>
       {invita && <span className="absolute inset-0 rounded-full animate-ping bg-[#9B2C4E]/40" />}

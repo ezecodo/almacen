@@ -22,7 +22,7 @@ import PropinasSala, { QK_PROPINAS_ENC } from '../components/PropinasSala'
 import MaridajeSheet from '../components/MaridajeSheet'
 import BotonVino from '../components/BotonVino'
 import { GuiaPractica, LeccionesPanel } from '../components/Asistente'
-import { practicaActiva } from '../lib/practica'
+import { gesto, practicaActiva } from '../lib/practica'
 import NivelEtiqueta, { bloqueDePlato, nombreNivel, tituloNivel } from '../components/NivelEtiqueta'
 
 const POOL_LOCK_TIMEOUT_MS = 10 * 60 * 1000 // debe coincidir con POOL_LOCK_TIMEOUT_MS del backend
@@ -750,7 +750,7 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
           const dx = e.changedTouches[0].clientX - st.x
           const dy = e.changedTouches[0].clientY - st.y
           const th = swipeThresholds()
-          if (Math.abs(dx) > th.dx && Math.abs(dy) < th.dy) onClose()
+          if (Math.abs(dx) > th.dx && Math.abs(dy) < th.dy) { gesto('ordenar-cerrar'); onClose() }
         }}>
         <div className="px-4 pt-3 pb-2 border-b border-[var(--sala-brd)]">
           {/* Cabecera como en el ticket: la mesa grande a la izquierda y lo demás chico.
@@ -1173,7 +1173,7 @@ function FranjaAltos({ restaurantId }: { restaurantId: number }) {
 
   return (
     <>
-      <button onClick={() => setVerLista(true)} aria-label="Ver los platos agotados"
+      <button data-guia="franja-altos" onClick={() => setVerLista(true)} aria-label="Ver los platos agotados"
         className="relative shrink-0 h-12 w-full overflow-hidden flex items-center justify-center px-14 text-white bg-red-600">
         {/* key = vuelve a entrar desde abajo cada vez que cambia el plato (con uno solo, queda quieto).
             Centrado; el contador va aparte a la derecha para no descentrarlo */}
@@ -1187,7 +1187,7 @@ function FranjaAltos({ restaurantId }: { restaurantId: number }) {
 
       {verLista && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center sm:justify-center" onClick={() => setVerLista(false)}>
-          <div className="w-full sm:max-w-md bg-[var(--sala-hdr)] border-t sm:border border-[var(--sala-brd2)] rounded-t-2xl sm:rounded-2xl p-5 shadow-2xl max-h-[75vh] flex flex-col" onClick={e => e.stopPropagation()}>
+          <div data-guia="lista-altos" className="w-full sm:max-w-md bg-[var(--sala-hdr)] border-t sm:border border-[var(--sala-brd2)] rounded-t-2xl sm:rounded-2xl p-5 shadow-2xl max-h-[75vh] flex flex-col" onClick={e => e.stopPropagation()}>
             <h3 className="text-[var(--sala-txt)] font-black text-xl mb-3">🚫 Se acabó</h3>
             <div className="flex-1 overflow-y-auto space-y-2">
               {agotados.map(a => (
@@ -1213,7 +1213,7 @@ function FranjaAltos({ restaurantId }: { restaurantId: number }) {
 // Plato que se acabó en este servicio: en su sitio, apagado y sin poder tocarlo
 function PlatoAgotado({ nombre, detalle }: { nombre: string; detalle?: string }) {
   return (
-    <div aria-disabled className="w-full text-left rounded-xl px-4 py-2 relative select-none bg-[var(--sala-srf)] opacity-40 cursor-not-allowed">
+    <div data-guia="plato-agotado" aria-disabled className="w-full text-left rounded-xl px-4 py-2 relative select-none bg-[var(--sala-srf)] opacity-40 cursor-not-allowed">
       <span className="block pr-20 text-[var(--sala-txt)] text-[1.7rem] font-bold leading-tight line-through">{nombre}</span>
       {detalle ? <p className="text-[var(--sala-tx3)] text-sm leading-tight mt-0.5 truncate">{detalle}</p> : null}
       <span className="absolute right-3 inset-y-0 flex items-center text-red-400 text-xs font-black tracking-wider">AGOTADO</span>
@@ -1958,12 +1958,14 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
           // Progresión del gesto: Pedido → Carta (categorías) → Mapa
           if (tab === 'pedido') {
             // Entró a mirar el pedido → seguir a la carta para agregar cosas
+            gesto('pedido-carta')
             setTab('menu')
             setSelectedCat(null); setSelectedSub(null); setGrupoTab(null); setSearchMenu('')
             return
           }
           // En el primer nivel de la carta (sin categoría abierta ni búsqueda) → salir al mapa
           if (!selectedCat && grupoTab === null && !searchMenu.trim()) {
+            gesto('salir-mapa')
             // Con items ingresados sin comandar → alerta de descarte (igual que la ✕)
             if (itemsNuevos.length > 0) setConfirmarCerrar(true)
             else onClose()
@@ -2381,8 +2383,8 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                     const dx = e.changedTouches[0].clientX - x0
                     const dy = e.changedTouches[0].clientY - swipeYRef.current
                     if (Math.abs(dx) <= swipeThresholds().dx || Math.abs(dx) < Math.abs(dy)) return
-                    if (dx < 0) irASiguienteCat()
-                    else volverCat()
+                    if (dx < 0) { gesto('categoria-siguiente'); irASiguienteCat() }
+                    else { gesto('categoria-atras'); volverCat() }
                   }}>
                   {avisoCat && (
                     <div key={avisoCat} className="fixed inset-0 z-[60] pointer-events-none flex items-center justify-center">
@@ -2448,8 +2450,10 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                 <div className="flex-1 overflow-y-auto p-2 flex flex-col"
                   onTouchStart={e => { swipeRef.current = e.touches[0].clientX }}
                   onTouchEnd={e => {
-                    if (swipeRef.current !== null && Math.abs(e.changedTouches[0].clientX - swipeRef.current) > swipeThresholds().dx && grupos.length > 1)
+                    if (swipeRef.current !== null && Math.abs(e.changedTouches[0].clientX - swipeRef.current) > swipeThresholds().dx && grupos.length > 1) {
+                      gesto('grupos-atras')
                       setGrupoTab(null)
+                    }
                     swipeRef.current = null
                   }}>
                   <div className={`my-auto w-full grid ${ancho ? 'grid-cols-4' : 'grid-cols-3'} gap-2`}>
@@ -7307,6 +7311,7 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
     const i = planes.findIndex(p => p.id === activePlan.id)
     const destino = planes[i + dir]
     if (destino) {
+      gesto('salon')
       setPlanId(destino.id)
       setAvisoSalon(destino.nombre)
       if (avisoSalonTimer.current) clearTimeout(avisoSalonTimer.current)
@@ -7619,7 +7624,7 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
 
       {/* Vista: Mapa — escala bounding box para llenar ancho y alto */}
       {view === 'mapa' && (activePlan ? (
-        <div className="flex-1 overflow-hidden relative"
+        <div data-salones={planes?.length ?? 0} className="flex-1 overflow-hidden relative"
           onTouchStart={e => { swipeMapa.current = { x: e.touches[0].clientX, y: e.touches[0].clientY } }}
           onTouchEnd={e => {
             const st = swipeMapa.current

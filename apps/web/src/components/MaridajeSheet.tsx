@@ -167,7 +167,7 @@ export default function MaridajeSheet({ comanda, menu, agotadoIds, onAdd, onClos
     const enIngles = s.razon?.motivoEn || s.vino.ficha?.replace(/\n/g, '. ')
     const destacados = rasgosDestacados(s.perfil)
     return (
-      <div className="rounded-xl bg-[var(--sala-srf)] p-4">
+      <div data-guia="vino-sugerido" className="rounded-xl bg-[var(--sala-srf)] p-4">
         <div className="flex items-center justify-between gap-2">
           <span className={`text-[11px] font-bold uppercase tracking-wide ${s.etiqueta === 'primero' ? 'text-amber-300' : 'text-[#4CC8A0]'}`}>{s.etiqueta ? ETIQUETA[s.etiqueta] : ''}</span>
           <span className="text-[var(--sala-tx3)] text-[11px] font-bold tabular-nums">{s.nota.toFixed(1).replace('.', ',')}/10</span>
@@ -195,7 +195,7 @@ export default function MaridajeSheet({ comanda, menu, agotadoIds, onAdd, onClos
               🔊 English
             </button>
           )}
-          <button onClick={() => { onAdd(s.vino); onClose() }}
+          <button data-guia="vino-anadir" onClick={() => { onAdd(s.vino); onClose() }}
             className="flex-1 py-2.5 rounded-xl text-white text-sm font-black uppercase active:scale-95 transition-transform"
             style={{ background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)' }}>
             + Añadir a la mesa
@@ -211,7 +211,7 @@ export default function MaridajeSheet({ comanda, menu, agotadoIds, onAdd, onClos
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center sm:justify-center" onClick={onClose}>
-      <div className="w-full sm:max-w-md bg-[var(--sala-hdr)] border-t sm:border border-[var(--sala-brd2)] rounded-t-2xl sm:rounded-2xl p-5 shadow-2xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+      <div data-guia="asistente-vinos" className="w-full sm:max-w-md bg-[var(--sala-hdr)] border-t sm:border border-[var(--sala-brd2)] rounded-t-2xl sm:rounded-2xl p-5 shadow-2xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <p className="text-[var(--sala-tx3)] text-[11px] font-semibold uppercase tracking-wider mb-1">🍷 ¿Qué vino?</p>
         <p className="text-[var(--sala-tx2)] text-xs mb-3">
           {platos.length > 0
@@ -222,7 +222,7 @@ export default function MaridajeSheet({ comanda, menu, agotadoIds, onAdd, onClos
         {isLoading && <p className="text-center text-[var(--sala-tx4)] text-sm py-8">Cargando…</p>}
         {isError && <p className="text-center text-red-400 text-sm py-8">No se pudieron cargar los vinos.</p>}
         {sinCalcular && (
-          <p className="text-center text-[var(--sala-tx4)] text-sm py-8">
+          <p data-guia="vinos-sin-calcular" className="text-center text-[var(--sala-tx4)] text-sm py-8">
             Todavía no hay recomendaciones de vino.<br />Se preparan desde el panel, en Carta → Maridajes.
           </p>
         )}
