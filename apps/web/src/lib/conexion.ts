@@ -1,3 +1,5 @@
+import { practicaActiva, simular } from './practica'
+
 // ¿A dónde llegan las llamadas de la sala? Normalmente a la nube. Si la nube deja de contestar y
 // el local tiene una Oído Box, la app sigue contra la Box (modo local) sin cambiar de pantalla.
 // Si tampoco hay Box, se avisa con una pantalla clara. Ver docs/modo-local.md.
@@ -141,6 +143,11 @@ export function sinRespuesta() {
 // fetch que deja anotado si el servidor contestó. Un 502/503/504 es Nginx diciendo que la API
 // no está: para quien tiene la app en la mano es lo mismo que no tener conexión.
 export async function pedir(url: string, init?: RequestInit): Promise<Response> {
+  // Modo práctica: mesas y comandas las contesta el simulador del teléfono (lib/practica.ts)
+  if (practicaActiva()) {
+    const simulada = await simular(url, init)
+    if (simulada) return simulada
+  }
   let res: Response
   try {
     if (corteSimulado() && !estado.local) throw new TypeError('corte simulado')

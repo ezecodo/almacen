@@ -164,3 +164,13 @@ html, body {
 @media (prefers-reduced-motion: reduce) {
   .reserva-latido { animation: none; opacity: 1; }
 }
+
+/* Asistente (modo práctica): marco que late alrededor del botón que hay que tocar */
+@keyframes guiaLatido {
+  0%, 100% { opacity: 0.5; box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.5); }
+  50%      { opacity: 1;   box-shadow: 0 0 0 8px rgba(251, 191, 36, 0); }
+}
+.guia-latido { animation: guiaLatido 1.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .guia-latido { animation: none; opacity: 1; }
+}

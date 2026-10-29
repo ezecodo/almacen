@@ -951,6 +951,20 @@ Se usa la **Web Speech API nativa del navegador** (`SpeechSynthesisUtterance`), 
 
 ---
 
+## Módulo: Asistente (aprender a usar la sala, 2026-10-29)
+
+Pedido de Eze: que la app le enseñe al camarero a usarla. Opción elegida: **lecciones que se hacen en la sala de verdad, en modo práctica**, más dos complementos todavía sin hacer (progreso visible para el encargado y consejos la primera vez). Rama `asistente`, sin desplegar.
+
+- **Modo práctica** (`apps/web/src/lib/practica.ts`): toda llamada de la app pasa por `pedir()` (`lib/conexion.ts`), que en práctica pregunta primero a `simular()`. Las lecturas (carta, salones, alérgenos…) van al servidor de verdad; **mesas y comandas, turno (uno de mentira, así se practica sin turno abierto), red, reservas, agotados y mermas** los contesta el simulador, que imita las rutas de `routes/comandas.ts` (abrir, items, para-cocina, enviar, pax, facturar, liberar, cerrar, vacia, mover-mesa); **cualquier otra escritura responde 403** "En la práctica esto todavía no se puede". Así es imposible que imprima, sume a la caja o le aparezca a otro (comprobado: cero filas nuevas y ninguna llamada en el log de la API tras las cinco lecciones). Vive en `sessionStorage` (`oidoops_practica`, `_db`, `_eventos`); entrar, cambiar de lección y salir **recargan la página** para que la caché de React Query nunca mezcle datos reales con los de mentira. Marco ámbar en toda la pantalla mientras dura.
+- **Lecciones** (`components/Asistente.tsx`, `LECCIONES`): Camarero básico — abrir una mesa, pedir (cantidad, nota, quitar), Oído y orden de salida, marcha pasa, la cuenta. Cada paso tiene texto, el botón que se ilumina (`guia`) y `hecho(ctx)`, que mira lo que llegó al simulador **desde que empezó ese paso** (`ctx.eventos`), el estado de las mesas de práctica (`ctx.db`) o si apareció algo en pantalla (`ctx.visible`). La tarjeta de la guía se pone en la mitad contraria al botón iluminado y se puede ocultar. Una lección sigue con las mesas que dejó la anterior.
+- **Botones marcados** con `data-guia` en `SalaMesasPage.tsx`: `abrir-mesa`, `cerrar-mesa`, `pestana-comanda`, `oido`, `ordenar-oido`, `ver-cuenta`, `entregar-cuenta`, `mesa-libre`. ⚠️ Si se cambia uno de esos botones, conservar el atributo o la guía deja de iluminarlo (la lección sigue funcionando, solo sin marco).
+- **Entrada**: perfil de la sala → "Aprender a usar OidoOps", y en la pantalla "Turno no iniciado" ("Mientras tanto, aprende…"). No en el TPV ni sin internet.
+- **Progreso**: por ahora en el teléfono (`localStorage['oidoops_lecciones_<empleadoId>']`).
+- ⚠️ Una ruta nueva de escritura que use la sala en una pantalla que se enseñe en una lección hay que imitarla en `simular()`; si no, en práctica sale el aviso de "no se puede".
+- **Pendiente**: progreso en el servidor (tabla tipo `LeccionCompletada`) visible para el encargado en la ficha del empleado; consejos de una línea la primera vez que se ve un botón; lecciones avanzadas (cambiar mesa, mermas, alergias, vino, pagar por separado, menú de grupo) y de encargado (cobrar, turno, propinas, reservas…), que necesitan sumar esas rutas al simulador. Sin mirar todavía en un teléfono de verdad (probado en el navegador del Mac).
+
+---
+
 ## Módulo: Checklists
 
 Listas de apertura y cierre por **sector**, ya que cada restaurante tiene sus peculiaridades (2 salas, 2 barras, un paso…). El personal de sala las completa desde el botón ✅ en el header de `SalaMesasPage`; el encargado revisa el histórico en `/admin/checklists`.

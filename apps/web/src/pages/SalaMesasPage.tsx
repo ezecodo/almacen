@@ -21,6 +21,8 @@ import GastosSala from '../components/GastosSala'
 import PropinasSala, { QK_PROPINAS_ENC } from '../components/PropinasSala'
 import MaridajeSheet from '../components/MaridajeSheet'
 import BotonVino from '../components/BotonVino'
+import { GuiaPractica, LeccionesPanel } from '../components/Asistente'
+import { practicaActiva } from '../lib/practica'
 import NivelEtiqueta, { bloqueDePlato, nombreNivel, tituloNivel } from '../components/NivelEtiqueta'
 
 const POOL_LOCK_TIMEOUT_MS = 10 * 60 * 1000 // debe coincidir con POOL_LOCK_TIMEOUT_MS del backend
@@ -334,8 +336,8 @@ function AbrirMesaModal({ mesa, onConfirm, onMenuGrupo, onClose, reservas, onWal
         <div className="flex gap-3">
           <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-[var(--sala-btn)] text-[var(--sala-tx1)] font-medium">Cancelar</button>
           {onWalkin
-            ? <button onClick={() => onWalkin(pax, enPareja)} className="flex-1 py-3 rounded-xl bg-[#4CC8A0] text-[var(--sala-txt)] font-bold">🚶 Walk-in</button>
-            : <button onClick={() => onConfirm(pax, enPareja)} className="flex-1 py-3 rounded-xl bg-[#4CC8A0] text-[var(--sala-txt)] font-bold">Abrir mesa</button>}
+            ? <button data-guia="abrir-mesa" onClick={() => onWalkin(pax, enPareja)} className="flex-1 py-3 rounded-xl bg-[#4CC8A0] text-[var(--sala-txt)] font-bold">🚶 Walk-in</button>
+            : <button data-guia="abrir-mesa" onClick={() => onConfirm(pax, enPareja)} className="flex-1 py-3 rounded-xl bg-[#4CC8A0] text-[var(--sala-txt)] font-bold">Abrir mesa</button>}
         </div>
         {onReserva && (
           <button onClick={() => setEligiendoReserva(true)}
@@ -494,7 +496,7 @@ function VerCuentaModal({ comanda, menu, getTipo, onMerma, onClose, onFacturar }
           <span className="text-[var(--sala-txt)] text-3xl font-black tabular-nums">{total.toFixed(2)} €</span>
         </div>
         <div className="px-5 pb-5 shrink-0">
-          <button onClick={onFacturar} className="w-full py-4 rounded-2xl bg-[#f59e0b] text-[var(--sala-txt)] font-bold text-lg">
+          <button data-guia="entregar-cuenta" onClick={onFacturar} className="w-full py-4 rounded-2xl bg-[#f59e0b] text-[var(--sala-txt)] font-bold text-lg">
             🧾 Entregar cuenta
           </button>
         </div>
@@ -955,6 +957,7 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
                 setNotaMesaBox(notaMesa)
               }, 450)
             }}
+            data-guia="ordenar-oido"
             onPointerUp={cancelarOidoLp} onPointerLeave={cancelarOidoLp} onContextMenu={e => e.preventDefault()}
             onClick={e => {
               e.stopPropagation()
@@ -2004,7 +2007,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                   ↔
                 </button>
               )}
-              <button onClick={() => itemsNuevos.length > 0 ? setConfirmarCerrar(true) : onClose()} aria-label="Cerrar"
+              <button data-guia="cerrar-mesa" onClick={() => itemsNuevos.length > 0 ? setConfirmarCerrar(true) : onClose()} aria-label="Cerrar"
                 className="text-[var(--sala-tx3)] hover:text-[var(--sala-tx1)] text-xl px-1">✕</button>
             </div>
           </div>
@@ -2028,7 +2031,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
           )}
           {!ancho && <div className="flex gap-1.5 mt-3 items-stretch">
             {/* Tabs gemelos: mismo fondo de marca + contenido blanco gordo; el activo brilla, el inactivo se atenúa */}
-            <button onClick={() => setTab('pedido')}
+            <button data-guia="pestana-comanda" onClick={() => setTab('pedido')}
               className={`flex-1 py-2 rounded-lg text-base font-black uppercase tracking-wide text-white transition-all active:scale-95 ${tab === 'pedido' ? 'shadow-lg' : 'opacity-45'}`}
               style={{ background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)' }}>
               Comanda ({comanda.items.length})
@@ -2666,7 +2669,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                     </button>
                   )}
                   <div className="grid grid-cols-2 gap-1.5">
-                    <button onClick={e => { e.stopPropagation(); onLiberar() }}
+                    <button data-guia="mesa-libre" onClick={e => { e.stopPropagation(); onLiberar() }}
                       className="py-1.5 rounded-xl bg-[#4CC8A0]/15 border border-[#4CC8A0]/50 text-[#4CC8A0] font-bold text-xs active:scale-95">
                       Mesa libre 🔓
                     </button>
@@ -2677,7 +2680,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                   </div>
                 </>)
               })() : (<>
-              <button onClick={e => { e.stopPropagation(); onLiberar() }}
+              <button data-guia="mesa-libre" onClick={e => { e.stopPropagation(); onLiberar() }}
                 className="w-full py-2.5 px-4 rounded-xl bg-[#4CC8A0] text-[var(--sala-txt)] font-bold text-base active:scale-95 transition-all flex items-center justify-between">
                 <span>Mesa libre 🔓</span>
                 <span className="tabular-nums">{total.toFixed(2)} €</span>
@@ -2714,7 +2717,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
             </div>
           ) : !hayPendientes && (yaEnviada || comanda.items.some(i => i.nivel != null)) ? (
             <div className="space-y-1.5">
-              <button onClick={e => { e.stopPropagation(); setVerCuenta(true) }}
+              <button data-guia="ver-cuenta" onClick={e => { e.stopPropagation(); setVerCuenta(true) }}
                 className="w-full py-2.5 px-4 rounded-xl bg-[#f59e0b] text-[var(--sala-txt)] font-bold text-base active:scale-95 transition-all flex items-center justify-between">
                 <span>Ver cuenta 🧾</span>
                 <span className="tabular-nums">{total.toFixed(2)} €</span>
@@ -2726,7 +2729,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
               )}
             </div>
           ) : (
-            <button onClick={hayPendientes ? handleOido : undefined}
+            <button data-guia="oido" onClick={hayPendientes ? handleOido : undefined}
               disabled={comanda.items.length === 0}
               className={`w-full rounded-xl grid grid-cols-3 items-center py-0.5 px-4 transition-all active:scale-95 ${hayPendientes ? '' : 'opacity-25 cursor-default'}`}>
               {/* Izquierda libre: ahí va el botón de volver de la carta */}
@@ -3657,7 +3660,7 @@ function WikiPanel({ restaurantId, onClose }: { restaurantId: number; onClose: (
   )
 }
 
-function PerfilPanel({ camarero, restaurantId, restaurantNombre, isDark, onToggleTheme, onClose, onOpenWiki, onOpenChecklist, onOpenProduccion }: {
+function PerfilPanel({ camarero, restaurantId, restaurantNombre, isDark, onToggleTheme, onClose, onOpenWiki, onOpenChecklist, onOpenProduccion, onOpenLecciones }: {
   camarero: { id: number; nombre: string }
   restaurantId: number
   restaurantNombre: string
@@ -3667,6 +3670,7 @@ function PerfilPanel({ camarero, restaurantId, restaurantNombre, isDark, onToggl
   onOpenWiki: () => void
   onOpenChecklist: () => void
   onOpenProduccion: () => void
+  onOpenLecciones?: () => void // asistente para aprender la app (no en el TPV)
 }) {
   const ahora  = new Date()
   const desde  = `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, '0')}-01`
@@ -3766,8 +3770,26 @@ function PerfilPanel({ camarero, restaurantId, restaurantNombre, isDark, onToggl
           </div>
         </div>
 
-        {/* Accesos: Checklists + Wiki + Producción */}
+        {/* Accesos: Aprender + Checklists + Wiki + Producción */}
         <div className="grid grid-cols-2 gap-3 px-5 pb-2">
+          {onOpenLecciones && (
+            <button
+              onClick={onOpenLecciones}
+              className="group col-span-2 flex items-center gap-3 bg-[var(--sala-srf)] hover:bg-[var(--sala-btn2)] rounded-2xl px-4 py-3 transition-colors"
+            >
+              <span className="shrink-0 grid place-items-center w-10 h-10 rounded-xl bg-amber-400/15 text-amber-400 transition-transform group-active:scale-95">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M2 9.5 12 5l10 4.5-10 4.5z" />
+                  <path d="M6 11.5v4.5c0 1.4 2.7 3 6 3s6-1.6 6-3v-4.5" />
+                  <path d="M22 9.5v5" />
+                </svg>
+              </span>
+              <div className="text-left">
+                <p className="text-[var(--sala-txt)] text-sm font-semibold">Aprender a usar OidoOps</p>
+                <p className="text-[var(--sala-tx3)] text-[11px]">Lecciones cortas en una sala de práctica</p>
+              </div>
+            </button>
+          )}
           <button
             onClick={onOpenProduccion}
             className="group col-span-2 flex items-center gap-3 bg-[var(--sala-srf)] hover:bg-[var(--sala-btn2)] rounded-2xl px-4 py-3 transition-colors"
@@ -7075,6 +7097,7 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
   const [encargadoSoloCobros, setEncargadoSoloCobros] = useState(false)
   const [cobroPanel, setCobroPanel] = useState<Comanda | null>(null)
   const [showPerfil, setShowPerfil]       = useState(false)
+  const [showLecciones, setShowLecciones] = useState(false)
   const [showMoverMesa, setShowMoverMesa] = useState(false)
   const [animFacturada, setAnimFacturada] = useState(false)
   // Al comandar la viñeta dice "Oído" (confirmación de que salió a cocina); en lo demás, la marca
@@ -7478,7 +7501,7 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
   // Bloqueo si el turno no está iniciado
   if (!turnoLoading && turnoActivo === null) {
     return (
-      <div className="flex flex-col h-[100dvh] bg-[var(--sala-bg)] items-center justify-center px-8 text-center">
+      <div data-sala-theme={isDark ? 'dark' : 'light'} className="flex flex-col h-[100dvh] bg-[var(--sala-bg)] items-center justify-center px-8 text-center">
         <div className="flex items-center gap-3 mb-8 opacity-60">
           <svg width="52" height="55" viewBox="0 0 68 72">
             <defs>
@@ -7511,7 +7534,15 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
         ) : (
           <p className="text-[var(--sala-tx3)] text-sm">El encargado debe abrir el turno desde el panel de sala antes de que puedas usar las mesas.</p>
         )}
+        {/* Mientras no hay turno se puede practicar: la práctica trae su propio turno de mentira */}
+        {!enLocal && !tpv && (
+          <button onClick={() => setShowLecciones(true)}
+            className="mt-8 px-6 py-3 rounded-2xl border-2 border-amber-400/70 bg-amber-400/10 text-amber-500 font-bold text-sm active:scale-95 transition-transform">
+            🎓 Mientras tanto, aprende a usar OidoOps
+          </button>
+        )}
         {tpv && <button onClick={salir} className="mt-8 py-3 px-6 text-[var(--sala-tx3)] text-sm font-semibold">Salir</button>}
+        {showLecciones && <LeccionesPanel empleadoId={camarero.id} onClose={() => setShowLecciones(false)} />}
       </div>
     )
   }
@@ -7847,8 +7878,11 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
           onOpenWiki={() => { setShowPerfil(false); setShowWiki(true) }}
           onOpenChecklist={() => { setShowPerfil(false); setShowChecklist(true) }}
           onOpenProduccion={() => { setShowPerfil(false); setShowProduccion(true) }}
+          onOpenLecciones={tpv ? undefined : () => { setShowPerfil(false); setShowLecciones(true) }}
         />
       )}
+      {showLecciones && camarero && <LeccionesPanel empleadoId={camarero.id} onClose={() => setShowLecciones(false)} />}
+      {practicaActiva() && <GuiaPractica onVerLecciones={() => setShowLecciones(true)} />}
       {showProduccion && (
         <ProduccionSalaModal
           restaurantId={restaurant.id}
