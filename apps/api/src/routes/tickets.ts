@@ -7,6 +7,10 @@ import { randomBytes } from 'crypto'
 import { publicarConfigPi } from '../mqtt'
 import { anunciarLatido } from './red'
 import { enlazadaConHQ } from '../sync-hq'
+import { dibujarTicket } from '../ticket-dibujo'
+import { disenoDe, disenoSchema, ivaDe, lineasOrdenadas, redondear, serieDe, ticketCuenta, ticketFactura } from '../ticket-cuenta'
+import { momentoAEAT } from '../verifactu'
+import { totalCobrable } from '../pago'
 
 const empresaSchema = z.object({
   razonSocial: z.string().default(''),
@@ -22,6 +26,15 @@ const ticketConfigSchema = z.object({
   telefono:           z.string().nullable().optional(),
   mensajePieOverride: z.string().nullable().optional(),
   logo:               z.string().max(400_000).regex(/^[A-Za-z0-9+/=]+$/).nullable().optional(),
+  diseno:             disenoSchema.optional(),
+})
+
+const vistaPreviaSchema = z.object({
+  restaurantId: z.number().int().positive(),
+  tipo:         z.enum(['cuenta', 'factura']),
+  comandaId:    z.number().int().positive().nullable().optional(),
+  diseno:       z.unknown().optional(),   // el que se está editando, sin guardar
+  logo:         z.string().max(400_000).nullable().optional(),
 })
 
 const impresoraSchema = z.object({
@@ -124,6 +137,50 @@ export async function ticketRoutes(app: FastifyInstance) {
       create: { restaurantId, ...data },
       update: data,
     })
+  })
+
+  // POST /admin/tickets/vista-previa — la cuenta o la factura dibujada exactamente como sale en papel
+  // (misma imagen que recibe la Box), con el diseño que se está editando. Con una comanda real, sus
+  // platos; sin ella, una mesa de ejemplo con platos de la carta del local. La factura de ejemplo no
+  // se registra: lleva un número inventado.
+  app.post('/admin/tickets/vista-previa', async (req, reply) => {
+    const body = vistaPreviaSchema.safeParse(req.body)
+    if (!body.success) return reply.status(400).send({ error: 'Datos inválidos' })
+    const { restaurantId, tipo, comandaId } = body.data
+    const [restaurante, config, empresa] = await Promise.all([
+      prisma.restaurant.findUnique({ where: { id: restaurantId }, select: { nombre: true } }),
+      prisma.ticketConfig.findUnique({ where: { restaurantId } }),
+      prisma.empresaConfig.findFirst(),
+    ])
+    if (!restaurante) return reply.status(404).send({ error: 'Restaurante no encontrado' })
+    const diseno = disenoDe(body.data.diseno !== undefined ? body.data.diseno : config?.diseno)
+
+    const comanda = comandaId
+      ? await prisma.comanda.findFirst({ where: { id: comandaId, restaurantId }, include: { items: true, mesa: true } })
+      : null
+    const items = comanda?.items ?? await itemsDeEjemplo(restaurantId)
+    const mesa = comanda?.mesa ? String(comanda.mesa.numero) : '1'
+    const pax = comanda?.pax ?? 4
+    const camarero = comanda?.camareroNombre ?? 'Ezequiel'
+    const comun = { restaurante: restaurante.nombre, config, empresa, diseno, logo: body.data.logo, pax }
+
+    let dibujo
+    if (tipo === 'cuenta') {
+      dibujo = await ticketCuenta({ ...comun, restaurantId, mesa, camarero, fecha: new Date(), items, pagado: 0 })
+    } else {
+      const importe = redondear(totalCobrable(items))
+      const tasa = empresa?.tasaIva ?? 10
+      dibujo = ticketFactura({
+        ...comun,
+        registro: {
+          tipo: 'F2', numSerie: `${serieDe(restaurantId, diseno)}-000123`, rectificaA: null, mesa, camarero, pago: 'tarjeta',
+          ...ivaDe(importe, tasa), tasaIva: tasa, importe, lineas: await lineasOrdenadas(restaurantId, items, diseno.orden),
+          nif: empresa?.nif || 'B00000000', fechaExpedicion: momentoAEAT().fechaExpedicion, modo: empresa?.verifactuModo ?? 'pruebas', createdAt: new Date(),
+        },
+      })
+    }
+    reply.type('image/png').header('Cache-Control', 'no-store')
+    return reply.send(await dibujarTicket(dibujo))
   })
 
   // ── Raspberry Pi de impresión vinculada al restaurante ────────────────────────
@@ -307,4 +364,28 @@ export async function ticketRoutes(app: FastifyInstance) {
     await prisma.impresionRuta.delete({ where: { id } })
     return reply.status(204).send()
   })
+}
+
+// Mesa de ejemplo para la vista previa: el pan por comensal, bebidas y platos de la carta del local
+async function itemsDeEjemplo(restaurantId: number) {
+  const carta = await prisma.menuItem.findMany({
+    where: { activo: true, ocultoEnCarta: false, OR: [{ restaurantId }, { restaurantId: null }] },
+    select: { id: true, nombre: true, precio: true, categoria: true, autoPorPax: true },
+    orderBy: [{ orden: 'asc' }, { id: 'asc' }],
+  })
+  const grupos = await prisma.menuCategoria.findMany({ where: { OR: [{ restaurantId }, { restaurantId: null }] }, select: { nombre: true, grupo: true } })
+  const esBarra = new Map(grupos.map(g => [g.nombre, /vino|bebida/i.test(g.grupo)]))
+  const pan = (await prisma.menuItem.findFirst({ where: { autoPorPax: true, activo: true, OR: [{ restaurantId }, { restaurantId: null }] } }))
+  const bebidas = carta.filter(i => esBarra.get(i.categoria) && i.precio > 0).slice(0, 3)
+  const comida = carta.filter(i => !esBarra.get(i.categoria) && !i.autoPorPax && i.precio > 0).slice(0, 4)
+  let id = 1
+  const item = (m: { id: number; nombre: string; precio: number }, tipo: 'barra' | 'cocina', cantidad: number, auto = false) =>
+    ({ id: id++, nombre: m.nombre, precio: m.precio, cantidad, invitacion: false, autoGenerado: auto, ronda: auto ? 0 : 1, tipo, menuItemId: m.id })
+  // Mezclados como se piden de verdad: el orden del diseño los pone en su sitio
+  return [
+    ...(pan ? [item(pan, 'barra', 4, true)] : []),
+    ...comida.slice(0, 2).map(m => item(m, 'cocina', 2)),
+    ...bebidas.map(m => item(m, 'barra', 2)),
+    ...comida.slice(2).map(m => item(m, 'cocina', 1)),
+  ]
 }

@@ -555,6 +555,7 @@ export interface EmpresaConfig {
   nif:         string | null
   tasaIva:     number
   mensajePie:  string | null
+  verifactuModo?: 'pruebas' | 'produccion'
 }
 
 export interface TicketConfig {
@@ -565,7 +566,43 @@ export interface TicketConfig {
   telefono:           string | null
   mensajePieOverride: string | null
   logo:               string | null // PNG en blanco y negro, base64 sin "data:"
+  diseno:             DisenoTicket | null // null = el de siempre (DISENO_TICKET_DEFECTO)
 }
+
+// Diseño de la cuenta y de la factura de un local (TicketConfig.diseno). Mismo esquema que
+// apps/api/src/ticket-cuenta.ts: lo que falte toma el valor por defecto.
+export interface BloqueOrdenTicket { nombre: string; tipo: 'pax' | 'barra' | 'cocina' | 'categorias'; categorias: string[] }
+export interface DisenoTicket {
+  cabecera: { logo: boolean; direccion: boolean; telefono: boolean; razonSocial: boolean; nif: boolean }
+  mesa: { pax: boolean; camarero: boolean }
+  precioUnitario: boolean
+  desgloseIva: boolean
+  orden: BloqueOrdenTicket[]
+  cuenta: { rotulo: string; lineasPropina: boolean }
+  factura: { imprimirAlCobrar: boolean; lineasPropina: boolean }
+  serie?: string
+}
+export const DISENO_TICKET_DEFECTO: DisenoTicket = {
+  cabecera: { logo: true, direccion: true, telefono: true, razonSocial: true, nif: true },
+  mesa: { pax: false, camarero: true },
+  precioUnitario: true,
+  desgloseIva: false,
+  orden: [
+    { nombre: 'Pan', tipo: 'pax', categorias: [] },
+    { nombre: 'Bebidas', tipo: 'barra', categorias: [] },
+    { nombre: 'Comida', tipo: 'cocina', categorias: [] },
+  ],
+  cuenta: { rotulo: 'CUENTA · NO ES FACTURA', lineasPropina: true },
+  factura: { imprimirAlCobrar: true, lineasPropina: false },
+}
+export const disenoTicketDe = (d: Partial<DisenoTicket> | null | undefined): DisenoTicket => ({
+  ...DISENO_TICKET_DEFECTO, ...d,
+  cabecera: { ...DISENO_TICKET_DEFECTO.cabecera, ...d?.cabecera },
+  mesa: { ...DISENO_TICKET_DEFECTO.mesa, ...d?.mesa },
+  cuenta: { ...DISENO_TICKET_DEFECTO.cuenta, ...d?.cuenta },
+  factura: { ...DISENO_TICKET_DEFECTO.factura, ...d?.factura },
+  orden: d?.orden ?? DISENO_TICKET_DEFECTO.orden,
+})
 
 export interface Impresora {
   id:           number
@@ -1811,8 +1848,11 @@ export const api = {
       put<EmpresaConfig>('/empresa-config', body),
     getConfig:     (restaurantId: number) =>
       get<TicketConfig | null>(`/tickets/config?restaurantId=${restaurantId}`),
-    updateConfig:  (body: { restaurantId: number; nombreComercial: string; direccion?: string | null; telefono?: string | null; mensajePieOverride?: string | null; logo?: string | null }) =>
+    updateConfig:  (body: { restaurantId: number; nombreComercial: string; direccion?: string | null; telefono?: string | null; mensajePieOverride?: string | null; logo?: string | null; diseno?: DisenoTicket }) =>
       put<TicketConfig>('/tickets/config', body),
+    // La cuenta o la factura dibujada como sale en papel (PNG), con el diseño que se está editando
+    vistaPrevia: async (body: { restaurantId: number; tipo: 'cuenta' | 'factura'; comandaId?: number | null; diseno?: DisenoTicket }) =>
+      (await authFetch('/admin/tickets/vista-previa', { method: 'POST', json: body })).blob(),
     // Raspberry Pi vinculada (codigo null = desvincular)
     getPi: (restaurantId: number) => get<PiVinculada>(`/tickets/pi?restaurantId=${restaurantId}`),
     setPi: (restaurantId: number, codigo: string | null) =>

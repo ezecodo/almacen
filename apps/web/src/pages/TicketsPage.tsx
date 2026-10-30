@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, Comanda, Impresora, ImpresionRuta, TipoTicket } from '../api'
 import { useAdminEvents } from '../hooks/useAdminEvents'
-import TicketCobro from '../components/tickets/TicketCobro'
+import DisenoTicketSection from '../components/tickets/DisenoTicket'
 import TicketComanda from '../components/tickets/TicketComanda'
 import { logoParaTicket } from '../lib/imagen'
 
@@ -564,7 +564,7 @@ function PreviewSection({ restaurantId }: { restaurantId: number }) {
   })
 
   const [comandaId, setComandaId] = useState<number | null>(null)
-  const [tab, setTab] = useState<'cobro' | 'cocina' | 'barra'>('cobro')
+  const [tab, setTab] = useState<'cocina' | 'barra'>('cocina')
 
   useEffect(() => { setComandaId(null) }, [restaurantId])
 
@@ -572,7 +572,7 @@ function PreviewSection({ restaurantId }: { restaurantId: number }) {
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-5">
-      <h2 className="font-bold text-gray-800 mb-1">🖨️ Vista previa</h2>
+      <h2 className="font-bold text-gray-800 mb-1">🖨️ Vista previa de las comandas</h2>
       <p className="text-xs text-gray-400 mb-4">
         Elegí una comanda cerrada real para ver cómo saldría el ticket. Imprimí (Cmd+P) y guardá como PDF — el CSS ya está ajustado a 80mm.
       </p>
@@ -599,13 +599,13 @@ function PreviewSection({ restaurantId }: { restaurantId: number }) {
       {comanda && config && empresa && (
         <>
           <div className="flex gap-2 mb-4">
-            {(['cobro', 'cocina', 'barra'] as const).map(t => (
+            {(['cocina', 'barra'] as const).map(t => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
                 className={`text-sm font-semibold px-3 py-1.5 rounded-lg ${tab === t ? 'bg-cyan-600 text-white' : 'bg-gray-100 text-gray-600'}`}
               >
-                {t === 'cobro' ? 'Cuenta' : t === 'cocina' ? 'Comanda cocina' : 'Comanda barra'}
+                {t === 'cocina' ? 'Comanda cocina' : 'Comanda barra'}
               </button>
             ))}
             <button
@@ -618,7 +618,6 @@ function PreviewSection({ restaurantId }: { restaurantId: number }) {
 
           <div className="bg-gray-100 rounded-xl py-6 flex justify-center">
             <div id="ticket-print-area" className="bg-white shadow">
-              {tab === 'cobro' && <TicketCobro empresa={empresa} config={config} comanda={comanda} />}
               {tab === 'cocina' && <TicketComanda comanda={comanda} tipo="cocina" />}
               {tab === 'barra' && <TicketComanda comanda={comanda} tipo="barra" />}
             </div>
@@ -644,7 +643,7 @@ export default function TicketsPage() {
   }, [restaurantes, restaurantSel])
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-6">
+    <div className="max-w-4xl mx-auto px-4 py-6">
       <h1 className="text-2xl font-black text-gray-800 mb-1">🧾 Tickets</h1>
       <p className="text-sm text-gray-400 mb-6">Configuración del ticket de cobro y comandas de cocina/barra (impresión térmica 80mm).</p>
 
@@ -668,6 +667,7 @@ export default function TicketsPage() {
           <PiSection restaurantId={restaurantSel} />
           <ImpresorasSection restaurantId={restaurantSel} />
           <RutasSection restaurantId={restaurantSel} />
+          <DisenoTicketSection restaurantId={restaurantSel} />
           <PreviewSection restaurantId={restaurantSel} />
         </>
       )}

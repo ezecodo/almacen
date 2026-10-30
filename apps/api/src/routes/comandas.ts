@@ -4,7 +4,10 @@ import { z } from 'zod'
 import { prisma } from '../server'
 import { broadcast as avisar } from '../sse'
 import { juntarMesasLibres, separarAlAbrir } from './salon'
-import { publicarTicket, publicarCuenta, DestinoImpresion, LineaCuenta } from '../mqtt'
+import { publicarTicket, publicarImagen, DestinoImpresion } from '../mqtt'
+import { dibujarTicket } from '../ticket-dibujo'
+import { disenoDe, lineasOrdenadas, serieDe, ticketCuenta, ticketFactura } from '../ticket-cuenta'
+import { emitirRegistro, modoDe } from '../verifactu'
 import { MODO_LOCAL } from '../local'
 import { ahoraEnMadrid, diaDeServicio } from '../dia-servicio'
 import { cierreDeDivision, divisionSchema, totalCobrable } from '../pago'
@@ -112,19 +115,14 @@ async function imprimirTicketComanda(comanda: ComandaConMesa, items: ComandaItem
   })
 }
 
-// Orden de la cuenta: primero lo que se cobra por comensal (pan × pax), después las bebidas y al
-// final la comida; dentro de cada bloque, en el orden en que se pidió (los postres caen al final)
-const bloqueCuenta = (i: { autoGenerado: boolean; ronda: number; tipo: string }) =>
-  i.autoGenerado && i.ronda === 0 ? 0 : i.tipo === 'barra' ? 1 : 2
-
-// La cuenta que se le entrega a la mesa, a las impresoras de la ruta "cobro" de su sala (copia del
-// ticket del sistema anterior de Sensi). Las líneas iguales se juntan; lo que va a 0 € sin ser
-// invitación (los platos de un menú de grupo, que se cobran en la línea del menú) no sale.
-// Sin Box vinculada o sin ruta de cobro no se imprime nada, y un fallo nunca frena la cuenta.
+// La cuenta que se le entrega a la mesa (precuenta, sin número): al tocar "Imprimir cuenta" y al
+// reimprimir, a las impresoras de la ruta "cobro" de su sala. La dibuja la API con el diseño del
+// local (ticket-cuenta.ts) y la Box solo imprime la imagen. Sin Box vinculada o sin ruta de cobro
+// no se imprime nada, y un fallo nunca frena la cuenta.
 async function imprimirCuenta(comandaId: number) {
   const comanda = await prisma.comanda.findUnique({
     where: { id: comandaId },
-    include: { items: { orderBy: { id: 'asc' } }, mesa: true, restaurant: { select: { nombre: true, piCodigo: true } } },
+    include: { items: true, mesa: true, restaurant: { select: { nombre: true, piCodigo: true } } },
   })
   if (!comanda?.restaurant.piCodigo || !comanda.mesa) return
   const rutas = await prisma.impresionRuta.findMany({
@@ -136,42 +134,85 @@ async function imprimirCuenta(comandaId: number) {
     prisma.ticketConfig.findUnique({ where: { restaurantId: comanda.restaurantId } }),
     prisma.empresaConfig.findFirst(),
   ])
-
-  const lineas = new Map<string, LineaCuenta>()
-  for (const i of [...comanda.items].sort((a, b) => bloqueCuenta(a) - bloqueCuenta(b) || a.id - b.id)) {
-    if (i.precio === 0 && !i.invitacion) continue
-    const clave = `${i.nombre}|${i.precio}|${i.invitacion}`
-    const l = lineas.get(clave) ?? { cantidad: 0, nombre: i.nombre, precio: i.precio, importe: 0, invitacion: i.invitacion }
-    l.cantidad += i.cantidad
-    l.importe = l.invitacion ? 0 : Math.round(l.precio * l.cantidad * 100) / 100
-    lineas.set(clave, l)
-  }
-  const total = Math.round(totalCobrable(comanda.items) * 100) / 100
-  const tasa = empresa?.tasaIva ?? 10
   const pagado = (divisionSchema.safeParse(comanda.division).data?.pagos ?? []).reduce((s, p) => s + p.importe, 0)
-  const mensaje = config?.mensajePieOverride ?? empresa?.mensajePie ?? ''
-
-  publicarCuenta(comanda.restaurant.piCodigo, {
+  const ticket = await ticketCuenta({
+    restaurantId: comanda.restaurantId, restaurante: comanda.restaurant.nombre, config, empresa,
+    diseno: disenoDe(config?.diseno), mesa: String(comanda.mesa.numero), pax: comanda.pax,
+    camarero: comanda.camareroNombre, fecha: new Date(), items: comanda.items, pagado,
+  })
+  publicarImagen(comanda.restaurant.piCodigo, {
     ticket_id: `cta-${comanda.id}-${Date.now()}`, // cada reimpresión es un trabajo nuevo
-    logo: config?.logo || undefined,
-    cabecera: {
-      nombre: config?.nombreComercial || comanda.restaurant.nombre,
-      lineas: [
-        config?.direccion, config?.telefono && `Tel. ${config.telefono}`,
-        empresa?.razonSocial, empresa?.nif && `NIF ${empresa.nif}`,
-      ].filter((l): l is string => !!l),
-    },
-    mesa: String(comanda.mesa.numero),
-    camarero: comanda.camareroNombre ?? '',
-    rotulo: 'FRA. SIMP.: COMPROBANTE',
-    items: [...lineas.values()],
-    iva: { tasa, cuota: Math.round((total - total / (1 + tasa / 100)) * 100) / 100 },
-    total,
-    pagado: Math.round(pagado * 100) / 100,
-    pendiente: Math.max(0, Math.round((total - pagado) * 100) / 100),
-    pie: { mensaje, lineas_propina: true },
+    imagen: (await dibujarTicket(ticket)).toString('base64'),
     destinos: rutas.map((r) => ({ impresora: r.impresora.nombre, ip: r.impresora.ip, copias: r.copias })),
   })
+}
+
+// Al cobrar nace la factura simplificada (F2) en el registro Veri*factu; si la mesa ya tenía una
+// porque se deshizo el cobro y se vuelve a cobrar por otro importe, nace la rectificativa por
+// diferencias (R5) y su número queda en la fila de Rectificativa. Se imprime por la ruta "cobro"
+// (si el diseño del local lo pide) y, con efectivo, se abre el cajón de esa impresora. Sin NIF del
+// emisor no se emite nada; sin internet (Box) tampoco: el cobro no existe en modo local. Un fallo
+// aquí nunca deshace el cobro: la AEAT pide que la facturación no se interrumpa.
+async function facturarCobro(comandaId: number, rectificativaId: number | null) {
+  if (MODO_LOCAL) return
+  const comanda = await prisma.comanda.findUnique({
+    where: { id: comandaId },
+    include: { items: true, mesa: true, restaurant: { select: { nombre: true, piCodigo: true } } },
+  })
+  if (!comanda) return
+  const [config, empresa] = await Promise.all([
+    prisma.ticketConfig.findUnique({ where: { restaurantId: comanda.restaurantId } }),
+    prisma.empresaConfig.findFirst(),
+  ])
+  if (!empresa?.nif) return
+  const diseno = disenoDe(config?.diseno)
+  const comun = {
+    nif: empresa.nif.trim().toUpperCase(), serie: serieDe(comanda.restaurantId, diseno), restaurantId: comanda.restaurantId,
+    comandaId: comanda.id, mesa: comanda.mesa ? String(comanda.mesa.numero) : null, camarero: comanda.camareroNombre,
+    pago: comanda.metodoPago, tasaIva: empresa.tasaIva, modo: modoDe(empresa.verifactuModo),
+  }
+
+  const anterior = await prisma.registroFactura.findFirst({ where: { comandaId, tipo: 'F2' }, orderBy: { id: 'desc' } })
+  let registro
+  if (!anterior) {
+    const importe = totalCobrable(comanda.items)
+    if (importe < 0.01) return
+    registro = await emitirRegistro({ ...comun, tipo: 'F2', importe, lineas: await lineasOrdenadas(comanda.restaurantId, comanda.items, diseno.orden) })
+  } else {
+    if (!rectificativaId) return // mismo importe: la factura de antes sigue valiendo
+    const rect = await prisma.rectificativa.findUnique({ where: { id: rectificativaId } })
+    if (!rect) return
+    const cambios = (Array.isArray(rect.lineas) ? rect.lineas : []) as { nombre: string; precio: number; antes: number; despues: number; importe: number }[]
+    registro = await emitirRegistro({
+      ...comun, tipo: 'R5', rectificaA: anterior.numSerie, importe: rect.diferencia,
+      // Si se devolvió dinero, por donde se cobró la primera vez (así se abre el cajón para devolverlo)
+      pago: rect.diferencia < 0 ? rect.devolucion ?? comanda.metodoPago : comanda.metodoPago,
+      lineas: cambios.map(l => ({ cantidad: l.despues - l.antes, nombre: l.nombre, precio: l.precio, importe: l.importe, invitacion: false })),
+    })
+    await prisma.rectificativa.update({
+      where: { id: rect.id },
+      data: { serie: registro.serie, numero: registro.numero, facturaOriginal: anterior.numSerie, huella: registro.huella, emitidaAt: registro.createdAt },
+    })
+  }
+
+  if (!comanda.restaurant.piCodigo || !comanda.mesa) return
+  const rutas = await prisma.impresionRuta.findMany({
+    where: { floorPlanId: comanda.mesa.floorPlanId, tipoTicket: 'cobro' },
+    include: { impresora: true },
+  })
+  if (!rutas.length) return
+  const cajon = registro.pago === 'cash' || registro.pago === 'mixto'
+  const imprimir = diseno.factura.imprimirAlCobrar
+  if (!imprimir && !cajon) return
+  const imagen = imprimir
+    ? (await dibujarTicket(ticketFactura({ registro, restaurante: comanda.restaurant.nombre, config, empresa, diseno, pax: comanda.pax }))).toString('base64')
+    : undefined
+  // El cajón se abre una sola vez, en la primera impresora de la ruta (la Box solo lo abre con la
+  // primera copia); en las demás sale la factura sin cajón
+  const [primera, ...resto] = rutas.map((r) => ({ impresora: r.impresora.nombre, ip: r.impresora.ip, copias: r.copias }))
+  const id = `fac-${registro.id}-${Date.now()}`
+  publicarImagen(comanda.restaurant.piCodigo, { ticket_id: id, imagen, cajon, destinos: [imprimir ? primera : { ...primera, copias: 1 }] })
+  if (imprimir && resto.length) publicarImagen(comanda.restaurant.piCodigo, { ticket_id: `${id}-b`, imagen, destinos: resto })
 }
 
 // Foto de la cuenta cobrada al deshacer el cobro (Comanda.cobroDeshecho)
@@ -649,6 +690,7 @@ export async function comandaRoutes(app: FastifyInstance) {
 
     // Se vuelve a cobrar una mesa cuyo cobro se deshizo: si el importe cambió, queda la rectificativa
     const deshecho = cobroDeshechoSchema.safeParse(actual.cobroDeshecho)
+    let rectificativaId: number | null = null
     const comanda = await prisma.$transaction(async tx => {
       const c = await tx.comanda.update({
         where: { id },
@@ -661,7 +703,7 @@ export async function comandaRoutes(app: FastifyInstance) {
         const diferencia = Math.round((importeNuevo - original.total) * 100) / 100
         if (Math.abs(diferencia) >= 0.01) {
           const turno = await tx.turno.findFirst({ where: { restaurantId: c.restaurantId, estado: 'abierto' }, select: { id: true } })
-          await tx.rectificativa.create({
+          ;({ id: rectificativaId } = await tx.rectificativa.create({
             data: {
               restaurantId: c.restaurantId, comandaId: c.id, turnoId: turno?.id ?? null, mesaNumero: c.mesa ? String(c.mesa.numero) : null,
               por: req.user.nombre, deshizoPor: original.por, motivo: original.motivo ?? null,
@@ -670,12 +712,14 @@ export async function comandaRoutes(app: FastifyInstance) {
               lineas: lineasCambiadas(original.items, c.items) as Prisma.InputJsonValue,
               original: original as Prisma.InputJsonValue,
             },
-          })
+            select: { id: true },
+          }))
         }
       }
       return c
     })
     broadcast(comanda.restaurantId, 'update')
+    facturarCobro(comanda.id, rectificativaId).catch((err) => console.error('[verifactu] no se pudo facturar el cobro', comanda.id, err))
     return comanda
   })
 

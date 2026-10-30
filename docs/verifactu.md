@@ -33,6 +33,10 @@ Normas: Real Decreto 1007/2023 (reglamento) y Orden HAC/1177/2024 (especificacio
 
 ---
 
+## 2bis. Estado en la app (2026-10-30)
+
+Implementado en **modo pruebas**, sin esperar a la gestoría (decisión de Eze): la factura simplificada (F2) nace al cobrar, con número correlativo por serie, huella encadenada por NIF y QR impreso; la rectificativa por diferencias (R5) nace al volver a cobrar por otro importe. Código en `apps/api/src/verifactu.ts` y `facturarCobro` en `routes/comandas.ts`; tabla `RegistroFactura`; resumen en `CLAUDE.md` (Módulo Sala → «Veri*factu: factura al cobrar»). La cuenta que se entrega antes de cobrar es una precuenta (permitida por la AEAT, ver sección 3) y lo dice: «CUENTA · NO ES FACTURA». No se envía nada a la AEAT todavía.
+
 ## 3. Qué exige, en corto
 
 1. **Un registro de facturación por cada factura**, generado en el momento de expedirla.

@@ -827,6 +827,8 @@ model EmpresaConfig {
   foodCostVerde Float  @default(30)
   foodCostAmbar Float  @default(35)
   mensajePie  String?  // pie por defecto del ticket de cobro, ej "Servicio no incluido"
+  // Veri*factu: 'pruebas' (el QR apunta al entorno de pruebas de la AEAT y el ticket lo dice) | 'produccion'
+  verifactuModo String @default("pruebas")
   updatedAt   DateTime @updatedAt
 }
 
@@ -840,6 +842,8 @@ model TicketConfig {
   mensajePieOverride String?    // null = usa el de EmpresaConfig
   // Logo de la cuenta: PNG en blanco y negro, ya reducido en el navegador (base64, sin "data:")
   logo               String?
+  // Diseño de la cuenta y de la factura (qué aparece, textos, orden de los platos, serie): ticket-cuenta.ts
+  diseno             Json?
   updatedAt          DateTime   @updatedAt
 }
 
@@ -996,4 +1000,39 @@ model PedidoLinea {
   incidencia         String?             // 'falta' | 'roto' | 'otro'
   notaRecepcion      String?
   orden              Int                 @default(0)
+}
+
+// Registro de facturación (Veri*factu): una fila por factura emitida al cobrar (F2 simplificada) o
+// por rectificativa (R5), con la huella SHA-256 encadenada a la anterior del mismo emisor (NIF).
+// Solo de inserción: la app nunca edita ni borra una fila (y por eso no tiene relaciones que la
+// arrastren al borrar una comanda o un restaurante). Ver src/verifactu.ts y docs/verifactu.md.
+model RegistroFactura {
+  id              Int      @id @default(autoincrement())
+  nif             String             // emisor: la cadena es una por NIF
+  serie           String
+  numero          Int
+  numSerie        String             // "L1-000123", tal cual va en el ticket, la huella y el QR
+  tipo            String             // 'F2' | 'R5'
+  rectificaA      String?            // R5: numSerie de la factura que corrige
+  restaurantId    Int
+  comandaId       Int?
+  mesa            String?
+  camarero        String?
+  pago            String?            // 'cash' | 'tarjeta' | 'mixto'
+  tasaIva         Float
+  base            Float
+  cuota           Float
+  importe         Float
+  lineas          Json               // lo que sale en el ticket: [{ cantidad, nombre, precio, importe, invitacion }]
+  fechaHora       String             // FechaHoraHusoGenRegistro: AAAA-MM-DDTHH:MM:SS+HH:MM (Madrid)
+  fechaExpedicion String             // DD-MM-AAAA
+  huellaAnterior  String
+  huella          String
+  modo            String             // 'pruebas' | 'produccion'
+  enviadaAt       DateTime?          // envío a la AEAT: todavía no se hace
+  createdAt       DateTime @default(now())
+
+  @@unique([nif, serie, numero])
+  @@index([nif, id])
+  @@index([comandaId])
 }
