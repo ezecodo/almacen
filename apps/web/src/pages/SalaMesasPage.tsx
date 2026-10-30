@@ -532,7 +532,7 @@ function AlergiasSheet({ alergenos, ids, onCambiar, onClose }: {
 }) {
   return (
     <div className="fixed inset-0 z-[60] bg-black/70 flex items-end sm:items-center sm:justify-center" onClick={e => { e.stopPropagation(); onClose() }}>
-      <div className="w-full sm:max-w-lg bg-[var(--sala-hdr)] border-t sm:border border-[var(--sala-brd2)] rounded-t-2xl sm:rounded-2xl p-5 shadow-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+      <div data-guia="alergias-hoja" className="w-full sm:max-w-lg bg-[var(--sala-hdr)] border-t sm:border border-[var(--sala-brd2)] rounded-t-2xl sm:rounded-2xl p-5 shadow-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-[var(--sala-txt)] font-black text-xl">⚠️ Alguien es alérgico a…</h3>
           {ids.length > 0 && (
@@ -773,7 +773,7 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
             <div className="flex flex-col items-end justify-between gap-2 shrink-0">
               <div className="flex items-center gap-2">
                 {(hayAlergenosCarta || alergiasActivas.length > 0) && (
-                  <button onClick={() => setVerAlergias(true)} title="Alergias de la mesa" aria-label="Alergias de la mesa"
+                  <button onClick={() => setVerAlergias(true)} title="Alergias de la mesa" aria-label="Alergias de la mesa" data-guia="boton-alergias"
                     className={`w-9 h-9 rounded-full flex items-center justify-center text-base active:scale-90 transition-colors ${
                       alergiasActivas.length > 0 ? 'bg-red-500 text-white' : 'bg-[var(--sala-btn2)] grayscale'}`}>
                     ⚠️
@@ -796,7 +796,7 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
               {itemsActivos.length > 0 && (
                 // 🍽 No comparten: interruptor con un plato individual (cubiertos a los lados) en la bolita
                 <button onClick={() => cambiarNoComparten.mutate(!noComparten)} disabled={cambiarNoComparten.isPending}
-                  role="switch" aria-checked={noComparten} className="flex items-center gap-2 active:scale-95 transition-transform">
+                  role="switch" aria-checked={noComparten} data-guia="no-comparten" className="flex items-center gap-2 active:scale-95 transition-transform">
                   <span className={`text-[10px] font-black uppercase tracking-wide ${noComparten ? 'text-[var(--sala-txt)]' : 'text-[var(--sala-tx3)]'}`}>No comparten</span>
                   <span className={`w-11 h-6 rounded-full relative transition-colors ${noComparten ? 'bg-[#4CC8A0]' : 'bg-[var(--sala-btn)]'}`}>
                     <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow flex items-center justify-center transition-all ${noComparten ? 'left-[22px]' : 'left-0.5'}`}>
@@ -985,7 +985,7 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
 
       {notaMesaBox !== null && (
         <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-6" onClick={e => { e.stopPropagation(); setNotaMesaBox(null) }}>
-          <div className="w-full max-w-sm bg-[var(--sala-hdr)] border border-[var(--sala-brd2)] rounded-2xl p-5 shadow-2xl" onClick={e => e.stopPropagation()}>
+          <div data-guia="nota-mesa" className="w-full max-w-sm bg-[var(--sala-hdr)] border border-[var(--sala-brd2)] rounded-2xl p-5 shadow-2xl" onClick={e => e.stopPropagation()}>
             <p className="text-[var(--sala-tx3)] text-[11px] font-semibold uppercase tracking-wider mb-1">📝 Nota para cocina</p>
             <h3 className="text-[var(--sala-txt)] font-bold text-lg mb-3">Mesa {comanda.mesa.numero} · toda la mesa</h3>
             <textarea autoFocus value={notaMesaBox} maxLength={200} rows={3}
@@ -998,7 +998,7 @@ function OrdenarModal({ comanda, menu, categorias, onEnviar, onClose, marchaPasa
                 className="px-4 py-2.5 rounded-xl bg-[var(--sala-btn2)] text-[var(--sala-tx2)] text-sm font-semibold">
                 Cancelar
               </button>
-              <button onClick={() => { const v = notaMesaBox.trim(); setNotaMesa(v); setNotaMesaBox(null); enviarConOido(v) }}
+              <button onClick={() => { const v = notaMesaBox.trim(); setNotaMesa(v); setNotaMesaBox(null); enviarConOido(v) }} data-guia="oido-con-nota"
                 className="flex-1 py-2.5 rounded-xl text-white text-sm font-bold active:scale-95 transition-transform"
                 style={{ background: 'linear-gradient(135deg, #4B9EDF, #4CC8A0)' }}>
                 Oído con nota
@@ -1720,8 +1720,8 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
     if (filtroAlergias.length === 0 || !esComida(m)) return null
     const c = chocaCon(m)
     return c.length > 0
-      ? <span className="block text-red-400 text-xs font-black mt-0.5 truncate">🚫 {c.map(a => `${a.icono} ${a.nombre}`).join(' · ')}</span>
-      : <span className="block text-emerald-400 text-xs font-black mt-0.5">✓ Puede comer</span>
+      ? <span data-guia="plato-choca" className="block text-red-400 text-xs font-black mt-0.5 truncate">🚫 {c.map(a => `${a.icono} ${a.nombre}`).join(' · ')}</span>
+      : <span data-guia="plato-apto" className="block text-emerald-400 text-xs font-black mt-0.5">✓ Puede comer</span>
   }
   const aptosDe = (items: MenuItem[]) => items.filter(m => esComida(m) && chocaCon(m).length === 0).length
 
@@ -2312,7 +2312,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                     className={`flex-1 bg-[var(--sala-btn2)] text-[var(--sala-txt)] rounded-lg outline-none placeholder:text-[var(--sala-tx4)] ${ancho
                       ? `text-lg font-bold uppercase px-4 py-3 ${tecladoTpv ? 'ring-2 ring-[#4CC8A0]' : ''}` : 'text-xs px-3 py-1.5'}`} />
                   {hayAlergenosCarta && (
-                    <button onClick={() => setVerAlergias(true)}
+                    <button onClick={() => setVerAlergias(true)} data-guia="boton-alergias"
                       className={`shrink-0 font-black rounded-lg border transition-all active:scale-95 ${ancho ? 'text-base px-4 py-3' : 'text-[11px] px-2.5 py-1.5'} ${
                         filtroAlergias.length > 0
                           ? 'bg-red-500 border-red-500 text-white'

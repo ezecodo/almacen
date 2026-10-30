@@ -97,7 +97,7 @@ export const LECCIONES: Leccion[] = [
     resumen: 'Moverse por el mapa y la carta sin buscar botones',
     pasos: [
       {
-        texto: 'En el mapa, desliza el dedo de lado (sobre un hueco, no sobre una mesa): cambias de salón. Desliza al otro lado para volver.',
+        texto: 'En el mapa, desliza el dedo de lado: cambias de salón. Desliza al otro lado para volver.',
         hecho: c => deslizo(c, 'salon') || unSoloSalon(),
       },
       {
@@ -146,6 +146,71 @@ export const LECCIONES: Leccion[] = [
       },
     ],
     final: '¡Oído! En un servicio de verdad ahora sale el ticket en cocina. En la práctica no se imprime nada.',
+  },
+  {
+    id: 'nota-mesa',
+    icono: '📝',
+    titulo: 'Nota para cocina y No comparten',
+    resumen: 'Avisar a cocina de algo de toda la mesa',
+    pasos: [
+      {
+        texto: 'Abre una mesa y pide un par de platos de comida.',
+        hecho: c => c.db.comandas.some(x => activa(x) && x.items.some(i => i.nivel === null && !i.autoGenerado && i.tipo === 'cocina')),
+      },
+      {
+        texto: 'Entra en la mesa y toca el Oído (la viñeta verde de abajo) para ver el orden de salida.',
+        guia: 'oido',
+        hecho: c => c.visible('ordenar-oido'),
+      },
+      {
+        texto: 'Si cada uno come lo suyo (no comparten los platos), activa «No comparten». Cocina emplata de otra forma.',
+        guia: 'no-comparten',
+        hecho: c => c.eventos.some(e => e.tipo === 'paraCocina' && !!c.comanda(e)?.noComparten),
+      },
+      {
+        texto: 'Ahora NO toques la viñeta: mantenla apretada hasta que vibre. Se abre la nota para cocina de toda la mesa.',
+        guia: 'ordenar-oido',
+        hecho: c => c.visible('nota-mesa'),
+      },
+      {
+        texto: 'Escribe algo (por ejemplo «cumpleaños, el postre con vela») y toca «Oído con nota».',
+        guia: 'oido-con-nota',
+        hecho: c => c.eventos.some(e => e.tipo === 'enviar' && !!c.comanda(e)?.notaMesa),
+      },
+    ],
+    final: 'La nota y el «No comparten» salen al final del ticket (COM: …) en esta comanda y en las siguientes de la mesa. Para cambiar la nota, toca el 📝 de arriba del orden de salida.',
+  },
+  {
+    id: 'alergias',
+    icono: '⚠️',
+    titulo: 'Alergias de la mesa',
+    resumen: 'Saber qué puede comer un alérgico y avisar a cocina',
+    pasos: [
+      {
+        texto: 'Abre una mesa: alguien te dice que es alérgico.',
+        hecho: c => c.db.comandas.some(activa),
+      },
+      {
+        texto: 'Entra en la mesa y, en la carta, toca «⚠️ Alergias», al lado del buscador.',
+        guia: 'boton-alergias',
+        hecho: c => c.visible('alergias-hoja'),
+      },
+      {
+        texto: 'Marca a qué es alérgico (por ejemplo Gluten) y toca «Listo».',
+        guia: 'alergias-hoja',
+        hecho: c => c.eventos.some(e => e.tipo === 'paraCocina' && (c.comanda(e)?.alergenoIds ?? []).length > 0) && !c.visible('alergias-hoja'),
+      },
+      {
+        texto: 'Entra en COMIDA y en una categoría: lo que no puede comer sale tachado y en rojo, y lo que sí, con «✓ Puede comer».',
+        hecho: c => c.visible('plato-choca') || c.visible('plato-apto'),
+      },
+      {
+        texto: 'Pide un plato que pueda comer y da el Oído: arriba del orden de salida verás «🚫 ALÉRGICO». Manda la comanda.',
+        guia: ['ordenar-oido', 'oido'],
+        hecho: c => c.eventos.some(e => e.tipo === 'enviar' && (c.comanda(e)?.alergenoIds ?? []).length > 0),
+      },
+    ],
+    final: 'La alergia queda guardada en la mesa: la ve cualquier teléfono y sale en cada ticket de cocina y barra como «ALÉRGICO: …». No bloquea: lo tachado se puede pedir igual para el resto de la mesa. Ante la duda, pregunta siempre en cocina.',
   },
   {
     id: 'marcha',
