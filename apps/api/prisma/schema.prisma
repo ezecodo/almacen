@@ -838,6 +838,8 @@ model TicketConfig {
   direccion          String?
   telefono           String?
   mensajePieOverride String?    // null = usa el de EmpresaConfig
+  // Logo de la cuenta: PNG en blanco y negro, ya reducido en el navegador (base64, sin "data:")
+  logo               String?
   updatedAt          DateTime   @updatedAt
 }
 

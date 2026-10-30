@@ -4,10 +4,11 @@ import { z } from 'zod'
 import { prisma } from '../server'
 import { broadcast as avisar } from '../sse'
 import { juntarMesasLibres, separarAlAbrir } from './salon'
-import { publicarTicket, DestinoImpresion } from '../mqtt'
+import { publicarTicket, publicarCuenta, DestinoImpresion, LineaCuenta } from '../mqtt'
 import { MODO_LOCAL } from '../local'
 import { ahoraEnMadrid, diaDeServicio } from '../dia-servicio'
 import { cierreDeDivision, divisionSchema, totalCobrable } from '../pago'
+
 
 // Cada cambio de una comanda puede dejar libre la mitad de una mesa separada (se cobró, se liberó,
 // se cambió de mesa…): si las dos quedan libres, vuelven a juntarse. Sin internet la Box no toca
@@ -108,6 +109,68 @@ async function imprimirTicketComanda(comanda: ComandaConMesa, items: ComandaItem
       nivel: i.nivel,
       seccion: seccionDe.get(i.nombre) ?? null,
     })),
+  })
+}
+
+// Orden de la cuenta: primero lo que se cobra por comensal (pan × pax), después las bebidas y al
+// final la comida; dentro de cada bloque, en el orden en que se pidió (los postres caen al final)
+const bloqueCuenta = (i: { autoGenerado: boolean; ronda: number; tipo: string }) =>
+  i.autoGenerado && i.ronda === 0 ? 0 : i.tipo === 'barra' ? 1 : 2
+
+// La cuenta que se le entrega a la mesa, a las impresoras de la ruta "cobro" de su sala (copia del
+// ticket del sistema anterior de Sensi). Las líneas iguales se juntan; lo que va a 0 € sin ser
+// invitación (los platos de un menú de grupo, que se cobran en la línea del menú) no sale.
+// Sin Box vinculada o sin ruta de cobro no se imprime nada, y un fallo nunca frena la cuenta.
+async function imprimirCuenta(comandaId: number) {
+  const comanda = await prisma.comanda.findUnique({
+    where: { id: comandaId },
+    include: { items: { orderBy: { id: 'asc' } }, mesa: true, restaurant: { select: { nombre: true, piCodigo: true } } },
+  })
+  if (!comanda?.restaurant.piCodigo || !comanda.mesa) return
+  const rutas = await prisma.impresionRuta.findMany({
+    where: { floorPlanId: comanda.mesa.floorPlanId, tipoTicket: 'cobro' },
+    include: { impresora: true },
+  })
+  if (!rutas.length) return
+  const [config, empresa] = await Promise.all([
+    prisma.ticketConfig.findUnique({ where: { restaurantId: comanda.restaurantId } }),
+    prisma.empresaConfig.findFirst(),
+  ])
+
+  const lineas = new Map<string, LineaCuenta>()
+  for (const i of [...comanda.items].sort((a, b) => bloqueCuenta(a) - bloqueCuenta(b) || a.id - b.id)) {
+    if (i.precio === 0 && !i.invitacion) continue
+    const clave = `${i.nombre}|${i.precio}|${i.invitacion}`
+    const l = lineas.get(clave) ?? { cantidad: 0, nombre: i.nombre, precio: i.precio, importe: 0, invitacion: i.invitacion }
+    l.cantidad += i.cantidad
+    l.importe = l.invitacion ? 0 : Math.round(l.precio * l.cantidad * 100) / 100
+    lineas.set(clave, l)
+  }
+  const total = Math.round(totalCobrable(comanda.items) * 100) / 100
+  const tasa = empresa?.tasaIva ?? 10
+  const pagado = (divisionSchema.safeParse(comanda.division).data?.pagos ?? []).reduce((s, p) => s + p.importe, 0)
+  const mensaje = config?.mensajePieOverride ?? empresa?.mensajePie ?? ''
+
+  publicarCuenta(comanda.restaurant.piCodigo, {
+    ticket_id: `cta-${comanda.id}-${Date.now()}`, // cada reimpresión es un trabajo nuevo
+    logo: config?.logo || undefined,
+    cabecera: {
+      nombre: config?.nombreComercial || comanda.restaurant.nombre,
+      lineas: [
+        config?.direccion, config?.telefono && `Tel. ${config.telefono}`,
+        empresa?.razonSocial, empresa?.nif && `NIF ${empresa.nif}`,
+      ].filter((l): l is string => !!l),
+    },
+    mesa: String(comanda.mesa.numero),
+    camarero: comanda.camareroNombre ?? '',
+    rotulo: 'FRA. SIMP.: COMPROBANTE',
+    items: [...lineas.values()],
+    iva: { tasa, cuota: Math.round((total - total / (1 + tasa / 100)) * 100) / 100 },
+    total,
+    pagado: Math.round(pagado * 100) / 100,
+    pendiente: Math.max(0, Math.round((total - pagado) * 100) / 100),
+    pie: { mensaje, lineas_propina: true },
+    destinos: rutas.map((r) => ({ impresora: r.impresora.nombre, ip: r.impresora.ip, copias: r.copias })),
   })
 }
 
@@ -513,6 +576,7 @@ export async function comandaRoutes(app: FastifyInstance) {
       include: { items: true, mesa: true },
     })
     broadcast(comanda.restaurantId, 'update')
+    imprimirCuenta(comanda.id).catch((err) => console.error('[cuenta] no se pudo imprimir', comanda.id, err))
     return comanda
   })
 

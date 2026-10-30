@@ -108,7 +108,7 @@ En producción todavía corre la versión anterior de la API. Lo que sigue descr
 ### Límites que quedan
 
 - **Nadie mira el resultado.** La Pi avisa si imprimió o falló, pero la API no escucha esos mensajes: si un ticket no sale, no se entera nadie. Lo único que se ve en el admin es si la Pi está conectada.
-- **Solo imprime comandas** de cocina y barra. No hay ticket de cobro ni apertura de cajón.
+- **Imprime comandas** de cocina y barra, avisos de ALTO y **la cuenta de la mesa** (2026-10-30, al tocar «Imprimir cuenta», ruta `cobro`). Todavía no abre el cajón.
 - **En producción falta vincular.** La vinculación y el enrutamiento ya están desplegados, pero Sensi Tapas todavía no tiene la Pi vinculada ahí y sus impresoras tienen IPs inventadas: hasta corregirlas y vincular, la Pi solo imprime lo que se comanda desde la API local.
 
 ---
@@ -421,7 +421,7 @@ Acordado el 2026-10-08:
 2. ~~**Vinculación por código**~~ (4.1). Hecho.
 3. ~~**Detección de impresoras + botón "Probar"**~~ (4.3). Hecho.
 4. ~~**Portal WiFi**~~ (4.5). Hecho. Falta la etiqueta con el QR.
-5. **Ticket de cobro y cajón**, automático en efectivo y botón manual. Es lo único de la lista que ve el restaurante.
+5. **Ticket de cobro y cajón**, automático en efectivo y botón manual. Es lo único de la lista que ve el restaurante. La cuenta ya sale (2026-10-30); falta el cajón.
 6. Avisos de fallo y "reimprimir comanda".
 
 ### Día cero completo, probado de corrido (2026-10-08)

@@ -21,6 +21,7 @@ const ticketConfigSchema = z.object({
   direccion:          z.string().nullable().optional(),
   telefono:           z.string().nullable().optional(),
   mensajePieOverride: z.string().nullable().optional(),
+  logo:               z.string().max(400_000).regex(/^[A-Za-z0-9+/=]+$/).nullable().optional(),
 })
 
 const impresoraSchema = z.object({

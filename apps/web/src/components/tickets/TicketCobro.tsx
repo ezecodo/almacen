@@ -1,8 +1,17 @@
-import { Comanda, EmpresaConfig, TicketConfig, valorItem, totalComanda, textoPago } from '../../api'
+import { Comanda, EmpresaConfig, TicketConfig, totalComanda } from '../../api'
 
-function fmtHora(iso: string | null) {
-  if (!iso) return ''
-  return new Date(iso).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+// Vista previa de la cuenta que se le entrega a la mesa: lo mismo que imprime la Box al tocar
+// "Imprimir cuenta" (imprimirCuenta en routes/comandas.ts → _construir_cuenta del printer-server).
+// Primero el pan, después las bebidas y después la comida. Las líneas iguales se juntan; lo que va a 0 € sin ser invitación (platos de un menú de grupo) no sale.
+
+// Mismo orden que la impresa: pan × pax, bebidas, comida; dentro de cada bloque, como se pidió
+const bloque = (i: { autoGenerado: boolean; ronda: number; tipo: string }) =>
+  i.autoGenerado && i.ronda === 0 ? 0 : i.tipo === 'barra' ? 1 : 2
+
+const eur = (n: number) => n.toFixed(2).replace('.', ',')
+
+function DobleLinea() {
+  return <div className="border-t-[3px] border-double border-black my-1.5" />
 }
 
 export default function TicketCobro({
@@ -12,85 +21,78 @@ export default function TicketCobro({
   config: TicketConfig
   comanda: Comanda
 }) {
-  const items = comanda.items // invitaciones se muestran a 0€, no se ocultan
+  const lineas = new Map<string, { cantidad: number; nombre: string; precio: number; invitacion: boolean }>()
+  for (const i of [...comanda.items].sort((a, b) => bloque(a) - bloque(b) || a.id - b.id)) {
+    if (i.precio === 0 && !i.invitacion) continue
+    const clave = `${i.nombre}|${i.precio}|${i.invitacion}`
+    const l = lineas.get(clave) ?? { cantidad: 0, nombre: i.nombre, precio: i.precio, invitacion: i.invitacion }
+    l.cantidad += i.cantidad
+    lineas.set(clave, l)
+  }
   const total = totalComanda(comanda.items)
   const tasaIva = empresa.tasaIva
-  const base = total / (1 + tasaIva / 100)
-  const cuotaIva = total - base
+  const cuotaIva = total - total / (1 + tasaIva / 100)
   const mensajePie = config.mensajePieOverride ?? empresa.mensajePie
-  const horaComandada = fmtHora(comanda.enviadaAt)
-  const horaCobro = fmtHora(comanda.closedAt ?? comanda.createdAt)
+  const momento = new Date(comanda.closedAt ?? comanda.createdAt)
+  const cabecera = [
+    config.direccion, config.telefono && `Tel. ${config.telefono}`,
+    empresa.razonSocial, empresa.nif && `NIF ${empresa.nif}`,
+  ].filter(Boolean)
 
   return (
-    <div className="ticket-80mm mx-auto px-2 py-3">
+    <div className="ticket-80mm mx-auto px-2 py-3" style={{ fontWeight: 400 }}>
       <div className="text-center">
-        <p className="font-bold text-[13px] uppercase">{config.nombreComercial}</p>
-        {config.direccion && <p className="text-[10px]">{config.direccion}</p>}
-        {config.telefono && <p className="text-[10px]">Tel. {config.telefono}</p>}
-        {empresa.nif && <p className="text-[10px]">NIF {empresa.nif}</p>}
+        {config.logo
+          ? <img src={`data:image/png;base64,${config.logo}`} alt="" className="mx-auto max-w-[80%]" />
+          : <p className="font-bold text-[18px]">{config.nombreComercial}</p>}
+        <div className="mt-2">
+          {cabecera.map(l => <p key={l as string} className="text-[10px]">{l}</p>)}
+        </div>
       </div>
 
-      <div className="border-t border-dashed border-black my-2" />
-
-      <div className="flex justify-between text-[10px]">
-        <span>Mesa {comanda.mesa?.numero ?? '-'}</span>
-        <span>{comanda.camareroNombre ?? '-'}</span>
+      <div className="flex items-center justify-between mt-3">
+        <span className="font-bold text-[18px]">MESA {comanda.mesa?.numero ?? '-'}</span>
+        <span className="text-right text-[10px] leading-tight">
+          {momento.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })}{' '}
+          {momento.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+          <br />{(comanda.camareroNombre ?? '').split(' ')[0]}
+        </span>
       </div>
-      <div className="flex justify-between text-[10px]">
-        {horaComandada && <span>{horaComandada}</span>}
-        <span>Cobro {horaCobro}</span>
-      </div>
+      <p className="text-center font-bold text-[10px] mt-1">FRA. SIMP.: COMPROBANTE</p>
 
-      <div className="border-t border-dashed border-black my-2" />
-
-      {items.map(i => (
-        <div key={i.id} className="mb-0.5">
-          <div className="flex justify-between gap-2">
-            <span className="flex-1">
-              {i.cantidad}x {i.nombre}
-              {i.invitacion && ' (Invitación)'}
-            </span>
-            <span>{valorItem(i).toFixed(2)}</span>
-          </div>
-          {i.nota && <div className="text-[9px] pl-3">· {i.nota}</div>}
+      <DobleLinea />
+      {[...lineas.values()].map(l => (
+        <div key={`${l.nombre}|${l.precio}|${l.invitacion}`} className="flex gap-1 text-[10px]">
+          <span className="w-4 text-right shrink-0">{l.cantidad}</span>
+          <span className="flex-1 min-w-0">
+            {l.nombre}
+            {l.invitacion && <span className="block font-bold text-[8px]">INVITACIÓN</span>}
+          </span>
+          <span className="w-10 text-right shrink-0">{eur(l.precio)}</span>
+          <span className="w-12 text-right shrink-0">{eur(l.invitacion ? 0 : l.precio * l.cantidad)}</span>
         </div>
       ))}
+      <DobleLinea />
 
-      <div className="border-t border-dashed border-black my-2" />
-
-      <div className="flex justify-between">
-        <span>Base imponible</span>
-        <span>{base.toFixed(2)}</span>
+      <div className="flex justify-between text-[10px]">
+        <span>IVA/VAT {tasaIva}%</span>
+        <span>{eur(cuotaIva)}</span>
       </div>
-      <div className="flex justify-between">
-        <span>IVA ({tasaIva}%)</span>
-        <span>{cuotaIva.toFixed(2)}</span>
+      <div className="flex justify-between items-end font-bold">
+        <span className="text-[14px]">TOTAL</span>
+        <span className="text-[18px]">{eur(total)}</span>
       </div>
-
-      <div className="border-t border-black my-1" />
-
-      <div className="flex justify-between font-bold text-[13px]">
-        <span>TOTAL</span>
-        <span>{total.toFixed(2)} €</span>
+      <DobleLinea />
+      <div className="flex justify-between font-bold text-[10px]">
+        <span>PENDIENTE DE COBRO</span>
+        <span>{eur(total)}</span>
       </div>
 
-      {comanda.propina > 0 && (
-        <div className="flex justify-between">
-          <span>Propina</span>
-          <span>{comanda.propina.toFixed(2)}</span>
-        </div>
-      )}
-
-      {comanda.metodoPago && (
-        <p className="mt-1">Pago: {textoPago(comanda, false)}</p>
-      )}
-
-      {mensajePie && (
-        <>
-          <div className="border-t border-dashed border-black my-2" />
-          <p className="text-center text-[10px]">{mensajePie}</p>
-        </>
-      )}
+      {mensajePie && <p className="text-center font-bold text-[11px] mt-3">{mensajePie}</p>}
+      <div className="text-right font-bold text-[10px] mt-3 space-y-3">
+        <p>SERVICE/TIPS: <span className="inline-block w-20 border-b border-black" /></p>
+        <p>TOTAL: <span className="inline-block w-20 border-b border-black" /></p>
+      </div>
     </div>
   )
 }

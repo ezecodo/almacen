@@ -564,6 +564,7 @@ export interface TicketConfig {
   direccion:          string | null
   telefono:           string | null
   mensajePieOverride: string | null
+  logo:               string | null // PNG en blanco y negro, base64 sin "data:"
 }
 
 export interface Impresora {
@@ -1810,7 +1811,7 @@ export const api = {
       put<EmpresaConfig>('/empresa-config', body),
     getConfig:     (restaurantId: number) =>
       get<TicketConfig | null>(`/tickets/config?restaurantId=${restaurantId}`),
-    updateConfig:  (body: { restaurantId: number; nombreComercial: string; direccion?: string | null; telefono?: string | null; mensajePieOverride?: string | null }) =>
+    updateConfig:  (body: { restaurantId: number; nombreComercial: string; direccion?: string | null; telefono?: string | null; mensajePieOverride?: string | null; logo?: string | null }) =>
       put<TicketConfig>('/tickets/config', body),
     // Raspberry Pi vinculada (codigo null = desvincular)
     getPi: (restaurantId: number) => get<PiVinculada>(`/tickets/pi?restaurantId=${restaurantId}`),

@@ -4,6 +4,7 @@ import { api, Comanda, Impresora, ImpresionRuta, TipoTicket } from '../api'
 import { useAdminEvents } from '../hooks/useAdminEvents'
 import TicketCobro from '../components/tickets/TicketCobro'
 import TicketComanda from '../components/tickets/TicketComanda'
+import { logoParaTicket } from '../lib/imagen'
 
 const TIPOS_TICKET: { tipo: TipoTicket; label: string }[] = [
   { tipo: 'cocina', label: '🍳 Cocina' },
@@ -84,13 +85,22 @@ function LocalSection({ restaurantId }: { restaurantId: number }) {
   const [direccion, setDireccion] = useState('')
   const [telefono, setTelefono] = useState('')
   const [mensajePieOverride, setMensajePieOverride] = useState('')
+  const [logo, setLogo] = useState<string | null>(null)
+  const [errorLogo, setErrorLogo] = useState('')
 
   useEffect(() => {
     setNombreComercial(config?.nombreComercial ?? '')
     setDireccion(config?.direccion ?? '')
     setTelefono(config?.telefono ?? '')
     setMensajePieOverride(config?.mensajePieOverride ?? '')
+    setLogo(config?.logo ?? null)
   }, [config, restaurantId])
+
+  const elegirLogo = async (file: File | undefined) => {
+    if (!file) return
+    setErrorLogo('')
+    try { setLogo(await logoParaTicket(file)) } catch (e) { setErrorLogo((e as Error).message) }
+  }
 
   const guardar = useMutation({
     mutationFn: () => api.tickets.updateConfig({
@@ -99,6 +109,7 @@ function LocalSection({ restaurantId }: { restaurantId: number }) {
       direccion: direccion || null,
       telefono: telefono || null,
       mensajePieOverride: mensajePieOverride || null,
+      logo,
     }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['ticket-config', restaurantId] }),
   })
@@ -123,6 +134,23 @@ function LocalSection({ restaurantId }: { restaurantId: number }) {
         <div className="sm:col-span-2">
           <label className={labelCls}>Mensaje pie propio (opcional — si no, usa el de Empresa)</label>
           <input className={inputCls} value={mensajePieOverride} onChange={e => setMensajePieOverride(e.target.value)} placeholder="Dejar vacío para heredar el de Empresa" />
+        </div>
+        <div className="sm:col-span-2">
+          <label className={labelCls}>Logo de la cuenta (sin logo sale el nombre comercial en grande)</label>
+          <div className="flex items-center gap-3 flex-wrap">
+            {logo && (
+              <div className="bg-white border border-gray-200 rounded-xl p-3">
+                <img src={`data:image/png;base64,${logo}`} alt="Logo" className="max-h-20" />
+              </div>
+            )}
+            <label className="text-sm font-semibold text-cyan-700 bg-cyan-50 hover:bg-cyan-100 px-3 py-2 rounded-xl cursor-pointer">
+              {logo ? 'Cambiar logo' : 'Subir logo'}
+              <input type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" className="hidden" onChange={e => { elegirLogo(e.target.files?.[0]); e.target.value = '' }} />
+            </label>
+            {logo && <button onClick={() => setLogo(null)} className="text-sm text-gray-400 hover:text-red-500">Quitar</button>}
+          </div>
+          <p className="text-[11px] text-gray-400 mt-1">Así sale en la térmica: en blanco y negro, sin grises. Mejor un PNG con fondo blanco o transparente. Se guarda con «Guardar».</p>
+          {errorLogo && <p className="text-xs text-red-500 mt-1">{errorLogo}</p>}
         </div>
       </div>
       <button
@@ -577,7 +605,7 @@ function PreviewSection({ restaurantId }: { restaurantId: number }) {
                 onClick={() => setTab(t)}
                 className={`text-sm font-semibold px-3 py-1.5 rounded-lg ${tab === t ? 'bg-cyan-600 text-white' : 'bg-gray-100 text-gray-600'}`}
               >
-                {t === 'cobro' ? 'Ticket cobro' : t === 'cocina' ? 'Comanda cocina' : 'Comanda barra'}
+                {t === 'cobro' ? 'Cuenta' : t === 'cocina' ? 'Comanda cocina' : 'Comanda barra'}
               </button>
             ))}
             <button

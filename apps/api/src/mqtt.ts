@@ -183,6 +183,29 @@ export function publicarTicket(piCodigo: string, ticket: {
   enviarTrabajo(piCodigo, ticket.ticket_id, ticket)
 }
 
+// Cuenta de la mesa, la que se le entrega al cliente (al tocar "Imprimir cuenta" y al reimprimir).
+// Sale entera en las impresoras de la lista "Cuenta". Una Box con el programa anterior la toma por
+// una comanda sin destinos y no imprime nada.
+export interface LineaCuenta { cantidad: number; nombre: string; precio: number; importe: number; invitacion: boolean }
+export function publicarCuenta(piCodigo: string, cuenta: {
+  ticket_id: string
+  logo?: string
+  cabecera: { nombre: string; lineas: string[] }
+  mesa: string
+  camarero: string
+  rotulo: string
+  items: LineaCuenta[]
+  iva: { tasa: number; cuota: number }
+  total: number
+  pagado: number
+  pendiente: number
+  pie: { mensaje: string; lineas_propina: boolean }
+  destinos: DestinoImpresion[]
+}) {
+  const { destinos, ...resto } = cuenta
+  enviarTrabajo(piCodigo, cuenta.ticket_id, { ...resto, cuenta: true, destinos: { Cuenta: destinos } })
+}
+
 // Aviso a cocina y sala sin mesa: "ALTO · CARRILLERA" (se acabó) o "HAY · CARRILLERA" (volvió).
 // Sale en las impresoras que se le pasen. Una Box con el programa anterior lo descarta (no trae items).
 export function publicarAviso(piCodigo: string, aviso: {
