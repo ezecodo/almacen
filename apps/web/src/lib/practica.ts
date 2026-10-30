@@ -176,6 +176,9 @@ export async function simular(url: string, init?: RequestInit): Promise<Response
   const db = leerDb()
   const buscar = (id: string | undefined) => db.comandas.find(c => c.id === Number(id))
 
+  // Lo único que se escribe de verdad en práctica: apuntar que el empleado terminó una lección
+  if (ruta === '/lecciones/mias') return null
+
   // ── Lecturas que contesta el simulador ──
   if (metodo === 'GET') {
     if (ruta === '/comandas') {

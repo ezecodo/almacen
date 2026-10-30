@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, Empleado, Restaurante } from '../api'
 import BadgeModal from '../components/BadgeModal'
+import { LECCIONES } from '../components/Asistente'
 
 function generarPin() {
   return String(Math.floor(1000 + Math.random() * 9000))
@@ -460,6 +461,10 @@ export default function EmpleadosPage() {
   const [busca, setBusca] = useState('')
   const [filtroRest, setFiltroRest] = useState<number | 'rot' | null>(null)
   const [pinVisible, setPinVisible] = useState<Set<number>>(new Set())
+  // 🎓 Lecciones del asistente de la sala que hizo cada uno (solo personal de sala)
+  const { data: lecciones = [] } = useQuery({ queryKey: ['admin-lecciones'], queryFn: api.lecciones.admin, enabled: tab === 'sala' })
+  const leccionesDe = (empId: number) => lecciones.filter(l => l.empleadoId === empId && LECCIONES.some(x => x.id === l.leccion))
+  const [verLecciones, setVerLecciones] = useState<number | null>(null)
   const norm = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
   const pasaFiltro = (e: Empleado) =>
     (!busca.trim() || norm(e.nombre).includes(norm(busca.trim()))) &&
@@ -585,6 +590,17 @@ export default function EmpleadosPage() {
                       >
                         {emp.pin ? (pinVisible.has(emp.id) ? emp.pin : '••••') : '—'}
                       </button>
+                      {emp.tipo === 'sala' && (() => {
+                        const n = leccionesDe(emp.id).length
+                        const todas = n >= LECCIONES.length
+                        return (
+                          <button type="button" onClick={() => setVerLecciones(v => v === emp.id ? null : emp.id)}
+                            title="Lecciones del asistente de la sala (perfil → Aprender a usar OidoOps)"
+                            className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${todas ? 'bg-emerald-100 text-emerald-700' : n === 0 ? 'bg-gray-100 text-gray-400' : 'bg-cyan-100 text-cyan-700'}`}>
+                            🎓 {n}/{LECCIONES.length}
+                          </button>
+                        )
+                      })()}
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
                       <button
@@ -663,6 +679,20 @@ export default function EmpleadosPage() {
                       </span>
                     )}
                   </div>
+                  {verLecciones === emp.id && (
+                    <div className="mt-2.5 rounded-xl bg-gray-50 px-4 py-3 grid sm:grid-cols-2 gap-x-6 gap-y-1">
+                      {LECCIONES.map(l => {
+                        const h = leccionesDe(emp.id).find(x => x.leccion === l.id)
+                        return (
+                          <div key={l.id} className="flex items-center gap-2 text-xs">
+                            <span className={h ? 'text-emerald-600 font-bold' : 'text-gray-300'}>{h ? '✓' : '○'}</span>
+                            <span className={`flex-1 truncate ${h ? 'text-gray-700' : 'text-gray-400'}`}>{l.icono} {l.titulo}</span>
+                            {h && <span className="text-gray-400">{new Date(h.completadaAt).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}</span>}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

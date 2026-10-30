@@ -1252,6 +1252,10 @@ export interface Gasto {
   restaurant?: { nombre: string }
 }
 
+// Asistente de la sala: lecciones terminadas (leccion = id de LECCIONES en components/Asistente.tsx)
+export interface LeccionHecha { leccion: string; completadaAt: string }
+export interface EquipoLecciones { id: number; nombre: string; rol: string | null; restaurantId: number | null; lecciones: LeccionHecha[] }
+
 export interface ItemAgotado {
   menuItemId: number
   marcadoPor: string
@@ -1587,6 +1591,12 @@ export const api = {
       get<{ gastos: Gasto[]; pendientes: Gasto[] }>(`/admin/gastos?mes=${mes}${restaurantId ? `&restaurantId=${restaurantId}` : ''}`),
     pagarAdmin: (id: number, body: { importe?: number | null; con: 'efectivo' | 'otro' }) => patch<Gasto>(`/admin/gastos/${id}/pagar`, body),
     borrarAdmin: (id: number) => del(`/admin/gastos/${id}`),
+  },
+  lecciones: {
+    mias:   () => get<LeccionHecha[]>('/lecciones/mias'),
+    marcar: (lecciones: string[]) => post<unknown>('/lecciones/mias', { lecciones }),
+    equipo: () => get<EquipoLecciones[]>('/lecciones/equipo'),
+    admin:  () => get<Array<LeccionHecha & { empleadoId: number }>>('/admin/lecciones'),
   },
   agotados: {
     list:    (restaurantId: number) => get<ItemAgotado[]>(`/agotados?restaurantId=${restaurantId}`),

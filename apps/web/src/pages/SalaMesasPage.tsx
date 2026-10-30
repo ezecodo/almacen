@@ -17,6 +17,7 @@ import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
 import { usePoolEvents } from '../hooks/usePoolEvents'
 import FacturasSala from '../components/FacturasSala'
 import PedidosSala from '../components/PedidosSala'
+import EquipoLeccionesSala from '../components/EquipoLeccionesSala'
 import GastosSala from '../components/GastosSala'
 import PropinasSala, { QK_PROPINAS_ENC } from '../components/PropinasSala'
 import MaridajeSheet from '../components/MaridajeSheet'
@@ -6144,6 +6145,7 @@ function EncargadoPanel({
     { key: 'pedidos' as const, icon: '📦', label: 'Pedidos', badge: pedidosRecepcion.filter(p => p.estado === 'enviado').length },
     { key: 'facturas' as const, icon: '🧾', label: 'Facturas', badge: 0 },
     { key: 'propinas' as const, icon: '💰', label: 'Propinas', badge: sinRepartir },
+    { key: 'equipo' as const, icon: '🎓', label: 'Equipo', badge: 0 },
   ]
 
   return (
@@ -6221,7 +6223,7 @@ function EncargadoPanel({
             </button>
           ) : (
           <div className="grid grid-cols-3 gap-1.5 mt-3">
-            {TABS.filter(t => !soloConsulta || t.key === 'reviews' || t.key === 'reservas' || t.key === 'propinas').map(t => (
+            {TABS.filter(t => !soloConsulta || t.key === 'reviews' || t.key === 'reservas' || t.key === 'propinas' || t.key === 'equipo').map(t => (
               <button key={t.key} onClick={() => setTab(t.key)}
                 className={`relative flex flex-col items-center justify-center gap-0.5 py-2 rounded-lg text-[11px] font-bold transition-colors ${
                   tab === t.key ? 'bg-[var(--sala-btna)] text-[var(--sala-txt)]' : 'bg-[var(--sala-btn2)] text-[var(--sala-tx3)]'
@@ -6460,6 +6462,7 @@ function EncargadoPanel({
           {/* ── Facturas de proveedor ── */}
           {tab === 'gastos' && <GastosSala restaurantId={rid} />}
           {tab === 'pedidos' && <PedidosSala restaurantId={rid} />}
+          {tab === 'equipo' && <EquipoLeccionesSala />}
           {tab === 'facturas' && <FacturasSala restaurantId={rid} empleadoId={camarero.id} />}
           {tab === 'propinas' && <PropinasSala key={propinasTurnoId ?? 0} turnoInicialId={propinasTurnoId} onEnfoque={setRepartiendo} />}
 
@@ -6862,7 +6865,7 @@ function EncargadoPanel({
   )
 }
 
-type TabEncargado = 'cobros' | 'turno' | 'agotados' | 'checklists' | 'mermas' | 'reviews' | 'reservas' | 'pedidos' | 'facturas' | 'gastos' | 'propinas'
+type TabEncargado = 'cobros' | 'turno' | 'agotados' | 'checklists' | 'mermas' | 'reviews' | 'reservas' | 'pedidos' | 'facturas' | 'gastos' | 'propinas' | 'equipo'
 
 // ── Panel del encargado en el puesto TPV ─────────────────────────────────────
 // Lo primero que ve un encargado en la tablet (el camarero va al mapa): todas las mesas en
@@ -6875,7 +6878,7 @@ const ACCESOS_ENCARGADO: { tab: TabEncargado; icono: string; nombre: string }[] 
   { tab: 'mermas', icono: '🗑', nombre: 'Mermas' }, { tab: 'reservas', icono: '📅', nombre: 'Reservas' },
   { tab: 'reviews', icono: '⭐', nombre: 'Reviews' }, { tab: 'checklists', icono: '✅', nombre: 'Checklists' },
   { tab: 'pedidos', icono: '📦', nombre: 'Pedidos' }, { tab: 'facturas', icono: '🧾', nombre: 'Facturas' },
-  { tab: 'propinas', icono: '💰', nombre: 'Propinas' },
+  { tab: 'propinas', icono: '💰', nombre: 'Propinas' }, { tab: 'equipo', icono: '🎓', nombre: 'Equipo' },
 ]
 function PanelEncargadoTpv({ restaurantId, comandas, turnoActivo, onAbrirMesa, onCobrar, onAcceso }: {
   restaurantId: number

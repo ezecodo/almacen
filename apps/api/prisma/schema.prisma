@@ -225,7 +225,20 @@ model Empleado {
   diasLibresFijos     Int[]            @default([]) // días fijos de libranza: 0=Lun … 6=Dom
   faseLibreRotacion   Int              @default(0)  // 0-3: fase actual en rotación de días libres
   turnosAsignados     TurnoEmpleado[]
+  lecciones           LeccionCompletada[]
   createdAt        DateTime         @default(now())
+}
+
+// Asistente de la sala: qué lecciones terminó cada empleado (las ve el encargado de su local y el admin).
+// leccion = id de LECCIONES en apps/web/src/components/Asistente.tsx
+model LeccionCompletada {
+  id           Int      @id @default(autoincrement())
+  empleadoId   Int
+  empleado     Empleado @relation(fields: [empleadoId], references: [id], onDelete: Cascade)
+  leccion      String
+  completadaAt DateTime @default(now())
+
+  @@unique([empleadoId, leccion])
 }
 
 model PropinaDia {

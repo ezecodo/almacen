@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Comanda, ComandaItem } from '../api'
+import { useQuery } from '@tanstack/react-query'
+import { api, type Comanda, type ComandaItem } from '../api'
 import {
   alPasarEnPractica, cambiarLeccion, CLAVE_EVENTOS, dbPractica, entrarPractica, guardarLeccion, leccionEnCurso,
   practicaActiva, salirPractica, type DbPractica, type EventoPractica, type Gesto,
@@ -317,17 +318,22 @@ export const LECCIONES: Leccion[] = [
   },
 ]
 
-// ── Progreso (por ahora en el teléfono, por empleado) ──────────────────────────────────────
+// ── Progreso ───────────────────────────────────────────────────────────────────────────
+// Se apunta en el servidor (lo ven el encargado y el admin) y se guarda también en el teléfono,
+// por si al terminar no había conexión: al abrir la lista se sube lo que el servidor no tenga.
 
 const claveProgreso = (empleadoId: number) => `oidoops_lecciones_${empleadoId}`
 
 export function leccionesHechas(empleadoId: number): string[] {
   try { return JSON.parse(localStorage.getItem(claveProgreso(empleadoId)) ?? '[]') as string[] } catch { return [] }
 }
+function guardarLocal(empleadoId: number, ids: string[]) {
+  try { localStorage.setItem(claveProgreso(empleadoId), JSON.stringify(ids)) } catch { /* nada */ }
+}
 function marcarHecha(empleadoId: number, id: string) {
   const hechas = leccionesHechas(empleadoId)
-  if (hechas.includes(id)) return
-  try { localStorage.setItem(claveProgreso(empleadoId), JSON.stringify([...hechas, id])) } catch { /* nada */ }
+  if (!hechas.includes(id)) guardarLocal(empleadoId, [...hechas, id])
+  api.lecciones.marcar([id]).catch(() => { /* queda en el teléfono y se sube al abrir la lista */ })
 }
 
 function empleadoSesion(): number | null {
@@ -340,7 +346,17 @@ function empleadoSesion(): number | null {
 // ── Lista de lecciones (se abre desde el perfil) ─────────────────────────────────────────
 
 export function LeccionesPanel({ empleadoId, onClose }: { empleadoId: number; onClose: () => void }) {
-  const hechas = leccionesHechas(empleadoId)
+  const { data: delServidor } = useQuery({ queryKey: ['lecciones-mias'], queryFn: api.lecciones.mias })
+  const locales = leccionesHechas(empleadoId)
+  const hechas = [...new Set([...locales, ...(delServidor ?? []).map(l => l.leccion)])]
+  // Sincronizar las dos copias: subir lo que solo tiene el teléfono y guardar lo hecho en otro
+  useEffect(() => {
+    if (!delServidor) return
+    const enServidor = new Set(delServidor.map(l => l.leccion))
+    const faltan = locales.filter(id => !enServidor.has(id))
+    if (faltan.length) api.lecciones.marcar(faltan).catch(() => {})
+    if (hechas.length !== locales.length) guardarLocal(empleadoId, hechas)
+  }, [delServidor]) // eslint-disable-line react-hooks/exhaustive-deps
   const enPractica = practicaActiva()
   const actual = leccionEnCurso()?.leccion
   const siguiente = LECCIONES.find(l => !hechas.includes(l.id))

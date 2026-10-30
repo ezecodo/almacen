@@ -95,6 +95,8 @@ export const RUTAS_SALA = new Set([
   'GET /api/red/estado',
   // propinas propias, almacén y validación de retiros
   'GET /api/propinas/mis-turnos', 'GET /api/staffing/mi-horario',
+  // asistente: mis lecciones hechas y, el encargado, las de su equipo
+  'GET /api/lecciones/mias', 'POST /api/lecciones/mias', 'GET /api/lecciones/equipo',
   // reparto de propinas del encargado (turnos cerrados de su local)
   'GET /api/propinas/encargado/turnos', 'GET /api/propinas/encargado/empleados', 'GET /api/propinas/encargado/resumen', 'PUT /api/propinas/encargado/turnos/:turnoId',
   'GET /api/producto/:barcode', 'POST /api/retiros', 'PATCH /api/retiros/:id/confirmar',
@@ -114,6 +116,7 @@ export const SOLO_ENCARGADO = new Set([
   'PUT /api/comandas/:id/reserva',    // quién está sentado en la mesa ("No era esta reserva")
   'PATCH /api/comandas/:id/rectificar-pago', 'PATCH /api/comandas/:id/deshacer-cobro', // corregir una mesa ya cobrada
   'GET /api/pedidos/recepcion', 'PATCH /api/pedidos/:id/recibir', // recibir un pedido con el albarán
+  'GET /api/lecciones/equipo',        // qué lecciones hizo cada uno de su local
   'POST /api/pedidos/:id/albaran', 'GET /api/pedidos/:id/albaran/:n', 'DELETE /api/pedidos/:id/albaran/:n',
 ])
 
@@ -127,12 +130,14 @@ export const CONSULTA_SALA = new Set([
   'GET /api/red/estado',
   'GET /api/wiki', 'GET /api/menu', 'GET /api/menu/categorias', 'GET /api/alergenos', 'GET /api/maridajes',
   'GET /api/propinas/mis-turnos', 'GET /api/staffing/mi-horario',
+  'GET /api/lecciones/mias', 'POST /api/lecciones/mias', // las lecciones se pueden hacer en casa
 ])
 
 // Además, el encargado: reviews y reservas (solo verlas)
 export const CONSULTA_ENCARGADO = new Set([
   'GET /api/reviews', 'GET /api/reviews/historial', 'GET /api/reviews/turno',
   'GET /api/reservas', 'GET /api/reservas/pool',
+  'GET /api/lecciones/equipo',
   // repartir las propinas de un turno cerrado (al llegar a casa, al día siguiente…)
   'GET /api/propinas/encargado/turnos', 'GET /api/propinas/encargado/empleados', 'GET /api/propinas/encargado/resumen', 'PUT /api/propinas/encargado/turnos/:turnoId',
 ])
