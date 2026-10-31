@@ -37,7 +37,15 @@ const PARTES: { nombre: string; lineas: Ing[]; pasos: string[] }[] = [
     pasos: ['Tostar el maíz en sartén con el aceite hasta que esté crujiente.', 'Escurrir y sazonar.'],
   },
 ]
-const EMPLATADO = 'Colocar una base de velouté de algas y crema de maíz. Añadir 3 trozos de pulpo. Añadir curtidos de rabanito, pepino, cancha tostada, salicornia (algas) 4 g, justo 4-5 trozos, brotes y unas gotas de AOVE.'
+// Al pase: un paso por renglón
+const EMPLATADO = [
+  'Colocar una base de velouté de algas y crema de maíz.',
+  'Añadir 3 trozos de pulpo.',
+  'Añadir los encurtidos de rabanito y pepino.',
+  'Añadir la cancha tostada.',
+  'Salicornia (algas) 4 g, justo 4-5 trozos.',
+  'Terminar con brotes y unas gotas de AOVE.',
+].join('\n')
 const BASE = { kg: { unidadBase: 'g', contenido: 1000 }, l: { unidadBase: 'ml', contenido: 1000 }, ud: { unidadBase: 'ud', contenido: 1 } }
 
 async function main() {

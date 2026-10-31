@@ -469,6 +469,15 @@ function DetallePlato({ menuItemId, restaurantId, onClose }: { menuItemId: numbe
                   {nRaciones === 1 ? 'ración' : 'raciones'}
                 </label>
               </div>
+              {/* Lo primero que lee la cocina en pleno servicio */}
+              <div className="rounded-2xl border border-[#4CC8A0]/40 bg-[#4CC8A0]/5 p-3 mb-4">
+                <p className="text-xs font-black uppercase tracking-wider text-[#4CC8A0] mb-1">🍽 Al pase · cómo sale el plato</p>
+                <p className="text-[11px] text-slate-400 mb-2">Un paso por renglón. En la cocina sale arriba de todo, antes de la preparación.</p>
+                <textarea value={emplatado} onChange={ev => setEmplatado(ev.target.value)} rows={Math.max(4, emplatado.split('\n').length + 1)}
+                  placeholder={'Base de velouté y crema de maíz.\n3 trozos de pulpo marcados a la plancha.\nEncurtidos, cancha y salicornia.\nBrotes y unas gotas de AOVE.'}
+                  className={`${campo} w-full leading-relaxed`} />
+              </div>
+              <p className="text-xs font-black uppercase tracking-wider text-slate-400 mb-2">🔪 Preparación · mise en place</p>
               <FichaPartes partes={partes} setPartes={f => setPartes(p => f(p ?? []))} ingredientes={ingredientes} divisor={nRaciones}
                 onCambioIngredientes={refrescarIngredientes} conElaboraciones />
             </div>
@@ -476,10 +485,6 @@ function DetallePlato({ menuItemId, restaurantId, onClose }: { menuItemId: numbe
             <div className="grid sm:grid-cols-[auto_1fr] gap-4 items-start">
               <FotoFicha tipo="plato" id={menuItemId} fotoAt={detalle.fotoAt} onCambio={() => qc.invalidateQueries({ queryKey: ['escandallo', menuItemId] })} />
               <div className="space-y-3">
-                <div>
-                  <p className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">Emplatado</p>
-                  <textarea value={emplatado} onChange={ev => setEmplatado(ev.target.value)} rows={3} placeholder="Cómo se monta el plato" className={`${campo} w-full leading-relaxed`} />
-                </div>
                 <div>
                   <p className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">Notas</p>
                   <textarea value={notas} onChange={ev => setNotas(ev.target.value)} rows={2} placeholder="Conservación, reposo, mise en place…" className={`${campo} w-full leading-relaxed`} />

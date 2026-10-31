@@ -59,6 +59,8 @@ function FichaVista({ tipo, id, onVolver, onAbrir }: { tipo: TipoFicha; id: numb
   const base = !f ? null : f.tipo === 'plato' ? f.raciones : f.rendimiento ? f.rendimiento / porUnidadBase(f.unidadTanda) : null
   useEffect(() => { if (base !== null) setCuanto(String(base)) }, [base])
   const factor = base && num(cuanto) > 0 ? num(cuanto) / base : 1
+  // El emplatado se escribe un paso por renglón
+  const pase = (f?.emplatado ?? '').split('\n').map(x => x.replace(/^\s*\d+[.)-]?\s*/, '').trim()).filter(Boolean)
 
   return (
     <div className="fixed inset-0 z-40 bg-[#0f1a2e] text-slate-100 overflow-y-auto">
@@ -81,6 +83,24 @@ function FichaVista({ tipo, id, onVolver, onAbrir }: { tipo: TipoFicha; id: numb
               {f.alergenos.map(a => <span key={a.nombre} className="px-2.5 py-1 rounded-full bg-amber-400/15 text-amber-200 text-sm font-semibold">{a.icono} {a.nombre}</span>)}
               {f.alergenosNota && <p className="w-full text-xs text-amber-200/80">{f.alergenosNota}</p>}
             </div>
+          )}
+
+          {/* Al pase: cómo se monta y sale el plato, lo que mira la línea en pleno servicio */}
+          {pase.length > 0 && (
+            <section className="rounded-2xl bg-[#4CC8A0]/10 border border-[#4CC8A0]/40 overflow-hidden">
+              <h2 className="px-4 py-2.5 bg-[#4CC8A0]/15 text-sm font-black uppercase tracking-wider text-[#4CC8A0]">🍽 Al pase · para sacar el plato</h2>
+              <ol className="px-4 py-3 space-y-3">
+                {pase.map((paso, i) => (
+                  <li key={i} className="flex gap-3 text-xl leading-snug">
+                    <span className="w-8 h-8 shrink-0 rounded-full bg-[#4CC8A0] text-[#0f1a2e] text-base font-black flex items-center justify-center">{i + 1}</span>
+                    <span>{paso}</span>
+                  </li>
+                ))}
+              </ol>
+            </section>
+          )}
+          {pase.length > 0 && f.partes.length > 0 && (
+            <h2 className="pt-2 text-sm font-black uppercase tracking-wider text-slate-400">🔪 Preparación · mise en place</h2>
           )}
 
           {/* Escalar: cuánto se va a hacer */}
@@ -124,12 +144,6 @@ function FichaVista({ tipo, id, onVolver, onAbrir }: { tipo: TipoFicha; id: numb
             </section>
           ))}
 
-          {f.emplatado && (
-            <section className="rounded-2xl bg-[#4CC8A0]/10 border border-[#4CC8A0]/30 px-4 py-3">
-              <h2 className="text-sm font-black uppercase tracking-wider text-[#4CC8A0] mb-1.5">🍽 Emplatado</h2>
-              <p className="text-lg leading-snug whitespace-pre-line">{f.emplatado}</p>
-            </section>
-          )}
           {f.notas && (
             <section className="rounded-2xl bg-amber-400/10 border border-amber-400/30 px-4 py-3">
               <h2 className="text-sm font-black uppercase tracking-wider text-amber-300 mb-1.5">📝 Notas</h2>
