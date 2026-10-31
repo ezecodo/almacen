@@ -1227,17 +1227,39 @@ export interface Elaboracion {
   costeUnitario: number | null; precioPorUnidad: number | null // € por g/ml/ud y por kg/l/ud
   usadaEn: number
 }
-export interface ElaboracionDetalle {
+// Ficha técnica: la receta por partes (PULPO, CREMA DE MAÍZ…) con sus pasos, emplatado, notas y foto
+export interface LineaFicha { productoId: number; cantidad: number; texto: string | null; producto: Ingrediente } // cantidad 0 = c/s
+export interface ParteFicha { nombre: string; pasos: string[]; lineas: LineaFicha[] }
+export interface Ficha { partes: ParteFicha[]; emplatado: string; notas: string; fotoAt: string | null }
+export interface FichaBody {
+  partes: { nombre: string; pasos: string[]; lineas: { productoId: number; cantidad: number; texto: string | null }[] }[]
+  emplatado: string; notas: string
+}
+export type TipoFicha = 'plato' | 'elab'
+
+// Wiki de cocina (/sala/cocina): las mismas fichas, para leer, sin un solo precio
+export interface RecetasCocina {
+  platos: { id: number; nombre: string; categoria: string; categoriaOrden: number; grupo: string; fotoAt: string | null; partes: number }[]
+  elaboraciones: { id: number; nombre: string; produccion: 'cocina' | 'sala' | null; fotoAt: string | null }[]
+}
+export interface LineaCocina { nombre: string; cantidad: number; texto: string | null; unidad: string; elaboracionId: number | null }
+interface FichaCocinaComun {
+  tipo: TipoFicha; id: number; nombre: string; fotoAt: string | null
+  partes: { nombre: string; pasos: string[]; lineas: LineaCocina[] }[]
+  emplatado: string; notas: string
+}
+export type FichaCocina =
+  | (FichaCocinaComun & { tipo: 'plato'; categoria: string; raciones: number; alergenos: { nombre: string; icono: string }[]; alergenosNota: string })
+  | (FichaCocinaComun & { tipo: 'elab'; rendimiento: number | null; unidadTanda: string; unidadBase: string; usadaEn: string[] })
+export interface ElaboracionDetalle extends Ficha {
   id: number; nombre: string; unidad: string; unidadBase: string; contenido: number; categoria: string
   rendimiento: number | null
-  lineas: { productoId: number; cantidad: number; producto: Ingrediente }[]
   usadaEn: string[]
 }
-export interface EscandalloDetalle {
+export interface EscandalloDetalle extends Ficha {
   tasaIva: number; verde: number; ambar: number
   id: number; nombre: string; categoria: string; precio: number; precioSinIva: number
   raciones: number
-  lineas: { productoId: number; cantidad: number; producto: Ingrediente }[]
 }
 export type IngredienteBody = { nombre: string; unidad: string; precioCoste: number | null; unidadBase?: string | null; contenido?: number | null; mermaPct?: number }
 
@@ -1302,18 +1324,27 @@ export interface ItemAgotado {
 }
 
 export const api = {
+  cocina: {
+    recetas: (restaurantId: number | null) => authFetch(`/cocina/recetas${restaurantId ? `?restaurantId=${restaurantId}` : ''}`).then(r => r.json() as Promise<RecetasCocina>),
+    ficha: (tipo: TipoFicha, id: number) => authFetch(`/cocina/recetas/${tipo}/${id}`).then(r => r.json() as Promise<FichaCocina>),
+    foto: (tipo: TipoFicha, id: number) => authFetch(`/cocina/foto/${tipo}/${id}`).then(r => r.blob()),
+  },
   escandallos: {
     matriz: (restaurantId: number) => authFetch(`/admin/escandallos?restaurantId=${restaurantId}`).then(r => r.json() as Promise<EscandalloMatriz>),
     detalle: (menuItemId: number) => authFetch(`/admin/escandallos/${menuItemId}`).then(r => r.json() as Promise<EscandalloDetalle>),
-    guardar: (menuItemId: number, body: { raciones: number; lineas: { productoId: number; cantidad: number }[] }) =>
+    guardar: (menuItemId: number, body: FichaBody & { raciones: number }) =>
       authFetch(`/admin/escandallos/${menuItemId}`, { method: 'PUT', json: body }).then(() => undefined),
     umbrales: (body: { verde: number; ambar: number }) => authFetch('/admin/escandallos/umbrales', { method: 'PUT', json: body }).then(() => undefined),
     elaboraciones: () => authFetch('/admin/escandallos/elaboraciones').then(r => r.json() as Promise<Elaboracion[]>),
     elaboracion: (id: number) => authFetch(`/admin/escandallos/elaboraciones/${id}`).then(r => r.json() as Promise<ElaboracionDetalle>),
     crearElaboracion: (body: { nombre: string; unidad: 'kg' | 'l' | 'ud'; produccion: 'cocina' | 'sala' }) =>
       authFetch('/admin/escandallos/elaboraciones', { method: 'POST', json: body }).then(r => r.json() as Promise<{ id: number }>),
-    guardarElaboracion: (id: number, body: { rendimiento: number; lineas: { productoId: number; cantidad: number }[] }) =>
+    guardarElaboracion: (id: number, body: FichaBody & { rendimiento: number | null }) =>
       authFetch(`/admin/escandallos/elaboraciones/${id}`, { method: 'PUT', json: body }).then(() => undefined),
+    subirFoto: (tipo: TipoFicha, id: number, jpeg: Blob) =>
+      authFetch(`/admin/escandallos/foto/${tipo}/${id}`, { method: 'POST', body: jpeg, contentType: 'image/jpeg' }).then(r => r.json() as Promise<{ fotoAt: string }>),
+    foto: (tipo: TipoFicha, id: number) => authFetch(`/admin/escandallos/foto/${tipo}/${id}`).then(r => r.blob()),
+    quitarFoto: (tipo: TipoFicha, id: number) => authFetch(`/admin/escandallos/foto/${tipo}/${id}`, { method: 'DELETE' }).then(() => undefined),
     ingredientes: (restaurantId: number) => authFetch(`/admin/escandallos/ingredientes?restaurantId=${restaurantId}`).then(r => r.json() as Promise<Ingrediente[]>),
     crearIngrediente: (body: IngredienteBody) => authFetch('/admin/escandallos/ingredientes', { method: 'POST', json: body }).then(r => r.json() as Promise<Ingrediente>),
     editarIngrediente: (id: number, body: Partial<IngredienteBody>) => authFetch(`/admin/escandallos/ingredientes/${id}`, { method: 'PATCH', json: body }).then(r => r.json() as Promise<Ingrediente>),

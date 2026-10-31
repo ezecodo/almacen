@@ -414,7 +414,24 @@ model Receta {
   raciones    Float               @default(1) // plato: raciones que salen de las cantidades indicadas
   rendimiento Float?              // elaboración: lo que sale de la tanda, en la unidad base del producto (g / ml / ud)
   lineas      RecetaLinea[]
+  // Ficha técnica (lo que la cocina lee y se imprime): partes con sus pasos, emplatado, notas y foto
+  partes      RecetaParte[]
+  emplatado   String          @default("")
+  notas       String          @default("") // conservación, reposo, mise en place…
+  fotoAt      DateTime?       // hay foto (uploads/recetas/<plato|elab>-<id>.jpg); la fecha rompe la caché
   updatedAt  DateTime      @updatedAt
+}
+
+// Una parte de la ficha (PULPO, CREMA DE MAÍZ…): sus ingredientes y sus pasos en orden. Una
+// elaboración compartida entra en el plato como un ingrediente más dentro de su parte.
+model RecetaParte {
+  id       Int           @id @default(autoincrement())
+  recetaId Int
+  receta   Receta        @relation(fields: [recetaId], references: [id], onDelete: Cascade)
+  nombre   String        @default("")
+  pasos    Json          @default("[]") // string[]
+  orden    Int           @default(0)
+  lineas   RecetaLinea[]
 }
 
 model RecetaLinea {
@@ -423,8 +440,11 @@ model RecetaLinea {
   receta     Receta             @relation(fields: [recetaId], references: [id], onDelete: Cascade)
   productoId Int
   producto   InventarioProducto @relation(fields: [productoId], references: [id])
-  cantidad   Float              // en la unidad base del producto (g / ml / ud)
+  cantidad   Float              // en la unidad base del producto (g / ml / ud); 0 = sin cantidad (c/s), no cuesta
+  texto      String?            // se lee en vez de la cantidad: "c/s", "6 granos", "1 rama"
   orden      Int                @default(0)
+  parteId    Int?
+  parte      RecetaParte?       @relation(fields: [parteId], references: [id], onDelete: Cascade)
 }
 
 // Catálogo de alérgenos, editable desde /admin/alergenos (añadir/quitar/renombrar).

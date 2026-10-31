@@ -33,7 +33,7 @@ export const RUTAS_PULSO = new Set([
   'GET /api/events/global',
 ])
 
-// Lo que usa un empleado con su PIN: la app de sala, el almacén (/retiro) y "mis propinas".
+// Lo que usa un empleado con su PIN: la app de sala, la wiki de cocina (/cocina), el almacén (/retiro) y "mis propinas".
 // Sale de lo que realmente llaman esas pantallas (SalaMesasPage y sus componentes).
 // Lo único que existe dentro de la Box, en modo local (docs/modo-local.md): entrar con el PIN, ver
 // el salón y la carta, y comandar. Sin cobros, turno, mermas ni nada de administración: eso espera
@@ -70,6 +70,7 @@ export const RUTAS_SALA = new Set([
   'GET /api/gastos/habituales', 'GET /api/gastos', 'POST /api/gastos', 'DELETE /api/gastos/:id', 'PATCH /api/gastos/:id/pagar',
   // carta (solo lectura), wiki y alérgenos
   'GET /api/menu', 'GET /api/menu/categorias', 'GET /api/alergenos', 'GET /api/wiki',
+  'GET /api/cocina/recetas', 'GET /api/cocina/recetas/:tipo/:id', 'GET /api/cocina/foto/:tipo/:id', // wiki de cocina (/cocina, sin precios)
   'GET /api/maridajes', // 🍷 qué vino recomendar con lo que pidió la mesa
   'GET /api/accesos-rapidos', // ⚡ lo de un toque arriba de COMIDA / BEBIDAS
   // menús de grupo
@@ -129,6 +130,7 @@ export const SOLO_ENCARGADO = new Set([
 export const CONSULTA_SALA = new Set([
   'GET /api/red/estado',
   'GET /api/wiki', 'GET /api/menu', 'GET /api/menu/categorias', 'GET /api/alergenos', 'GET /api/maridajes',
+  'GET /api/cocina/recetas', 'GET /api/cocina/recetas/:tipo/:id', 'GET /api/cocina/foto/:tipo/:id', // recetas, también desde casa
   'GET /api/propinas/mis-turnos', 'GET /api/staffing/mi-horario',
   'GET /api/lecciones/mias', 'POST /api/lecciones/mias', // las lecciones se pueden hacer en casa
 ])

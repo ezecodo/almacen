@@ -33,7 +33,7 @@ const NAV_GROUPS = [
       { to: '/admin/alergenos', label: 'Alérgenos' },
       { to: '/admin/accesos-rapidos', label: 'Accesos rápidos' },
       { to: '/admin/maridajes', label: 'Maridajes' },
-      { to: '/admin/escandallos', label: 'Escandallos' },
+      { to: '/admin/escandallos', label: 'Recetas y costes' },
       { to: '/admin/grupos', label: 'Grupos' },
       { to: '/admin/salon',  label: 'Salón' },
     ],

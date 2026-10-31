@@ -7093,6 +7093,7 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
   useEffect(() => {
     if (!restaurant) navigate(tpv ? '/sala/setup?volver=/tpv' : '/sala/setup', { replace: true })
     else if (!camarero) navigate(pantallaPin, { replace: true })
+    else if (camarero.tipo === 'cocina') navigate('/sala/cocina', { replace: true }) // cocina tiene su pantalla
   }, [])
 
   const [planId, setPlanId]               = useState<number | null>(null)
@@ -7452,7 +7453,7 @@ export default function SalaMesasPage({ tpv = false }: { tpv?: boolean }) {
     return { label: '● Abierta', color: 'text-[#4CC8A0] bg-[#4CC8A0]/10' }
   }
 
-  if (!restaurant || !camarero) return null
+  if (!restaurant || !camarero || camarero.tipo === 'cocina') return null
 
   // Fuera de la red del local (y el local la exige): modo consulta. Se puede estudiar la carta y la
   // wiki y ver las propinas; el encargado, además, reviews y reservas. Operar pide estar en el local.

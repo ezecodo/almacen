@@ -13,6 +13,7 @@ import { propinaRoutes } from './routes/propinas'
 import { menuRoutes } from './routes/menu'
 import { alergenoRoutes } from './routes/alergenos'
 import { escandalloRoutes } from './routes/escandallos'
+import { cocinaRoutes } from './routes/cocina'
 import { salonRoutes } from './routes/salon'
 import { comandaRoutes } from './routes/comandas'
 import { mermaRoutes } from './routes/mermas'
@@ -170,6 +171,7 @@ async function start() {
   await app.register(menuRoutes, { prefix: '/api' })
   await app.register(alergenoRoutes, { prefix: '/api' })
   await app.register(escandalloRoutes, { prefix: '/api' })
+  await app.register(cocinaRoutes, { prefix: '/api' })
   await app.register(salonRoutes, { prefix: '/api' })
   await app.register(comandaRoutes, { prefix: '/api' })
   await app.register(mermaRoutes, { prefix: '/api' })

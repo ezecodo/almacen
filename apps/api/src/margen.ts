@@ -42,6 +42,7 @@ async function costesDePlatos(ids: number[]): Promise<Map<number, number | null>
     let total = 0
     let completo = true
     for (const l of r.lineas) {
+      if (l.cantidad <= 0) continue // c/s
       const cu = costes.coste(l.productoId)
       if (cu === null) { completo = false; break }
       total += cu * l.cantidad

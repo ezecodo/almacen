@@ -56,8 +56,8 @@ export default function AccesosPage() {
           nota="Solo hace falta una vez por dispositivo."
         />
         <Acceso
-          titulo="App de sala"
-          para="Camareros y encargados, cada uno con su PIN de 4 dígitos."
+          titulo="App de sala y cocina"
+          para="Todo el personal, cada uno con su PIN de 4 dígitos. Camareros y encargados entran a la sala; cocina, a sus recetas (sin precios), su horario y sus propinas."
           ruta="/sala"
           nota="Si el local tiene activado «solo desde el local», fuera de su red solo se puede consultar la wiki, la carta y las propinas."
         />

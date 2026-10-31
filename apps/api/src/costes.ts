@@ -55,6 +55,7 @@ export async function cargarCostes() {
     if (pila.includes(id) || pila.length >= PROFUNDIDAD_MAX) return null
     let total = 0
     for (const l of p.elaboracion!.lineas) {
+      if (l.cantidad <= 0) continue // c/s: sin cantidad no cuesta
       const c = calcular(l.productoId, [...pila, id])
       if (c === null) { memo.set(id, null); return null }
       total += c * l.cantidad

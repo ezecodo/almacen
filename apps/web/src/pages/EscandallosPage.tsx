@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, ADMIN_TOKEN_KEY, Elaboracion, EscandalloPlato, EstadoEscandallo, Ingrediente, IngredienteBody } from '../api'
+import { api, ADMIN_TOKEN_KEY, Elaboracion, EscandalloPlato, EstadoEscandallo, Ficha, FichaBody, Ingrediente, IngredienteBody, TipoFicha } from '../api'
+import { comprimirFoto } from '../lib/imagen'
 
 // Escandallos: qué cuesta en materia prima cada plato y qué margen deja.
 // Paleta oscura de marca (la misma del monitor Veri*factu y de Pulso), sin animaciones:
@@ -129,14 +130,20 @@ function IngredienteForm({ inicial, nombreInicial, onGuardado, onCancelar }: {
 }
 
 // ── Líneas de una receta (plato o elaboración): ingredientes, cantidades, alta y edición ──
+// cantidad es lo que se escribe: un número (en g / ml / ud) o un texto que se lee tal cual
+// ("c/s", "6 granos"), que no cuesta
 interface LineaEdit { productoId: number; cantidad: string }
+const esNumero = (v: string) => /^\s*\d+([.,]\d+)?\s*$/.test(v)
 
 function calcularFilas(lineas: LineaEdit[], porId: Map<number, Ingrediente>) {
   return lineas.map(l => {
     const ing = porId.get(l.productoId)
-    const cantidad = num(l.cantidad)
-    const coste = ing && ing.costeUnitario !== null && cantidad > 0 ? ing.costeUnitario * cantidad : null
-    return { ...l, ing, coste }
+    const conCantidad = esNumero(l.cantidad) && num(l.cantidad) > 0
+    const cantidad = conCantidad ? num(l.cantidad) : 0
+    const coste = ing && ing.costeUnitario !== null && conCantidad ? ing.costeUnitario * cantidad : null
+    // Falta precio solo si la línea cuesta algo
+    const sinPrecio = !!ing && ing.costeUnitario === null && conCantidad
+    return { ...l, ing, coste, conCantidad, sinPrecio }
   })
 }
 
@@ -172,7 +179,7 @@ function LineasReceta({ ingredientes, lineas, setLineas, divisor, excluirId, onC
         {filas.map((f, i) => {
           const precio = f.ing ? textoPrecio(f.ing) : null
           return (
-            <div key={f.productoId}>
+            <div key={`${f.productoId}-${i}`}>
               <div className={`${tarjeta} flex items-center gap-2 px-3 py-2`}>
                 <button onClick={() => !f.ing?.elaboracion && setEditandoId(editandoId === f.productoId ? null : f.productoId)} className="min-w-0 flex-1 text-left"
                   title={f.ing?.elaboracion ? 'Su coste sale de su receta (pestaña Elaboraciones)' : 'Editar precio y merma del ingrediente'}>
@@ -186,11 +193,11 @@ function LineasReceta({ ingredientes, lineas, setLineas, divisor, excluirId, onC
                 <input
                   value={f.cantidad}
                   onChange={ev => setLineas(l => l.map((x, k) => (k === i ? { ...x, cantidad: ev.target.value } : x)))}
-                  inputMode="decimal" placeholder="0" autoFocus={f.cantidad === ''}
-                  className={`${campo} w-20 text-right font-mono`}
+                  placeholder="c/s" autoFocus={f.cantidad === ''} title="Cantidad, o un texto: c/s, 6 granos…"
+                  className={`${campo} w-24 text-right font-mono`}
                 />
-                <span className="w-6 text-xs text-slate-400">{f.ing?.unidadBase}</span>
-                <span className="w-20 text-right text-sm font-mono tabular-nums text-white">{f.coste === null ? '—' : eur(f.coste / divisor)}</span>
+                <span className="w-6 text-xs text-slate-400">{esNumero(f.cantidad) ? f.ing?.unidadBase : ''}</span>
+                <span className="w-20 text-right text-sm font-mono tabular-nums text-white">{f.coste !== null ? eur(f.coste / divisor) : f.conCantidad ? '—' : <span className="text-slate-500">no cuesta</span>}</span>
                 <button onClick={() => setLineas(l => l.filter((_, k) => k !== i))} className="text-slate-500 hover:text-red-400 px-1">✕</button>
               </div>
               {editandoId === f.productoId && f.ing && (
@@ -230,6 +237,135 @@ function LineasReceta({ ingredientes, lineas, setLineas, divisor, excluirId, onC
   )
 }
 
+// ── Ficha técnica: partes con ingredientes y pasos, emplatado, notas y foto ─────
+interface ParteEdit { clave: number; nombre: string; pasos: string; lineas: LineaEdit[] } // pasos: uno por renglón
+let siguienteClave = 1
+const parteNueva = (nombre = '', lineas: LineaEdit[] = []): ParteEdit => ({ clave: siguienteClave++, nombre, pasos: '', lineas })
+
+const partesDe = (f: Ficha): ParteEdit[] => f.partes.length === 0 ? [parteNueva()] : f.partes.map(p => ({
+  clave: siguienteClave++, nombre: p.nombre, pasos: p.pasos.join('\n'),
+  lineas: p.lineas.map(l => ({ productoId: l.productoId, cantidad: l.texto ?? (l.cantidad > 0 ? String(l.cantidad) : 'c/s') })),
+}))
+
+const fichaBody = (partes: ParteEdit[], emplatado: string, notas: string): FichaBody => ({
+  partes: partes
+    .map(p => ({
+      nombre: p.nombre.trim(),
+      pasos: p.pasos.split('\n').map(x => x.replace(/^\s*\d+[.)-]?\s*/, '').trim()).filter(Boolean),
+      lineas: p.lineas.map(l => esNumero(l.cantidad) && num(l.cantidad) > 0
+        ? { productoId: l.productoId, cantidad: num(l.cantidad), texto: null }
+        : { productoId: l.productoId, cantidad: 0, texto: esNumero(l.cantidad) ? 'c/s' : l.cantidad.trim() || 'c/s' }),
+    }))
+    .filter(p => p.nombre || p.pasos.length || p.lineas.length),
+  emplatado: emplatado.trim(),
+  notas: notas.trim(),
+})
+
+function FichaPartes({ partes, setPartes, ingredientes, divisor, excluirId, onCambioIngredientes, conElaboraciones }: {
+  partes: ParteEdit[]
+  setPartes: (f: (p: ParteEdit[]) => ParteEdit[]) => void
+  ingredientes: Ingrediente[]
+  divisor: number
+  excluirId?: number
+  onCambioIngredientes: () => void
+  conElaboraciones: boolean // en un plato se puede sumar una elaboración compartida como parte
+}) {
+  const [usando, setUsando] = useState(false)
+  const [busca, setBusca] = useState('')
+  const cambiar = (clave: number, f: (p: ParteEdit) => ParteEdit) => setPartes(ps => ps.map(p => (p.clave === clave ? f(p) : p)))
+  const mover = (k: number, d: -1 | 1) => setPartes(ps => {
+    const n = [...ps]; const j = k + d
+    if (j < 0 || j >= n.length) return ps
+    ;[n[k], n[j]] = [n[j], n[k]]
+    return n
+  })
+  const nb = norm(busca.trim())
+  const elaboraciones = ingredientes.filter(i => i.elaboracion && i.id !== excluirId && (!nb || norm(i.nombre).includes(nb))).slice(0, 10)
+
+  return (
+    <div className="space-y-4">
+      {partes.map((p, k) => (
+        <div key={p.clave} className={`${tarjeta} p-3 space-y-3`}>
+          <div className="flex items-center gap-2">
+            <input value={p.nombre} onChange={ev => cambiar(p.clave, x => ({ ...x, nombre: ev.target.value }))}
+              placeholder={partes.length > 1 ? 'Nombre de la parte (ej. CREMA DE MAÍZ)' : 'Nombre de la parte (opcional)'}
+              className={`${campo} flex-1 font-bold uppercase tracking-wide`} />
+            {partes.length > 1 && <>
+              <button onClick={() => mover(k, -1)} disabled={k === 0} className="text-slate-400 px-1 disabled:opacity-30" title="Subir">▲</button>
+              <button onClick={() => mover(k, 1)} disabled={k === partes.length - 1} className="text-slate-400 px-1 disabled:opacity-30" title="Bajar">▼</button>
+              <button onClick={() => setPartes(ps => ps.filter(x => x.clave !== p.clave))} className="text-slate-500 hover:text-red-400 px-1" title="Quitar la parte">✕</button>
+            </>}
+          </div>
+          <LineasReceta ingredientes={ingredientes} lineas={p.lineas} setLineas={f => cambiar(p.clave, x => ({ ...x, lineas: f(x.lineas) }))}
+            divisor={divisor} excluirId={excluirId} onCambioIngredientes={onCambioIngredientes}
+            vacio="Sin ingredientes. Búscalos abajo; la cantidad puede ser un número o un texto (c/s, 6 granos)." />
+          <div>
+            <p className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">Elaboración · un paso por renglón</p>
+            <textarea value={p.pasos} onChange={ev => cambiar(p.clave, x => ({ ...x, pasos: ev.target.value }))} rows={Math.max(3, p.pasos.split('\n').length + 1)}
+              placeholder={'Hervir el maíz con el caldo 10 min.\nTriturar con la nata y la mantequilla.\nColar y rectificar de sal.'}
+              className={`${campo} w-full leading-relaxed`} />
+          </div>
+        </div>
+      ))}
+
+      <div className="flex flex-wrap gap-3">
+        <button onClick={() => setPartes(ps => [...ps, parteNueva()])} className="text-sm font-bold text-[#4B9EDF]">+ Parte</button>
+        {conElaboraciones && <button onClick={() => setUsando(!usando)} className="text-sm font-bold text-[#4CC8A0]">⚗️ Usar una elaboración</button>}
+      </div>
+      {usando && (
+        <div className={`${tarjeta} p-3 space-y-2`}>
+          <p className="text-xs text-slate-400">La elaboración tiene su propia ficha (pestaña ⚗️ Elaboraciones). Aquí solo se pone cuánta lleva el plato.</p>
+          <input value={busca} onChange={ev => setBusca(ev.target.value)} autoFocus placeholder="Buscar elaboración" className={`${campo} w-full`} />
+          {elaboraciones.map(i => (
+            <button key={i.id} onClick={() => { setPartes(ps => [...ps, parteNueva(i.nombre.toUpperCase(), [{ productoId: i.id, cantidad: '' }])]); setUsando(false); setBusca('') }}
+              className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-left text-sm hover:bg-white/5">
+              <span className="text-white">⚗️ {i.nombre}</span>
+              <span className="text-xs text-slate-500">{textoPrecio(i)}</span>
+            </button>
+          ))}
+          {elaboraciones.length === 0 && <p className="text-sm text-slate-500">No hay elaboraciones con receta{nb ? ' con ese nombre' : ''}.</p>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Foto de la ficha: se sube al momento (aparte de "Guardar")
+function FotoFicha({ tipo, id, fotoAt, onCambio }: { tipo: TipoFicha; id: number; fotoAt: string | null; onCambio: () => void }) {
+  const [url, setUrl] = useState<string | null>(null)
+  const [error, setError] = useState('')
+  const [subiendo, setSubiendo] = useState(false)
+  useEffect(() => {
+    if (!fotoAt) { setUrl(null); return }
+    let viva = true
+    let u: string | null = null
+    api.escandallos.foto(tipo, id).then(b => { if (viva) { u = URL.createObjectURL(b); setUrl(u) } }).catch(() => {})
+    return () => { viva = false; if (u) URL.revokeObjectURL(u) }
+  }, [tipo, id, fotoAt])
+  const subir = async (file: File) => {
+    setError(''); setSubiendo(true)
+    try { await api.escandallos.subirFoto(tipo, id, await comprimirFoto(file, 1600)); onCambio() }
+    catch (e) { setError((e as Error).message) }
+    finally { setSubiendo(false) }
+  }
+  const quitar = async () => { await api.escandallos.quitarFoto(tipo, id); onCambio() }
+  return (
+    <div className="flex items-center gap-3">
+      {url
+        ? <img src={url} alt="" className="w-28 h-28 rounded-xl object-cover border border-white/10" />
+        : <div className="w-28 h-28 rounded-xl border border-dashed border-white/20 flex items-center justify-center text-3xl text-slate-600">📷</div>}
+      <div className="space-y-1.5">
+        <label className="block text-sm font-bold text-[#4B9EDF] cursor-pointer">
+          {subiendo ? 'Subiendo…' : url ? 'Cambiar foto' : 'Subir foto'}
+          <input type="file" accept="image/*" className="hidden" disabled={subiendo} onChange={ev => { const f = ev.target.files?.[0]; if (f) subir(f); ev.target.value = '' }} />
+        </label>
+        {url && <button onClick={quitar} className="block text-xs text-slate-500 hover:text-red-400">Quitar</button>}
+        {error && <p className="text-xs text-red-400">{error}</p>}
+      </div>
+    </div>
+  )
+}
+
 // ── Detalle del plato: receta, reparto del coste y precio objetivo ─────────────
 
 function DetallePlato({ menuItemId, restaurantId, onClose }: { menuItemId: number; restaurantId: number; onClose: () => void }) {
@@ -237,34 +373,35 @@ function DetallePlato({ menuItemId, restaurantId, onClose }: { menuItemId: numbe
   const { data: detalle } = useQuery({ queryKey: ['escandallo', menuItemId], queryFn: () => api.escandallos.detalle(menuItemId) })
   const { data: ingredientes = [] } = useQuery({ queryKey: ['escandallo-ingredientes', restaurantId], queryFn: () => api.escandallos.ingredientes(restaurantId) })
 
-  const [lineas, setLineas] = useState<LineaEdit[] | null>(null)
+  const [partes, setPartes] = useState<ParteEdit[] | null>(null)
+  const [emplatado, setEmplatado] = useState('')
+  const [notas, setNotas] = useState('')
   const [raciones, setRaciones] = useState('1')
   const [objetivo, setObjetivo] = useState('')
 
-  // Copia editable de la receta: se carga una vez por plato
+  // Copia editable de la ficha: se carga una vez por plato
   useEffect(() => {
-    if (!detalle || lineas !== null) return
-    setLineas(detalle.lineas.map(l => ({ productoId: l.productoId, cantidad: String(l.cantidad) })))
+    if (!detalle || partes !== null) return
+    setPartes(partesDe(detalle))
+    setEmplatado(detalle.emplatado)
+    setNotas(detalle.notas)
     setRaciones(String(detalle.raciones))
     setObjetivo(String(detalle.verde))
-  }, [detalle, lineas])
+  }, [detalle, partes])
 
   const porId = useMemo(() => new Map(ingredientes.map(i => [i.id, i])), [ingredientes])
-  const filas = calcularFilas(lineas ?? [], porId)
+  const filas = calcularFilas((partes ?? []).flatMap(p => p.lineas), porId)
   const nRaciones = num(raciones) > 0 ? num(raciones) : 1
   const costeTotal = filas.reduce((s, f) => s + (f.coste ?? 0), 0) / nRaciones
-  const sinPrecio = filas.filter(f => f.ing && f.ing.costeUnitario === null).length
-  const hayReceta = filas.length > 0
+  const sinPrecio = new Set(filas.filter(f => f.sinPrecio).map(f => f.productoId)).size
+  const hayReceta = filas.some(f => f.conCantidad)
   const sinIva = detalle?.precioSinIva ?? 0
   const foodCost = hayReceta && sinIva > 0 ? (costeTotal / sinIva) * 100 : null
   const estado: EstadoEscandallo = !hayReceta || foodCost === null ? 'sin_receta' : sinPrecio > 0 ? 'incompleta' : estadoDe(foodCost, detalle?.verde ?? 30, detalle?.ambar ?? 35)
   const precioObjetivo = hayReceta && num(objetivo) > 0 && detalle ? (costeTotal / (num(objetivo) / 100)) * (1 + detalle.tasaIva / 100) : null
 
   const guardar = useMutation({
-    mutationFn: () => api.escandallos.guardar(menuItemId, {
-      raciones: nRaciones,
-      lineas: filas.filter(f => num(f.cantidad) > 0).map(f => ({ productoId: f.productoId, cantidad: num(f.cantidad) })),
-    }),
+    mutationFn: () => api.escandallos.guardar(menuItemId, { raciones: nRaciones, ...fichaBody(partes ?? [], emplatado, notas) }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['escandallos'] })
       qc.invalidateQueries({ queryKey: ['escandallo', menuItemId] })
@@ -277,13 +414,20 @@ function DetallePlato({ menuItemId, restaurantId, onClose }: { menuItemId: numbe
     qc.invalidateQueries({ queryKey: ['escandallos'] })
     qc.invalidateQueries({ queryKey: ['elaboraciones'] })
   }
-  const ranking = [...filas].filter(f => f.coste !== null).sort((a, b) => (b.coste ?? 0) - (a.coste ?? 0))
+  // El mismo ingrediente en varias partes (la mantequilla, la nata) suma en una sola barra
+  const porIngrediente = new Map<number, (typeof filas)[number]>()
+  for (const f of filas) {
+    if (f.coste === null) continue
+    const a = porIngrediente.get(f.productoId)
+    porIngrediente.set(f.productoId, a ? { ...a, coste: (a.coste ?? 0) + f.coste } : f)
+  }
+  const ranking = [...porIngrediente.values()].sort((a, b) => (b.coste ?? 0) - (a.coste ?? 0))
   const maxCoste = ranking[0]?.coste ?? 0
   const e = ESTADO[estado]
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/60" onClick={onClose}>
-      <div className="h-full w-full max-w-2xl overflow-y-auto bg-[#0f1a2e] border-l border-[#4B9EDF]/40 text-slate-200" onClick={ev => ev.stopPropagation()}>
+      <div className="h-full w-full max-w-3xl overflow-y-auto bg-[#0f1a2e] border-l border-[#4B9EDF]/40 text-slate-200" onClick={ev => ev.stopPropagation()}>
         <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-white/10 bg-[#0f1a2e] px-5 py-4">
           <div className="min-w-0 flex-1">
             <p className="text-xs text-slate-400 uppercase tracking-wider">{detalle?.categoria ?? '…'}</p>
@@ -292,7 +436,7 @@ function DetallePlato({ menuItemId, restaurantId, onClose }: { menuItemId: numbe
           <button onClick={onClose} className="text-slate-400 text-xl px-2">✕</button>
         </div>
 
-        {detalle && lineas !== null && (
+        {detalle && partes !== null && (
           <div className="p-5 space-y-5">
             {/* Resumen en vivo: cambia mientras se edita la receta */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -315,18 +459,32 @@ function DetallePlato({ menuItemId, restaurantId, onClose }: { menuItemId: numbe
               </p>
             )}
 
-            {/* Receta */}
+            {/* Ficha técnica */}
             <div>
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-bold text-white uppercase tracking-wider">Receta</h3>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider">Ficha técnica</h3>
                 <label className="flex items-center gap-2 text-xs text-slate-400">
-                  Estas cantidades dan para
+                  La receta es para
                   <input value={raciones} onChange={ev => setRaciones(ev.target.value)} inputMode="decimal" className={`${campo} w-14 text-right font-mono`} />
                   {nRaciones === 1 ? 'ración' : 'raciones'}
                 </label>
               </div>
-              <LineasReceta ingredientes={ingredientes} lineas={lineas} setLineas={f => setLineas(l => f(l ?? []))} divisor={nRaciones}
-                onCambioIngredientes={refrescarIngredientes} vacio="Todavía no tiene ingredientes. Búscalos abajo." />
+              <FichaPartes partes={partes} setPartes={f => setPartes(p => f(p ?? []))} ingredientes={ingredientes} divisor={nRaciones}
+                onCambioIngredientes={refrescarIngredientes} conElaboraciones />
+            </div>
+
+            <div className="grid sm:grid-cols-[auto_1fr] gap-4 items-start">
+              <FotoFicha tipo="plato" id={menuItemId} fotoAt={detalle.fotoAt} onCambio={() => qc.invalidateQueries({ queryKey: ['escandallo', menuItemId] })} />
+              <div className="space-y-3">
+                <div>
+                  <p className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">Emplatado</p>
+                  <textarea value={emplatado} onChange={ev => setEmplatado(ev.target.value)} rows={3} placeholder="Cómo se monta el plato" className={`${campo} w-full leading-relaxed`} />
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">Notas</p>
+                  <textarea value={notas} onChange={ev => setNotas(ev.target.value)} rows={2} placeholder="Conservación, reposo, mise en place…" className={`${campo} w-full leading-relaxed`} />
+                </div>
+              </div>
             </div>
 
             {/* Qué ingredientes pesan más en el coste */}
@@ -365,7 +523,7 @@ function DetallePlato({ menuItemId, restaurantId, onClose }: { menuItemId: numbe
             <div className="flex justify-end gap-2 pb-6">
               <button onClick={onClose} className="text-sm text-slate-400 px-4 py-2.5">Cerrar sin guardar</button>
               <button onClick={() => guardar.mutate()} disabled={guardar.isPending} className="text-sm font-bold bg-[#4CC8A0] text-[#0f1a2e] rounded-xl px-5 py-2.5 disabled:opacity-50">
-                {guardar.isPending ? 'Guardando…' : 'Guardar receta'}
+                {guardar.isPending ? 'Guardando…' : 'Guardar ficha'}
               </button>
             </div>
           </div>
@@ -384,21 +542,24 @@ function DetalleElaboracion({ productoId, restaurantId, onClose }: { productoId:
   const qc = useQueryClient()
   const { data: detalle } = useQuery({ queryKey: ['elaboracion', productoId], queryFn: () => api.escandallos.elaboracion(productoId) })
   const { data: ingredientes = [] } = useQuery({ queryKey: ['escandallo-ingredientes', restaurantId], queryFn: () => api.escandallos.ingredientes(restaurantId) })
-  const [lineas, setLineas] = useState<LineaEdit[] | null>(null)
+  const [partes, setPartes] = useState<ParteEdit[] | null>(null)
+  const [notas, setNotas] = useState('')
   const [rinde, setRinde] = useState('')
 
   useEffect(() => {
-    if (!detalle || lineas !== null) return
-    setLineas(detalle.lineas.map(l => ({ productoId: l.productoId, cantidad: String(l.cantidad) })))
+    if (!detalle || partes !== null) return
+    setPartes(partesDe(detalle))
+    setNotas(detalle.notas)
     setRinde(detalle.rendimiento ? String(detalle.rendimiento / porUnidadBase(detalle.unidad)) : '')
-  }, [detalle, lineas])
+  }, [detalle, partes])
 
   const porId = useMemo(() => new Map(ingredientes.map(i => [i.id, i])), [ingredientes])
-  const filas = calcularFilas(lineas ?? [], porId)
+  const filas = calcularFilas((partes ?? []).flatMap(p => p.lineas), porId)
   const costeTanda = filas.reduce((s, f) => s + (f.coste ?? 0), 0)
-  const sinPrecio = filas.filter(f => f.ing && f.ing.costeUnitario === null).length
+  const sinPrecio = new Set(filas.filter(f => f.sinPrecio).map(f => f.productoId)).size
   const rindeNum = num(rinde)
-  const porUnidad = rindeNum > 0 && filas.length > 0 ? costeTanda / rindeNum : null
+  const conCoste = filas.some(f => f.conCantidad)
+  const porUnidad = rindeNum > 0 && conCoste ? costeTanda / rindeNum : null
   const refrescar = () => {
     qc.invalidateQueries({ queryKey: ['escandallo-ingredientes'] })
     qc.invalidateQueries({ queryKey: ['escandallos'] })
@@ -406,16 +567,16 @@ function DetalleElaboracion({ productoId, restaurantId, onClose }: { productoId:
   }
   const guardar = useMutation({
     mutationFn: () => api.escandallos.guardarElaboracion(productoId, {
-      rendimiento: rindeNum * porUnidadBase(detalle!.unidad),
-      lineas: filas.filter(f => num(f.cantidad) > 0).map(f => ({ productoId: f.productoId, cantidad: num(f.cantidad) })),
+      rendimiento: rindeNum > 0 ? rindeNum * porUnidadBase(detalle!.unidad) : null,
+      ...fichaBody(partes ?? [], '', notas),
     }),
     onSuccess: () => { refrescar(); qc.invalidateQueries({ queryKey: ['elaboracion', productoId] }); onClose() },
   })
-  const listo = rindeNum > 0 || filas.length === 0
+  const listo = rindeNum > 0 || !conCoste
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/60" onClick={onClose}>
-      <div className="h-full w-full max-w-2xl overflow-y-auto bg-[#0f1a2e] border-l border-[#4B9EDF]/40 text-slate-200" onClick={ev => ev.stopPropagation()}>
+      <div className="h-full w-full max-w-3xl overflow-y-auto bg-[#0f1a2e] border-l border-[#4B9EDF]/40 text-slate-200" onClick={ev => ev.stopPropagation()}>
         <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-white/10 bg-[#0f1a2e] px-5 py-4">
           <div className="min-w-0 flex-1">
             <p className="text-xs text-slate-400 uppercase tracking-wider">⚗️ Elaboración · {detalle?.categoria ?? '…'}</p>
@@ -424,12 +585,12 @@ function DetalleElaboracion({ productoId, restaurantId, onClose }: { productoId:
           <button onClick={onClose} className="text-slate-400 text-xl px-2">✕</button>
         </div>
 
-        {detalle && lineas !== null && (
+        {detalle && partes !== null && (
           <div className="p-5 space-y-5">
             <div className="grid grid-cols-2 gap-2">
               <div className={`${tarjeta} px-3 py-2.5`}>
                 <p className="text-[10px] uppercase tracking-widest text-slate-400">Coste de la tanda</p>
-                <p className="text-xl font-black font-mono tabular-nums text-white">{filas.length ? eur(costeTanda) : '—'}</p>
+                <p className="text-xl font-black font-mono tabular-nums text-white">{conCoste ? eur(costeTanda) : '—'}</p>
               </div>
               <div className={`${tarjeta} px-3 py-2.5`}>
                 <p className="text-[10px] uppercase tracking-widest text-slate-400">Coste por {detalle.unidad}</p>
@@ -445,15 +606,23 @@ function DetalleElaboracion({ productoId, restaurantId, onClose }: { productoId:
 
             <div>
               <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                <h3 className="text-sm font-bold text-white uppercase tracking-wider">Receta de la tanda</h3>
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider">Ficha de la tanda</h3>
                 <label className="flex items-center gap-2 text-xs text-slate-400">
                   Salen
-                  <input value={rinde} onChange={ev => setRinde(ev.target.value)} inputMode="decimal" placeholder="0" className={`${campo} w-20 text-right font-mono ${rindeNum > 0 || filas.length === 0 ? '' : 'border-amber-400'}`} />
+                  <input value={rinde} onChange={ev => setRinde(ev.target.value)} inputMode="decimal" placeholder="0" className={`${campo} w-20 text-right font-mono ${listo ? '' : 'border-amber-400'}`} />
                   {detalle.unidad}
                 </label>
               </div>
-              <LineasReceta ingredientes={ingredientes} lineas={lineas} setLineas={f => setLineas(l => f(l ?? []))} divisor={1} excluirId={productoId}
-                onCambioIngredientes={refrescar} vacio="Todavía no tiene ingredientes: escribe abajo qué lleva la tanda (en g, ml o ud) y cuánto sale." />
+              <FichaPartes partes={partes} setPartes={f => setPartes(p => f(p ?? []))} ingredientes={ingredientes} divisor={1} excluirId={productoId}
+                onCambioIngredientes={refrescar} conElaboraciones={false} />
+            </div>
+
+            <div className="grid sm:grid-cols-[auto_1fr] gap-4 items-start">
+              <FotoFicha tipo="elab" id={productoId} fotoAt={detalle.fotoAt} onCambio={() => qc.invalidateQueries({ queryKey: ['elaboracion', productoId] })} />
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">Notas</p>
+                <textarea value={notas} onChange={ev => setNotas(ev.target.value)} rows={3} placeholder="Conservación, reposo (ej. reposar mínimo 24 h en frío), envasado…" className={`${campo} w-full leading-relaxed`} />
+              </div>
             </div>
 
             {detalle.usadaEn.length > 0 && (
@@ -465,7 +634,7 @@ function DetalleElaboracion({ productoId, restaurantId, onClose }: { productoId:
             <div className="flex justify-end gap-2 pb-6">
               <button onClick={onClose} className="text-sm text-slate-400 px-4 py-2.5">Cerrar sin guardar</button>
               <button onClick={() => guardar.mutate()} disabled={guardar.isPending || !listo} className="text-sm font-bold bg-[#4CC8A0] text-[#0f1a2e] rounded-xl px-5 py-2.5 disabled:opacity-50">
-                {guardar.isPending ? 'Guardando…' : 'Guardar receta'}
+                {guardar.isPending ? 'Guardando…' : 'Guardar ficha'}
               </button>
             </div>
           </div>
@@ -673,8 +842,8 @@ export default function EscandallosPage() {
     <div className="min-h-full bg-[#0f1a2e] text-slate-200 p-4 sm:p-6 space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-black text-white">Escandallos</h1>
-          <p className="text-sm text-slate-400">Coste de materia prima, food cost y margen de cada plato. Precios de venta sin IVA ({matriz.data?.tasaIva ?? 10} %).</p>
+          <h1 className="text-2xl font-black text-white">Recetas y costes</h1>
+          <p className="text-sm text-slate-400">La ficha técnica de cada plato y elaboración (partes, pasos, emplatado, foto) con su coste, food cost y margen. Precios de venta sin IVA ({matriz.data?.tasaIva ?? 10} %).</p>
         </div>
         <div className="flex flex-wrap gap-1.5">
           {restaurantes.map(r => <button key={r.id} onClick={() => { setRidSel(r.id); setGrupoSel(null); setCatSel(null) }} className={pill(rid === r.id)}>{r.nombre}</button>)}

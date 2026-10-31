@@ -97,35 +97,21 @@ function PinScreen({ onAuth }: { onAuth: (emp: Empleado) => void }) {
   )
 }
 
-// ── Vista propinas ─────────────────────────────────────────────────────────────
-function MisPropinas({ empleado, onLogout }: { empleado: Empleado; onLogout: () => void }) {
+// ── Propinas por período (también en la app de cocina) ──────────────────────────
+export function PropinasPeriodo({ empleadoId }: { empleadoId: number }) {
   const [periodoOffset, setPeriodoOffset] = useState(0)
   const periodo = useMemo(() => getPeriodo(periodoOffset), [periodoOffset])
 
   const { data: turnos, isLoading } = useQuery({
-    queryKey: ['mis-turnos', empleado.id, periodo.desde, periodo.hasta],
-    queryFn: () => api.propinas.misTurnos(empleado.id, periodo.desde, periodo.hasta),
+    queryKey: ['mis-turnos', empleadoId, periodo.desde, periodo.hasta],
+    queryFn: () => api.propinas.misTurnos(empleadoId, periodo.desde, periodo.hasta),
   })
 
   const totalPropina = turnos?.reduce((s, t) => s + t.propina, 0) ?? 0
   const totalHoras   = turnos?.reduce((s, t) => s + t.horas,   0) ?? 0
 
   return (
-    <div className="min-h-screen bg-[#1a2235]">
-      {/* Header */}
-      <header className="px-5 pt-8 pb-6 flex items-start justify-between">
-        <div>
-          <p className="text-gray-400 text-sm">Hola,</p>
-          <h1 className="text-2xl font-bold text-white">{empleado.nombre.split(' ')[0]}</h1>
-        </div>
-        <button onClick={onLogout} className="text-gray-500 text-sm hover:text-gray-300 mt-1">
-          Salir
-        </button>
-      </header>
-
-      {/* Mi horario: lo que le planificaron, antes de las propinas */}
-      <div className="px-5 mb-6"><MiHorario restaurantId={empleado.restaurantId ?? undefined} /></div>
-
+    <div>
       {/* Selector de período */}
       <div className="px-5 mb-5 flex items-center gap-3">
         <button
@@ -197,6 +183,29 @@ function MisPropinas({ empleado, onLogout }: { empleado: Empleado; onLogout: () 
           ))}
         </div>
       </div>
+    </div>
+  )
+}
+
+// ── Vista propinas ─────────────────────────────────────────────────────────────
+function MisPropinas({ empleado, onLogout }: { empleado: Empleado; onLogout: () => void }) {
+  return (
+    <div className="min-h-screen bg-[#1a2235]">
+      {/* Header */}
+      <header className="px-5 pt-8 pb-6 flex items-start justify-between">
+        <div>
+          <p className="text-gray-400 text-sm">Hola,</p>
+          <h1 className="text-2xl font-bold text-white">{empleado.nombre.split(' ')[0]}</h1>
+        </div>
+        <button onClick={onLogout} className="text-gray-500 text-sm hover:text-gray-300 mt-1">
+          Salir
+        </button>
+      </header>
+
+      {/* Mi horario: lo que le planificaron, antes de las propinas */}
+      <div className="px-5 mb-6"><MiHorario restaurantId={empleado.restaurantId ?? undefined} /></div>
+
+      <PropinasPeriodo empleadoId={empleado.id} />
     </div>
   )
 }

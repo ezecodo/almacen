@@ -47,19 +47,21 @@ export default function SalaLoginPage({ tpv = false }: { tpv?: boolean }) {
     setLoading(true)
     try {
       const empleado = await api.empleados.auth(next, restaurant?.id)
-      if (empleado.tipo !== 'sala') {
+      // Cocina entra con el mismo PIN a su pantalla (recetas, horario, propinas); el TPV es solo de sala
+      if (empleado.tipo !== 'sala' && tpv) {
         triggerError('Solo personal de sala puede acceder')
       } else {
         sessionStorage.setItem('oidoops_camarero', JSON.stringify({
           id: empleado.id,
           nombre: empleado.nombre,
+          tipo: empleado.tipo,
           rol: empleado.rol ?? null,
           accesoEncargadoApp: empleado.accesoEncargadoApp ?? false,
           // Entrando en modo local el pase lo firma la Box: vale allí, no en la nube
           token: enModoLocal() ? null : empleado.token ?? null,
           tokenLocal: enModoLocal() ? empleado.token ?? null : empleado.local?.token ?? null,
         }))
-        navigate(tpv ? '/tpv/mesas' : '/sala/mesas', { replace: true })
+        navigate(tpv ? '/tpv/mesas' : empleado.tipo === 'cocina' ? '/sala/cocina' : '/sala/mesas', { replace: true })
       }
     } catch {
       triggerError('PIN incorrecto')
@@ -94,7 +96,7 @@ export default function SalaLoginPage({ tpv = false }: { tpv?: boolean }) {
       <p className="text-[#4CC8A0] font-semibold text-sm mb-10">{restaurant.nombre}</p>
 
       <h2 className="text-white text-xl font-bold mb-1">Introduce tu PIN</h2>
-      <p className="text-gray-500 text-sm mb-8">{tpv ? 'Puesto TPV · personal de sala' : 'Personal de sala'}</p>
+      <p className="text-gray-500 text-sm mb-8">{tpv ? 'Puesto TPV · personal de sala' : 'Sala y cocina'}</p>
 
       {/* Dots */}
       <div className={`flex gap-4 mb-8 ${shake ? 'animate-shake' : ''}`}>

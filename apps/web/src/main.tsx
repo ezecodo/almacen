@@ -23,6 +23,7 @@ import MaridajesPage from './pages/MaridajesPage'
 import AccesosRapidosPage from './pages/AccesosRapidosPage'
 import EscandallosPage from './pages/EscandallosPage'
 import MisPropinasPage from './pages/MisPropinasPage'
+import CocinaPage from './pages/CocinaPage'
 import SalonPage from './pages/SalonPage'
 import ComandasPage from './pages/ComandasPage'
 import MesasFeedPage from './pages/MesasFeedPage'
@@ -72,6 +73,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             <Route path="/sala/setup" element={<SetupPage />} />
             <Route path="/sala" element={<SalaLoginPage />} />
             <Route path="/sala/mesas" element={<SalaMesasPage />} />
+            {/* Personal de cocina: recetas (wiki de cocina), su horario y sus propinas */}
+            <Route path="/sala/cocina" element={<CocinaPage />} />
             {/* Puesto TPV: tablet compartida del local, el PIN vale para una acción */}
             <Route path="/tpv" element={<SalaLoginPage tpv />} />
             <Route path="/tpv/mesas" element={<SalaMesasPage tpv />} />
@@ -79,6 +82,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           <Route path="/retiro" element={<RetiroPage />} />
           <Route path="/verificar/:id" element={<VerificarPage />} />
           <Route path="/mis-propinas" element={<MisPropinasPage />} />
+          {/* La cocina entra por la app de sala con su PIN (ver /sala/cocina) */}
+          <Route path="/cocina" element={<Navigate to="/sala" replace />} />
           <Route path="/reservas/:slug" element={<ReservaPublicaPage />} />
           <Route element={<PulsoGuard />}>
             <Route path="/pulso" element={<PulsoPage />} />
