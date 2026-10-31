@@ -2,10 +2,11 @@ import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../server'
 import { broadcast } from '../sse'
-import { requireEncargado } from '../auth'
+import { requireAltos, Sesion } from '../auth'
 import { publicarAviso } from '../mqtt'
 
-// Platos que se acabaron durante el servicio, por local. El encargado los marca desde el panel 💼:
+// Platos que se acabaron durante el servicio, por local. El encargado los marca desde el panel 💼
+// y el jefe de cocina desde su pantalla (/sala/cocina → 🚫 Altos):
 // sale "ALTO · <plato>" en todas las impresoras del local y en la sala el plato se ve apagado.
 // Al reponerlo sale "HAY · <plato>". Al cerrar el turno se reponen todos (routes/turnos.ts).
 
@@ -15,6 +16,9 @@ const marcarSchema = z.object({
 })
 const reponerParams = z.object({ menuItemId: z.coerce.number().int().positive() })
 const restQuery = z.object({ restaurantId: z.coerce.number().int().positive() })
+
+// Una sesión de sala solo toca los platos del local donde entró
+const deOtroLocal = (u: Sesion, restaurantId: number) => u.tipo === 'sala' && !!u.restaurantId && u.restaurantId !== restaurantId
 
 async function avisarImpresoras(restaurantId: number, titulo: 'ALTO' | 'HAY', plato: string, por: string) {
   const r = await prisma.restaurant.findUnique({ where: { id: restaurantId }, select: { piCodigo: true, impresoras: true } })
@@ -40,8 +44,9 @@ export async function agotadoRoutes(app: FastifyInstance) {
     })
   })
 
-  app.post('/agotados', { preHandler: requireEncargado }, async (req, reply) => {
+  app.post('/agotados', { preHandler: requireAltos }, async (req, reply) => {
     const { restaurantId, menuItemId } = marcarSchema.parse(req.body)
+    if (deOtroLocal(req.user, restaurantId)) return reply.status(403).send({ error: 'Este dispositivo es de otro local' })
     const item = await prisma.menuItem.findUnique({ where: { id: menuItemId } })
     if (!item || (item.restaurantId !== null && item.restaurantId !== restaurantId)) {
       return reply.status(404).send({ error: 'Ese plato no está en la carta de este local' })
@@ -55,9 +60,10 @@ export async function agotadoRoutes(app: FastifyInstance) {
     return reply.status(201).send(agotado)
   })
 
-  app.delete('/agotados/:menuItemId', { preHandler: requireEncargado }, async (req, reply) => {
+  app.delete('/agotados/:menuItemId', { preHandler: requireAltos }, async (req, reply) => {
     const { menuItemId } = reponerParams.parse(req.params)
     const { restaurantId } = restQuery.parse(req.query)
+    if (deOtroLocal(req.user, restaurantId)) return reply.status(403).send({ error: 'Este dispositivo es de otro local' })
     const borrado = await prisma.itemAgotado.deleteMany({ where: { restaurantId, menuItemId } })
     if (borrado.count === 0) return reply.status(404).send({ error: 'Ese plato no estaba agotado' })
     broadcast(restaurantId, 'agotados')

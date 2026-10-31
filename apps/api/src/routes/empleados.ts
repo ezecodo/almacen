@@ -127,6 +127,7 @@ export async function empleadoRoutes(app: FastifyInstance) {
       empleadoId: empleado.id,
       ...(Number.isInteger(restaurantId) ? { restaurantId } : {}),
       encargado: empleado.tipo === 'sala' && (empleado.rol === 'encargado' || empleado.accesoEncargadoApp),
+      ...(empleado.tipo === 'cocina' && empleado.rol === 'jefe_cocina' ? { jefeCocina: true } : {}),
     }
     const token = app.jwt.sign(sesion, { expiresIn: '16h' })
 

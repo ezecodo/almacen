@@ -28,7 +28,7 @@ import { checklistRoutes } from './routes/checklists'
 import { ticketRoutes, sincronizarImpresoras } from './routes/tickets'
 import { authRoutes } from './routes/auth'
 import { algunRestringido, ipDe, redDe, redRoutes } from './routes/red'
-import { CONSULTA_ENCARGADO, CONSULTA_SALA, RUTAS_LOCAL, RUTAS_PUBLICAS, RUTAS_PULSO, RUTAS_SALA, SOLO_ENCARGADO } from './permisos'
+import { CONSULTA_ENCARGADO, CONSULTA_SALA, RUTAS_LOCAL, RUTAS_PUBLICAS, RUTAS_PULSO, RUTAS_SALA, SOLO_ENCARGADO, JEFE_COCINA } from './permisos'
 import { facturaRoutes } from './routes/facturas'
 import { agotadoRoutes } from './routes/agotados'
 import { gastoRoutes } from './routes/gastos'
@@ -109,11 +109,11 @@ async function start() {
     } catch {
       return reply.status(401).send({ error: 'Sesión caducada — vuelve a entrar con tu PIN' })
     }
-    const { tipo, encargado } = req.user
+    const { tipo, encargado, jefeCocina } = req.user
     if (tipo === 'admin') return
     const permitido =
       tipo === 'pulso' ? RUTAS_PULSO.has(clave)
-      : RUTAS_SALA.has(clave) && (encargado || !SOLO_ENCARGADO.has(clave))
+      : RUTAS_SALA.has(clave) && (encargado || !SOLO_ENCARGADO.has(clave) || (!!jefeCocina && JEFE_COCINA.has(clave)))
     if (!permitido) return reply.status(403).send({ error: 'No tienes permiso para esto' })
   })
 

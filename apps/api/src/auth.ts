@@ -11,6 +11,8 @@ export interface Sesion {
   restaurantId?: number
   // rol 'encargado' o superpoder accesoEncargadoApp — mismo criterio que esEncargado en /sala
   encargado:   boolean
+  // rol 'jefe_cocina': además de leer las recetas, canta los altos (platos agotados) desde /sala/cocina
+  jefeCocina?: boolean
 }
 
 declare module '@fastify/jwt' {
@@ -34,6 +36,14 @@ async function verificar(req: FastifyRequest, reply: FastifyReply) {
 export async function requireEncargado(req: FastifyRequest, reply: FastifyReply) {
   if (!(await verificar(req, reply))) return
   if (req.user.tipo !== 'admin' && !req.user.encargado) {
+    return reply.status(403).send({ error: 'Solo encargados' })
+  }
+}
+
+// Marcar o reponer un plato agotado: encargado de sala, jefe de cocina o admin
+export async function requireAltos(req: FastifyRequest, reply: FastifyReply) {
+  if (!(await verificar(req, reply))) return
+  if (req.user.tipo !== 'admin' && !req.user.encargado && !req.user.jefeCocina) {
     return reply.status(403).send({ error: 'Solo encargados' })
   }
 }

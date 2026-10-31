@@ -103,6 +103,9 @@ export const RUTAS_SALA = new Set([
   'GET /api/producto/:barcode', 'POST /api/retiros', 'PATCH /api/retiros/:id/confirmar',
 ])
 
+// Lo de SOLO_ENCARGADO que también hace el jefe de cocina: cantar un alto y reponerlo
+export const JEFE_COCINA = new Set(['POST /api/agotados', 'DELETE /api/agotados/:menuItemId'])
+
 // Dentro de la app de sala, lo que solo hace el encargado (rol o superpoder accesoEncargadoApp)
 export const SOLO_ENCARGADO = new Set([
   'PATCH /api/comandas/:id/cerrar',   // cobrar

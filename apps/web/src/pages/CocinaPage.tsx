@@ -5,6 +5,8 @@ import { api, LineaCocina, TipoFicha } from '../api'
 import { enModoLocal } from '../lib/conexion'
 import MiHorario from '../components/MiHorario'
 import { PropinasPeriodo } from './MisPropinasPage'
+import AgotadosSala from '../components/AgotadosSala'
+import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
 
 // Pantalla del personal de cocina en la app central (/sala/cocina): entran con su PIN en /sala como
 // todos y ven lo suyo — 📖 la wiki de cocina (las fichas técnicas que crea el chef ejecutivo en
@@ -260,13 +262,22 @@ function Recetario({ restauranteDispositivo }: { restauranteDispositivo: number 
 }
 
 // ── Pantalla ────────────────────────────────────────────────────────────────────
-type Pestana = 'recetas' | 'horario' | 'propinas'
+type Pestana = 'recetas' | 'altos' | 'horario' | 'propinas'
+
+// 🚫 Altos: el jefe de cocina canta lo que se acabó (sale ALTO en las impresoras y la sala lo ve apagado),
+// igual que el encargado desde su panel 💼. Siempre del local donde entró (el del dispositivo).
+function Altos({ restaurantId }: { restaurantId: number }) {
+  const { data: agotados = [] } = useQuery({ queryKey: ['agotados', restaurantId], queryFn: () => api.agotados.list(restaurantId) })
+  return <div data-sala-theme="dark" className="px-4 pb-10 space-y-3"><AgotadosSala restaurantId={restaurantId} agotados={agotados} /></div>
+}
 
 export default function CocinaPage() {
   const navigate = useNavigate()
-  const empleado = (() => { try { return JSON.parse(sessionStorage.getItem('oidoops_camarero') ?? '') as { id: number; nombre: string } } catch { return null } })()
+  const empleado = (() => { try { return JSON.parse(sessionStorage.getItem('oidoops_camarero') ?? '') as { id: number; nombre: string; rol?: string | null } } catch { return null } })()
   const restaurante = (() => { try { return JSON.parse(localStorage.getItem('oidoops_restaurant') ?? '') as { id: number; nombre: string } } catch { return null } })()
   const [pestana, setPestana] = useState<Pestana>('recetas')
+  const jefe = empleado?.rol === 'jefe_cocina' && !!restaurante
+  useRestaurantEvents(jefe ? restaurante.id : null)
   useEffect(() => { if (!empleado) navigate('/sala', { replace: true }) }, [])
   if (!empleado) return null
   const salir = () => { sessionStorage.removeItem('oidoops_camarero'); navigate('/sala', { replace: true }) }
@@ -289,6 +300,7 @@ export default function CocinaPage() {
       <div className="px-4 pb-4">
         <div className="flex gap-1 rounded-2xl bg-white/5 p-1">
           {tab('recetas', '📖 Recetas')}
+          {jefe && tab('altos', '🚫 Altos')}
           {tab('horario', '🗓 Horario')}
           {tab('propinas', '💰 Propinas')}
         </div>
@@ -298,6 +310,8 @@ export default function CocinaPage() {
         <p className="mx-4 rounded-2xl bg-amber-400/10 px-4 py-3 text-sm text-amber-400">Sin internet: las recetas, el horario y las propinas vuelven cuando vuelva la conexión.</p>
       ) : pestana === 'recetas' ? (
         <Recetario restauranteDispositivo={restaurante?.id ?? null} />
+      ) : pestana === 'altos' && jefe ? (
+        <Altos restaurantId={restaurante.id} />
       ) : pestana === 'horario' ? (
         <div className="px-4 pb-10"><MiHorario restaurantId={restaurante?.id} /></div>
       ) : (
