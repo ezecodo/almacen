@@ -7,7 +7,7 @@ const TpvCtx = createContext<(() => void) | null>(null)
 import MiHorario from '../components/MiHorario'
 import CheckOverlay from '../components/CheckOverlay'
 import AgotadosSala from '../components/AgotadosSala'
-import BotonSigue, { useSigue } from '../components/BotonSigue'
+import { BarraEstado, EstadoMesaSheet, useSigue } from '../components/EstadoMesa'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, MOTIVO_RECTIFICAR_LABEL, MotivoRectificar, Alergeno, Comanda, ComandaItem, FloorPlan, GrupoAgendado, GrupoMenuTemplate, InventarioCategoria, Mesa, MenuCategoria, MenuItem, MermaMotivo, MiTurno, Reserva, Turno, WikiCategoria, WikiArticulo, ChecklistSector, sugerirCantidadesMenu, totalComanda, valorItem, waLink, esAvisoBox, repartoPago, textoPago, pagadoDivision } from '../api'
@@ -1224,26 +1224,8 @@ function PlatoAgotado({ nombre, detalle }: { nombre: string; detalle?: string })
   )
 }
 
-// Cómo va el plato en cocina, de lo que marcan en la pantalla de pase: el camarero lo ve en su mesa
-// sin ir a mirar los tickets
-function EstadoPlato({ item }: { item: ComandaItem }) {
-  const listos = Math.min(item.listos ?? 0, item.cantidad)
-  const servidos = Math.min(item.servidos ?? 0, listos)
-  const enCocina = item.cantidad - listos
-  const porRecoger = listos - servidos
-  if (servidos === item.cantidad) return <p className="text-xs font-black text-[var(--sala-tx3)]">✓ Servido</p>
-  if (porRecoger === item.cantidad) return <p className="text-xs font-black text-emerald-500">🟢 Listo en el pase</p>
-  if (enCocina === item.cantidad) return <p className="text-xs font-black text-amber-500">🟡 En cocina</p>
-  return (
-    <p className="text-xs font-black text-[var(--sala-tx2)]">
-      {[servidos > 0 && `✓ ${servidos} servido${servidos > 1 ? 's' : ''}`, porRecoger > 0 && `🟢 ${porRecoger} en el pase`, enCocina > 0 && `🟡 ${enCocina} en cocina`].filter(Boolean).join(' · ')}
-    </p>
-  )
-}
-
-function ItemRow({ item, nota, setNota, onUpdate, onDelete, onSaveNota, onMerma, onRepeat, onInvitar, agotado, pase }: {
+function ItemRow({ item, nota, setNota, onUpdate, onDelete, onSaveNota, onMerma, onRepeat, onInvitar, agotado }: {
   item: ComandaItem
-  pase?: boolean
   agotado?: boolean
   nota: { itemId: number; value: string } | null
   setNota: (v: { itemId: number; value: string } | null) => void
@@ -1270,7 +1252,6 @@ function ItemRow({ item, nota, setNota, onUpdate, onDelete, onSaveNota, onMerma,
             {item.autoGenerado && <span className="ml-1.5 text-[10px] font-bold text-[var(--sala-tx4)] uppercase">🔇 sin cocina</span>}
           </p>
           {agotado && <p className="text-red-400 text-xs font-bold">⚠ Agotado — quítalo antes de comandar</p>}
-          {pase && item.tipo === 'cocina' && !item.autoGenerado && item.nivel != null && <EstadoPlato item={item} />}
           {item.invitacion && (
             <p className="text-amber-500 text-xs font-bold truncate">
               🎁 Invitación{item.invitadoPor ? ` · ${item.invitadoPor}` : ''}{item.invitacionMotivo ? ` — ${item.invitacionMotivo}` : ''}
@@ -1394,16 +1375,18 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
     setAvisosAnadido(a => [...a.slice(-2), { id, texto }])
     setTimeout(() => setAvisosAnadido(a => a.filter(x => x.id !== id)), 1800)
   }
+  const [verEstado, setVerEstado] = useState(false)
   // Doble toque en el número de mesa = avisar a cocina de una demora. Por eso, si la pantalla de pase
   // está activa, el toque simple del encargado (quién está sentado) espera a ver si llega el segundo.
-  const sigue = useSigue(comanda, avisado => { navigator.vibrate?.(40); avisarAnadido(avisado ? '🔔 Avisado a cocina' : 'Aviso quitado') })
+  const sigue = useSigue(comanda, () => { navigator.vibrate?.(40); avisarAnadido('🔔 Avisado a cocina') })
   const toqueNumero = useRef<ReturnType<typeof setTimeout> | null>(null)
   const tocarNumero = () => {
     if (!sigue.disponible) { if (esEncargado) setQuienEsta(true); return }
     if (toqueNumero.current) {
       clearTimeout(toqueNumero.current)
       toqueNumero.current = null
-      sigue.pedir.mutate()
+      if (comanda.sigueAt) avisarAnadido('Cocina ya está avisada')
+      else sigue.pedir.mutate()
       return
     }
     toqueNumero.current = setTimeout(() => { toqueNumero.current = null; if (esEncargado) setQuienEsta(true) }, DOBLE_TOQUE_MESA_MS)
@@ -2069,6 +2052,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
               {comanda.notaMesa && <p className="min-w-0 text-[var(--sala-tx2)] text-xs truncate">📝 {comanda.notaMesa}</p>}
             </div>
           )}
+          {sigue.paseActivo && sigue.platos.length > 0 && <BarraEstado platos={sigue.platos} onAbrir={() => setVerEstado(true)} />}
           {!ancho && <div className="flex gap-1.5 mt-3 items-stretch">
             {/* Tabs gemelos: mismo fondo de marca + contenido blanco gordo; el activo brilla, el inactivo se atenúa */}
             <button data-guia="pestana-comanda" onClick={() => setTab('pedido')}
@@ -2123,7 +2107,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                 // TPV: los platos sin comandar se ven ya agrupados por el nivel que propondrá el Oído
                 const propuestos = propuestosTpv
                 const filas = (lista: ComandaItem[]) => lista.map((item: ComandaItem) => (
-                  <ItemRow pase={sigue.paseActivo} key={item.id} agotado={sinComandarAgotada(item)} item={item} nota={nota} setNota={setNota}
+                  <ItemRow key={item.id} agotado={sinComandarAgotada(item)} item={item} nota={nota} setNota={setNota}
                     onUpdate={cantidad => updateItem.mutate({ itemId: item.id, cantidad })}
                     onDelete={() => deleteItem.mutate(item.id)}
                     onSaveNota={v => saveNota.mutate({ itemId: item.id, value: v })}
@@ -2180,7 +2164,6 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                             🔀 Ordenar salidas
                           </button>
                         )}
-                        <BotonSigue comanda={comanda} />
                       </div>
                     )}
                     {/* ── Cocina ── */}
@@ -2191,7 +2174,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                       // Comanda nueva: lista plana
                       <div className="space-y-2">
                         {itemsCocina.map((item: ComandaItem) => (
-                          <ItemRow pase={sigue.paseActivo} key={item.id} agotado={sinComandarAgotada(item)} item={item} nota={nota} setNota={setNota}
+                          <ItemRow key={item.id} agotado={sinComandarAgotada(item)} item={item} nota={nota} setNota={setNota}
                             onUpdate={cantidad => updateItem.mutate({ itemId: item.id, cantidad })}
                             onDelete={() => deleteItem.mutate(item.id)}
                             onSaveNota={v => saveNota.mutate({ itemId: item.id, value: v })}
@@ -2217,7 +2200,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                                 </div>
                                 {ancho ? <div className="space-y-3 pl-2 border-l-2 border-amber-500/40">{porNivelPropuesto(pendientesCocina)}</div> : <div className="space-y-2">
                                   {pendientesCocina.map((item: ComandaItem) => (
-                                    <ItemRow pase={sigue.paseActivo} key={item.id} agotado={sinComandarAgotada(item)} item={item} nota={nota} setNota={setNota}
+                                    <ItemRow key={item.id} agotado={sinComandarAgotada(item)} item={item} nota={nota} setNota={setNota}
                                       onUpdate={cantidad => updateItem.mutate({ itemId: item.id, cantidad })}
                                       onDelete={() => deleteItem.mutate(item.id)}
                                       onSaveNota={v => saveNota.mutate({ itemId: item.id, value: v })}
@@ -2236,7 +2219,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                                     <NivelEtiqueta titulo={tituloNivel(nv, items.map(i => i.nombre), menu, categorias)} />
                                   <div className="space-y-2">
                                     {items.map((item: ComandaItem) => (
-                                      <ItemRow pase={sigue.paseActivo} key={item.id} agotado={sinComandarAgotada(item)} item={item} nota={nota} setNota={setNota}
+                                      <ItemRow key={item.id} agotado={sinComandarAgotada(item)} item={item} nota={nota} setNota={setNota}
                                         onUpdate={cantidad => updateItem.mutate({ itemId: item.id, cantidad })}
                                         onDelete={() => deleteItem.mutate(item.id)}
                                         onSaveNota={v => saveNota.mutate({ itemId: item.id, value: v })}
@@ -2270,7 +2253,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                           </div>
                           <div className="space-y-2">
                             {grouped.map(({ firstItem, cantidad }) => (
-                              <ItemRow pase={sigue.paseActivo} key={firstItem.id} agotado={sinComandarAgotada(firstItem)} item={{ ...firstItem, cantidad }} nota={nota} setNota={setNota}
+                              <ItemRow key={firstItem.id} agotado={sinComandarAgotada(firstItem)} item={{ ...firstItem, cantidad }} nota={nota} setNota={setNota}
                                 onUpdate={newQty => updateItem.mutate({ itemId: firstItem.id, cantidad: firstItem.cantidad + (newQty - cantidad) })}
                                 onDelete={() => deleteItem.mutate(firstItem.id)}
                                 onSaveNota={v => saveNota.mutate({ itemId: firstItem.id, value: v })}
@@ -2879,6 +2862,8 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
       )}
 
       {quienEsta && <QuienEstaSheet comanda={comanda} onClose={() => setQuienEsta(false)} />}
+      {verEstado && <EstadoMesaSheet comanda={comanda} platos={sigue.platos} disponible={sigue.disponible} pidiendo={sigue.pedir.isPending}
+        onSigue={() => sigue.pedir.mutate()} onClose={() => setVerEstado(false)} />}
     </div>
   )
 }

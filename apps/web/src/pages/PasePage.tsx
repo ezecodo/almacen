@@ -10,7 +10,7 @@ import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
 // mesa, la que más lleva esperando primero. Un toque en un plato: 🟡 en cocina → 🟢 listo (jefe de
 // cocina) → ⚪ servido (el del pase). Mantener apretado: marcar solo algunos o deshacer.
 // 🔔 Sigue = "porfa, la 8 sigue": lo pide el camarero que ve la demora, desde su mesa en la sala. La tarjeta
-// late en las dos tablets hasta que cocina marque algo de esa mesa (o se toca la franja para quitarlo).
+// late en las dos tablets hasta que cocina marque algo listo de esa mesa.
 // Seguimiento: arriba el resumen del servicio; en cada mesa, cómo va y qué falta. Dos avisos: un plato
 // listo que nadie recoge (se enfría en el pase) y el plato que retiene a una mesa con su nivel ya listo.
 // También sin tocar la pantalla: un cursor que se maneja con el teclado (ver TECLAS). Las teclas solo
@@ -102,7 +102,7 @@ function Plato({ p, apagado, ahora, retenido, cursor, onMarcar, onDetalle }: { p
   )
 }
 
-function Tarjeta({ m, ahora, elegida, ventana, platoCursor, onMarcar, onDetalle, onSigue }: { m: MesaPase; ahora: number; elegida?: boolean; ventana?: boolean; platoCursor?: number | null; onMarcar: (p: PlatoPase, listos: number, servidos: number) => void; onDetalle: (p: PlatoPase) => void; onSigue: () => void }) {
+function Tarjeta({ m, ahora, elegida, ventana, platoCursor, onMarcar, onDetalle }: { m: MesaPase; ahora: number; elegida?: boolean; ventana?: boolean; platoCursor?: number | null; onMarcar: (p: PlatoPase, listos: number, servidos: number) => void; onDetalle: (p: PlatoPase) => void }) {
   const min = minutosDesde(m.desde, ahora)
   const niveles = [...new Set(m.items.map(i => i.nivel))].sort((a, b) => a - b)
   // El primer nivel con algo por servir manda; los de después se ven apagados
@@ -127,9 +127,9 @@ function Tarjeta({ m, ahora, elegida, ventana, platoCursor, onMarcar, onDetalle,
         <span className={`text-2xl font-black tabular-nums ${colorTiempo(min)}`}>{min}′</span>
       </header>
       {m.sigueAt && (
-        <button onClick={onSigue} className="relative z-20 w-full px-3 py-2 bg-red-500 text-white text-base font-black text-left">
+        <p className="px-3 py-2 bg-red-500 text-white text-base font-black">
           🔔 Sigue{m.siguePor ? ` · lo pide ${m.siguePor.split(' ')[0]}` : ''} · hace {minutosDesde(m.sigueAt, ahora)}′
-        </button>
+        </p>
       )}
       {m.alergias.length > 0 && <p className="px-3 py-1.5 bg-red-600 text-white text-sm font-black uppercase">🚫 Alérgico: {m.alergias.join(', ')}</p>}
       {(m.noComparten || m.nota) && <p className="px-3 py-1.5 bg-amber-400/15 text-amber-200 text-sm font-bold">{[m.noComparten && 'NO COMPARTEN', m.nota].filter(Boolean).join(' · ')}</p>}
@@ -223,7 +223,6 @@ export default function PasePage() {
     },
     onSettled: () => qc.invalidateQueries({ queryKey: clave }),
   })
-  const sigue = useMutation({ mutationFn: (comandaId: number) => api.pase.sigue(comandaId), onSettled: () => qc.invalidateQueries({ queryKey: clave }) })
 
   // Lo que se ve en esta tablet: el jefe de cocina, todo; la de arriba, solo su planta
   const mesasVistas = (data?.mesas ?? []).filter(m => !planta || m.salon === planta)
@@ -284,7 +283,7 @@ export default function PasePage() {
   const nEnfrian = sumar(platos.filter(p => seEnfria(p, ahora)), porRecoger)
   const masVieja = enMarcha[0]
   const tarjeta = (m: MesaPase) => (
-    <Tarjeta key={m.comandaId} m={m} ahora={ahora} elegida={cursor.mesa === m.comandaId} onSigue={() => sigue.mutate(m.comandaId)}
+    <Tarjeta key={m.comandaId} m={m} ahora={ahora} elegida={cursor.mesa === m.comandaId}
       onMarcar={(p, listos, servidos) => marcar.mutate({ id: p.id, listos, servidos })}
       onDetalle={plato => setDetalle({ mesa: m.mesa, plato })} />
   )
@@ -339,7 +338,7 @@ export default function PasePage() {
       {mesaAbierta && (
         <div className="fixed inset-0 z-[35] bg-black/75 overflow-y-auto p-4 pb-20" onClick={() => setAbierta(false)}>
           <div className="max-w-2xl mx-auto" onClick={e => e.stopPropagation()}>
-            <Tarjeta m={mesaAbierta} ahora={ahora} elegida ventana platoCursor={cursor.plato} onSigue={() => sigue.mutate(mesaAbierta.comandaId)}
+            <Tarjeta m={mesaAbierta} ahora={ahora} elegida ventana platoCursor={cursor.plato}
               onMarcar={(p, listos, servidos) => marcar.mutate({ id: p.id, listos, servidos })}
               onDetalle={plato => setDetalle({ mesa: mesaAbierta.mesa, plato })} />
           </div>
