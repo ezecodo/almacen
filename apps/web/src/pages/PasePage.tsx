@@ -89,15 +89,15 @@ function Plato({ p, apagado, ahora, retenido, cursor, onMarcar, onDetalle }: { p
   return (
     <button onPointerDown={empezar} onPointerUp={soltar} onPointerLeave={soltar} onPointerCancel={soltar} onClick={tocar}
       onContextMenu={e => e.preventDefault()}
-      className={`w-full min-h-[3.5rem] rounded-xl border-2 px-3 py-2 text-left select-none ${colorPlato(p)} ${apagado && !cursor ? 'opacity-45' : ''} ${cursor ? 'ring-4 ring-white' : retenido || seEnfria(p, ahora) ? 'ring-2 ring-red-500' : ''}`}>
+      className={`w-full min-h-[2.75rem] 2xl:min-h-[2.25rem] rounded-lg border-2 px-2.5 py-1 2xl:py-0.5 text-left select-none ${colorPlato(p)} ${apagado && !cursor ? 'opacity-45' : ''} ${cursor ? 'ring-4 ring-white' : retenido || seEnfria(p, ahora) ? 'ring-2 ring-red-500' : ''}`}>
       <span className="flex items-baseline gap-2">
-        <span className="text-xl font-black tabular-nums shrink-0">{p.cantidad}×</span>
-        <span className="flex-1 min-w-0 text-lg font-bold uppercase leading-tight">{p.nombre}</span>
+        <span className="text-base font-black tabular-nums shrink-0">{p.cantidad}×</span>
+        <span className="flex-1 min-w-0 text-base font-bold uppercase leading-tight">{p.nombre}</span>
       </span>
-      {p.nota && <span className="block text-sm font-semibold text-amber-200 no-underline">» {p.nota}</span>}
-      {parcial && <span className="block text-sm font-black text-emerald-300 no-underline">{p.listos} listos · {p.servidos} servidos</span>}
-      {seEnfria(p, ahora) && <span className="block text-sm font-black text-red-300 no-underline">🥶 Lleva {minutosVerde(p, ahora)}′ sin recoger</span>}
-      {retenido && <span className="block text-sm font-black text-red-300 no-underline">⏳ La mesa espera por este · {minutosDesde(p.enviadoAt, ahora)}′</span>}
+      {p.nota && <span className="block text-xs font-semibold text-amber-200 no-underline">» {p.nota}</span>}
+      {parcial && <span className="block text-xs font-black text-emerald-300 no-underline">{p.listos} listos · {p.servidos} servidos</span>}
+      {seEnfria(p, ahora) && <span className="block text-xs font-black text-red-300 no-underline">🥶 Lleva {minutosVerde(p, ahora)}′ sin recoger</span>}
+      {retenido && <span className="block text-xs font-black text-red-300 no-underline">⏳ La mesa espera por este · {minutosDesde(p.enviadoAt, ahora)}′</span>}
     </button>
   )
 }
@@ -118,37 +118,36 @@ function Tarjeta({ m, ahora, elegida, ventana, platoCursor, onMarcar, onDetalle 
   const nFaltan = sumar(faltan, enCocina)
   return (
     <section data-mesa={ventana ? undefined : m.comandaId}
-      className={`relative break-inside-avoid mb-3 scroll-mt-20 rounded-2xl border bg-[#16233a] overflow-hidden ${m.sigueAt ? 'border-red-400' : 'border-white/10'} ${elegida ? 'ring-4 ring-[#4B9EDF]' : ''}`}>
+      className={`relative break-inside-avoid mb-2 scroll-mt-20 rounded-xl border bg-[#16233a] overflow-hidden ${m.sigueAt ? 'border-red-400' : 'border-white/10'} ${elegida ? 'ring-4 ring-[#4B9EDF]' : ''}`}>
       {/* Late el marco, no la tarjeta: los platos se tienen que seguir leyendo */}
-      {m.sigueAt && <span className="absolute inset-0 z-10 rounded-2xl ring-4 ring-inset ring-red-500 animate-pulse pointer-events-none" />}
-      <header className="flex items-center gap-3 px-3 py-2 bg-white/5">
-        <span className="text-3xl font-black tabular-nums">{m.mesa ?? '—'}</span>
-        <span className="flex-1 min-w-0 text-xs text-slate-300 leading-tight truncate">{m.salon}<br />{m.pax} pax{m.camarero ? ` · ${m.camarero.split(' ')[0]}` : ''}</span>
-        <span className={`text-2xl font-black tabular-nums ${colorTiempo(min)}`}>{min}′</span>
+      {m.sigueAt && <span className="absolute inset-0 z-10 rounded-xl ring-4 ring-inset ring-red-500 animate-pulse pointer-events-none" />}
+      <header className="flex items-center gap-2 px-2.5 py-1 bg-white/5">
+        <span className="text-2xl font-black tabular-nums">{m.mesa ?? '—'}</span>
+        <span className="flex-1 min-w-0 text-xs text-slate-300 truncate">{m.pax} pax{m.camarero ? ` · ${m.camarero.split(' ')[0]}` : ''}</span>
+        <span className={`text-xl font-black tabular-nums ${colorTiempo(min)}`}>{min}′</span>
       </header>
       {m.sigueAt && (
-        <p className="px-3 py-2 bg-red-500 text-white text-base font-black">
+        <p className="px-2.5 py-1 bg-red-500 text-white text-sm font-black truncate">
           🔔 Sigue{m.siguePor ? ` · lo pide ${m.siguePor.split(' ')[0]}` : ''} · hace {minutosDesde(m.sigueAt, ahora)}′
         </p>
       )}
-      {m.alergias.length > 0 && <p className="px-3 py-1.5 bg-red-600 text-white text-sm font-black uppercase">🚫 Alérgico: {m.alergias.join(', ')}</p>}
-      {(m.noComparten || m.nota) && <p className="px-3 py-1.5 bg-amber-400/15 text-amber-200 text-sm font-bold">{[m.noComparten && 'NO COMPARTEN', m.nota].filter(Boolean).join(' · ')}</p>}
+      {m.alergias.length > 0 && <p className="px-2.5 py-0.5 bg-red-600 text-white text-xs font-black uppercase">🚫 Alérgico: {m.alergias.join(', ')}</p>}
+      {(m.noComparten || m.nota) && <p className="px-2.5 py-0.5 bg-amber-400/15 text-amber-200 text-xs font-bold">{[m.noComparten && 'NO COMPARTEN', m.nota].filter(Boolean).join(' · ')}</p>}
       {servidos < total && (
-        <div className="px-3 pt-2.5">
-          <div className="flex h-2.5 rounded-full overflow-hidden bg-amber-400/30">
+        <div className="px-2.5 pt-1.5">
+          <div className="flex h-1.5 rounded-full overflow-hidden bg-amber-400/30">
             <span className="bg-slate-300" style={{ width: `${(servidos / total) * 100}%` }} />
             <span className="bg-emerald-400" style={{ width: `${(listos / total) * 100}%` }} />
           </div>
-          <p className="mt-1.5 text-sm font-bold text-slate-200">{servidos} de {total} servidos</p>
-          <p className="text-sm text-slate-300 leading-snug">
-            {nFaltan > 0 ? `Faltan ${nFaltan}: ${faltan.map(i => `${enCocina(i)}× ${i.nombre}`).join(', ')}` : 'Nada en cocina · todo por recoger'}
+          <p className="mt-0.5 text-xs text-slate-300 truncate">
+            <b className="text-slate-100">{servidos}/{total}</b> · {nFaltan > 0 ? `faltan ${nFaltan}` : 'todo por recoger'}
           </p>
         </div>
       )}
-      <div className="p-2.5 space-y-2.5">
+      <div className="px-1.5 pb-1.5 pt-1 space-y-1">
         {niveles.map(n => (
-          <div key={n} className="space-y-1.5">
-            <p className="text-[11px] font-black tracking-wider text-slate-400">{nombreNivel(n)}</p>
+          <div key={n} className="space-y-1">
+            <p className="px-1 text-[10px] font-black tracking-wider text-slate-400">{nombreNivel(n)}</p>
             {m.items.filter(i => i.nivel === n).map(p => (
               <Plato key={p.id} p={p} apagado={enCurso !== undefined && n > enCurso} ahora={ahora} retenido={retenido(p)} cursor={platoCursor === p.id} onMarcar={(l, s) => onMarcar(p, l, s)} onDetalle={() => onDetalle(p)} />
             ))}
@@ -321,15 +320,15 @@ export default function PasePage() {
       {data && !data.activa ? (
         <p className="p-10 text-center text-lg text-slate-400">La pantalla de pase no está activada en este local. Se activa en el panel, en Restaurantes.</p>
       ) : (
-        <main className="p-3">
+        <main className="p-2">
           {data && enMarcha.length === 0 && <p className="p-10 text-center text-2xl font-bold text-slate-500">Sin platos en cocina 👌</p>}
-          <div className="columns-1 sm:columns-2 xl:columns-3 gap-3">{enMarcha.map(tarjeta)}</div>
+          <div className="columns-[16rem] gap-2">{enMarcha.map(tarjeta)}</div>
           {servidas.length > 0 && (
             <div className="mt-4">
               <button onClick={() => setVerServidas(v => !v)} className="w-full h-14 rounded-2xl bg-white/5 text-slate-300 text-lg font-bold">
                 {verServidas ? '▾' : '▸'} Servidas ({servidas.length})
               </button>
-              {verServidas && <div className="columns-1 sm:columns-2 xl:columns-3 gap-3 mt-3">{servidas.map(tarjeta)}</div>}
+              {verServidas && <div className="columns-[16rem] gap-2 mt-3">{servidas.map(tarjeta)}</div>}
             </div>
           )}
         </main>
