@@ -7,7 +7,7 @@ const TpvCtx = createContext<(() => void) | null>(null)
 import MiHorario from '../components/MiHorario'
 import CheckOverlay from '../components/CheckOverlay'
 import AgotadosSala from '../components/AgotadosSala'
-import BotonSigue from '../components/BotonSigue'
+import BotonSigue, { useSigue } from '../components/BotonSigue'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, MOTIVO_RECTIFICAR_LABEL, MotivoRectificar, Alergeno, Comanda, ComandaItem, FloorPlan, GrupoAgendado, GrupoMenuTemplate, InventarioCategoria, Mesa, MenuCategoria, MenuItem, MermaMotivo, MiTurno, Reserva, Turno, WikiCategoria, WikiArticulo, ChecklistSector, sugerirCantidadesMenu, totalComanda, valorItem, waLink, esAvisoBox, repartoPago, textoPago, pagadoDivision } from '../api'
@@ -1332,6 +1332,8 @@ function TecladoTpv({ onTecla, onBorrar, onLimpiar, onCerrar }: {
 }
 
 // ── Panel comanda (modo camarero) ─────────────────────────────────────────────
+const DOBLE_TOQUE_MESA_MS = 350
+
 function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar, onCambiarMesa, onFacturar, esEncargado, ancho = false }: {
   comanda: Comanda; menu: MenuItem[]; categorias: MenuCategoria[]
   onClose: () => void
@@ -1372,6 +1374,20 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
     const id = Date.now() + Math.random()
     setAvisosAnadido(a => [...a.slice(-2), { id, texto }])
     setTimeout(() => setAvisosAnadido(a => a.filter(x => x.id !== id)), 1800)
+  }
+  // Doble toque en el número de mesa = avisar a cocina de una demora. Por eso, si la pantalla de pase
+  // está activa, el toque simple del encargado (quién está sentado) espera a ver si llega el segundo.
+  const sigue = useSigue(comanda, avisado => { navigator.vibrate?.(40); avisarAnadido(avisado ? '🔔 Avisado a cocina' : 'Aviso quitado') })
+  const toqueNumero = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const tocarNumero = () => {
+    if (!sigue.disponible) { if (esEncargado) setQuienEsta(true); return }
+    if (toqueNumero.current) {
+      clearTimeout(toqueNumero.current)
+      toqueNumero.current = null
+      sigue.pedir.mutate()
+      return
+    }
+    toqueNumero.current = setTimeout(() => { toqueNumero.current = null; if (esEncargado) setQuienEsta(true) }, DOBLE_TOQUE_MESA_MS)
   }
   const [qtyPending, setQtyPending] = useState<{ id: number; qty: number } | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1979,9 +1995,9 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
           {/* Una sola línea, como la cabecera del ticket: mesa en recuadro invertido, hora de la
               primera comanda y pax; a la derecha cuenta, cambiar mesa y cerrar */}
           <div className="flex items-center gap-3">
-            {/* El encargado toca el número para decir quién está sentado (reserva o walk-in) */}
-            <button type="button" disabled={!esEncargado} onClick={() => setQuienEsta(true)}
-              className="shrink-0 min-w-11 h-11 px-2 rounded-lg bg-[var(--sala-txt)] text-[var(--sala-bg)] text-[28px] font-black tabular-nums leading-none flex items-center justify-center active:scale-95 disabled:active:scale-100"
+            {/* El encargado toca el número para decir quién está sentado (reserva o walk-in); doble toque = avisar a cocina */}
+            <button type="button" disabled={!esEncargado && !sigue.disponible} onClick={tocarNumero}
+              className={`shrink-0 min-w-11 h-11 px-2 rounded-lg ${comanda.sigueAt ? 'bg-red-500 text-white' : 'bg-[var(--sala-txt)] text-[var(--sala-bg)]'} text-[28px] font-black tabular-nums leading-none flex items-center justify-center active:scale-95 disabled:active:scale-100`}
               aria-label={`Mesa ${comanda.mesa.numero}`}>
               {comanda.mesa.numero}
             </button>
