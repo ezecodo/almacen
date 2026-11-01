@@ -108,6 +108,11 @@ html, body {
   100% { opacity: 0; }
 }
 
+@keyframes barraCarga {
+  from { width: 0; }
+  to   { width: 100%; }
+}
+
 @keyframes checkBadgeIn {
   from { transform: scale(0.3); opacity: 0; }
   to   { transform: scale(1);   opacity: 1; }

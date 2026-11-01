@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { api, ItemAgotado, MenuCategoria, MenuItem, MesaPase, Pase, PlatoPase } from '../api'
 import { enModoLocal } from '../lib/conexion'
 import { nombreNivel } from '../components/NivelEtiqueta'
+import CheckOverlay from '../components/CheckOverlay'
 import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
 
 // Pantalla de pase (/pase/mesas): la misma en la tablet de abajo y en la de arriba. Una tarjeta por
@@ -30,7 +31,7 @@ const CIERRE_SIN_TOCAR_MS = 4000 // abierta sin marcar nada: lo justo para leerl
 const SIN_SALIR_AMBAR_MIN = 20
 const SIN_SALIR_ROJO_MIN = 35
 
-type Accion = 'arriba' | 'abajo' | 'izquierda' | 'derecha' | 'entrar' | 'salir' | 'deshacer' | 'alto'
+type Accion = 'arriba' | 'abajo' | 'izquierda' | 'derecha' | 'entrar' | 'salir' | 'deshacer' | 'alto' | 'planta'
 const NUM_ENTER_MS = 800 // Num y luego Enter, seguidas: abre los altos
 const TECLAS: Record<string, Accion> = {
   ArrowUp: 'arriba', ArrowDown: 'abajo', ArrowLeft: 'izquierda', ArrowRight: 'derecha',
@@ -38,6 +39,7 @@ const TECLAS: Record<string, Accion> = {
   NumpadEnter: 'entrar', Enter: 'entrar',
   NumLock: 'salir', Escape: 'salir', // se lee la tecla física: que Bloq Num cambie de estado no afecta a las demás
   NumpadDecimal: 'deshacer', Backspace: 'deshacer',
+  NumpadMultiply: 'planta',
 }
 
 // La tarjeta más cercana en esa dirección, tal como se ven en pantalla (las columnas tienen alturas distintas)
@@ -62,13 +64,14 @@ function mesaVecina(actual: number | null, dir: Accion) {
 
 const minutosDesde = (iso: string, ahora: number) => Math.max(0, Math.floor((ahora - new Date(iso).getTime()) / 60000))
 const fmtHora = (iso: string) => new Date(iso).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
-// La banda del número avisa desde lejos: cuanto más lleva sin salirle nada, más caliente
-const colorBanda = (min: number | null) => (min === null || min < SIN_SALIR_AMBAR_MIN ? 'bg-slate-900 text-white' : min < SIN_SALIR_ROJO_MIN ? 'bg-amber-400 text-slate-900' : 'bg-red-600 text-white')
+// La banda del número es un semáforo: verde sobrio si la mesa va bien, y más caliente cuanto más lleva sin
+// salirle nada. Es un verde oscuro para que el verde vivo de los platos listos siga saltando a la vista.
+const colorBanda = (min: number | null) => (min === null || min < SIN_SALIR_AMBAR_MIN ? 'bg-emerald-900 text-white' : min < SIN_SALIR_ROJO_MIN ? 'bg-amber-400 text-slate-900' : 'bg-red-600 text-white')
 
 // Un plato de un nivel que todavía no toca se ve neutro: lo que importa manda en color
 function colorPlato(p: PlatoPase, apagado: boolean) {
   if (p.servidos >= p.cantidad) return 'bg-slate-100 border-slate-200 text-slate-400 line-through'
-  if (p.listos >= p.cantidad) return 'bg-emerald-600 border-emerald-700 text-white'
+  if (p.listos >= p.cantidad) return 'bg-emerald-400 border-emerald-600 text-slate-900'
   if (apagado && p.listos === 0) return 'bg-white border-slate-200 text-slate-400'
   return 'bg-amber-100 border-amber-400 text-slate-900'
 }
@@ -205,7 +208,7 @@ function Tarjeta({ m, ahora, elegida, ventana, platoCursor, onMarcar, onDetalle 
         <div className="flex items-center gap-2 px-2.5 pt-1">
           <div className="flex-1 flex h-2 overflow-hidden bg-amber-200">
             <span className="bg-slate-400" style={{ width: `${(servidos / total) * 100}%` }} />
-            <span className="bg-emerald-600" style={{ width: `${(listos / total) * 100}%` }} />
+            <span className="bg-emerald-500" style={{ width: `${(listos / total) * 100}%` }} />
           </div>
           <b className="text-sm tabular-nums text-slate-900">{servidos}/{total}</b>
         </div>
@@ -271,6 +274,9 @@ export default function PasePage() {
   useEffect(() => { const t = setInterval(() => setAhora(Date.now()), 30_000); return () => clearInterval(t) }, [])
   const [detalle, setDetalle] = useState<{ mesa: number | null; plato: PlatoPase } | null>(null)
   const [verServidas, setVerServidas] = useState(false)
+  // La marca, al entrar: la viñeta del Oído con una barra de carga
+  const [entrando, setEntrando] = useState(true)
+  useEffect(() => { const t = setTimeout(() => setEntrando(false), 2000); return () => clearTimeout(t) }, [])
   const [planta, setPlanta] = useState(() => localStorage.getItem(PLANTA_KEY) ?? '')
   const { data: salones = [] } = useQuery({ queryKey: ['salon-planes', rid], queryFn: () => api.salon.list(rid!), enabled: !!sesion && !!rid })
   const elegirPlanta = (nombre: string) => { setPlanta(nombre); localStorage.setItem(PLANTA_KEY, nombre) }
@@ -317,6 +323,13 @@ export default function PasePage() {
   const mesaAbierta = abierta ? mesasVistas.find(m => m.comandaId === cursor.mesa) : undefined
   const primerPlato = (m: MesaPase) => (m.items.find(i => i.servidos < i.cantidad) ?? m.items[0]).id
   const accion = (a: Accion) => {
+    if (a === 'planta') {
+      if (alto || mesaAbierta || salones.length < 2) return
+      const plantas = ['', ...salones.map(p => p.nombre)]
+      elegirPlanta(plantas[(plantas.indexOf(planta) + 1) % plantas.length])
+      setCursor({ mesa: null, plato: null })
+      return
+    }
     if (a === 'alto') {
       window.clearTimeout(cierre.current)
       setAbierta(false)
@@ -341,8 +354,10 @@ export default function PasePage() {
         const otro = mesaAbierta.items[i + (a === 'abajo' ? 1 : -1)]
         if (otro) setCursor({ mesa: mesaAbierta.comandaId, plato: otro.id })
       } else if (a === 'izquierda' || a === 'derecha') {
-        const lista = mesasVistas.filter(m => m.items.some(p => p.servidos < p.cantidad))
-        const otra = lista[lista.findIndex(m => m.comandaId === mesaAbierta.comandaId) + (a === 'derecha' ? 1 : -1)]
+        // Sin dar la vuelta: en la primera o en la última mesa, se queda donde está
+        const k = mesasVistas.findIndex(m => m.comandaId === mesaAbierta.comandaId)
+        const hacia = a === 'derecha' ? mesasVistas.slice(k + 1) : mesasVistas.slice(0, k).reverse()
+        const otra = hacia.find(m => m.items.some(p => p.servidos < p.cantidad))
         if (otra) setCursor({ mesa: otra.comandaId, plato: primerPlato(otra) })
       } else if (a === 'entrar' && plato && plato.servidos < plato.cantidad) {
         const marcaListo = plato.listos < plato.cantidad
@@ -375,7 +390,7 @@ export default function PasePage() {
   useEffect(() => {
     const escuchar = (e: KeyboardEvent) => {
       const a = TECLAS[e.code]
-      if (!a || hayDetalle.current || e.repeat && (a === 'entrar' || a === 'deshacer')) return
+      if (!a || hayDetalle.current || e.repeat && (a === 'entrar' || a === 'deshacer' || a === 'planta')) return
       e.preventDefault()
       if (a === 'entrar' && !altoAbierto.current && Date.now() - ultimoNum.current < NUM_ENTER_MS) {
         ultimoNum.current = 0
@@ -410,8 +425,22 @@ export default function PasePage() {
 
   return (
     <div className="min-h-screen bg-slate-200 text-slate-900">
+      {entrando && <CheckOverlay carga />}
       <header className="sticky top-0 z-30 flex items-center gap-4 px-4 py-2.5 bg-white border-b border-slate-300">
-        <div className="min-w-0">
+        <div className="shrink-0 flex items-center gap-2">
+          <svg width="34" height="36" viewBox="0 0 68 72" aria-hidden="true">
+            <defs>
+              <linearGradient id="og-pase" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stopColor="#4B9EDF" />
+                <stop offset="100%" stopColor="#4CC8A0" />
+              </linearGradient>
+            </defs>
+            <path d="M14 2 L54 2 Q66 2 66 14 L66 52 Q66 62 54 62 L40 62 L34 70 L28 62 L14 62 Q2 62 2 52 L2 14 Q2 2 14 2 Z" fill="url(#og-pase)" />
+            <path d="M15 34 L29 48 L55 18" fill="none" stroke="white" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span className="text-xl font-extrabold tracking-tight">Oido<span className="text-[#2fae87]">Ops</span></span>
+        </div>
+        <div className="min-w-0 pl-3 border-l border-slate-300">
           <p className="text-slate-500 text-xs font-semibold">{restaurante?.nombre}</p>
           <h1 className="text-xl font-black leading-tight">Pase · {enMarcha.length} {enMarcha.length === 1 ? 'mesa' : 'mesas'}</h1>
         </div>
@@ -469,7 +498,7 @@ export default function PasePage() {
         <p className="fixed bottom-0 inset-x-0 z-[36] bg-white border-t border-slate-300 px-4 py-2 text-center text-sm font-semibold text-slate-600">
           {mesaAbierta
             ? '↑↓ plato · ←→ otra mesa · Enter marcar · , deshacer · Num salir'
-            : 'Flechas elegir mesa · Enter abrir · Num quitar cursor · Num + Enter ALTO'}
+            : 'Flechas elegir mesa · Enter abrir · * cambiar planta · Num quitar cursor · Num + Enter ALTO'}
         </p>
       )}
       {alto && (

@@ -6,10 +6,11 @@
 //   {show && <CheckOverlay />}
 
 // `texto`: lo que sale debajo (por defecto la marca, OidoOps). La sala, al comandar, pone "Oído".
-export default function CheckOverlay({ texto }: { texto?: string }) {
+// `carga`: pantalla de entrada, sobre fondo entero y con una barra que se llena.
+export default function CheckOverlay({ texto, carga = false }: { texto?: string; carga?: boolean }) {
   return (
     <div
-      className="fixed inset-0 z-[60] bg-[#0a1628]/90 flex flex-col items-center justify-center gap-5"
+      className={`fixed inset-0 z-[60] ${carga ? 'bg-[#0a1628]' : 'bg-[#0a1628]/90'} flex flex-col items-center justify-center gap-5`}
       style={{ animation: "checkOverlayFade 2s ease forwards" }}
     >
       <svg
@@ -62,6 +63,11 @@ export default function CheckOverlay({ texto }: { texto?: string }) {
           <span className="text-[#4CC8A0]">Ops</span>
         </>}
       </p>
+      {carga && (
+        <div className="w-64 h-2 rounded-full overflow-hidden bg-white/15">
+          <div className="h-full rounded-full bg-gradient-to-r from-[#4B9EDF] to-[#4CC8A0]" style={{ animation: 'barraCarga 1.5s ease-in-out forwards' }} />
+        </div>
+      )}
     </div>
   );
 }
