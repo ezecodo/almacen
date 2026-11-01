@@ -12,11 +12,43 @@ import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
 // 🔔 Sigue = "porfa, la 8 sigue": late en las dos tablets hasta que cocina marque algo de esa mesa.
 // Seguimiento: arriba el resumen del servicio; en cada mesa, cómo va y qué falta. Dos avisos: un plato
 // listo que nadie recoge (se enfría en el pase) y el plato que retiene a una mesa con su nivel ya listo.
+// También sin tocar la pantalla: un cursor que se maneja con el teclado (ver TECLAS). Las teclas solo
+// dicen qué acción quieren; un joystick se conectaría a las mismas acciones.
 
 const APRETADO_MS = 450
 const DOBLE_TOQUE_MS = 600 // un toque nervioso no se salta de en cocina a servido
 const VERDE_ESPERA_MIN = 5  // listo y sin recoger: se está enfriando
 const RETENIDO_MIN = 10     // lo que falta de un nivel que ya está casi listo
+
+type Accion = 'arriba' | 'abajo' | 'izquierda' | 'derecha' | 'entrar' | 'salir' | 'deshacer' | 'sigue'
+const TECLAS: Record<string, Accion> = {
+  ArrowUp: 'arriba', ArrowDown: 'abajo', ArrowLeft: 'izquierda', ArrowRight: 'derecha',
+  Numpad8: 'arriba', Numpad2: 'abajo', Numpad4: 'izquierda', Numpad6: 'derecha',
+  NumpadEnter: 'entrar', Enter: 'entrar',
+  Numpad0: 'salir', Escape: 'salir',
+  NumpadDecimal: 'deshacer', Backspace: 'deshacer',
+  NumpadAdd: 'sigue',
+}
+
+// La tarjeta más cercana en esa dirección, tal como se ven en pantalla (las columnas tienen alturas distintas)
+function mesaVecina(actual: number | null, dir: Accion) {
+  const cajas = [...document.querySelectorAll<HTMLElement>('[data-mesa]')].map(el => ({ id: Number(el.dataset.mesa), r: el.getBoundingClientRect() }))
+  const yo = cajas.find(c => c.id === actual)
+  if (!yo) return cajas[0]?.id ?? null
+  const centro = (r: DOMRect) => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 })
+  const o = centro(yo.r)
+  let mejor = { id: yo.id, nota: Infinity }
+  for (const c of cajas) {
+    if (c.id === yo.id) continue
+    const { x, y } = centro(c.r)
+    const horizontal = dir === 'izquierda' || dir === 'derecha'
+    const avance = (horizontal ? x - o.x : y - o.y) * (dir === 'izquierda' || dir === 'arriba' ? -1 : 1)
+    if (avance <= 1) continue
+    const nota = avance + Math.abs(horizontal ? y - o.y : x - o.x) * 2
+    if (nota < mejor.nota) mejor = { id: c.id, nota }
+  }
+  return mejor.id
+}
 
 const minutosDesde = (iso: string, ahora: number) => Math.max(0, Math.floor((ahora - new Date(iso).getTime()) / 60000))
 const colorTiempo = (min: number) => (min >= 25 ? 'text-red-400' : min >= 15 ? 'text-amber-300' : 'text-slate-300')
@@ -37,7 +69,7 @@ const seEnfria = (p: PlatoPase, ahora: number) => (minutosVerde(p, ahora) ?? 0) 
 // Toque: lo siguiente que le toca a toda la línea
 const siguiente = (p: PlatoPase) => (p.listos < p.cantidad ? { listos: p.cantidad, servidos: p.servidos } : { listos: p.listos, servidos: p.cantidad })
 
-function Plato({ p, apagado, ahora, retenido, onMarcar, onDetalle }: { p: PlatoPase; apagado: boolean; ahora: number; retenido: boolean; onMarcar: (listos: number, servidos: number) => void; onDetalle: () => void }) {
+function Plato({ p, apagado, ahora, retenido, cursor, onMarcar, onDetalle }: { p: PlatoPase; apagado: boolean; ahora: number; retenido: boolean; cursor: boolean; onMarcar: (listos: number, servidos: number) => void; onDetalle: () => void }) {
   const reloj = useRef<number>()
   const largo = useRef(false)
   const ultimo = useRef(0)
@@ -56,7 +88,7 @@ function Plato({ p, apagado, ahora, retenido, onMarcar, onDetalle }: { p: PlatoP
   return (
     <button onPointerDown={empezar} onPointerUp={soltar} onPointerLeave={soltar} onPointerCancel={soltar} onClick={tocar}
       onContextMenu={e => e.preventDefault()}
-      className={`w-full min-h-[3.5rem] rounded-xl border-2 px-3 py-2 text-left select-none ${colorPlato(p)} ${apagado ? 'opacity-45' : ''} ${retenido || seEnfria(p, ahora) ? 'ring-2 ring-red-500' : ''}`}>
+      className={`w-full min-h-[3.5rem] rounded-xl border-2 px-3 py-2 text-left select-none ${colorPlato(p)} ${apagado && !cursor ? 'opacity-45' : ''} ${cursor ? 'ring-4 ring-white' : retenido || seEnfria(p, ahora) ? 'ring-2 ring-red-500' : ''}`}>
       <span className="flex items-baseline gap-2">
         <span className="text-xl font-black tabular-nums shrink-0">{p.cantidad}×</span>
         <span className="flex-1 min-w-0 text-lg font-bold uppercase leading-tight">{p.nombre}</span>
@@ -69,7 +101,7 @@ function Plato({ p, apagado, ahora, retenido, onMarcar, onDetalle }: { p: PlatoP
   )
 }
 
-function Tarjeta({ m, ahora, onMarcar, onDetalle, onSigue }: { m: MesaPase; ahora: number; onMarcar: (p: PlatoPase, listos: number, servidos: number) => void; onDetalle: (p: PlatoPase) => void; onSigue: () => void }) {
+function Tarjeta({ m, ahora, elegida, ventana, platoCursor, onMarcar, onDetalle, onSigue }: { m: MesaPase; ahora: number; elegida?: boolean; ventana?: boolean; platoCursor?: number | null; onMarcar: (p: PlatoPase, listos: number, servidos: number) => void; onDetalle: (p: PlatoPase) => void; onSigue: () => void }) {
   const min = minutosDesde(m.desde, ahora)
   const niveles = [...new Set(m.items.map(i => i.nivel))].sort((a, b) => a - b)
   // El primer nivel con algo por servir manda; los de después se ven apagados
@@ -84,7 +116,8 @@ function Tarjeta({ m, ahora, onMarcar, onDetalle, onSigue }: { m: MesaPase; ahor
   const faltan = m.items.filter(i => enCocina(i) > 0)
   const nFaltan = sumar(faltan, enCocina)
   return (
-    <section className={`relative break-inside-avoid mb-3 rounded-2xl border bg-[#16233a] overflow-hidden ${m.sigueAt ? 'border-red-400' : 'border-white/10'}`}>
+    <section data-mesa={ventana ? undefined : m.comandaId}
+      className={`relative break-inside-avoid mb-3 scroll-mt-20 rounded-2xl border bg-[#16233a] overflow-hidden ${m.sigueAt ? 'border-red-400' : 'border-white/10'} ${elegida ? 'ring-4 ring-[#4B9EDF]' : ''}`}>
       {/* Late el marco, no la tarjeta: los platos se tienen que seguir leyendo */}
       {m.sigueAt && <span className="absolute inset-0 z-10 rounded-2xl ring-4 ring-inset ring-red-500 animate-pulse pointer-events-none" />}
       <header className="flex items-center gap-3 px-3 py-2 bg-white/5">
@@ -112,7 +145,7 @@ function Tarjeta({ m, ahora, onMarcar, onDetalle, onSigue }: { m: MesaPase; ahor
           <div key={n} className="space-y-1.5">
             <p className="text-[11px] font-black tracking-wider text-slate-400">{nombreNivel(n)}</p>
             {m.items.filter(i => i.nivel === n).map(p => (
-              <Plato key={p.id} p={p} apagado={enCurso !== undefined && n > enCurso} ahora={ahora} retenido={retenido(p)} onMarcar={(l, s) => onMarcar(p, l, s)} onDetalle={() => onDetalle(p)} />
+              <Plato key={p.id} p={p} apagado={enCurso !== undefined && n > enCurso} ahora={ahora} retenido={retenido(p)} cursor={platoCursor === p.id} onMarcar={(l, s) => onMarcar(p, l, s)} onDetalle={() => onDetalle(p)} />
             ))}
           </div>
         ))}
@@ -168,6 +201,9 @@ export default function PasePage() {
   useEffect(() => { const t = setInterval(() => setAhora(Date.now()), 30_000); return () => clearInterval(t) }, [])
   const [detalle, setDetalle] = useState<{ mesa: number | null; plato: PlatoPase } | null>(null)
   const [verServidas, setVerServidas] = useState(false)
+  // Cursor del teclado: la mesa elegida y, con la mesa abierta, el plato
+  const [cursor, setCursor] = useState<{ mesa: number | null; plato: number | null }>({ mesa: null, plato: null })
+  const [abierta, setAbierta] = useState(false)
 
   const marcar = useMutation({
     mutationFn: ({ id, listos, servidos }: { id: number; listos: number; servidos: number }) => api.pase.marcar(id, listos, servidos),
@@ -180,6 +216,53 @@ export default function PasePage() {
     onSettled: () => qc.invalidateQueries({ queryKey: clave }),
   })
   const sigue = useMutation({ mutationFn: (comandaId: number) => api.pase.sigue(comandaId), onSettled: () => qc.invalidateQueries({ queryKey: clave }) })
+
+  const mesasVistas = data?.mesas ?? []
+  const mesaAbierta = abierta ? mesasVistas.find(m => m.comandaId === cursor.mesa) : undefined
+  const primerPlato = (m: MesaPase) => (m.items.find(i => i.servidos < i.cantidad) ?? m.items[0]).id
+  const accion = (a: Accion) => {
+    if (mesaAbierta) {
+      const i = mesaAbierta.items.findIndex(p => p.id === cursor.plato)
+      const plato = mesaAbierta.items[i]
+      if (a === 'arriba' || a === 'abajo') {
+        const otro = mesaAbierta.items[i + (a === 'abajo' ? 1 : -1)]
+        if (otro) setCursor({ mesa: mesaAbierta.comandaId, plato: otro.id })
+      } else if (a === 'izquierda' || a === 'derecha') {
+        const lista = mesasVistas.filter(m => m.items.some(p => p.servidos < p.cantidad))
+        const otra = lista[lista.findIndex(m => m.comandaId === mesaAbierta.comandaId) + (a === 'derecha' ? 1 : -1)]
+        if (otra) setCursor({ mesa: otra.comandaId, plato: primerPlato(otra) })
+      } else if (a === 'entrar' && plato && plato.servidos < plato.cantidad) {
+        marcar.mutate({ id: plato.id, ...siguiente(plato) })
+      } else if (a === 'deshacer' && plato) {
+        // Un paso atrás de toda la línea
+        marcar.mutate({ id: plato.id, listos: plato.servidos > 0 ? plato.listos : 0, servidos: 0 })
+      } else if (a === 'salir') setAbierta(false)
+      else if (a === 'sigue') sigue.mutate(mesaAbierta.comandaId)
+      return
+    }
+    const elegida = mesasVistas.find(m => m.comandaId === cursor.mesa)
+    if (a === 'arriba' || a === 'abajo' || a === 'izquierda' || a === 'derecha') setCursor({ mesa: mesaVecina(cursor.mesa, a), plato: null })
+    else if (a === 'entrar') {
+      if (!elegida) setCursor({ mesa: mesaVecina(null, a), plato: null })
+      else { setCursor({ mesa: elegida.comandaId, plato: primerPlato(elegida) }); setAbierta(true) }
+    } else if (a === 'salir') setCursor({ mesa: null, plato: null })
+    else if (a === 'sigue' && elegida) sigue.mutate(elegida.comandaId)
+  }
+  const accionActual = useRef(accion)
+  accionActual.current = accion
+  const hayDetalle = useRef(false)
+  hayDetalle.current = !!detalle
+  useEffect(() => {
+    const escuchar = (e: KeyboardEvent) => {
+      const a = TECLAS[e.code]
+      if (!a || hayDetalle.current || e.repeat && (a === 'entrar' || a === 'deshacer' || a === 'sigue')) return
+      e.preventDefault()
+      accionActual.current(a)
+    }
+    window.addEventListener('keydown', escuchar)
+    return () => window.removeEventListener('keydown', escuchar)
+  }, [])
+  useEffect(() => { if (cursor.mesa && !abierta) document.querySelector(`[data-mesa="${cursor.mesa}"]`)?.scrollIntoView({ block: 'nearest' }) }, [cursor.mesa, abierta])
 
   if (!sesion || !rid) return null
   const salir = () => { sessionStorage.removeItem('oidoops_camarero'); navigate('/pase', { replace: true }) }
@@ -194,7 +277,7 @@ export default function PasePage() {
   const nEnfrian = sumar(platos.filter(p => seEnfria(p, ahora)), porRecoger)
   const masVieja = enMarcha[0]
   const tarjeta = (m: MesaPase) => (
-    <Tarjeta key={m.comandaId} m={m} ahora={ahora} onSigue={() => sigue.mutate(m.comandaId)}
+    <Tarjeta key={m.comandaId} m={m} ahora={ahora} elegida={cursor.mesa === m.comandaId} onSigue={() => sigue.mutate(m.comandaId)}
       onMarcar={(p, listos, servidos) => marcar.mutate({ id: p.id, listos, servidos })}
       onDetalle={plato => setDetalle({ mesa: m.mesa, plato })} />
   )
@@ -236,6 +319,22 @@ export default function PasePage() {
         </main>
       )}
 
+      {mesaAbierta && (
+        <div className="fixed inset-0 z-[35] bg-black/75 overflow-y-auto p-4 pb-20" onClick={() => setAbierta(false)}>
+          <div className="max-w-2xl mx-auto" onClick={e => e.stopPropagation()}>
+            <Tarjeta m={mesaAbierta} ahora={ahora} elegida ventana platoCursor={cursor.plato} onSigue={() => sigue.mutate(mesaAbierta.comandaId)}
+              onMarcar={(p, listos, servidos) => marcar.mutate({ id: p.id, listos, servidos })}
+              onDetalle={plato => setDetalle({ mesa: mesaAbierta.mesa, plato })} />
+          </div>
+        </div>
+      )}
+      {cursor.mesa !== null && (
+        <p className="fixed bottom-0 inset-x-0 z-[36] bg-[#0f1a2e] border-t border-white/10 px-4 py-2 text-center text-sm font-semibold text-slate-300">
+          {mesaAbierta
+            ? '↑↓ plato · ←→ otra mesa · Enter marcar · , deshacer · + Sigue · 0 salir'
+            : 'Flechas elegir mesa · Enter abrir · + Sigue · 0 quitar cursor'}
+        </p>
+      )}
       {detalle && (
         <DetallePlato mesa={detalle.mesa} p={detalle.plato} onCerrar={() => setDetalle(null)}
           onGuardar={(listos, servidos) => { marcar.mutate({ id: detalle.plato.id, listos, servidos }); setDetalle(null) }} />
