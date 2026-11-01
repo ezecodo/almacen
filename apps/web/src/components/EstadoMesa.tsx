@@ -7,7 +7,8 @@ import NivelEtiqueta, { nombreNivel } from './NivelEtiqueta'
 // Cómo va una mesa en cocina, para el camarero, en locales con la pantalla de pase activada: una vista
 // sin nada más que lo servido y lo que falta (de lo que marcan cocina y pase), y el aviso a cocina.
 // 🔔 "Porfa, que siga": el camarero que ve la demora lo pide con el botón de esta vista o con un doble
-// toque en el número de mesa. No se puede deshacer: se apaga cuando cocina marca algo listo de la mesa.
+// toque en el número de mesa, y solo si queda algo en cocina: lo que ya está en el pase se va a buscar.
+// No se puede deshacer: se apaga cuando cocina marca algo listo de la mesa.
 
 export function useSigue(comanda: Comanda, alAvisar?: () => void) {
   const qc = useQueryClient()
@@ -18,8 +19,8 @@ export function useSigue(comanda: Comanda, alAvisar?: () => void) {
   })
   const paseActivo = !!restaurantes.find(r => r.id === comanda.restaurantId)?.pantallaPase && !enModoLocal() && !practicaActiva()
   const platos = comanda.items.filter(i => i.tipo === 'cocina' && !i.autoGenerado && i.nivel != null)
-  const quedanPlatos = platos.some(i => (i.servidos ?? 0) < i.cantidad)
-  return { pedir, platos, paseActivo, disponible: paseActivo && quedanPlatos }
+  const quedanEnCocina = platos.some(i => (i.listos ?? 0) < i.cantidad)
+  return { pedir, platos, paseActivo, disponible: paseActivo && quedanEnCocina }
 }
 
 const cuenta = (i: ComandaItem) => {
@@ -65,6 +66,7 @@ export function EstadoMesaSheet({ comanda, platos, disponible, pidiendo, onSigue
   comanda: Comanda; platos: ComandaItem[]; disponible: boolean; pidiendo: boolean; onSigue: () => void; onClose: () => void
 }) {
   const niveles = [...new Set(platos.map(i => i.nivel!))].sort((a, b) => a - b)
+  const porRecoger = platos.reduce((n, i) => n + cuenta(i).enPase, 0)
   return (
     <div className="fixed inset-0 z-[60] bg-[var(--sala-bg)] flex flex-col" onClick={e => e.stopPropagation()}>
       <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--sala-brd)]">
@@ -82,7 +84,7 @@ export function EstadoMesaSheet({ comanda, platos, disponible, pidiendo, onSigue
       </div>
       <div className="p-4 border-t border-[var(--sala-brd)]">
         {!disponible
-          ? <p className="py-3 text-center text-lg font-black text-emerald-500">✓ Todo servido</p>
+          ? <p className="py-3 text-center text-lg font-black text-emerald-500">{porRecoger > 0 ? `🟢 Nada en cocina · ${porRecoger} para recoger en el pase` : '✓ Todo servido'}</p>
           : comanda.sigueAt
             ? <p className="py-3 text-center text-lg font-black text-red-500">🔔 Cocina avisada · esperando</p>
             : <button onClick={onSigue} disabled={pidiendo} className="w-full h-16 rounded-2xl bg-red-500 text-white text-xl font-black active:scale-[0.98] transition-transform disabled:opacity-50">🔔 Que siga</button>}

@@ -89,10 +89,15 @@ export async function paseRoutes(app: FastifyInstance) {
   // dos tablets. No se deshace: lo apaga cocina al marcar algo listo de esa mesa. Pedirlo otra vez no cambia nada.
   app.post('/pase/comandas/:id/sigue', async (req, reply) => {
     const { id } = idParams.parse(req.params)
-    const comanda = await prisma.comanda.findUnique({ where: { id }, select: { restaurantId: true, sigueAt: true } })
+    const comanda = await prisma.comanda.findUnique({
+      where: { id },
+      select: { restaurantId: true, sigueAt: true, items: { where: { tipo: 'cocina', autoGenerado: false, nivel: { not: null } }, select: { cantidad: true, listos: true } } },
+    })
     if (!comanda) return reply.status(404).send({ error: 'Esa mesa ya no está' })
     if (deOtroLocal(req, comanda.restaurantId)) return reply.status(403).send({ error: 'Este dispositivo es de otro local' })
     if (comanda.sigueAt) return { ok: true }
+    // Lo que ya está en el pase no se pide: se va a buscar
+    if (comanda.items.every(i => i.listos >= i.cantidad)) return reply.status(409).send({ error: 'No queda nada en cocina' })
     await prisma.comanda.update({ where: { id }, data: { sigueAt: new Date(), siguePor: req.user.nombre } })
     broadcast(comanda.restaurantId, 'pase')
     return { ok: true }
