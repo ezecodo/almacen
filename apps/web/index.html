@@ -14,9 +14,9 @@
       // propio start_url/scope/ícono para que Android/iOS la reconozcan como una app separada.
       (function () {
         var path = window.location.pathname
-        var app = path.startsWith('/pulso') ? 'pulso' : path.startsWith('/sala') ? 'sala' : path.startsWith('/tpv') ? 'tpv' : path.startsWith('/admin') ? 'admin' : null
+        var app = path.startsWith('/pulso') ? 'pulso' : path.startsWith('/sala') ? 'sala' : path.startsWith('/tpv') ? 'tpv' : path.startsWith('/pase') ? 'pase' : path.startsWith('/admin') ? 'admin' : null
         if (!app) return
-        var titles = { pulso: 'OidoOps Pulso', sala: 'OidoOps Sala', tpv: 'OidoOps TPV', admin: 'OidoOps Admin' }
+        var titles = { pulso: 'OidoOps Pulso', sala: 'OidoOps Sala', tpv: 'OidoOps TPV', pase: 'OidoOps Pase', admin: 'OidoOps Admin' }
         var title = titles[app]
         document.title = title
         var appleTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]')
@@ -30,7 +30,7 @@
         // Sala y TPV: sin zoom del navegador (pellizcar, doble toque, o el que hace iOS al tocar un
         // campo con letra chica). Con prisa se dispara sin querer y descoloca toda la pantalla.
         // El plano de reservas tiene su propio zoom y no depende de esto.
-        if (app === 'sala' || app === 'tpv') {
+        if (app === 'sala' || app === 'tpv' || app === 'pase') {
           var vp = document.querySelector('meta[name="viewport"]')
           if (vp) vp.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover')
           // iOS ignora user-scalable=no: el pellizco se corta aquí

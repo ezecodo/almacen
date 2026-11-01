@@ -13,6 +13,7 @@ model Restaurant {
   placeId                String?
   reviewObjetivoTasa     Int?
   reviewsCheckActivo     Boolean               @default(false)
+  pantallaPase           Boolean               @default(false) // pantalla de pase activada (/pase); los tickets salen igual
   retiros                Retiro[]
   reviews                ReviewSnapshot[]
   propinas               PropinaDia[]
@@ -515,6 +516,7 @@ model Comanda {
   noComparten          Boolean   @default(false) // la mesa no comparte: cocina emplata individual (franja NO COMPARTEN en sus tickets)
   alergenoIds          Int[]     @default([])    // alguien de la mesa es alérgico (ids de Alergeno): la sala marca los platos que chocan y sale como COM: ALÉRGICO: … en los tickets
   enviadaAt      DateTime?     // primera vez que la comanda se envió a cocina ("hora de comandada")
+  sigueAt        DateTime?     // pantalla de pase: el del pase pidió que siga esta mesa ("porfa, la 8 sigue"); se apaga al marcar algo listo
   items        ComandaItem[]
   mermas       Merma[]
   reserva      Reserva?
@@ -571,6 +573,14 @@ model ComandaItem {
   invitadoPor  String?                   // quién la marcó
   invitacionMotivo String?               // por qué se invitó (opcional) (accountability)
   menuItemId   Int?                      // plato de la carta del que salió (coste por su escandallo); null = escrito a mano, combinado o comanda vieja
+  // Pantalla de pase: de esta línea, cuántos están listos y cuántos servidos (servidos <= listos <= cantidad)
+  enviadoAt    DateTime?                 // cuándo se comandó esta línea (el tiempo de espera en la pantalla)
+  listos       Int       @default(0)
+  listoAt      DateTime?
+  listoPor     String?
+  servidos     Int       @default(0)
+  servidoAt    DateTime?
+  servidoPor   String?
 }
 
 model Producto {

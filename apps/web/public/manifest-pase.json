@@ -1,0 +1,14 @@
+{
+  "id": "/pase",
+  "name": "OidoOps Pase",
+  "short_name": "Pase",
+  "start_url": "/pase",
+  "scope": "/pase",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#111827",
+  "theme_color": "#111827",
+  "icons": [
+    { "src": "/icon-pase.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

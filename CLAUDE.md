@@ -450,6 +450,20 @@ El personal usa además de teléfonos personales unos PADs de marca **SUNMI** (s
 
 ---
 
+## Módulo: Pantalla de pase (KDS, 2026-11-01)
+
+Idea de Eze: lo que hoy se dice a gritos entre el jefe de cocina y el del pase. **`/pase`** (PIN de cualquier empleado, sala o cocina; `SalaLoginPage pase`) → **`/pase/mesas`** (`PasePage.tsx`), la misma pantalla en la tablet de abajo y en la de arriba, app instalable aparte (`manifest-pase.json`, `icon-pase.svg`). Se activa por local en `/admin/restaurantes` (`Restaurant.pantallaPase`, `PATCH /admin/restaurantes/:id/pase`). **Los tickets salen igual**: es un añadido, no los reemplaza.
+
+- **Una tarjeta por mesa, por antigüedad** (la línea sin servir más vieja; `ComandaItem.enviadoAt`, se fija en `PATCH /comandas/:id/enviar`), con minutos (ámbar a los 15, rojo a los 25), alérgicos, no comparten, nota y los platos por nivel; los niveles siguientes al que está en curso se ven apagados. Solo platos de cocina con nivel, sin automáticos ni precios; comandas activas de las últimas 16 h. Mesa con todo servido → "Servidas" plegada.
+- **Un toque**: 🟡 en cocina → 🟢 listo (jefe de cocina) → ⚪ servido (el del pase, que tiene el control de la comida). Ignora un segundo toque en 600 ms. **Mantener apretado**: marcar parte (2 de 3 bravas) o deshacer. `ComandaItem.listos`/`servidos` (servidos ≤ listos ≤ cantidad; una merma baja la cantidad y `GET /pase` recorta) + `listoAt/Por`, `servidoAt/Por` para futuros informes. `PATCH /pase/items/:id` guarda valores absolutos: dos tablets marcando lo mismo dan lo mismo.
+- **🔔 Sigue** ("porfa, la 8 sigue"; decide el jefe de cocina): el del pase lo toca, el marco de la tarjeta late en las dos tablets (`Comanda.sigueAt`, `POST /pase/comandas/:id/sigue`, otro toque lo quita) y se apaga al marcar algo listo de esa mesa.
+- **Tiempo real**: SSE `pase` (y `update`) en `useRestaurantEvents`, con repaso cada 15 s. Sesión atada a su local. Rutas en `routes/pase.ts` y `RUTAS_SALA`; exigen la red del local si el local la restringe.
+- **Sin internet no funciona** (decisión de Eze, opción A): banda roja "Sin conexión · seguid con los tickets". No está en `RUTAS_LOCAL`, y `armarReplica` quita sus campos de la copia para que una Box sin actualizar siga cargándola.
+- **Cambiar mesa** conserva lo marcado (`/comandas/merge`). Restituir una merma crea la línea de nuevo en cocina.
+- **Sin hacer**: barra; pantallas por partida (caliente, freidora, ensaladas); avisar al camarero en su mapa de que hay platos listos; informes de tiempos; funcionar con la Box. Sin probar en tablets reales ni en servicio. La vidriera no la menciona: no anunciarla hasta probarla en un local.
+
+---
+
 ## Dashboard Admin (`/admin` — AdminHomePage)
 
 Página de inicio tras el login. Animación de entrada: viñeta grande aparece con spring → encoge → viñeta pequeña queda como acento sobre la "ı" de "OıdoOps" → tagline → widgets.

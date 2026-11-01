@@ -553,7 +553,7 @@ export async function comandaRoutes(app: FastifyInstance) {
       (niveles ?? []).map(({ itemId, nivel, nota }) =>
         prisma.comandaItem.update({
           where: { id: itemId },
-          data: { nivel, ronda: nextRonda, ...(nota !== undefined && { nota }) },
+          data: { nivel, ronda: nextRonda, enviadoAt: new Date(), ...(nota !== undefined && { nota }) },
         })
       )
     )
@@ -959,6 +959,13 @@ export async function comandaRoutes(app: FastifyInstance) {
           nota:      item.nota,
           nivel:     item.nivel,
           ronda:     item.ronda,
+          enviadoAt: item.enviadoAt,
+          listos:    item.listos,
+          listoAt:   item.listoAt,
+          listoPor:  item.listoPor,
+          servidos:  item.servidos,
+          servidoAt: item.servidoAt,
+          servidoPor: item.servidoPor,
         },
       })
       await prisma.comandaItem.delete({ where: { id: item.id } })

@@ -67,6 +67,12 @@ export default function AccesosPage() {
           ruta="/tpv"
           nota="Vuelve al PIN después de cada Oído o cobro, y tras un minuto sin tocarla. Mejor en horizontal."
         />
+        <Acceso
+          titulo="Pantalla de pase (tablets de cocina y pase)"
+          para="Cocina marca lo que está listo y el pase lo que sale; las tablets lo ven igual al momento. Se entra con cualquier PIN del personal."
+          ruta="/pase"
+          nota="Se activa por local en Restaurantes. Los tickets salen igual, y sin internet se sigue con ellos."
+        />
         <Acceso titulo="Panel de administración" para="Carta, salón, personal, turnos, facturas. Con el PIN del panel." ruta="/admin" />
         <Acceso titulo="Pulso" para="La facturación en vivo de todos los locales, para el dueño. Con el PIN de Pulso." ruta="/pulso" />
         {restaurantes.map((r, i) => {

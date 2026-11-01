@@ -6,6 +6,10 @@ function Fila({ restaurante }: { restaurante: Restaurante }) {
   const queryClient = useQueryClient()
   const [editando, setEditando] = useState(false)
   const [nombre, setNombre] = useState(restaurante.nombre)
+  const pase = useMutation({
+    mutationFn: (activa: boolean) => api.restaurantes.activarPase(restaurante.id, activa),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['restaurantes'] }),
+  })
   const renombrar = useMutation({
     mutationFn: () => api.restaurantes.renombrar(restaurante.id, nombre.trim()),
     onSuccess: () => { setEditando(false); queryClient.invalidateQueries({ queryKey: ['restaurantes'] }) },
@@ -14,7 +18,11 @@ function Fila({ restaurante }: { restaurante: Restaurante }) {
   if (!editando) {
     return (
       <li className="flex items-center justify-between gap-3 px-4 py-3">
-        <span className="font-medium text-gray-900">{restaurante.nombre}</span>
+        <span className="font-medium text-gray-900 flex-1 min-w-0">{restaurante.nombre}</span>
+        <label className="flex items-center gap-1.5 text-sm text-gray-500 cursor-pointer" title="Tablets de cocina y pase en /pase. Los tickets salen igual.">
+          <input type="checkbox" checked={!!restaurante.pantallaPase} disabled={pase.isPending} onChange={e => pase.mutate(e.target.checked)} />
+          Pantalla de pase
+        </label>
         <button onClick={() => { setNombre(restaurante.nombre); setEditando(true) }} className="text-sm text-gray-400 hover:text-gray-700">
           Cambiar nombre
         </button>

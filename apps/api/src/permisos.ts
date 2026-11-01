@@ -64,6 +64,8 @@ export const RUTAS_SALA = new Set([
   'PUT /api/comandas/:id/division', // pagar por separado (cualquier camarero; cobrar sigue siendo del encargado)
   'PATCH /api/comandas/:id/rectificar-pago', 'PATCH /api/comandas/:id/deshacer-cobro', // corregir una mesa cobrada (encargado)
   'GET /api/mermas', 'POST /api/mermas', 'DELETE /api/mermas/:id',
+  // pantalla de pase: cocina y pase ven y marcan los platos de cada mesa
+  'GET /api/pase', 'PATCH /api/pase/items/:id', 'POST /api/pase/comandas/:id/sigue',
   // platos agotados en el servicio
   'GET /api/agotados', 'POST /api/agotados', 'DELETE /api/agotados/:menuItemId',
   // gastos del día (libreta del encargado: pan, hielo…)

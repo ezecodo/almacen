@@ -4,7 +4,8 @@ import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 
 // tpv = PIN del puesto TPV (/tpv): la tablet compartida del local, que vuelve aquí tras cada acción
-export default function SalaLoginPage({ tpv = false }: { tpv?: boolean }) {
+// pase = PIN de la pantalla de pase (/pase): vale cualquier empleado, de sala o de cocina
+export default function SalaLoginPage({ tpv = false, pase = false }: { tpv?: boolean; pase?: boolean }) {
   const navigate = useNavigate()
   const restaurant = (() => {
     try { return JSON.parse(localStorage.getItem('oidoops_restaurant') ?? '') }
@@ -17,7 +18,7 @@ export default function SalaLoginPage({ tpv = false }: { tpv?: boolean }) {
   const [shake, setShake] = useState(false)
 
   useEffect(() => {
-    if (!restaurant) navigate(tpv ? '/sala/setup?volver=/tpv' : '/sala/setup', { replace: true })
+    if (!restaurant) navigate(tpv ? '/sala/setup?volver=/tpv' : pase ? '/sala/setup?volver=/pase' : '/sala/setup', { replace: true })
   }, [])
 
   // Teclado físico (ver más abajo): los hooks van antes del return temprano
@@ -61,7 +62,7 @@ export default function SalaLoginPage({ tpv = false }: { tpv?: boolean }) {
           token: enModoLocal() ? null : empleado.token ?? null,
           tokenLocal: enModoLocal() ? empleado.token ?? null : empleado.local?.token ?? null,
         }))
-        navigate(tpv ? '/tpv/mesas' : empleado.tipo === 'cocina' ? '/sala/cocina' : '/sala/mesas', { replace: true })
+        navigate(pase ? '/pase/mesas' : tpv ? '/tpv/mesas' : empleado.tipo === 'cocina' ? '/sala/cocina' : '/sala/mesas', { replace: true })
       }
     } catch {
       triggerError('PIN incorrecto')

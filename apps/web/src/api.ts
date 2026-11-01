@@ -58,6 +58,7 @@ export interface RedAdmin {
 export interface Restaurante {
   id: number
   nombre: string
+  pantallaPase?: boolean
 }
 
 export interface Turno {
@@ -1184,8 +1185,9 @@ function sesionRechazada(res: Response, path: string) {
     sessionStorage.removeItem('admin_auth'); sessionStorage.removeItem(ADMIN_TOKEN_KEY); location.reload()
   } else if (location.pathname.startsWith('/pulso')) {
     sessionStorage.removeItem('pulso_auth'); sessionStorage.removeItem(PULSO_TOKEN_KEY); location.reload()
-  } else if ((location.pathname.startsWith('/sala') || location.pathname.startsWith('/tpv')) && tokenSala()) {
-    sessionStorage.removeItem('oidoops_camarero'); location.assign(location.pathname.startsWith('/tpv') ? '/tpv' : '/sala')
+  } else if ((location.pathname.startsWith('/sala') || location.pathname.startsWith('/tpv') || location.pathname.startsWith('/pase')) && tokenSala()) {
+    sessionStorage.removeItem('oidoops_camarero')
+    location.assign(location.pathname.startsWith('/tpv') ? '/tpv' : location.pathname.startsWith('/pase') ? '/pase' : '/sala')
   }
 }
 
@@ -1317,6 +1319,14 @@ export interface Gasto {
 export interface LeccionHecha { leccion: string; completadaAt: string }
 export interface EquipoLecciones { id: number; nombre: string; rol: string | null; restaurantId: number | null; lecciones: LeccionHecha[] }
 
+// Pantalla de pase: los platos de cocina de cada mesa (servidos <= listos <= cantidad)
+export interface PlatoPase { id: number; nombre: string; cantidad: number; nota: string; nivel: number; listos: number; servidos: number; enviadoAt: string }
+export interface MesaPase {
+  comandaId: number; mesa: number | null; salon: string; pax: number; camarero: string | null
+  noComparten: boolean; nota: string; sigueAt: string | null; desde: string; alergias: string[]; items: PlatoPase[]
+}
+export interface Pase { activa: boolean; mesas: MesaPase[] }
+
 export interface ItemAgotado {
   menuItemId: number
   marcadoPor: string
@@ -1401,6 +1411,12 @@ export const api = {
     list: () => get<Restaurante[]>('/restaurantes'),
     crear: (nombre: string) => authFetch('/admin/restaurantes', { method: 'POST', json: { nombre } }).then(r => r.json() as Promise<Restaurante>),
     renombrar: (id: number, nombre: string) => authFetch(`/admin/restaurantes/${id}`, { method: 'PUT', json: { nombre } }).then(r => r.json() as Promise<Restaurante>),
+    activarPase: (id: number, activa: boolean) => authFetch(`/admin/restaurantes/${id}/pase`, { method: 'PATCH', json: { activa } }).then(() => undefined),
+  },
+  pase: {
+    list:  (restaurantId: number) => authFetch(`/pase?restaurantId=${restaurantId}`).then(r => r.json() as Promise<Pase>),
+    marcar: (itemId: number, listos: number, servidos: number) => authFetch(`/pase/items/${itemId}`, { method: 'PATCH', json: { listos, servidos } }).then(() => undefined),
+    sigue: (comandaId: number) => authFetch(`/pase/comandas/${comandaId}/sigue`, { method: 'POST', json: {} }).then(() => undefined),
   },
   empleados: {
     list:   (tipo?: 'cocina' | 'sala') => get<Empleado[]>(`/empleados${tipo ? `?tipo=${tipo}` : ''}`),

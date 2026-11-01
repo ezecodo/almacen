@@ -51,6 +51,7 @@ import RestaurantesPage from './pages/RestaurantesPage'
 import RedPage from './pages/RedPage'
 import AccesosPage from './pages/AccesosPage'
 import SinConexion from './components/SinConexion'
+import PasePage from './pages/PasePage'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -76,6 +77,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             {/* Personal de cocina: recetas (wiki de cocina), su horario y sus propinas */}
             <Route path="/sala/cocina" element={<CocinaPage />} />
             {/* Puesto TPV: tablet compartida del local, el PIN vale para una acción */}
+            <Route path="/pase" element={<SalaLoginPage pase />} />
+            <Route path="/pase/mesas" element={<PasePage />} />
             <Route path="/tpv" element={<SalaLoginPage tpv />} />
             <Route path="/tpv/mesas" element={<SalaMesasPage tpv />} />
           </Route>
