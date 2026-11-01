@@ -70,7 +70,7 @@ export async function armarReplica(prisma: PrismaClient, restaurantId: number): 
       empleado: empleados.map(({ pin, ...e }) => ({ ...e, clave: pin })),
       turno,
       // La pantalla de pase solo existe con internet: lo suyo no viaja, y una Box sin actualizar sigue cargando la copia
-      comanda: comandas.map(({ items: _i, mermas: _m, sigueAt: _s, ...c }) => c),
+      comanda: comandas.map(({ items: _i, mermas: _m, sigueAt: _s, siguePor: _sp, ...c }) => c),
       comandaItem: comandas.flatMap(c => c.items.map(({ enviadoAt: _e, listos: _l, listoAt: _la, listoPor: _lp, servidos: _sv, servidoAt: _sa, servidoPor: _sp, ...i }) => i)),
       merma: comandas.flatMap(c => c.mermas),
     },

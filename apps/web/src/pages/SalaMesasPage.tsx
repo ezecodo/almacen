@@ -7,6 +7,7 @@ const TpvCtx = createContext<(() => void) | null>(null)
 import MiHorario from '../components/MiHorario'
 import CheckOverlay from '../components/CheckOverlay'
 import AgotadosSala from '../components/AgotadosSala'
+import BotonSigue from '../components/BotonSigue'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, MOTIVO_RECTIFICAR_LABEL, MotivoRectificar, Alergeno, Comanda, ComandaItem, FloorPlan, GrupoAgendado, GrupoMenuTemplate, InventarioCategoria, Mesa, MenuCategoria, MenuItem, MermaMotivo, MiTurno, Reserva, Turno, WikiCategoria, WikiArticulo, ChecklistSector, sugerirCantidadesMenu, totalComanda, valorItem, waLink, esAvisoBox, repartoPago, textoPago, pagadoDivision } from '../api'
@@ -2144,6 +2145,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                             🔀 Ordenar salidas
                           </button>
                         )}
+                        <BotonSigue comanda={comanda} />
                       </div>
                     )}
                     {/* ── Cocina ── */}

@@ -51,7 +51,7 @@ export async function paseRoutes(app: FastifyInstance) {
       const desde = (faltan.length ? faltan : items).reduce((m, i) => (i.enviadoAt < m ? i.enviadoAt : m), items[0].enviadoAt)
       return {
         comandaId: c.id, mesa: c.mesa?.numero ?? null, salon: c.mesa?.floorPlan.nombre ?? '', pax: c.pax, camarero: c.camareroNombre,
-        noComparten: c.noComparten, nota: c.notaMesa, sigueAt: c.sigueAt, desde,
+        noComparten: c.noComparten, nota: c.notaMesa, sigueAt: c.sigueAt, siguePor: c.siguePor, desde,
         alergias: alergenos.filter(a => c.alergenoIds.includes(a.id)).map(a => a.nombre), items,
       }
     }).sort((a, b) => a.desde.getTime() - b.desde.getTime())
@@ -80,18 +80,19 @@ export async function paseRoutes(app: FastifyInstance) {
       },
     })
     // La cocina respondió al "sigue"
-    if (listos > item.listos) await prisma.comanda.update({ where: { id: item.comandaId }, data: { sigueAt: null } })
+    if (listos > item.listos) await prisma.comanda.update({ where: { id: item.comandaId }, data: { sigueAt: null, siguePor: null } })
     broadcast(item.comanda.restaurantId, 'pase')
     return { ok: true }
   })
 
-  // 🔔 "Porfa, la 8 sigue": la tarjeta late en las dos tablets; otro toque lo quita
+  // 🔔 "Porfa, la 8 sigue": el camarero que ve la demora lo pide desde su mesa y la tarjeta late en las
+  // dos tablets; otro toque, suyo o desde la pantalla, lo quita
   app.post('/pase/comandas/:id/sigue', async (req, reply) => {
     const { id } = idParams.parse(req.params)
     const comanda = await prisma.comanda.findUnique({ where: { id }, select: { restaurantId: true, sigueAt: true } })
     if (!comanda) return reply.status(404).send({ error: 'Esa mesa ya no está' })
     if (deOtroLocal(req, comanda.restaurantId)) return reply.status(403).send({ error: 'Este dispositivo es de otro local' })
-    await prisma.comanda.update({ where: { id }, data: { sigueAt: comanda.sigueAt ? null : new Date() } })
+    await prisma.comanda.update({ where: { id }, data: comanda.sigueAt ? { sigueAt: null, siguePor: null } : { sigueAt: new Date(), siguePor: req.user.nombre } })
     broadcast(comanda.restaurantId, 'pase')
     return { ok: true }
   })

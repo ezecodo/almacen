@@ -9,25 +9,26 @@ import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
 // Pantalla de pase (/pase/mesas): la misma en la tablet de abajo y en la de arriba. Una tarjeta por
 // mesa, la que más lleva esperando primero. Un toque en un plato: 🟡 en cocina → 🟢 listo (jefe de
 // cocina) → ⚪ servido (el del pase). Mantener apretado: marcar solo algunos o deshacer.
-// 🔔 Sigue = "porfa, la 8 sigue": late en las dos tablets hasta que cocina marque algo de esa mesa.
+// 🔔 Sigue = "porfa, la 8 sigue": lo pide el camarero que ve la demora, desde su mesa en la sala. La tarjeta
+// late en las dos tablets hasta que cocina marque algo de esa mesa (o se toca la franja para quitarlo).
 // Seguimiento: arriba el resumen del servicio; en cada mesa, cómo va y qué falta. Dos avisos: un plato
 // listo que nadie recoge (se enfría en el pase) y el plato que retiene a una mesa con su nivel ya listo.
 // También sin tocar la pantalla: un cursor que se maneja con el teclado (ver TECLAS). Las teclas solo
 // dicen qué acción quieren; un joystick se conectaría a las mismas acciones.
 
+const PLANTA_KEY = 'pase_planta' // cada tablet recuerda la suya
 const APRETADO_MS = 450
 const DOBLE_TOQUE_MS = 600 // un toque nervioso no se salta de en cocina a servido
 const VERDE_ESPERA_MIN = 5  // listo y sin recoger: se está enfriando
 const RETENIDO_MIN = 10     // lo que falta de un nivel que ya está casi listo
 
-type Accion = 'arriba' | 'abajo' | 'izquierda' | 'derecha' | 'entrar' | 'salir' | 'deshacer' | 'sigue'
+type Accion = 'arriba' | 'abajo' | 'izquierda' | 'derecha' | 'entrar' | 'salir' | 'deshacer'
 const TECLAS: Record<string, Accion> = {
   ArrowUp: 'arriba', ArrowDown: 'abajo', ArrowLeft: 'izquierda', ArrowRight: 'derecha',
   Numpad8: 'arriba', Numpad2: 'abajo', Numpad4: 'izquierda', Numpad6: 'derecha',
   NumpadEnter: 'entrar', Enter: 'entrar',
-  Numpad0: 'salir', Escape: 'salir',
+  NumLock: 'salir', Escape: 'salir', // se lee la tecla física: que Bloq Num cambie de estado no afecta a las demás
   NumpadDecimal: 'deshacer', Backspace: 'deshacer',
-  NumpadAdd: 'sigue',
 }
 
 // La tarjeta más cercana en esa dirección, tal como se ven en pantalla (las columnas tienen alturas distintas)
@@ -124,8 +125,12 @@ function Tarjeta({ m, ahora, elegida, ventana, platoCursor, onMarcar, onDetalle,
         <span className="text-3xl font-black tabular-nums">{m.mesa ?? '—'}</span>
         <span className="flex-1 min-w-0 text-xs text-slate-300 leading-tight truncate">{m.salon}<br />{m.pax} pax{m.camarero ? ` · ${m.camarero.split(' ')[0]}` : ''}</span>
         <span className={`text-2xl font-black tabular-nums ${colorTiempo(min)}`}>{min}′</span>
-        <button onClick={onSigue} className={`h-12 px-3 rounded-xl text-base font-black ${m.sigueAt ? 'bg-red-500 text-white' : 'bg-white/10 text-slate-100'}`}>🔔 Sigue</button>
       </header>
+      {m.sigueAt && (
+        <button onClick={onSigue} className="relative z-20 w-full px-3 py-2 bg-red-500 text-white text-base font-black text-left">
+          🔔 Sigue{m.siguePor ? ` · lo pide ${m.siguePor.split(' ')[0]}` : ''} · hace {minutosDesde(m.sigueAt, ahora)}′
+        </button>
+      )}
       {m.alergias.length > 0 && <p className="px-3 py-1.5 bg-red-600 text-white text-sm font-black uppercase">🚫 Alérgico: {m.alergias.join(', ')}</p>}
       {(m.noComparten || m.nota) && <p className="px-3 py-1.5 bg-amber-400/15 text-amber-200 text-sm font-bold">{[m.noComparten && 'NO COMPARTEN', m.nota].filter(Boolean).join(' · ')}</p>}
       {servidos < total && (
@@ -201,6 +206,9 @@ export default function PasePage() {
   useEffect(() => { const t = setInterval(() => setAhora(Date.now()), 30_000); return () => clearInterval(t) }, [])
   const [detalle, setDetalle] = useState<{ mesa: number | null; plato: PlatoPase } | null>(null)
   const [verServidas, setVerServidas] = useState(false)
+  const [planta, setPlanta] = useState(() => localStorage.getItem(PLANTA_KEY) ?? '')
+  const { data: salones = [] } = useQuery({ queryKey: ['salon-planes', rid], queryFn: () => api.salon.list(rid!), enabled: !!sesion && !!rid })
+  const elegirPlanta = (nombre: string) => { setPlanta(nombre); localStorage.setItem(PLANTA_KEY, nombre) }
   // Cursor del teclado: la mesa elegida y, con la mesa abierta, el plato
   const [cursor, setCursor] = useState<{ mesa: number | null; plato: number | null }>({ mesa: null, plato: null })
   const [abierta, setAbierta] = useState(false)
@@ -217,7 +225,8 @@ export default function PasePage() {
   })
   const sigue = useMutation({ mutationFn: (comandaId: number) => api.pase.sigue(comandaId), onSettled: () => qc.invalidateQueries({ queryKey: clave }) })
 
-  const mesasVistas = data?.mesas ?? []
+  // Lo que se ve en esta tablet: el jefe de cocina, todo; la de arriba, solo su planta
+  const mesasVistas = (data?.mesas ?? []).filter(m => !planta || m.salon === planta)
   const mesaAbierta = abierta ? mesasVistas.find(m => m.comandaId === cursor.mesa) : undefined
   const primerPlato = (m: MesaPase) => (m.items.find(i => i.servidos < i.cantidad) ?? m.items[0]).id
   const accion = (a: Accion) => {
@@ -237,7 +246,6 @@ export default function PasePage() {
         // Un paso atrás de toda la línea
         marcar.mutate({ id: plato.id, listos: plato.servidos > 0 ? plato.listos : 0, servidos: 0 })
       } else if (a === 'salir') setAbierta(false)
-      else if (a === 'sigue') sigue.mutate(mesaAbierta.comandaId)
       return
     }
     const elegida = mesasVistas.find(m => m.comandaId === cursor.mesa)
@@ -246,7 +254,6 @@ export default function PasePage() {
       if (!elegida) setCursor({ mesa: mesaVecina(null, a), plato: null })
       else { setCursor({ mesa: elegida.comandaId, plato: primerPlato(elegida) }); setAbierta(true) }
     } else if (a === 'salir') setCursor({ mesa: null, plato: null })
-    else if (a === 'sigue' && elegida) sigue.mutate(elegida.comandaId)
   }
   const accionActual = useRef(accion)
   accionActual.current = accion
@@ -255,7 +262,7 @@ export default function PasePage() {
   useEffect(() => {
     const escuchar = (e: KeyboardEvent) => {
       const a = TECLAS[e.code]
-      if (!a || hayDetalle.current || e.repeat && (a === 'entrar' || a === 'deshacer' || a === 'sigue')) return
+      if (!a || hayDetalle.current || e.repeat && (a === 'entrar' || a === 'deshacer')) return
       e.preventDefault()
       accionActual.current(a)
     }
@@ -266,7 +273,7 @@ export default function PasePage() {
 
   if (!sesion || !rid) return null
   const salir = () => { sessionStorage.removeItem('oidoops_camarero'); navigate('/pase', { replace: true }) }
-  const mesas = data?.mesas ?? []
+  const mesas = mesasVistas
   // Se decide con los datos al momento: la tarjeta baja al servir el último plato
   const terminada = (m: MesaPase) => m.items.every(i => i.servidos >= i.cantidad)
   const enMarcha = mesas.filter(m => !terminada(m))
@@ -297,6 +304,16 @@ export default function PasePage() {
         </div>
         <button onClick={salir} className="h-11 px-3 rounded-xl bg-white/10 text-sm font-bold">Salir</button>
       </header>
+      {salones.length > 1 && (
+        <div className="flex gap-2 px-3 pt-3 overflow-x-auto">
+          {[{ nombre: '', texto: 'Todas' }, ...salones.map(p => ({ nombre: p.nombre, texto: p.nombre }))].map(p => (
+            <button key={p.nombre} onClick={() => elegirPlanta(p.nombre)}
+              className={`shrink-0 h-12 px-5 rounded-xl text-base font-black ${planta === p.nombre ? 'bg-gradient-to-r from-[#4B9EDF] to-[#4CC8A0] text-[#0f1a2e]' : 'bg-white/5 text-slate-300'}`}>
+              {p.texto}
+            </button>
+          ))}
+        </div>
+      )}
 
       {(isError || enModoLocal()) && (
         <p className="px-4 py-3 bg-red-600 text-white font-black text-center">Sin conexión · seguid con los tickets</p>
@@ -331,8 +348,8 @@ export default function PasePage() {
       {cursor.mesa !== null && (
         <p className="fixed bottom-0 inset-x-0 z-[36] bg-[#0f1a2e] border-t border-white/10 px-4 py-2 text-center text-sm font-semibold text-slate-300">
           {mesaAbierta
-            ? '↑↓ plato · ←→ otra mesa · Enter marcar · , deshacer · + Sigue · 0 salir'
-            : 'Flechas elegir mesa · Enter abrir · + Sigue · 0 quitar cursor'}
+            ? '↑↓ plato · ←→ otra mesa · Enter marcar · , deshacer · Num salir'
+            : 'Flechas elegir mesa · Enter abrir · Num quitar cursor'}
         </p>
       )}
       {detalle && (

@@ -516,7 +516,8 @@ model Comanda {
   noComparten          Boolean   @default(false) // la mesa no comparte: cocina emplata individual (franja NO COMPARTEN en sus tickets)
   alergenoIds          Int[]     @default([])    // alguien de la mesa es alérgico (ids de Alergeno): la sala marca los platos que chocan y sale como COM: ALÉRGICO: … en los tickets
   enviadaAt      DateTime?     // primera vez que la comanda se envió a cocina ("hora de comandada")
-  sigueAt        DateTime?     // pantalla de pase: el del pase pidió que siga esta mesa ("porfa, la 8 sigue"); se apaga al marcar algo listo
+  sigueAt        DateTime?     // pantalla de pase: el camarero avisa de una demora ("porfa, la 8 sigue"); se apaga al marcar algo listo
+  siguePor       String?       // quién lo pidió
   items        ComandaItem[]
   mermas       Merma[]
   reserva      Reserva?

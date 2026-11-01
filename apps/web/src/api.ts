@@ -346,6 +346,7 @@ export interface FloorPlan {
 
 export interface ComandaItem {
   id:           number
+  servidos?:    number // pantalla de pase
   comandaId:    number
   tipo:         'cocina' | 'barra'
   nombre:       string
@@ -522,6 +523,7 @@ export interface Rectificativa {
 
 export interface Comanda {
   id:             number
+  sigueAt?:       string | null // el camarero pidió que siga esta mesa (pantalla de pase)
   restaurantId:   number
   mesaId:         number
   mesa:           Mesa
@@ -1323,7 +1325,7 @@ export interface EquipoLecciones { id: number; nombre: string; rol: string | nul
 export interface PlatoPase { id: number; nombre: string; cantidad: number; nota: string; nivel: number; listos: number; servidos: number; enviadoAt: string; listoAt: string | null }
 export interface MesaPase {
   comandaId: number; mesa: number | null; salon: string; pax: number; camarero: string | null
-  noComparten: boolean; nota: string; sigueAt: string | null; desde: string; alergias: string[]; items: PlatoPase[]
+  noComparten: boolean; nota: string; sigueAt: string | null; siguePor: string | null; desde: string; alergias: string[]; items: PlatoPase[]
 }
 export interface Pase { activa: boolean; mesas: MesaPase[] }
 

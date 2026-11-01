@@ -36,6 +36,7 @@ export function useRestaurantEvents(restaurantId: number | null) {
           window.dispatchEvent(new CustomEvent('oido:reserva-nueva', { detail: datos.reserva }))
         }
         if (type === 'pase' || type === 'update') queryClient.invalidateQueries({ queryKey: ['pase', restaurantId] })
+        if (type === 'pase') queryClient.invalidateQueries({ queryKey: ['comanda-sala'] })
         if (type === 'agotados') queryClient.invalidateQueries({ queryKey: ['agotados', restaurantId] })
         if (type === 'accesos-rapidos') queryClient.invalidateQueries({ queryKey: ['accesos-rapidos', restaurantId] })
         if (type === 'salon') queryClient.invalidateQueries({ queryKey: ['salon-planes', restaurantId] }) // mesa separada o juntada
