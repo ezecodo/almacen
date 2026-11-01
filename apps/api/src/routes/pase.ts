@@ -44,7 +44,7 @@ export async function paseRoutes(app: FastifyInstance) {
         const listos = Math.min(i.listos, i.cantidad)
         return {
           id: i.id, nombre: i.nombre, cantidad: i.cantidad, nota: i.nota, nivel: i.nivel!, listos,
-          servidos: Math.min(i.servidos, listos), enviadoAt: i.enviadoAt ?? c.enviadaAt ?? c.createdAt,
+          servidos: Math.min(i.servidos, listos), enviadoAt: i.enviadoAt ?? c.enviadaAt ?? c.createdAt, listoAt: i.listoAt,
         }
       })
       const faltan = items.filter(i => i.servidos < i.cantidad)

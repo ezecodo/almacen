@@ -1320,7 +1320,7 @@ export interface LeccionHecha { leccion: string; completadaAt: string }
 export interface EquipoLecciones { id: number; nombre: string; rol: string | null; restaurantId: number | null; lecciones: LeccionHecha[] }
 
 // Pantalla de pase: los platos de cocina de cada mesa (servidos <= listos <= cantidad)
-export interface PlatoPase { id: number; nombre: string; cantidad: number; nota: string; nivel: number; listos: number; servidos: number; enviadoAt: string }
+export interface PlatoPase { id: number; nombre: string; cantidad: number; nota: string; nivel: number; listos: number; servidos: number; enviadoAt: string; listoAt: string | null }
 export interface MesaPase {
   comandaId: number; mesa: number | null; salon: string; pax: number; camarero: string | null
   noComparten: boolean; nota: string; sigueAt: string | null; desde: string; alergias: string[]; items: PlatoPase[]

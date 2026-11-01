@@ -10,9 +10,13 @@ import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
 // mesa, la que más lleva esperando primero. Un toque en un plato: 🟡 en cocina → 🟢 listo (jefe de
 // cocina) → ⚪ servido (el del pase). Mantener apretado: marcar solo algunos o deshacer.
 // 🔔 Sigue = "porfa, la 8 sigue": late en las dos tablets hasta que cocina marque algo de esa mesa.
+// Seguimiento: arriba el resumen del servicio; en cada mesa, cómo va y qué falta. Dos avisos: un plato
+// listo que nadie recoge (se enfría en el pase) y el plato que retiene a una mesa con su nivel ya listo.
 
 const APRETADO_MS = 450
 const DOBLE_TOQUE_MS = 600 // un toque nervioso no se salta de en cocina a servido
+const VERDE_ESPERA_MIN = 5  // listo y sin recoger: se está enfriando
+const RETENIDO_MIN = 10     // lo que falta de un nivel que ya está casi listo
 
 const minutosDesde = (iso: string, ahora: number) => Math.max(0, Math.floor((ahora - new Date(iso).getTime()) / 60000))
 const colorTiempo = (min: number) => (min >= 25 ? 'text-red-400' : min >= 15 ? 'text-amber-300' : 'text-slate-300')
@@ -23,10 +27,17 @@ function colorPlato(p: PlatoPase) {
   return 'bg-amber-400/15 border-amber-400/70 text-amber-50'
 }
 
+const sumar = (items: PlatoPase[], f: (p: PlatoPase) => number) => items.reduce((n, p) => n + f(p), 0)
+const enCocina = (p: PlatoPase) => p.cantidad - p.listos
+const porRecoger = (p: PlatoPase) => p.listos - p.servidos
+// Minutos que un plato listo lleva esperando en el pase (null si no hay nada que recoger)
+const minutosVerde = (p: PlatoPase, ahora: number) => (porRecoger(p) > 0 && p.listoAt ? minutosDesde(p.listoAt, ahora) : null)
+const seEnfria = (p: PlatoPase, ahora: number) => (minutosVerde(p, ahora) ?? 0) >= VERDE_ESPERA_MIN
+
 // Toque: lo siguiente que le toca a toda la línea
 const siguiente = (p: PlatoPase) => (p.listos < p.cantidad ? { listos: p.cantidad, servidos: p.servidos } : { listos: p.listos, servidos: p.cantidad })
 
-function Plato({ p, apagado, onMarcar, onDetalle }: { p: PlatoPase; apagado: boolean; onMarcar: (listos: number, servidos: number) => void; onDetalle: () => void }) {
+function Plato({ p, apagado, ahora, retenido, onMarcar, onDetalle }: { p: PlatoPase; apagado: boolean; ahora: number; retenido: boolean; onMarcar: (listos: number, servidos: number) => void; onDetalle: () => void }) {
   const reloj = useRef<number>()
   const largo = useRef(false)
   const ultimo = useRef(0)
@@ -45,13 +56,15 @@ function Plato({ p, apagado, onMarcar, onDetalle }: { p: PlatoPase; apagado: boo
   return (
     <button onPointerDown={empezar} onPointerUp={soltar} onPointerLeave={soltar} onPointerCancel={soltar} onClick={tocar}
       onContextMenu={e => e.preventDefault()}
-      className={`w-full min-h-[3.5rem] rounded-xl border-2 px-3 py-2 text-left select-none ${colorPlato(p)} ${apagado ? 'opacity-45' : ''}`}>
+      className={`w-full min-h-[3.5rem] rounded-xl border-2 px-3 py-2 text-left select-none ${colorPlato(p)} ${apagado ? 'opacity-45' : ''} ${retenido || seEnfria(p, ahora) ? 'ring-2 ring-red-500' : ''}`}>
       <span className="flex items-baseline gap-2">
         <span className="text-xl font-black tabular-nums shrink-0">{p.cantidad}×</span>
         <span className="flex-1 min-w-0 text-lg font-bold uppercase leading-tight">{p.nombre}</span>
       </span>
       {p.nota && <span className="block text-sm font-semibold text-amber-200 no-underline">» {p.nota}</span>}
       {parcial && <span className="block text-sm font-black text-emerald-300 no-underline">{p.listos} listos · {p.servidos} servidos</span>}
+      {seEnfria(p, ahora) && <span className="block text-sm font-black text-red-300 no-underline">🥶 Lleva {minutosVerde(p, ahora)}′ sin recoger</span>}
+      {retenido && <span className="block text-sm font-black text-red-300 no-underline">⏳ La mesa espera por este · {minutosDesde(p.enviadoAt, ahora)}′</span>}
     </button>
   )
 }
@@ -61,6 +74,15 @@ function Tarjeta({ m, ahora, onMarcar, onDetalle, onSigue }: { m: MesaPase; ahor
   const niveles = [...new Set(m.items.map(i => i.nivel))].sort((a, b) => a - b)
   // El primer nivel con algo por servir manda; los de después se ven apagados
   const enCurso = niveles.find(n => m.items.some(i => i.nivel === n && i.servidos < i.cantidad))
+  const delNivel = m.items.filter(i => i.nivel === enCurso)
+  // Retiene a la mesa: casi todo su nivel ya salió de cocina, este sigue y lleva rato
+  const retenido = (p: PlatoPase) => p.nivel === enCurso && enCocina(p) > 0 && minutosDesde(p.enviadoAt, ahora) >= RETENIDO_MIN
+    && delNivel.length > 1 && delNivel.filter(i => enCocina(i) > 0).length <= Math.floor(delNivel.length / 2)
+  const total = sumar(m.items, i => i.cantidad)
+  const servidos = sumar(m.items, i => i.servidos)
+  const listos = sumar(m.items, porRecoger)
+  const faltan = m.items.filter(i => enCocina(i) > 0)
+  const nFaltan = sumar(faltan, enCocina)
   return (
     <section className={`relative break-inside-avoid mb-3 rounded-2xl border bg-[#16233a] overflow-hidden ${m.sigueAt ? 'border-red-400' : 'border-white/10'}`}>
       {/* Late el marco, no la tarjeta: los platos se tienen que seguir leyendo */}
@@ -73,12 +95,24 @@ function Tarjeta({ m, ahora, onMarcar, onDetalle, onSigue }: { m: MesaPase; ahor
       </header>
       {m.alergias.length > 0 && <p className="px-3 py-1.5 bg-red-600 text-white text-sm font-black uppercase">🚫 Alérgico: {m.alergias.join(', ')}</p>}
       {(m.noComparten || m.nota) && <p className="px-3 py-1.5 bg-amber-400/15 text-amber-200 text-sm font-bold">{[m.noComparten && 'NO COMPARTEN', m.nota].filter(Boolean).join(' · ')}</p>}
+      {servidos < total && (
+        <div className="px-3 pt-2.5">
+          <div className="flex h-2.5 rounded-full overflow-hidden bg-amber-400/30">
+            <span className="bg-slate-300" style={{ width: `${(servidos / total) * 100}%` }} />
+            <span className="bg-emerald-400" style={{ width: `${(listos / total) * 100}%` }} />
+          </div>
+          <p className="mt-1.5 text-sm font-bold text-slate-200">{servidos} de {total} servidos</p>
+          <p className="text-sm text-slate-300 leading-snug">
+            {nFaltan > 0 ? `Faltan ${nFaltan}: ${faltan.map(i => `${enCocina(i)}× ${i.nombre}`).join(', ')}` : 'Nada en cocina · todo por recoger'}
+          </p>
+        </div>
+      )}
       <div className="p-2.5 space-y-2.5">
         {niveles.map(n => (
           <div key={n} className="space-y-1.5">
             <p className="text-[11px] font-black tracking-wider text-slate-400">{nombreNivel(n)}</p>
             {m.items.filter(i => i.nivel === n).map(p => (
-              <Plato key={p.id} p={p} apagado={enCurso !== undefined && n > enCurso} onMarcar={(l, s) => onMarcar(p, l, s)} onDetalle={() => onDetalle(p)} />
+              <Plato key={p.id} p={p} apagado={enCurso !== undefined && n > enCurso} ahora={ahora} retenido={retenido(p)} onMarcar={(l, s) => onMarcar(p, l, s)} onDetalle={() => onDetalle(p)} />
             ))}
           </div>
         ))}
@@ -140,7 +174,8 @@ export default function PasePage() {
     // El color cambia al tocar, sin esperar a la red
     onMutate: async ({ id, listos, servidos }) => {
       await qc.cancelQueries({ queryKey: clave })
-      qc.setQueryData<Pase>(clave, d => d && { ...d, mesas: d.mesas.map(m => ({ ...m, items: m.items.map(i => (i.id === id ? { ...i, listos, servidos } : i)) })) })
+      const listoAt = new Date().toISOString()
+      qc.setQueryData<Pase>(clave, d => d && { ...d, mesas: d.mesas.map(m => ({ ...m, items: m.items.map(i => (i.id === id ? { ...i, listos, servidos, listoAt: listos > i.listos ? listoAt : i.listoAt } : i)) })) })
     },
     onSettled: () => qc.invalidateQueries({ queryKey: clave }),
   })
@@ -153,6 +188,11 @@ export default function PasePage() {
   const terminada = (m: MesaPase) => m.items.every(i => i.servidos >= i.cantidad)
   const enMarcha = mesas.filter(m => !terminada(m))
   const servidas = mesas.filter(terminada).reverse()
+  const platos = enMarcha.flatMap(m => m.items)
+  const nCocina = sumar(platos, enCocina)
+  const nRecoger = sumar(platos, porRecoger)
+  const nEnfrian = sumar(platos.filter(p => seEnfria(p, ahora)), porRecoger)
+  const masVieja = enMarcha[0]
   const tarjeta = (m: MesaPase) => (
     <Tarjeta key={m.comandaId} m={m} ahora={ahora} onSigue={() => sigue.mutate(m.comandaId)}
       onMarcar={(p, listos, servidos) => marcar.mutate({ id: p.id, listos, servidos })}
@@ -166,7 +206,12 @@ export default function PasePage() {
           <p className="text-[#4CC8A0] text-xs font-semibold">{restaurante?.nombre}</p>
           <h1 className="text-xl font-black leading-tight">Pase · {enMarcha.length} {enMarcha.length === 1 ? 'mesa' : 'mesas'}</h1>
         </div>
-        <p className="flex-1 text-sm font-semibold text-slate-400 text-right">🟡 En cocina &nbsp; 🟢 Listo &nbsp; ⚪ Servido</p>
+        <div className="flex-1 flex flex-wrap items-center justify-end gap-x-5 gap-y-1 text-base font-bold">
+          <span className="text-amber-300">🟡 {nCocina} en cocina</span>
+          <span className="text-emerald-300">🟢 {nRecoger} por recoger</span>
+          {nEnfrian > 0 && <span className="text-red-300">🥶 {nEnfrian} {nEnfrian === 1 ? 'se enfría' : 'se enfrían'}</span>}
+          {masVieja && <span className="text-slate-300">Más espera: la {masVieja.mesa ?? '—'}, {minutosDesde(masVieja.desde, ahora)}′</span>}
+        </div>
         <button onClick={salir} className="h-11 px-3 rounded-xl bg-white/10 text-sm font-bold">Salir</button>
       </header>
 
