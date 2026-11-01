@@ -3,9 +3,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { api, ItemAgotado, MenuCategoria, MenuItem, MesaPase, Pase, PlatoPase } from '../api'
 import { enModoLocal } from '../lib/conexion'
+import { useSimulacionPase } from '../lib/simulacionPase'
 import { nombreNivel } from '../components/NivelEtiqueta'
 import CheckOverlay from '../components/CheckOverlay'
 import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
+import { FuncionMando, MapaMando, guardarMapa, leerMapa, useMando } from '../hooks/useMando'
 
 // Pantalla de pase (/pase/mesas): la misma en la tablet de abajo y en la de arriba. Una tarjeta por
 // mesa, la que más lleva esperando primero. Un toque en un plato: 🟡 en cocina → 🟢 listo (jefe de
@@ -20,6 +22,7 @@ import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
 // dicen qué acción quieren; un joystick se conectaría a las mismas acciones.
 
 const PLANTA_KEY = 'pase_planta' // cada tablet recuerda la suya
+const SIMULACION_KEY = 'pase_simulacion'
 const APRETADO_MS = 450
 const DOBLE_TOQUE_MS = 600 // un toque nervioso no se salta de en cocina a servido
 const VERDE_ESPERA_MIN = 5  // listo y sin recoger: se está enfriando
@@ -167,6 +170,32 @@ function AltosPase({ secciones, cat, item, agotados, error, onElegir, onTocar, o
   )
 }
 
+const PASOS_MANDO: { funcion: FuncionMando; texto: string }[] = [
+  { funcion: 'marcar', texto: 'Abrir la mesa y marcar el plato' },
+  { funcion: 'atras', texto: 'Deshacer y salir' },
+  { funcion: 'alto', texto: 'Abrir los ALTOS' },
+  { funcion: 'planta', texto: 'Cambiar de salón' },
+]
+
+// Cada mando numera sus botones a su manera: se pulsa el que se quiere para cada función
+function CalibrarMando({ nombre, paso, onCerrar }: { nombre: string | null; paso: number; onCerrar: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[38] bg-black/60 flex items-center justify-center p-4" onClick={onCerrar}>
+      <div className="w-full max-w-lg bg-white text-slate-900 p-6 space-y-4" onClick={e => e.stopPropagation()}>
+        <h2 className="text-2xl font-black">🎮 Configurar el mando</h2>
+        <p className="text-sm text-slate-500 break-words">{nombre ?? 'Conecta el mando y pulsa cualquier botón para que el navegador lo vea.'}</p>
+        {nombre && (
+          <>
+            <p className="text-sm font-bold text-slate-500">Botón {paso + 1} de {PASOS_MANDO.length} · pulsa el que quieras para:</p>
+            <p className="text-3xl font-black leading-tight">{PASOS_MANDO[paso].texto}</p>
+          </>
+        )}
+        <button onClick={onCerrar} className="h-12 px-4 bg-slate-200 font-bold">Cancelar</button>
+      </div>
+    </div>
+  )
+}
+
 function Tarjeta({ m, ahora, elegida, ventana, platoCursor, onMarcar, onDetalle }: { m: MesaPase; ahora: number; elegida?: boolean; ventana?: boolean; platoCursor?: number | null; onMarcar: (p: PlatoPase, listos: number, servidos: number) => void; onDetalle: (p: PlatoPase) => void }) {
   const niveles = [...new Set(m.items.map(i => i.nivel))].sort((a, b) => a - b)
   // El primer nivel con algo por servir manda; los de después se ven apagados
@@ -271,7 +300,14 @@ export default function PasePage() {
     refetchInterval: 15_000, retry: 1, // de respaldo, por si se pierde un aviso
   })
   const [ahora, setAhora] = useState(Date.now())
-  useEffect(() => { const t = setInterval(() => setAhora(Date.now()), 30_000); return () => clearInterval(t) }, [])
+  const [simulando, setSimulando] = useState(() => sessionStorage.getItem(SIMULACION_KEY) === '1')
+  const cambiarSimulacion = (v: boolean) => {
+    if (v) sessionStorage.setItem(SIMULACION_KEY, '1'); else sessionStorage.removeItem(SIMULACION_KEY)
+    setSimulando(v)
+    setAbierta(false)
+    setCursor({ mesa: null, plato: null })
+  }
+  useEffect(() => { const t = setInterval(() => setAhora(Date.now()), simulando ? 2_000 : 30_000); return () => clearInterval(t) }, [simulando])
   const [detalle, setDetalle] = useState<{ mesa: number | null; plato: PlatoPase } | null>(null)
   const [verServidas, setVerServidas] = useState(false)
   // La marca, al entrar: la viñeta del Oído con una barra de carga
@@ -287,8 +323,12 @@ export default function PasePage() {
   const [errorAlto, setErrorAlto] = useState('')
   const { data: menu = [] } = useQuery({ queryKey: ['menu', rid], queryFn: () => api.menu.list(rid), enabled: !!sesion && !!rid })
   const { data: menuCats = [] } = useQuery({ queryKey: ['menu-cats', rid], queryFn: () => api.menuCategorias.list(rid), enabled: !!sesion && !!rid })
-  const { data: agotados = [] } = useQuery({ queryKey: ['agotados', rid], queryFn: () => api.agotados.list(rid!), enabled: !!sesion && !!rid })
+  const { data: agotadosReales = [] } = useQuery({ queryKey: ['agotados', rid], queryFn: () => api.agotados.list(rid!), enabled: !!sesion && !!rid })
   const secciones = seccionesCarta(menu, menuCats)
+  // En la simulación nada sale de esta pantalla: ni los platos marcados ni los altos
+  const simulacion = useSimulacionPase(simulando, secciones.flatMap(c => c.platos.map(p => p.nombre)), salones)
+  const [altosSimulados, setAltosSimulados] = useState<ItemAgotado[]>([])
+  const agotados = simulando ? altosSimulados : agotadosReales
   const cantarAlto = useMutation({
     mutationFn: (m: MenuItem) => (agotados.some(a => a.menuItemId === m.id) ? api.agotados.reponer(rid!, m.id) : api.agotados.marcar(rid!, m.id)),
     onMutate: () => setErrorAlto(''),
@@ -298,7 +338,10 @@ export default function PasePage() {
   const cierre = useRef<number>()
   // Cantado el ALTO la ventana se cierra sola, igual que la mesa
   const cantar = (m: MenuItem) => {
-    cantarAlto.mutate(m)
+    if (simulando) setAltosSimulados(a => (a.some(x => x.menuItemId === m.id)
+      ? a.filter(x => x.menuItemId !== m.id)
+      : [...a, { menuItemId: m.id, marcadoPor: 'Simulación', createdAt: new Date().toISOString(), menuItem: { nombre: m.nombre } }]))
+    else cantarAlto.mutate(m)
     window.clearTimeout(cierre.current)
     cierre.current = window.setTimeout(() => setAlto(null), CIERRE_MESA_MS)
   }
@@ -319,7 +362,8 @@ export default function PasePage() {
   })
 
   // Lo que se ve en esta tablet: el jefe de cocina, todo; la de arriba, solo su planta
-  const mesasVistas = (data?.mesas ?? []).filter(m => !planta || m.salon === planta)
+  const marcarPlato = (v: { id: number; listos: number; servidos: number }) => (simulando ? simulacion.marcar(v.id, v.listos, v.servidos) : marcar.mutate(v))
+  const mesasVistas = (simulando ? simulacion.mesas : data?.mesas ?? []).filter(m => !planta || m.salon === planta)
   const mesaAbierta = abierta ? mesasVistas.find(m => m.comandaId === cursor.mesa) : undefined
   const primerPlato = (m: MesaPase) => (m.items.find(i => i.servidos < i.cantidad) ?? m.items[0]).id
   const accion = (a: Accion) => {
@@ -361,7 +405,7 @@ export default function PasePage() {
         if (otra) setCursor({ mesa: otra.comandaId, plato: primerPlato(otra) })
       } else if (a === 'entrar' && plato && plato.servidos < plato.cantidad) {
         const marcaListo = plato.listos < plato.cantidad
-        marcar.mutate({ id: plato.id, ...siguiente(plato) })
+        marcarPlato({ id: plato.id, ...siguiente(plato) })
         // Baja solo al siguiente que pide lo mismo o, si no hay, al siguiente pendiente
         const debajo = mesaAbierta.items.slice(i + 1)
         const otro = debajo.find(p => (marcaListo ? p.listos < p.cantidad : p.listos > p.servidos)) ?? debajo.find(p => p.servidos < p.cantidad)
@@ -369,7 +413,7 @@ export default function PasePage() {
         cerrarEnUnRato()
       } else if (a === 'deshacer' && plato) {
         // Un paso atrás de toda la línea
-        marcar.mutate({ id: plato.id, listos: plato.servidos > 0 ? plato.listos : 0, servidos: 0 })
+        marcarPlato({ id: plato.id, listos: plato.servidos > 0 ? plato.listos : 0, servidos: 0 })
       } else if (a === 'salir') { window.clearTimeout(cierre.current); setAbierta(false) }
       return
     }
@@ -380,6 +424,26 @@ export default function PasePage() {
       else { setCursor({ mesa: elegida.comandaId, plato: primerPlato(elegida) }); setAbierta(true); cerrarEnUnRato(CIERRE_SIN_TOCAR_MS) }
     } else if (a === 'salir') setCursor({ mesa: null, plato: null })
   }
+  // El mando: la palanca se mueve como las flechas y sus cuatro botones se reparten con la calibración
+  const [calibrando, setCalibrando] = useState<number | null>(null)
+  const [mapa, setMapa] = useState<MapaMando | null>(leerMapa)
+  const parcial = useRef<Partial<MapaMando>>({})
+  const botonMando = (b: number) => {
+    if (calibrando !== null) {
+      const usado = Object.values(parcial.current).includes(b)
+      if (usado) return
+      parcial.current[PASOS_MANDO[calibrando].funcion] = b
+      if (calibrando + 1 < PASOS_MANDO.length) setCalibrando(calibrando + 1)
+      else { const m = parcial.current as MapaMando; guardarMapa(m); setMapa(m); setCalibrando(null) }
+      return
+    }
+    if (!mapa || hayDetalle.current) return
+    if (b === mapa.marcar) accion('entrar')
+    else if (b === mapa.alto) accion(alto ? 'salir' : 'alto')
+    else if (b === mapa.planta) accion('planta')
+    else if (b === mapa.atras) accion(!alto && mesaAbierta ? 'deshacer' : 'salir')
+  }
+  const nombreMando = useMando(d => { if (calibrando === null && !hayDetalle.current) accion(d) }, botonMando)
   const accionActual = useRef(accion)
   accionActual.current = accion
   const hayDetalle = useRef(false)
@@ -419,7 +483,7 @@ export default function PasePage() {
   const masVieja = enMarcha[0]
   const tarjeta = (m: MesaPase) => (
     <Tarjeta key={m.comandaId} m={m} ahora={ahora} elegida={cursor.mesa === m.comandaId}
-      onMarcar={(p, listos, servidos) => marcar.mutate({ id: p.id, listos, servidos })}
+      onMarcar={(p, listos, servidos) => marcarPlato({ id: p.id, listos, servidos })}
       onDetalle={plato => setDetalle({ mesa: m.mesa, plato })} />
   )
 
@@ -450,6 +514,14 @@ export default function PasePage() {
           {nEnfrian > 0 && <span className="text-red-700">🥶 {nEnfrian} {nEnfrian === 1 ? 'se enfría' : 'se enfrían'}</span>}
           {masVieja && <span className="text-slate-600">Más espera: la {masVieja.mesa ?? '—'}, {minutosDesde(masVieja.desde, ahora)}′</span>}
         </div>
+        {simulando
+          ? <button onClick={() => cambiarSimulacion(false)} className="h-11 px-3 bg-amber-400 text-slate-900 text-sm font-black">🎮 Simulación · salir ✕</button>
+          : <button onClick={() => cambiarSimulacion(true)} className="h-11 px-3 bg-slate-200 text-sm font-bold">▶ Simular</button>}
+        {(nombreMando || calibrando !== null) && (
+          <button onClick={() => { parcial.current = {}; setCalibrando(0) }} className={`h-11 px-3 text-sm font-black ${mapa ? 'bg-slate-200' : 'bg-blue-600 text-white'}`}>
+            🎮 {mapa ? 'Mando' : 'Configurar mando'}
+          </button>
+        )}
         <button onClick={() => accion('alto')} className="h-11 px-3 bg-red-600 text-white text-sm font-black">🚫 ALTO{agotados.length > 0 ? ` · ${agotados.length}` : ''}</button>
         <button onClick={salir} className="h-11 px-3 bg-slate-200 text-sm font-bold">Salir</button>
       </header>
@@ -464,15 +536,16 @@ export default function PasePage() {
         </div>
       )}
 
-      {(isError || enModoLocal()) && (
+      {simulando && <p className="px-4 py-1.5 bg-amber-400 text-slate-900 text-sm font-black text-center">SIMULACIÓN · mesas de mentira · nada llega a sala, cocina ni impresoras</p>}
+      {!simulando && (isError || enModoLocal()) && (
         <p className="px-4 py-3 bg-red-600 text-white font-black text-center">Sin conexión · seguid con los tickets</p>
       )}
 
-      {data && !data.activa ? (
+      {!simulando && data && !data.activa ? (
         <p className="p-10 text-center text-lg text-slate-500">La pantalla de pase no está activada en este local. Se activa en el panel, en Restaurantes.</p>
       ) : (
         <main className="p-2">
-          {data && enMarcha.length === 0 && <p className="p-10 text-center text-2xl font-bold text-slate-500">Sin platos en cocina 👌</p>}
+          {(data || simulando) && enMarcha.length === 0 && <p className="p-10 text-center text-2xl font-bold text-slate-500">Sin platos en cocina 👌</p>}
           <div className="columns-[16rem] gap-2">{enMarcha.map(tarjeta)}</div>
           {servidas.length > 0 && (
             <div className="mt-4">
@@ -489,7 +562,7 @@ export default function PasePage() {
         <div className="fixed inset-0 z-[35] bg-black/75 overflow-y-auto p-4 pb-20" onClick={() => setAbierta(false)}>
           <div className="max-w-2xl mx-auto" onClick={e => e.stopPropagation()}>
             <Tarjeta m={mesaAbierta} ahora={ahora} elegida ventana platoCursor={cursor.plato}
-              onMarcar={(p, listos, servidos) => { marcar.mutate({ id: p.id, listos, servidos }); cerrarEnUnRato() }}
+              onMarcar={(p, listos, servidos) => { marcarPlato({ id: p.id, listos, servidos }); cerrarEnUnRato() }}
               onDetalle={plato => setDetalle({ mesa: mesaAbierta.mesa, plato })} />
           </div>
         </div>
@@ -501,13 +574,14 @@ export default function PasePage() {
             : 'Flechas elegir mesa · Enter abrir · * cambiar planta · Num quitar cursor · Num + Enter ALTO'}
         </p>
       )}
+      {calibrando !== null && <CalibrarMando nombre={nombreMando} paso={calibrando} onCerrar={() => setCalibrando(null)} />}
       {alto && (
         <AltosPase secciones={secciones} cat={alto.cat} item={alto.item} agotados={agotados} error={errorAlto}
           onElegir={(cat, item) => setAlto({ cat, item })} onTocar={cantar} onCerrar={() => setAlto(null)} />
       )}
       {detalle && (
         <DetallePlato mesa={detalle.mesa} p={detalle.plato} onCerrar={() => setDetalle(null)}
-          onGuardar={(listos, servidos) => { marcar.mutate({ id: detalle.plato.id, listos, servidos }); setDetalle(null); if (abierta) cerrarEnUnRato() }} />
+          onGuardar={(listos, servidos) => { marcarPlato({ id: detalle.plato.id, listos, servidos }); setDetalle(null); if (abierta) cerrarEnUnRato() }} />
       )}
     </div>
   )
