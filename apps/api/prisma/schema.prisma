@@ -419,6 +419,7 @@ model Receta {
   emplatado   String          @default("")
   notas       String          @default("") // conservación, reposo, mise en place…
   fotoAt      DateTime?       // hay foto (uploads/recetas/<plato|elab>-<id>.jpg); la fecha rompe la caché
+  fotosPase   Json            @default("[]") // fotos de los pasos del emplatado: [{ paso, foto, at }] (uploads/recetas/<plato|elab>-<id>-pase-<foto>.jpg)
   updatedAt  DateTime      @updatedAt
 }
 

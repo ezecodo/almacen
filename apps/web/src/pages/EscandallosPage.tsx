@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, ADMIN_TOKEN_KEY, Elaboracion, EscandalloPlato, EstadoEscandallo, Ficha, FichaBody, Ingrediente, IngredienteBody, TipoFicha } from '../api'
+import { api, ADMIN_TOKEN_KEY, Elaboracion, EscandalloPlato, EstadoEscandallo, Ficha, FichaBody, FotoPase, Ingrediente, IngredienteBody, TipoFicha } from '../api'
 import { comprimirFoto } from '../lib/imagen'
+import { useFotosPase } from '../components/PasoAPaso'
 
 // Escandallos: qué cuesta en materia prima cada plato y qué margen deja.
 // Paleta oscura de marca (la misma del monitor Veri*factu y de Pulso), sin animaciones:
@@ -366,6 +367,44 @@ function FotoFicha({ tipo, id, fotoAt, onCambio }: { tipo: TipoFicha; id: number
   )
 }
 
+// Fotos del paso a paso: un paso por renglón del "Al pase" ya guardado. Son las mismas que sube el jefe de cocina.
+function FotosPase({ menuItemId, emplatado, fotos, onCambio }: { menuItemId: number; emplatado: string; fotos: FotoPase[]; onCambio: () => void }) {
+  const urls = useFotosPase('plato', menuItemId, fotos)
+  const [subiendo, setSubiendo] = useState<number | null>(null)
+  const [error, setError] = useState('')
+  const pasos = emplatado.split('\n').map(x => x.replace(/^\s*\d+[.)-]\s*/, '').trim()).filter(Boolean)
+  const subir = async (paso: number, file: File) => {
+    setError(''); setSubiendo(paso)
+    try { await api.cocina.subirFotoPase('plato', menuItemId, paso, await comprimirFoto(file, 1600)); onCambio() }
+    catch (e) { setError((e as Error).message) }
+    finally { setSubiendo(null) }
+  }
+  const quitar = async (paso: number) => { await api.cocina.quitarFotoPase('plato', menuItemId, paso); onCambio() }
+  if (pasos.length === 0) return null
+  return (
+    <div className="mt-3 space-y-1.5">
+      <p className="text-[11px] text-slate-400">📷 Fotos del paso a paso (opcionales). También las puede subir el jefe de cocina.</p>
+      {pasos.map((paso, i) => {
+        const f = fotos.find(x => x.paso === i)
+        return (
+          <div key={i} className="flex items-center gap-2 text-xs">
+            {f && urls[f.foto]
+              ? <img src={urls[f.foto]} alt="" className="w-10 h-10 rounded-lg object-cover shrink-0" />
+              : <div className="w-10 h-10 rounded-lg border border-dashed border-white/20 flex items-center justify-center text-slate-600 shrink-0">{i + 1}</div>}
+            <span className="flex-1 min-w-0 truncate text-slate-300">{paso}</span>
+            <label className="font-bold text-[#4B9EDF] cursor-pointer shrink-0">
+              {subiendo === i ? 'Subiendo…' : f ? 'Cambiar' : 'Subir'}
+              <input type="file" accept="image/*" className="hidden" disabled={subiendo !== null} onChange={ev => { const a = ev.target.files?.[0]; if (a) subir(i, a); ev.target.value = '' }} />
+            </label>
+            {f && <button onClick={() => quitar(i)} className="text-slate-500 hover:text-red-400 shrink-0">Quitar</button>}
+          </div>
+        )
+      })}
+      {error && <p className="text-xs text-red-400">{error}</p>}
+    </div>
+  )
+}
+
 // ── Detalle del plato: receta, reparto del coste y precio objetivo ─────────────
 
 function DetallePlato({ menuItemId, restaurantId, onClose }: { menuItemId: number; restaurantId: number; onClose: () => void }) {
@@ -476,6 +515,9 @@ function DetallePlato({ menuItemId, restaurantId, onClose }: { menuItemId: numbe
                 <textarea value={emplatado} onChange={ev => setEmplatado(ev.target.value)} rows={Math.max(4, emplatado.split('\n').length + 1)}
                   placeholder={'Base de velouté y crema de maíz.\n3 trozos de pulpo marcados a la plancha.\nEncurtidos, cancha y salicornia.\nBrotes y unas gotas de AOVE.'}
                   className={`${campo} w-full leading-relaxed`} />
+                {emplatado.trim() === detalle.emplatado.trim()
+                  ? <FotosPase menuItemId={menuItemId} emplatado={detalle.emplatado} fotos={detalle.fotosPase} onCambio={() => qc.invalidateQueries({ queryKey: ['escandallo', menuItemId] })} />
+                  : <p className="mt-2 text-[11px] text-slate-500">Guarda la receta para ver las fotos de cada paso. Cada foto sigue a su paso.</p>}
               </div>
               <p className="text-xs font-black uppercase tracking-wider text-slate-400 mb-2">🔪 Preparación · mise en place</p>
               <FichaPartes partes={partes} setPartes={f => setPartes(p => f(p ?? []))} ingredientes={ingredientes} divisor={nRaciones}

@@ -66,7 +66,7 @@ async function main() {
 
   const anterior = await prisma.receta.findUnique({ where: { menuItemId: plato.id } })
   await prisma.receta.deleteMany({ where: { menuItemId: plato.id } })
-  const receta = await prisma.receta.create({ data: { menuItemId: plato.id, raciones: 10, emplatado: EMPLATADO, fotoAt: anterior?.fotoAt ?? null } })
+  const receta = await prisma.receta.create({ data: { menuItemId: plato.id, raciones: 10, emplatado: EMPLATADO, fotoAt: anterior?.fotoAt ?? null, fotosPase: anterior?.fotosPase ?? [] } })
   let orden = 0
   for (const [k, p] of PARTES.entries()) {
     const parte = await prisma.recetaParte.create({ data: { recetaId: receta.id, nombre: p.nombre, pasos: p.pasos, orden: k } })

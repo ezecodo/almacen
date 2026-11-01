@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { api, LineaCocina, TipoFicha } from '../api'
 import { enModoLocal } from '../lib/conexion'
 import MiHorario from '../components/MiHorario'
 import { PropinasPeriodo } from './MisPropinasPage'
 import AgotadosSala from '../components/AgotadosSala'
+import PasoAPaso from '../components/PasoAPaso'
+import { comprimirFoto } from '../lib/imagen'
 import { useRestaurantEvents } from '../hooks/useRestaurantEvents'
 
 // Pantalla del personal de cocina en la app central (/sala/cocina): entran con su PIN en /sala como
@@ -25,7 +27,7 @@ function useFoto(tipo: TipoFicha, id: number, fotoAt: string | null) {
     if (!fotoAt) { setUrl(null); return }
     let viva = true
     let u: string | null = null
-    api.cocina.foto(tipo, id).then(b => { if (viva) { u = URL.createObjectURL(b); setUrl(u) } }).catch(() => {})
+    api.cocina.foto(tipo, id, fotoAt).then(b => { if (viva) { u = URL.createObjectURL(b); setUrl(u) } }).catch(() => {})
     return () => { viva = false; if (u) URL.revokeObjectURL(u) }
   }, [tipo, id, fotoAt])
   return url
@@ -52,17 +54,29 @@ function cantidadTexto(l: LineaCocina, factor: number) {
 const porUnidadBase = (unidad: string) => (unidad === 'kg' || unidad === 'l' ? 1000 : 1)
 
 // ── Ficha a pantalla completa ───────────────────────────────────────────────────
-function FichaVista({ tipo, id, onVolver, onAbrir }: { tipo: TipoFicha; id: number; onVolver: () => void; onAbrir: (tipo: TipoFicha, id: number) => void }) {
+function FichaVista({ tipo, id, puedeFotos, onVolver, onAbrir }: { tipo: TipoFicha; id: number; puedeFotos: boolean; onVolver: () => void; onAbrir: (tipo: TipoFicha, id: number) => void }) {
+  const qc = useQueryClient()
+  const refrescar = () => qc.invalidateQueries({ queryKey: ['cocina-ficha', tipo, id] })
   const { data: f, isLoading, error } = useQuery({ queryKey: ['cocina-ficha', tipo, id], queryFn: () => api.cocina.ficha(tipo, id) })
   const foto = useFoto(tipo, id, f?.fotoAt ?? null)
   const [cuanto, setCuanto] = useState('')
+  const [pasoAPaso, setPasoAPaso] = useState(false)
+  const [subiendo, setSubiendo] = useState(false)
+  const [errorFoto, setErrorFoto] = useState('')
+  const subirFinal = async (file: File) => {
+    setErrorFoto(''); setSubiendo(true)
+    try { await api.cocina.subirFoto(tipo, id, await comprimirFoto(file, 1600)); refrescar() }
+    catch (e) { setErrorFoto((e as Error).message) }
+    finally { setSubiendo(false) }
+  }
 
   // Lo de partida: las raciones del plato, o la tanda de la elaboración en kg / l / ud
   const base = !f ? null : f.tipo === 'plato' ? f.raciones : f.rendimiento ? f.rendimiento / porUnidadBase(f.unidadTanda) : null
   useEffect(() => { if (base !== null) setCuanto(String(base)) }, [base])
   const factor = base && num(cuanto) > 0 ? num(cuanto) / base : 1
   // El emplatado se escribe un paso por renglón
-  const pase = (f?.emplatado ?? '').split('\n').map(x => x.replace(/^\s*\d+[.)-]?\s*/, '').trim()).filter(Boolean)
+  const pase = (f?.emplatado ?? '').split('\n').map(x => x.replace(/^\s*\d+[.)-]\s*/, '').trim()).filter(Boolean)
+  const hayFotosPase = (f?.fotosPase.length ?? 0) > 0
 
   return (
     <div className="fixed inset-0 z-40 bg-[#0f1a2e] text-slate-100 overflow-y-auto">
@@ -79,6 +93,15 @@ function FichaVista({ tipo, id, onVolver, onAbrir }: { tipo: TipoFicha; id: numb
       {f && (
         <div className="max-w-2xl mx-auto p-4 space-y-5 pb-16">
           {foto && <img src={foto} alt="" className="w-full max-h-80 object-cover rounded-2xl" />}
+          {puedeFotos && (
+            <div>
+              <label className="inline-block py-1 text-sm font-bold text-[#4B9EDF] cursor-pointer">
+                {subiendo ? 'Subiendo…' : foto ? '📷 Cambiar foto del plato terminado' : '📷 Foto del plato terminado'}
+                <input type="file" accept="image/*" className="hidden" disabled={subiendo} onChange={ev => { const a = ev.target.files?.[0]; if (a) subirFinal(a); ev.target.value = '' }} />
+              </label>
+              {errorFoto && <p className="text-sm text-red-400">{errorFoto}</p>}
+            </div>
+          )}
 
           {f.tipo === 'plato' && f.alergenos.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
@@ -99,6 +122,13 @@ function FichaVista({ tipo, id, onVolver, onAbrir }: { tipo: TipoFicha; id: numb
                   </li>
                 ))}
               </ol>
+              {(hayFotosPase || puedeFotos) && (
+                <div className="px-4 pb-4">
+                  <button onClick={() => setPasoAPaso(true)} className="w-full h-14 rounded-xl bg-[#4CC8A0] text-[#0f1a2e] text-lg font-black">
+                    {hayFotosPase ? '▶ Paso a paso' : '📷 Añadir fotos del paso a paso'}
+                  </button>
+                </div>
+              )}
             </section>
           )}
           {pase.length > 0 && f.partes.length > 0 && (
@@ -157,12 +187,16 @@ function FichaVista({ tipo, id, onVolver, onAbrir }: { tipo: TipoFicha; id: numb
           )}
         </div>
       )}
+      {f && pasoAPaso && (
+        <PasoAPaso tipo={tipo} id={id} nombre={f.nombre} pasos={pase} fotos={f.fotosPase} fotoFinal={foto} puedeFotos={puedeFotos}
+          onCambio={refrescar} onCerrar={() => setPasoAPaso(false)} />
+      )}
     </div>
   )
 }
 
 // ── Lista ───────────────────────────────────────────────────────────────────────
-function Recetario({ restauranteDispositivo }: { restauranteDispositivo: number | null }) {
+function Recetario({ restauranteDispositivo, puedeFotos }: { restauranteDispositivo: number | null; puedeFotos: boolean }) {
   const { data: restaurantes = [] } = useQuery({ queryKey: ['restaurantes'], queryFn: api.restaurantes.list })
   // El local donde trabaja hoy: el del dispositivo, salvo que elija otro (las recetas no son secretas)
   const [ridSel, setRidSel] = useState<number | null>(() => Number(localStorage.getItem(LOCAL_KEY)) || null)
@@ -255,7 +289,7 @@ function Recetario({ restauranteDispositivo }: { restauranteDispositivo: number 
         )}
       </div>
 
-      {actual && <FichaVista key={`${actual.tipo}-${actual.id}-${abiertas.length}`} tipo={actual.tipo} id={actual.id}
+      {actual && <FichaVista key={`${actual.tipo}-${actual.id}-${abiertas.length}`} tipo={actual.tipo} id={actual.id} puedeFotos={puedeFotos}
         onVolver={() => setAbiertas(a => a.slice(0, -1))} onAbrir={abrir} />}
     </div>
   )
@@ -309,7 +343,7 @@ export default function CocinaPage() {
       {enModoLocal() ? (
         <p className="mx-4 rounded-2xl bg-amber-400/10 px-4 py-3 text-sm text-amber-400">Sin internet: las recetas, el horario y las propinas vuelven cuando vuelva la conexión.</p>
       ) : pestana === 'recetas' ? (
-        <Recetario restauranteDispositivo={restaurante?.id ?? null} />
+        <Recetario restauranteDispositivo={restaurante?.id ?? null} puedeFotos={empleado.rol === 'jefe_cocina'} />
       ) : pestana === 'altos' && jefe ? (
         <Altos restaurantId={restaurante.id} />
       ) : pestana === 'horario' ? (

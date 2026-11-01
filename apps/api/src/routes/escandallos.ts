@@ -16,9 +16,54 @@ import { alcanza, base, cargarCostes, Producto, refrescarElaboraciones } from '.
 // pasos, más emplatado, notas y foto. Es lo que lee e imprime la cocina; el coste sale de las mismas líneas.
 
 const FOTOS_DIR = process.env.RECETAS_DIR || path.join(__dirname, '..', '..', 'uploads', 'recetas')
-const MAX_BYTES_FOTO = 1_000_000
+export const MAX_BYTES_FOTO = 1_000_000
 type TipoFicha = 'plato' | 'elab'
 export const archivoFoto = (tipo: TipoFicha, id: number) => path.join(FOTOS_DIR, `${tipo}-${id}.jpg`)
+export const dondeFoto = (tipo: TipoFicha, id: number) => (tipo === 'plato' ? { menuItemId: id } : { productoId: id })
+export const esJpeg = (b: unknown): b is Buffer => Buffer.isBuffer(b) && b.length >= 4 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff
+
+// La foto del plato terminado; null si el plato o la elaboración no existen
+export async function guardarFotoFicha(tipo: TipoFicha, id: number, jpeg: Buffer) {
+  const existe = tipo === 'plato'
+    ? await prisma.menuItem.findUnique({ where: { id }, select: { id: true } })
+    : await prisma.inventarioProducto.findUnique({ where: { id }, select: { id: true } })
+  if (!existe) return null
+  await fs.mkdir(FOTOS_DIR, { recursive: true })
+  await fs.writeFile(archivoFoto(tipo, id), jpeg)
+  const fotoAt = new Date()
+  await prisma.receta.upsert({ where: dondeFoto(tipo, id), create: { ...dondeFoto(tipo, id), fotoAt }, update: { fotoAt } })
+  return fotoAt
+}
+export async function quitarFotoFicha(tipo: TipoFicha, id: number) {
+  await fs.rm(archivoFoto(tipo, id), { force: true })
+  await prisma.receta.updateMany({ where: dondeFoto(tipo, id), data: { fotoAt: null } })
+}
+
+// Paso a paso del emplate: cada renglón del emplatado es un paso y puede llevar su foto. La foto va
+// atada al número de paso con un nombre de archivo propio: guardar la ficha la recoloca (abajo).
+export interface FotoPase { paso: number; foto: string; at: string }
+export const leerFotosPase = (v: unknown) => (Array.isArray(v) ? (v as unknown as FotoPase[]) : [])
+export const archivoFotoPase = (tipo: TipoFicha, id: number, foto: string) => path.join(FOTOS_DIR, `${tipo}-${id}-pase-${foto}.jpg`)
+export async function guardarArchivoFotoPase(tipo: TipoFicha, id: number, foto: string, jpeg: Buffer) {
+  await fs.mkdir(FOTOS_DIR, { recursive: true })
+  await fs.writeFile(archivoFotoPase(tipo, id, foto), jpeg)
+}
+// "1. Base" y "1) Base" son el paso "Base"; "3 trozos de pulpo" se queda como está
+export const pasosDelPase = (emplatado: string) => emplatado.split('\n').map(x => x.replace(/^\s*\d+[.)-]\s*/, '').trim()).filter(Boolean)
+
+// Al editar el emplatado cada foto sigue a su paso: si el texto está en otro renglón, va con él; si
+// ese renglón se corrigió, se queda en su sitio; si el paso desapareció, la foto se va.
+export function reubicarFotosPase(fotos: FotoPase[], antes: string[], despues: string[]) {
+  const quedan: FotoPase[] = []
+  const quitadas: FotoPase[] = []
+  for (const f of fotos) {
+    const movido = despues.indexOf(antes[f.paso])
+    const paso = movido >= 0 ? movido : f.paso < despues.length && !antes.includes(despues[f.paso]) ? f.paso : -1
+    if (paso < 0 || quedan.some(q => q.paso === paso)) quitadas.push(f)
+    else quedan.push({ ...f, paso })
+  }
+  return { quedan, quitadas }
+}
 
 const r2 = (n: number) => Math.round(n * 100) / 100
 const r4 = (n: number) => Math.round(n * 10000) / 10000
@@ -71,13 +116,14 @@ const lineasDe = (f: Ficha) => f.partes.flatMap(p => p.lineas)
 // ni emplatado, ni foto) se borra: el plato vuelve a "sin escandallo".
 async function guardarFicha(donde: { menuItemId: number } | { productoId: number }, f: Ficha, extra: { raciones?: number; rendimiento?: number | null }) {
   const vacia = lineasDe(f).length === 0 && f.partes.every(p => p.pasos.length === 0) && !f.emplatado && !f.notas
-  await prisma.$transaction(async tx => {
+  const sobran = await prisma.$transaction(async tx => {
     const actual = await tx.receta.findUnique({ where: donde })
+    const { quedan, quitadas } = reubicarFotosPase(leerFotosPase(actual?.fotosPase), pasosDelPase(actual?.emplatado ?? ''), pasosDelPase(f.emplatado))
     if (vacia && !actual?.fotoAt) {
       if (actual) await tx.receta.delete({ where: { id: actual.id } })
-      return
+      return quitadas
     }
-    const datos = { ...extra, emplatado: f.emplatado, notas: f.notas }
+    const datos = { ...extra, emplatado: f.emplatado, notas: f.notas, fotosPase: quedan as unknown as Prisma.InputJsonValue }
     const receta = actual
       ? await tx.receta.update({ where: { id: actual.id }, data: datos })
       : await tx.receta.create({ data: { ...donde, ...datos } })
@@ -90,7 +136,10 @@ async function guardarFicha(donde: { menuItemId: number } | { productoId: number
         data: p.lineas.map(l => ({ recetaId: receta.id, parteId: parte.id, productoId: l.productoId, cantidad: l.cantidad, texto: l.texto || null, orden: orden++ })),
       })
     }
+    return quitadas
   })
+  const [tipo, id] = 'menuItemId' in donde ? (['plato', donde.menuItemId] as const) : (['elab', donde.productoId] as const)
+  await Promise.all(sobran.map(s => fs.rm(archivoFotoPase(tipo, id, s.foto), { force: true })))
 }
 
 const conFicha = {
@@ -117,7 +166,7 @@ function serializarFicha(r: RecetaConFicha | null, costes: Awaited<ReturnType<ty
       lineas: r!.lineas.filter(l => l.parteId === p.id).map(linea),
     })),
   ]
-  return { partes, emplatado: r?.emplatado ?? '', notas: r?.notas ?? '', fotoAt: r?.fotoAt ?? null }
+  return { partes, emplatado: r?.emplatado ?? '', notas: r?.notas ?? '', fotoAt: r?.fotoAt ?? null, fotosPase: leerFotosPase(r?.fotosPase) }
 }
 const elaboracionSchema = z.object({
   nombre:     z.string().trim().min(1).max(120),
@@ -357,22 +406,12 @@ export async function escandalloRoutes(app: FastifyInstance) {
 
   // ── Foto de la ficha (plato o elaboración): un JPEG, ya reducido en el navegador ──
   const fotoParams = z.object({ tipo: z.enum(['plato', 'elab']), id: z.coerce.number().int().positive() })
-  const dondeFoto = (tipo: TipoFicha, id: number) => (tipo === 'plato' ? { menuItemId: id } : { productoId: id })
 
   app.post('/admin/escandallos/foto/:tipo/:id', async (req, reply) => {
     const { tipo, id } = fotoParams.parse(req.params)
-    const body = req.body
-    if (!Buffer.isBuffer(body) || body.length < 4 || body[0] !== 0xff || body[1] !== 0xd8 || body[2] !== 0xff) {
-      return reply.status(400).send({ error: 'La foto debe ser una imagen JPEG' })
-    }
-    const existe = tipo === 'plato'
-      ? await prisma.menuItem.findUnique({ where: { id }, select: { id: true } })
-      : await prisma.inventarioProducto.findUnique({ where: { id }, select: { id: true } })
-    if (!existe) return reply.status(404).send({ error: 'No encontrado' })
-    await fs.mkdir(FOTOS_DIR, { recursive: true })
-    await fs.writeFile(archivoFoto(tipo, id), body)
-    const fotoAt = new Date()
-    await prisma.receta.upsert({ where: dondeFoto(tipo, id), create: { ...dondeFoto(tipo, id), fotoAt }, update: { fotoAt } })
+    if (!esJpeg(req.body)) return reply.status(400).send({ error: 'La foto debe ser una imagen JPEG' })
+    const fotoAt = await guardarFotoFicha(tipo, id, req.body)
+    if (!fotoAt) return reply.status(404).send({ error: 'No encontrado' })
     return { fotoAt }
   })
 
@@ -388,8 +427,7 @@ export async function escandalloRoutes(app: FastifyInstance) {
 
   app.delete('/admin/escandallos/foto/:tipo/:id', async (req, reply) => {
     const { tipo, id } = fotoParams.parse(req.params)
-    await fs.rm(archivoFoto(tipo, id), { force: true })
-    await prisma.receta.updateMany({ where: dondeFoto(tipo, id), data: { fotoAt: null } })
+    await quitarFotoFicha(tipo, id)
     return reply.status(204).send()
   })
 }

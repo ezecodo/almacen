@@ -70,7 +70,8 @@ export const RUTAS_SALA = new Set([
   'GET /api/gastos/habituales', 'GET /api/gastos', 'POST /api/gastos', 'DELETE /api/gastos/:id', 'PATCH /api/gastos/:id/pagar',
   // carta (solo lectura), wiki y alérgenos
   'GET /api/menu', 'GET /api/menu/categorias', 'GET /api/alergenos', 'GET /api/wiki',
-  'GET /api/cocina/recetas', 'GET /api/cocina/recetas/:tipo/:id', 'GET /api/cocina/foto/:tipo/:id', // wiki de cocina (/cocina, sin precios)
+  'GET /api/cocina/recetas', 'GET /api/cocina/recetas/:tipo/:id', 'GET /api/cocina/foto/:tipo/:id', 'GET /api/cocina/foto-pase/:tipo/:id/:foto', // wiki de cocina (/cocina, sin precios)
+  'POST /api/cocina/foto/:tipo/:id', 'DELETE /api/cocina/foto/:tipo/:id', 'POST /api/cocina/foto-pase/:tipo/:id/:paso', 'DELETE /api/cocina/foto-pase/:tipo/:id/:paso', // fotos: jefe de cocina
   'GET /api/maridajes', // 🍷 qué vino recomendar con lo que pidió la mesa
   'GET /api/accesos-rapidos', // ⚡ lo de un toque arriba de COMIDA / BEBIDAS
   // menús de grupo
@@ -104,13 +105,19 @@ export const RUTAS_SALA = new Set([
 ])
 
 // Lo de SOLO_ENCARGADO que también hace el jefe de cocina: cantar un alto y reponerlo
-export const JEFE_COCINA = new Set(['POST /api/agotados', 'DELETE /api/agotados/:menuItemId'])
+export const JEFE_COCINA = new Set([
+  'POST /api/agotados', 'DELETE /api/agotados/:menuItemId',
+  // fotos de la ficha: el plato terminado y los pasos del emplatado (la receta solo la edita el chef)
+  'POST /api/cocina/foto/:tipo/:id', 'DELETE /api/cocina/foto/:tipo/:id',
+  'POST /api/cocina/foto-pase/:tipo/:id/:paso', 'DELETE /api/cocina/foto-pase/:tipo/:id/:paso',
+])
 
 // Dentro de la app de sala, lo que solo hace el encargado (rol o superpoder accesoEncargadoApp)
 export const SOLO_ENCARGADO = new Set([
   'PATCH /api/comandas/:id/cerrar',   // cobrar
   'POST /api/turnos',                 // abrir turno
   'PATCH /api/turnos/:id/cerrar',     // cerrar turno
+  'POST /api/cocina/foto/:tipo/:id', 'DELETE /api/cocina/foto/:tipo/:id', 'POST /api/cocina/foto-pase/:tipo/:id/:paso', 'DELETE /api/cocina/foto-pase/:tipo/:id/:paso', // cierra el paso a los demás; ver JEFE_COCINA
   'POST /api/agotados',               // marcar un plato agotado
   'DELETE /api/agotados/:menuItemId', // reponerlo
   'GET /api/gastos', 'POST /api/gastos', 'DELETE /api/gastos/:id', 'PATCH /api/gastos/:id/pagar', // gastos del día
@@ -133,7 +140,8 @@ export const SOLO_ENCARGADO = new Set([
 export const CONSULTA_SALA = new Set([
   'GET /api/red/estado',
   'GET /api/wiki', 'GET /api/menu', 'GET /api/menu/categorias', 'GET /api/alergenos', 'GET /api/maridajes',
-  'GET /api/cocina/recetas', 'GET /api/cocina/recetas/:tipo/:id', 'GET /api/cocina/foto/:tipo/:id', // recetas, también desde casa
+  'GET /api/cocina/recetas', 'GET /api/cocina/recetas/:tipo/:id', 'GET /api/cocina/foto/:tipo/:id', 'GET /api/cocina/foto-pase/:tipo/:id/:foto', // recetas, también desde casa
+  'POST /api/cocina/foto/:tipo/:id', 'DELETE /api/cocina/foto/:tipo/:id', 'POST /api/cocina/foto-pase/:tipo/:id/:paso', 'DELETE /api/cocina/foto-pase/:tipo/:id/:paso', // no es operar el local: el jefe en el pase puede ir con datos móviles
   'GET /api/propinas/mis-turnos', 'GET /api/staffing/mi-horario',
   'GET /api/lecciones/mias', 'POST /api/lecciones/mias', // las lecciones se pueden hacer en casa
 ])

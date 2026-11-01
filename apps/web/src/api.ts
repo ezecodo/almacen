@@ -1230,7 +1230,8 @@ export interface Elaboracion {
 // Ficha técnica: la receta por partes (PULPO, CREMA DE MAÍZ…) con sus pasos, emplatado, notas y foto
 export interface LineaFicha { productoId: number; cantidad: number; texto: string | null; producto: Ingrediente } // cantidad 0 = c/s
 export interface ParteFicha { nombre: string; pasos: string[]; lineas: LineaFicha[] }
-export interface Ficha { partes: ParteFicha[]; emplatado: string; notas: string; fotoAt: string | null }
+export interface FotoPase { paso: number; foto: string; at: string }
+export interface Ficha { partes: ParteFicha[]; emplatado: string; notas: string; fotoAt: string | null; fotosPase: FotoPase[] }
 export interface FichaBody {
   partes: { nombre: string; pasos: string[]; lineas: { productoId: number; cantidad: number; texto: string | null }[] }[]
   emplatado: string; notas: string
@@ -1244,7 +1245,7 @@ export interface RecetasCocina {
 }
 export interface LineaCocina { nombre: string; cantidad: number; texto: string | null; unidad: string; elaboracionId: number | null }
 interface FichaCocinaComun {
-  tipo: TipoFicha; id: number; nombre: string; fotoAt: string | null
+  tipo: TipoFicha; id: number; nombre: string; fotoAt: string | null; fotosPase: FotoPase[]
   partes: { nombre: string; pasos: string[]; lineas: LineaCocina[] }[]
   emplatado: string; notas: string
 }
@@ -1327,7 +1328,14 @@ export const api = {
   cocina: {
     recetas: (restaurantId: number | null) => authFetch(`/cocina/recetas${restaurantId ? `?restaurantId=${restaurantId}` : ''}`).then(r => r.json() as Promise<RecetasCocina>),
     ficha: (tipo: TipoFicha, id: number) => authFetch(`/cocina/recetas/${tipo}/${id}`).then(r => r.json() as Promise<FichaCocina>),
-    foto: (tipo: TipoFicha, id: number) => authFetch(`/cocina/foto/${tipo}/${id}`).then(r => r.blob()),
+    foto: (tipo: TipoFicha, id: number, version: string) => authFetch(`/cocina/foto/${tipo}/${id}?v=${encodeURIComponent(version)}`).then(r => r.blob()),
+    subirFoto: (tipo: TipoFicha, id: number, jpeg: Blob) =>
+      authFetch(`/cocina/foto/${tipo}/${id}`, { method: 'POST', body: jpeg, contentType: 'image/jpeg' }).then(() => undefined),
+    quitarFoto: (tipo: TipoFicha, id: number) => authFetch(`/cocina/foto/${tipo}/${id}`, { method: 'DELETE' }).then(() => undefined),
+    fotoPase: (tipo: TipoFicha, id: number, foto: string) => authFetch(`/cocina/foto-pase/${tipo}/${id}/${foto}`).then(r => r.blob()),
+    subirFotoPase: (tipo: TipoFicha, id: number, paso: number, jpeg: Blob) =>
+      authFetch(`/cocina/foto-pase/${tipo}/${id}/${paso}`, { method: 'POST', body: jpeg, contentType: 'image/jpeg' }).then(() => undefined),
+    quitarFotoPase: (tipo: TipoFicha, id: number, paso: number) => authFetch(`/cocina/foto-pase/${tipo}/${id}/${paso}`, { method: 'DELETE' }).then(() => undefined),
   },
   escandallos: {
     matriz: (restaurantId: number) => authFetch(`/admin/escandallos?restaurantId=${restaurantId}`).then(r => r.json() as Promise<EscandalloMatriz>),

@@ -48,6 +48,14 @@ export async function requireAltos(req: FastifyRequest, reply: FastifyReply) {
   }
 }
 
+// Fotos de las fichas desde la cocina: el jefe de cocina (solo fotos, la receta no) o admin
+export async function requireJefeCocina(req: FastifyRequest, reply: FastifyReply) {
+  if (!(await verificar(req, reply))) return
+  if (req.user.tipo !== 'admin' && !req.user.jefeCocina) {
+    return reply.status(403).send({ error: 'Solo el jefe de cocina' })
+  }
+}
+
 export async function requireAdmin(req: FastifyRequest, reply: FastifyReply) {
   if (!(await verificar(req, reply))) return
   if (req.user.tipo !== 'admin') {
