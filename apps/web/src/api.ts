@@ -346,7 +346,8 @@ export interface FloorPlan {
 
 export interface ComandaItem {
   id:           number
-  servidos?:    number // pantalla de pase
+  listos?:      number // pantalla de pase: cuántos están listos y cuántos servidos
+  servidos?:    number
   comandaId:    number
   tipo:         'cocina' | 'barra'
   nombre:       string

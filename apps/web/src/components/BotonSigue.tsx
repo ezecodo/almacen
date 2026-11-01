@@ -15,7 +15,7 @@ export function useSigue(comanda: Comanda, alCambiar?: (avisado: boolean) => voi
   })
   const activa = restaurantes.find(r => r.id === comanda.restaurantId)?.pantallaPase
   const quedanPlatos = comanda.items.some(i => i.tipo === 'cocina' && !i.autoGenerado && i.nivel != null && (i.servidos ?? 0) < i.cantidad)
-  return { pedir, disponible: !!activa && quedanPlatos && !enModoLocal() && !practicaActiva() }
+  return { pedir, disponible: !!activa && quedanPlatos && !enModoLocal() && !practicaActiva(), paseActivo: !!activa && !enModoLocal() && !practicaActiva() }
 }
 
 export default function BotonSigue({ comanda }: { comanda: Comanda }) {

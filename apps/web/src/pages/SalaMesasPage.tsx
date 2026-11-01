@@ -1224,8 +1224,26 @@ function PlatoAgotado({ nombre, detalle }: { nombre: string; detalle?: string })
   )
 }
 
-function ItemRow({ item, nota, setNota, onUpdate, onDelete, onSaveNota, onMerma, onRepeat, onInvitar, agotado }: {
+// Cómo va el plato en cocina, de lo que marcan en la pantalla de pase: el camarero lo ve en su mesa
+// sin ir a mirar los tickets
+function EstadoPlato({ item }: { item: ComandaItem }) {
+  const listos = Math.min(item.listos ?? 0, item.cantidad)
+  const servidos = Math.min(item.servidos ?? 0, listos)
+  const enCocina = item.cantidad - listos
+  const porRecoger = listos - servidos
+  if (servidos === item.cantidad) return <p className="text-xs font-black text-[var(--sala-tx3)]">✓ Servido</p>
+  if (porRecoger === item.cantidad) return <p className="text-xs font-black text-emerald-500">🟢 Listo en el pase</p>
+  if (enCocina === item.cantidad) return <p className="text-xs font-black text-amber-500">🟡 En cocina</p>
+  return (
+    <p className="text-xs font-black text-[var(--sala-tx2)]">
+      {[servidos > 0 && `✓ ${servidos} servido${servidos > 1 ? 's' : ''}`, porRecoger > 0 && `🟢 ${porRecoger} en el pase`, enCocina > 0 && `🟡 ${enCocina} en cocina`].filter(Boolean).join(' · ')}
+    </p>
+  )
+}
+
+function ItemRow({ item, nota, setNota, onUpdate, onDelete, onSaveNota, onMerma, onRepeat, onInvitar, agotado, pase }: {
   item: ComandaItem
+  pase?: boolean
   agotado?: boolean
   nota: { itemId: number; value: string } | null
   setNota: (v: { itemId: number; value: string } | null) => void
@@ -1252,6 +1270,7 @@ function ItemRow({ item, nota, setNota, onUpdate, onDelete, onSaveNota, onMerma,
             {item.autoGenerado && <span className="ml-1.5 text-[10px] font-bold text-[var(--sala-tx4)] uppercase">🔇 sin cocina</span>}
           </p>
           {agotado && <p className="text-red-400 text-xs font-bold">⚠ Agotado — quítalo antes de comandar</p>}
+          {pase && item.tipo === 'cocina' && !item.autoGenerado && item.nivel != null && <EstadoPlato item={item} />}
           {item.invitacion && (
             <p className="text-amber-500 text-xs font-bold truncate">
               🎁 Invitación{item.invitadoPor ? ` · ${item.invitadoPor}` : ''}{item.invitacionMotivo ? ` — ${item.invitacionMotivo}` : ''}
@@ -2104,7 +2123,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                 // TPV: los platos sin comandar se ven ya agrupados por el nivel que propondrá el Oído
                 const propuestos = propuestosTpv
                 const filas = (lista: ComandaItem[]) => lista.map((item: ComandaItem) => (
-                  <ItemRow key={item.id} agotado={sinComandarAgotada(item)} item={item} nota={nota} setNota={setNota}
+                  <ItemRow pase={sigue.paseActivo} key={item.id} agotado={sinComandarAgotada(item)} item={item} nota={nota} setNota={setNota}
                     onUpdate={cantidad => updateItem.mutate({ itemId: item.id, cantidad })}
                     onDelete={() => deleteItem.mutate(item.id)}
                     onSaveNota={v => saveNota.mutate({ itemId: item.id, value: v })}
@@ -2172,7 +2191,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                       // Comanda nueva: lista plana
                       <div className="space-y-2">
                         {itemsCocina.map((item: ComandaItem) => (
-                          <ItemRow key={item.id} agotado={sinComandarAgotada(item)} item={item} nota={nota} setNota={setNota}
+                          <ItemRow pase={sigue.paseActivo} key={item.id} agotado={sinComandarAgotada(item)} item={item} nota={nota} setNota={setNota}
                             onUpdate={cantidad => updateItem.mutate({ itemId: item.id, cantidad })}
                             onDelete={() => deleteItem.mutate(item.id)}
                             onSaveNota={v => saveNota.mutate({ itemId: item.id, value: v })}
@@ -2198,7 +2217,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                                 </div>
                                 {ancho ? <div className="space-y-3 pl-2 border-l-2 border-amber-500/40">{porNivelPropuesto(pendientesCocina)}</div> : <div className="space-y-2">
                                   {pendientesCocina.map((item: ComandaItem) => (
-                                    <ItemRow key={item.id} agotado={sinComandarAgotada(item)} item={item} nota={nota} setNota={setNota}
+                                    <ItemRow pase={sigue.paseActivo} key={item.id} agotado={sinComandarAgotada(item)} item={item} nota={nota} setNota={setNota}
                                       onUpdate={cantidad => updateItem.mutate({ itemId: item.id, cantidad })}
                                       onDelete={() => deleteItem.mutate(item.id)}
                                       onSaveNota={v => saveNota.mutate({ itemId: item.id, value: v })}
@@ -2217,7 +2236,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                                     <NivelEtiqueta titulo={tituloNivel(nv, items.map(i => i.nombre), menu, categorias)} />
                                   <div className="space-y-2">
                                     {items.map((item: ComandaItem) => (
-                                      <ItemRow key={item.id} agotado={sinComandarAgotada(item)} item={item} nota={nota} setNota={setNota}
+                                      <ItemRow pase={sigue.paseActivo} key={item.id} agotado={sinComandarAgotada(item)} item={item} nota={nota} setNota={setNota}
                                         onUpdate={cantidad => updateItem.mutate({ itemId: item.id, cantidad })}
                                         onDelete={() => deleteItem.mutate(item.id)}
                                         onSaveNota={v => saveNota.mutate({ itemId: item.id, value: v })}
@@ -2251,7 +2270,7 @@ function ComandaPanel({ comanda, menu, categorias, onClose, onEnviar, onLiberar,
                           </div>
                           <div className="space-y-2">
                             {grouped.map(({ firstItem, cantidad }) => (
-                              <ItemRow key={firstItem.id} agotado={sinComandarAgotada(firstItem)} item={{ ...firstItem, cantidad }} nota={nota} setNota={setNota}
+                              <ItemRow pase={sigue.paseActivo} key={firstItem.id} agotado={sinComandarAgotada(firstItem)} item={{ ...firstItem, cantidad }} nota={nota} setNota={setNota}
                                 onUpdate={newQty => updateItem.mutate({ itemId: firstItem.id, cantidad: firstItem.cantidad + (newQty - cantidad) })}
                                 onDelete={() => deleteItem.mutate(firstItem.id)}
                                 onSaveNota={v => saveNota.mutate({ itemId: firstItem.id, value: v })}
